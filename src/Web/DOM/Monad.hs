@@ -21,11 +21,12 @@ class Monad m => MonadDOM m where
   insertChildIx       :: Int -> Node m -> Node m -> m ()
   removeChild         :: Node m -> Node m -> m ()
   parentNode          :: Node m -> m (Node m)
-  setAttribute        :: Maybe Namespace -> Text -> Text -> Element m -> m ()
-  removeAttribute     :: Maybe Namespace -> Text -> Element m -> m ()
-  hasAttribute        :: Maybe Namespace -> Text -> Element m -> m Bool
-  addEventListener    :: Text -> EventListener m -> Element m -> m ()
-  removeEventListener :: Text -> EventListener m -> Element m -> m ()
+  setAttribute        :: Maybe Namespace -> AttrName -> Text -> Element m -> m ()
+  removeAttribute     :: Maybe Namespace -> AttrName -> Element m -> m ()
+  hasAttribute        :: Maybe Namespace -> AttrName -> Element m -> m Bool
+
+  addEventListener    :: EventType -> EventListener m -> Element m -> m ()
+  removeEventListener :: EventType -> EventListener m -> Element m -> m ()
 
   mouseHandler :: (MouseEvent m -> a) -> Event m -> a
   elementToNode :: Element m -> Node m

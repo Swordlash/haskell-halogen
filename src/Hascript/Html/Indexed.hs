@@ -5,11 +5,12 @@ import Hascript.Html.IProp
 import Hascript.Html
 import Data.Row
 import Data.Coerce
+import Hascript.VDom.VDom
 import Web.DOM.Types 
 import Web.DOM.Monad hiding (Node)
 
-type Node r msg w = [IProp r msg] -> [Html msg w] -> Html msg w
-type Leaf r msg w = [IProp r msg] -> Html msg w
+type Node r w msg = [IProp r msg] -> [Html w msg] -> Html w msg
+type Leaf r w msg = [IProp r msg] -> Html w msg
 
 type HTMLdiv = "class" .== Text
 
@@ -23,8 +24,8 @@ rows = prop "rows"
 onClick :: MonadDOM m => HasType "onClick" (MouseEvent m) r => (MouseEvent m -> msg) -> IProp r msg
 onClick hdl = handler "onclick" (mouseHandler $ Just . hdl)
 
-element :: ElemName -> [IProp r msg] -> [Html msg w] -> Html msg w
-element name iprops children = Element Nothing name (coerce iprops) children
+element :: ElemName -> [IProp r msg] -> [Html w msg] -> Html w msg
+element name iprops children = Html $ Element Nothing name (coerce iprops) (coerce children)
 
-div :: Node HTMLdiv msg w
+div :: Node HTMLdiv w msg
 div = element "div"

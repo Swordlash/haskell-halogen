@@ -27,6 +27,7 @@ library
       Hascript.Html.IProp
       Hascript.Html.Prop
 
+      Hascript.VDom.Build
       Hascript.VDom.Machine
       Hascript.VDom.Utils
       Hascript.VDom.VDom
@@ -34,6 +35,8 @@ library
       Hascript.Component
       Hascript.Html
       Hascript.Monad
+      Hascript.Subscription
+      Hascript.Query
 
       Web.DOM.Monad
       Web.DOM.Types
@@ -61,6 +64,7 @@ library
       NamedFieldPuns
       DuplicateRecordFields
       NoFieldSelectors
+      PartialTypeSignatures
 
     -- Modules included in this library but not exported.
     -- other-modules:
@@ -68,10 +72,10 @@ library
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
     build-depends:    
-      base, free, transformers, mtl, text, protolude, row-types, hashable, containers, kan-extensions
+      base, free, transformers, mtl, text, protolude, row-types, hashable, containers, kan-extensions, uuid
     hs-source-dirs:   src
     default-language: GHC2021
-    ghc-options: -Wall -Wextra -Wcompat
+    ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures
 
 
 

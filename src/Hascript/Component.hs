@@ -16,10 +16,8 @@ data ComponentSlot (slots :: Row Type) m msg = forall query input output.
   , output :: output -> Maybe msg
   }
 
-
-
-data Component query input output m = forall model msg slots. MkComponent 
-  { initState    :: input -> IO model
+data Component query input output m = forall model msg slots. Component 
+  { initState    :: input -> m model
   , render       :: model -> Html msg (ComponentSlot slots m msg)
-  , handleAction :: model -> HascriptM msg ()
+  , handleAction :: model -> HascriptM model msg slots output m ()
   }
