@@ -1,0 +1,80 @@
+cabal-version:      3.0
+name:               hascript-core
+version:            0.1.0.0
+synopsis:
+
+-- A longer description of the package.
+-- description:
+homepage:
+
+-- A URL where users can report bugs.
+-- bug-reports:
+license:            MIT
+license-file:       LICENSE
+author:             Mateusz Goślinowski
+maintainer:         mateusz.goslinowski@gmail.com
+
+-- A copyright notice.
+-- copyright:
+category:           Web
+extra-source-files: CHANGELOG.md
+
+library
+    exposed-modules:
+      Hascript.Html.Indexed
+      Hascript.Html.IProp
+      Hascript.Html.Prop
+
+      Hascript.VDom.Machine
+      Hascript.VDom.Utils
+      Hascript.VDom.VDom
+
+      Hascript.Component
+      Hascript.Html
+      Hascript.Monad
+
+      Web.DOM.Monad
+      Web.DOM.Types
+      
+    
+    default-extensions:
+      RankNTypes
+      GeneralizedNewtypeDeriving
+      MultiParamTypeClasses
+      FlexibleContexts
+      FlexibleInstances
+      UndecidableInstances
+      GADTs
+      DeriveFunctor
+      DerivingStrategies
+      NoImplicitPrelude
+      KindSignatures
+      DataKinds
+      OverloadedStrings
+      TypeOperators
+      LambdaCase
+      TypeFamilies
+      OverloadedRecordDot
+      RecordWildCards
+      NamedFieldPuns
+      DuplicateRecordFields
+      NoFieldSelectors
+
+    -- Modules included in this library but not exported.
+    -- other-modules:
+
+    -- LANGUAGE extensions used by modules in this package.
+    -- other-extensions:
+    build-depends:    base, free, transformers, mtl, text, protolude, row-types, hashable
+    hs-source-dirs:   src
+    default-language: GHC2021
+    ghc-options: -Wall -Wextra -Wcompat
+
+
+
+test-suite hascript-core-test
+    default-language: GHC2021
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          MyLibTest.hs
+    build-depends:    base
