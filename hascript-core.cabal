@@ -21,6 +21,8 @@ extra-source-files: CHANGELOG.md
 
 library
     exposed-modules:
+      Hascript.Data.Slot
+
       Hascript.Html.Indexed
       Hascript.Html.IProp
       Hascript.Html.Prop
@@ -65,7 +67,8 @@ library
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
-    build-depends:    base, free, transformers, mtl, text, protolude, row-types, hashable
+    build-depends:    
+      base, free, transformers, mtl, text, protolude, row-types, hashable, containers, kan-extensions
     hs-source-dirs:   src
     default-language: GHC2021
     ghc-options: -Wall -Wextra -Wcompat
