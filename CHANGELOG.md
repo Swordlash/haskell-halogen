@@ -1,4 +1,4 @@
-# Revision history for hascript-core
+# Revision history for Halogen-core
 
 ## 0.1.0.0 -- YYYY-mm-dd
 

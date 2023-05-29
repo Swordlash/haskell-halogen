@@ -1,12 +1,11 @@
-module Hascript.Subscription where
+module Halogen.Subscription where
 
-import Protolude
+import Control.Arrow ((&&&))
+import Data.Coerce
 import Data.Functor.Contravariant
 import Data.IORef
-import Data.Coerce
-import Control.Arrow ((&&&))
 import Data.UUID.V4
-
+import Protolude
 
 -- | A paired `Listener` and `Emitter` produced with the `create` function.
 data SubscribeIO a = SubscribeIO
@@ -19,17 +18,17 @@ create = do
   subscribers <- newIORef []
   pure $
     SubscribeIO
-    { emitter = Emitter $ \k -> do
-        uuid <- nextRandom
-        modifyIORef' subscribers (<> [(k, uuid)])
-        pure $ Subscription $ do
-          modifyIORef' subscribers (Protolude.filter (\(_, uuid') -> uuid /= uuid'))
-    , listener = Listener $ \a -> do
-        readIORef subscribers >>= traverse_ (\(k, _) -> k a)
-    }
+      { emitter = Emitter $ \k -> do
+          uuid <- nextRandom
+          modifyIORef' subscribers (<> [(k, uuid)])
+          pure $ Subscription $ do
+            modifyIORef' subscribers (Protolude.filter (\(_, uuid') -> uuid /= uuid'))
+      , listener = Listener $ \a -> do
+          readIORef subscribers >>= traverse_ (\(k, _) -> k a)
+      }
 
 newtype Emitter a = Emitter ((a -> IO ()) -> IO Subscription)
-  deriving Functor
+  deriving (Functor)
 
 instance Applicative Emitter where
   pure a = Emitter $ \k -> do
@@ -47,14 +46,12 @@ instance Applicative Emitter where
       readIORef latestA >>= traverse_ (k . ($ b))
     pure (Subscription (c1 *> c2))
 
-
 instance Alternative Emitter where
   empty = Emitter $ \_ -> pure (Subscription (pure ()))
   (Emitter f) <|> (Emitter g) = Emitter $ \k -> do
     Subscription c1 <- f k
     Subscription c2 <- g k
     pure (Subscription (c1 *> c2))
-
 
 instance Semigroup a => Semigroup (Emitter a) where
   (<>) = liftA2 (<>)
@@ -74,7 +71,6 @@ newtype Listener a = Listener (a -> IO ())
 
 instance Contravariant Listener where
   contramap f (Listener g) = coerce (g . f)
-
 
 notify :: forall a. Listener a -> a -> IO ()
 notify (Listener f) = f

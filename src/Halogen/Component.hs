@@ -1,10 +1,10 @@
-module Hascript.Component where
+module Halogen.Component where
 
-import Protolude
-import Hascript.Html
-import Hascript.Monad
 import Data.Row (Row)
-import Hascript.Data.Slot
+import Halogen.Data.Slot
+import Halogen.HTML
+import Halogen.Query.HalogenM
+import Protolude
 
 data ComponentSlot (slots :: Row Type) m msg = forall query input output.
   ComponentSlot
@@ -16,8 +16,9 @@ data ComponentSlot (slots :: Row Type) m msg = forall query input output.
   , output :: output -> Maybe msg
   }
 
-data Component query input output m = forall model msg slots. Component 
-  { initState    :: input -> m model
-  , render       :: model -> Html msg (ComponentSlot slots m msg)
-  , handleAction :: model -> HascriptM model msg slots output m ()
+data Component query input output m = forall model msg slots.
+  Component
+  { initState :: input -> m model
+  , render :: model -> HTML msg (ComponentSlot slots m msg)
+  , handleAction :: model -> HalogenM model msg slots output m ()
   }

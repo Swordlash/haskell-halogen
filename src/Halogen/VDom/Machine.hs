@@ -1,5 +1,4 @@
-module Hascript.VDom.Machine where
-
+module Halogen.VDom.Machine where
 
 type Machine m a b = a -> m (Step m a b)
 

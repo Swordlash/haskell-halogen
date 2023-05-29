@@ -1,25 +1,28 @@
-module Hascript.Data.Slot where
+module Halogen.Data.Slot where
 
-
-import Protolude
+import Data.Coerce (coerce)
+import Data.Map.Strict qualified as M
 import Data.Row
 import Data.Set qualified as S
-import Data.Map.Strict qualified as M
 import GHC.TypeLits (sameSymbol)
-import Data.Coerce (coerce)
+import Protolude
 
 data Slot (query :: Type -> Type) (output :: Type) (slotType :: Type)
 
 -- some element of the `slots` row type, ordered by label and slot Ord instance
 data SlotElem (slots :: Row Type) (slot :: (Type -> Type) -> Type -> Type) where
-  SlotElem 
+  SlotElem
     :: (HasType sym (Slot query output s) slots, KnownSymbol sym, Ord s)
-    => Proxy sym -> s -> slot query output -> SlotElem slots slot
+    => Proxy sym
+    -> s
+    -> slot query output
+    -> SlotElem slots slot
 
 instance Eq (SlotElem slots slot) where
-  SlotElem p s _ == SlotElem p' s' _ = Just True == do
-    Refl <- sameSymbol p p'
-    pure $ s == s'
+  SlotElem p s _ == SlotElem p' s' _ =
+    Just True == do
+      Refl <- sameSymbol p p'
+      pure $ s == s'
 
 instance Ord (SlotElem slots slot) where
   SlotElem p s _ `compare` SlotElem p' s' _ =
@@ -30,11 +33,10 @@ instance Ord (SlotElem slots slot) where
 newtype SlotStorage slots slot = SlotStorage (Set (SlotElem slots slot))
 
 lookup
-  :: 
-  ( HasType sym (Slot query output s) slots
-  , KnownSymbol sym
-  , Ord s
-  )
+  :: ( HasType sym (Slot query output s) slots
+     , KnownSymbol sym
+     , Ord s
+     )
   => Proxy sym
   -> s
   -> SlotStorage slots slot
@@ -49,11 +51,10 @@ empty :: SlotStorage slots slot
 empty = SlotStorage S.empty
 
 pop
-  :: 
-  ( HasType sym (Slot query output s) slots
-  , KnownSymbol sym
-  , Ord s
-  )
+  :: ( HasType sym (Slot query output s) slots
+     , KnownSymbol sym
+     , Ord s
+     )
   => Proxy sym
   -> s
   -> SlotStorage slots slot
@@ -63,11 +64,10 @@ pop symb key stor@(SlotStorage s) = do
   pure (slot, SlotStorage $ S.delete (SlotElem symb key slot) s)
 
 insert
-  :: 
-  ( HasType sym (Slot query output s) slots
-  , KnownSymbol sym
-  , Ord s
-  )
+  :: ( HasType sym (Slot query output s) slots
+     , KnownSymbol sym
+     , Ord s
+     )
   => Proxy sym
   -> s
   -> slot query output
@@ -76,15 +76,14 @@ insert
 insert symb key slot = coerce (S.insert (SlotElem symb key slot))
 
 slots
-  ::
-  ( HasType sym (Slot query output s) slots
-  , KnownSymbol sym
-  , Ord s
-  )
+  :: ( HasType sym (Slot query output s) slots
+     , KnownSymbol sym
+     , Ord s
+     )
   => Proxy sym
   -> SlotStorage slots slot
   -> Map s (slot query output)
-slots symb (SlotStorage s) = 
+slots symb (SlotStorage s) =
   M.fromAscList $ mapMaybe flt $ S.toAscList s
   where
     flt (SlotElem symb' key' slot) = do
@@ -96,5 +95,5 @@ foreachSlot
   => SlotStorage slots slot
   -> (forall query output. slot query output -> m ())
   -> m ()
-foreachSlot (SlotStorage s) act
-  = for_ @_ @_ @_ @() s $ \(SlotElem _ _ v) -> act v -- no idea why I need to type apply
+foreachSlot (SlotStorage s) act =
+  for_ @_ @_ @_ @() s $ \(SlotElem _ _ v) -> act v -- no idea why I need to type apply

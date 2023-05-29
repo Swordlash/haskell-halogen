@@ -1,5 +1,5 @@
 cabal-version:      3.0
-name:               hascript-core
+name:               haskell-halogen-core
 version:            0.1.0.0
 synopsis:
 
@@ -21,24 +21,27 @@ extra-source-files: CHANGELOG.md
 
 library
     exposed-modules:
-      Hascript.Data.Slot
+      Halogen.Data.Slot
 
-      Hascript.Html.Indexed
-      Hascript.Html.IProp
-      Hascript.Html.Prop
+      Halogen.HTML.Elements
+      Halogen.HTML.Properties
 
-      Hascript.VDom.Build
-      Hascript.VDom.Machine
-      Hascript.VDom.Utils
-      Hascript.VDom.VDom
+      Halogen.Query.ChildQuery
+      Halogen.Query.Input
+      Halogen.Query.HalogenM
+      Halogen.Query.HalogenQ
 
-      Hascript.Component
-      Hascript.Html
-      Hascript.Monad
-      Hascript.Subscription
-      Hascript.Query
+      Halogen.VDom.DOM
+      Halogen.VDom.DOM.Monad
+      Halogen.VDom.DOM.Prop
+      Halogen.VDom.Machine
+      Halogen.VDom.Utils
+      Halogen.VDom.Types
 
-      Web.DOM.Monad
+      Halogen.Component
+      Halogen.HTML
+      Halogen.Subscription
+
       Web.DOM.Types
       
     
@@ -79,7 +82,7 @@ library
 
 
 
-test-suite hascript-core-test
+test-suite Halogen-core-test
     default-language: GHC2021
     type:             exitcode-stdio-1.0
     hs-source-dirs:   test

@@ -1,8 +1,9 @@
-module Hascript.Html.Prop where
+module Halogen.VDom.DOM.Prop where
 
+import Halogen.VDom.DOM.Monad
+import Halogen.VDom.Types
 import Protolude
 import Web.DOM.Types
-import Web.DOM.Monad
 
 data PropValue
   = IntProp !Integer
