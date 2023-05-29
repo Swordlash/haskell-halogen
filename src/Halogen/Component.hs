@@ -4,6 +4,7 @@ import Data.Row (Row)
 import Halogen.Data.Slot
 import Halogen.HTML
 import Halogen.Query.HalogenM
+import Halogen.Query.HalogenQ
 import Protolude
 
 data ComponentSlot (slots :: Row Type) m msg = forall query input output.
@@ -20,5 +21,5 @@ data Component query input output m = forall model msg slots.
   Component
   { initState :: input -> m model
   , render :: model -> HTML msg (ComponentSlot slots m msg)
-  , handleAction :: model -> HalogenM model msg slots output m ()
+  , eval :: forall a. HalogenQ query msg input a -> HalogenM model msg slots output m a
   }

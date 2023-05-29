@@ -11,6 +11,7 @@ class Monad m => MonadDOM m where
   data Document m
 
   data Event m
+  data EventTarget m
   data MouseEvent m
 
   mkEventListener :: (Event m -> m a) -> m (EventListener m)
@@ -26,8 +27,8 @@ class Monad m => MonadDOM m where
   removeAttribute :: Maybe Namespace -> AttrName -> Element m -> m ()
   hasAttribute :: Maybe Namespace -> AttrName -> Element m -> m Bool
 
-  addEventListener :: EventType -> EventListener m -> Element m -> m ()
-  removeEventListener :: EventType -> EventListener m -> Element m -> m ()
+  addEventListener :: EventType -> EventListener m -> EventTarget m -> m ()
+  removeEventListener :: EventType -> EventListener m -> EventTarget m -> m ()
 
   mouseHandler :: (MouseEvent m -> a) -> Event m -> a
   elementToNode :: Element m -> Node m

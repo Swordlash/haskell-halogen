@@ -14,7 +14,7 @@ newtype ForkId = ForkId Int
 
 data HalogenF state action slots output m a
   = State (state -> (a, state))
-  | Subscribe (SubscriptionId -> Emitter action) (SubscriptionId -> a)
+  | Subscribe (SubscriptionId -> Emitter m action) (SubscriptionId -> a)
   | Unsubscribe SubscriptionId a
   | Lift (m a)
   | ChildQuery (ChildQuery slots a)

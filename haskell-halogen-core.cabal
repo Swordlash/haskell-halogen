@@ -21,12 +21,15 @@ extra-source-files: CHANGELOG.md
 
 library
     exposed-modules:
+      Control.Monad.UUID
+
       Halogen.Data.Slot
 
       Halogen.HTML.Elements
       Halogen.HTML.Properties
 
       Halogen.Query.ChildQuery
+      Halogen.Query.Event
       Halogen.Query.Input
       Halogen.Query.HalogenM
       Halogen.Query.HalogenQ
@@ -66,8 +69,10 @@ library
       RecordWildCards
       NamedFieldPuns
       DuplicateRecordFields
-      NoFieldSelectors
       PartialTypeSignatures
+      DefaultSignatures
+      StandaloneKindSignatures
+      NoFieldSelectors
 
     -- Modules included in this library but not exported.
     -- other-modules:
@@ -75,7 +80,8 @@ library
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
     build-depends:    
-      base, free, transformers, mtl, text, protolude, row-types, hashable, containers, kan-extensions, uuid
+      base, free, transformers, mtl, text, protolude, 
+      row-types, hashable, containers, kan-extensions, uuid, ref-tf
     hs-source-dirs:   src
     default-language: GHC2021
     ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures

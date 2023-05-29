@@ -3,7 +3,7 @@ module Halogen.Query.HalogenQ where
 import Data.Functor.Yoneda
 import Protolude
 
-data QueryF query msg input a
+data HalogenQ query msg input a
   = Initialize a
   | Finalize a
   | Receive input a
@@ -11,7 +11,7 @@ data QueryF query msg input a
   | Query (Yoneda query a) (() -> a)
   deriving (Functor)
 
-instance Bifunctor (QueryF query msg) where
+instance Bifunctor (HalogenQ query msg) where
   bimap f g = \case
     Initialize a -> Initialize (g a)
     Finalize a -> Finalize (g a)
