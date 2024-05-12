@@ -1,5 +1,7 @@
 {-# LANGUAGE CPP #-}
+
 module Data.Foreign where
+
 import Unsafe.Coerce (unsafeCoerce)
 
 #if defined(javascript_HOST_ARCH)

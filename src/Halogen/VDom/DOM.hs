@@ -1,10 +1,11 @@
-module Halogen.VDom.DOM 
+module Halogen.VDom.DOM
   ( VDomSpec (..)
   , buildVDom
   , buildText
   , buildElem
   , buildWidget
-  ) where
+  )
+where
 
 import Halogen.VDom.DOM.Monad
 import Halogen.VDom.Machine
@@ -23,7 +24,7 @@ data VDomSpec m a w = VDomSpec
   , document :: Document
   }
 
-buildVDom :: MonadDOM m => VDomSpec m a w -> VDomMachine m a w
+buildVDom :: (MonadDOM m) => VDomSpec m a w -> VDomMachine m a w
 buildVDom spec = build
   where
     build = \case
@@ -40,13 +41,13 @@ data TextState m a w = TextState
   , value :: Text
   }
 
-buildText :: MonadDOM m => VDomSpec m a w -> VDomMachine m a w -> Text -> m (VDomStep m a w)
+buildText :: (MonadDOM m) => VDomSpec m a w -> VDomMachine m a w -> Text -> m (VDomStep m a w)
 buildText spec build value = do
   node <- createTextNode value spec.document
   let state = TextState {..}
   pure $ Step node state patchText haltText
 
-patchText :: MonadDOM m => TextState m a w -> VDom a w -> m (VDomStep m a w)
+patchText :: (MonadDOM m) => TextState m a w -> VDom a w -> m (VDomStep m a w)
 patchText state vdom = do
   let TextState {build, node, value = value1} = state
   case vdom of
@@ -61,7 +62,7 @@ patchText state vdom = do
       haltText state
       build vdom
 
-haltText :: MonadDOM m => TextState m a w -> m ()
+haltText :: (MonadDOM m) => TextState m a w -> m ()
 haltText TextState {node} = do
   parent <- parentNode node
   removeChild node parent
@@ -78,7 +79,7 @@ data ElemState m a w = ElemState
   }
 
 buildElem
-  :: MonadDOM m
+  :: (MonadDOM m)
   => VDomSpec m a w
   -> VDomMachine m a w
   -> Maybe Namespace
@@ -99,7 +100,7 @@ buildElem spec build ns1 name1 as1 ch1 = do
   let state = ElemState {build, node, attrs, ns = ns1, name = name1, children}
   pure $ Step node state patchElem haltElem
 
-patchElem :: MonadDOM m => ElemState m a w -> VDom a w -> m (VDomStep m a w)
+patchElem :: (MonadDOM m) => ElemState m a w -> VDom a w -> m (VDomStep m a w)
 patchElem state vdom = do
   let ElemState {build, node, attrs, ns = ns1, name = name1, children = ch1} = state
   case vdom of
@@ -129,7 +130,7 @@ patchElem state vdom = do
       haltElem state
       build vdom
 
-haltElem :: MonadDOM m => ElemState m a w -> m ()
+haltElem :: (MonadDOM m) => ElemState m a w -> m ()
 haltElem ElemState {node, attrs, children} = do
   parent <- parentNode node
   removeChild node parent
@@ -140,15 +141,15 @@ haltElem ElemState {node, attrs, children} = do
 
 data WidgetState m a w = WidgetState
   { build :: VDomMachine m a w
-  , widget :: Step m w Node 
+  , widget :: Step m w Node
   }
 
-buildWidget :: Monad m => VDomSpec m a w -> VDomMachine m a w -> w -> m (VDomStep m a w)
+buildWidget :: (Monad m) => VDomSpec m a w -> VDomMachine m a w -> w -> m (VDomStep m a w)
 buildWidget spec build w = do
   res@(Step node _ _ _) <- spec.buildWidget spec w
   pure $ Step node (WidgetState {build, widget = res}) patchWidget haltWidget
 
-patchWidget :: Monad m => WidgetState m a w -> VDom a w -> m (VDomStep m a w)
+patchWidget :: (Monad m) => WidgetState m a w -> VDom a w -> m (VDomStep m a w)
 patchWidget state vdom = do
   let WidgetState {build, widget} = state
   case vdom of

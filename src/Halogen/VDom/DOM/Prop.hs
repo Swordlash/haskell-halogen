@@ -1,13 +1,13 @@
-module Halogen.VDom.DOM.Prop (Prop(..), ElemRef(..), PropValue(..)) where
+module Halogen.VDom.DOM.Prop (Prop (..), ElemRef (..), PropValue (..)) where
 
 import Halogen.VDom.Types
 import Protolude
-import Web.HTML.Common
-import Web.Event.Event
 import Web.DOM.Element
+import Web.Event.Event
+import Web.HTML.Common
 
 data PropValue val where
-  IntProp :: Integral a => !a -> PropValue a
+  IntProp :: (Integral a) => !a -> PropValue a
   NumProp :: !Double -> PropValue Double
   BoolProp :: !Bool -> PropValue Bool
   TxtProp :: !Text -> PropValue Text
@@ -23,4 +23,4 @@ deriving instance Functor Prop
 data ElemRef a
   = Created a
   | Removed a
-  deriving Functor
+  deriving (Functor)

@@ -1,11 +1,11 @@
-module Web.Event.Event 
+module Web.Event.Event
   ( EventType (..)
   , Event
   , EventTarget
-  ) where
+  )
+where
 
 import Protolude
 import Web.Event.Internal.Types
 
 newtype EventType = EventType Text
-

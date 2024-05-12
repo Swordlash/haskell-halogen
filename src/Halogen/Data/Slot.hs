@@ -91,7 +91,7 @@ slots symb (SlotStorage s) =
       pure (key', slot)
 
 foreachSlot
-  :: Applicative m
+  :: (Applicative m)
   => SlotStorage slots slot
   -> (forall query output. slot query output -> m ())
   -> m ()

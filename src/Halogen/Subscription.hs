@@ -31,7 +31,7 @@ create = do
 newtype Emitter m a = Emitter {registerHandler :: (a -> m ()) -> m (Subscription m)}
   deriving (Functor)
 
-instance MonadRef m => Applicative (Emitter m) where
+instance (MonadRef m) => Applicative (Emitter m) where
   pure a = Emitter $ \k -> do
     k a
     pure (Subscription (pure ()))
@@ -47,7 +47,7 @@ instance MonadRef m => Applicative (Emitter m) where
       readRef latestA >>= traverse_ (k . ($ b))
     pure (Subscription (c1 *> c2))
 
-instance MonadRef m => Alternative (Emitter m) where
+instance (MonadRef m) => Alternative (Emitter m) where
   empty = Emitter $ \_ -> pure (Subscription (pure ()))
   (Emitter f) <|> (Emitter g) = Emitter $ \k -> do
     Subscription c1 <- f k
@@ -55,7 +55,7 @@ instance MonadRef m => Alternative (Emitter m) where
     pure (Subscription (c1 *> c2))
 
 makeEmitter
-  :: Functor m
+  :: (Functor m)
   => ((a -> m ()) -> m (m ()))
   -> Emitter m a
 makeEmitter f = Emitter (fmap Subscription . f)
@@ -70,18 +70,18 @@ instance Contravariant (Listener m) where
 newtype Subscription m = Subscription {unsubscribe :: m ()}
 
 subscribe
-  :: Functor m
+  :: (Functor m)
   => Emitter m a
   -> (a -> m r)
   -> m (Subscription m)
 subscribe em k = em.registerHandler (void . k)
 
-fold :: MonadAtomicRef m => (a -> b -> b) -> Emitter m a -> b -> Emitter m b
+fold :: (MonadAtomicRef m) => (a -> b -> b) -> Emitter m a -> b -> Emitter m b
 fold f (Emitter e) b = Emitter $ \k -> do
   result <- newRef b
   e $ \a -> atomicModifyRef' result (f a &&& f a) >>= k
 
-filter :: Applicative m => (a -> Bool) -> Emitter m a -> Emitter m a
+filter :: (Applicative m) => (a -> Bool) -> Emitter m a -> Emitter m a
 filter p (Emitter e) = Emitter $ \k -> e $ \a -> when (p a) (k a)
 
 {-

@@ -1,21 +1,20 @@
 module Halogen.HTML.Core where
 
-import Protolude hiding (Handler)
-import Halogen.VDom.Types as VDom
-import Halogen.VDom.DOM.Prop
 import Halogen.Query.Input
-import Web.HTML.Common
-import Web.Event.Event
+import Halogen.VDom.DOM.Prop
+import Halogen.VDom.Types as VDom
+import Protolude hiding (Handler)
 import Web.DOM.Element
+import Web.Event.Event
+import Web.HTML.Common
 
-newtype HTML w i = HTML { unHTML :: VDom [Prop (Input i)] w }
+newtype HTML w i = HTML {unHTML :: VDom [Prop (Input i)] w}
 
 instance Bifunctor HTML where
   bimap f g (HTML vdom) = HTML $ bimap (fmap (fmap (fmap g))) f vdom
 
 instance Functor (HTML w) where
   fmap = second
-
 
 renderWidget :: (i -> j) -> (w -> HTML x j) -> HTML w i -> HTML x j
 renderWidget f g (HTML vdom) =
@@ -33,7 +32,7 @@ element :: forall w i. Maybe VDom.Namespace -> VDom.ElemName -> [Prop i] -> [HTM
 element ns en props htmls = HTML $ VDom.Elem ns en (map (fmap Action) props) (fmap (.unHTML) htmls)
 
 -- | Create a HTML property.
-prop :: forall value i. IsProp value => PropName value -> value -> Prop i
+prop :: forall value i. (IsProp value) => PropName value -> value -> Prop i
 prop name = Property name . toPropValue
 
 -- | Create a HTML attribute.
@@ -45,14 +44,19 @@ handler :: EventType -> (Event -> Maybe i) -> Prop i
 handler = Handler
 
 ref :: forall i. (Maybe Element -> Maybe i) -> Prop i
-ref f = Ref $ f . \case
-  Created x -> Just x
-  Removed _ -> Nothing
+ref f =
+  Ref $
+    f . \case
+      Created x -> Just x
+      Removed _ -> Nothing
 
 class IsProp a where
   toPropValue :: a -> PropValue a
 
-instance {-# OVERLAPPABLE #-} Integral a => IsProp a where toPropValue = IntProp
+instance {-# OVERLAPPABLE #-} (Integral a) => IsProp a where toPropValue = IntProp
+
 instance {-# OVERLAPPING #-} IsProp Text where toPropValue = TxtProp
+
 instance {-# OVERLAPPING #-} IsProp Double where toPropValue = NumProp
+
 instance {-# OVERLAPPING #-} IsProp Bool where toPropValue = BoolProp

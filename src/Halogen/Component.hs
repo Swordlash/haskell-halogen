@@ -7,7 +7,8 @@ import Halogen.Query.HalogenM
 import Halogen.Query.HalogenQ
 import Protolude
 
-data ComponentSlot (slots :: Row Type) m msg = forall query input output.
+data ComponentSlot (slots :: Row Type) m msg
+  = forall query input output.
   ComponentSlot
   { get :: forall slot. SlotStorage slots slot -> Maybe (slot query output)
   , pop :: forall slot. SlotStorage slots slot -> Maybe (slot query output, SlotStorage slots slot)
@@ -17,7 +18,8 @@ data ComponentSlot (slots :: Row Type) m msg = forall query input output.
   , output :: output -> Maybe msg
   }
 
-data Component query input output m = forall model msg slots.
+data Component query input output m
+  = forall model msg slots.
   Component
   { initState :: input -> m model
   , render :: model -> HTML msg (ComponentSlot slots m msg)

@@ -2,7 +2,7 @@ module Halogen.HTML.Elements where
 
 import Data.Coerce
 import Data.Row
-import Halogen.HTML.Core (HTML(..))
+import Halogen.HTML.Core (HTML (..))
 import Halogen.HTML.Properties
 import Halogen.VDom.Types
 import Protolude hiding (div)

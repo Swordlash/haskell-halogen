@@ -4,7 +4,8 @@ module Halogen.VDom.Machine
   , extract
   , step
   , halt
-  ) where
+  )
+where
 
 type Machine m a b = a -> m (Step m a b)
 

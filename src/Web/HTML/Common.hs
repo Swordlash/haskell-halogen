@@ -10,4 +10,3 @@ newtype AttrName = AttrName Text
 
 newtype ClassName = ClassName Text
   deriving (Eq, Ord, Show, IsString)
-  

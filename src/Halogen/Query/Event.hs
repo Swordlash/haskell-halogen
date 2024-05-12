@@ -6,7 +6,7 @@ import Protolude
 import Web.Event.Event
 
 eventListener
-  :: MonadDOM m
+  :: (MonadDOM m)
   => EventType
   -> EventTarget
   -> (Event -> Maybe a)

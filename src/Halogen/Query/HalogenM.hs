@@ -34,8 +34,8 @@ newtype HalogenAp state action slots output m a
   = HalogenAp (Ap (HalogenF state action slots output m) a)
   deriving (Functor, Applicative)
 
-getM :: Functor m => HalogenM state _ _ _ m state
+getM :: (Functor m) => HalogenM state _ _ _ m state
 getM = HalogenM $ liftF $ State $ \s -> (s, s)
 
-putM :: Functor m => state -> HalogenM state _ _ _ m ()
+putM :: (Functor m) => state -> HalogenM state _ _ _ m ()
 putM s = HalogenM $ liftF $ State (const ((), s))

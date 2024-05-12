@@ -1,11 +1,12 @@
-module Halogen.VDom.Types 
-  ( VDom(..)
+module Halogen.VDom.Types
+  ( VDom (..)
   , renderWidget
   , Graft (..)
   , runGraft
-  , ElemName(..)
-  , Namespace(..)
-  ) where
+  , ElemName (..)
+  , Namespace (..)
+  )
+where
 
 import Protolude
 
