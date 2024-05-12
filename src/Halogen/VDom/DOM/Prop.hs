@@ -1,28 +1,26 @@
-module Halogen.VDom.DOM.Prop where
+module Halogen.VDom.DOM.Prop (Prop(..), ElemRef(..), PropValue(..)) where
 
-import Halogen.VDom.DOM.Monad
 import Halogen.VDom.Types
 import Protolude
-import Web.DOM.Types
+import Web.HTML.Common
+import Web.Event.Event
+import Web.DOM.Element
 
-data PropValue
-  = IntProp !Integer
-  | NumProp !Double
-  | BoolProp !Bool
-  | TxtProp !Text
+data PropValue val where
+  IntProp :: Integral a => !a -> PropValue a
+  NumProp :: !Double -> PropValue Double
+  BoolProp :: !Bool -> PropValue Bool
+  TxtProp :: !Text -> PropValue Text
 
 data Prop msg
   = Attribute !(Maybe Namespace) !AttrName !Text
-  | Property !PropName !PropValue
-  | forall m. Handler !EventType !(Event m -> Maybe msg)
+  | forall val. Property !(PropName val) !(PropValue val)
+  | Handler !EventType !(Event -> Maybe msg)
+  | Ref (ElemRef Element -> Maybe msg)
 
 deriving instance Functor Prop
 
-class IsPropValue a where
-  propValue :: a -> PropValue
-
-instance IsPropValue Text where
-  propValue = TxtProp
-
-instance IsPropValue Int where
-  propValue = IntProp . fromIntegral
+data ElemRef a
+  = Created a
+  | Removed a
+  deriving Functor

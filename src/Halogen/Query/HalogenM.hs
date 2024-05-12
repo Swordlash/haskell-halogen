@@ -5,8 +5,8 @@ import Control.Monad.Free.Church
 import Halogen.Query.ChildQuery
 import Halogen.Query.Input
 import Halogen.Subscription
-import Halogen.VDom.DOM.Monad
 import Protolude hiding (Ap)
+import Web.DOM.Element
 
 newtype SubscriptionId = SubscriptionId Int
 
@@ -23,7 +23,7 @@ data HalogenF state action slots output m a
   | Fork (HalogenM state action slots output m ()) (ForkId -> a)
   | Join ForkId a
   | Kill ForkId a
-  | GetRef RefLabel (Maybe (Element m) -> a)
+  | GetRef RefLabel (Maybe Element -> a)
   deriving (Functor)
 
 newtype HalogenM state action slots output m a

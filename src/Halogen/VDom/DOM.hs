@@ -1,19 +1,26 @@
-module Halogen.VDom.DOM where
+module Halogen.VDom.DOM 
+  ( VDomSpec (..)
+  , buildVDom
+  , buildText
+  , buildElem
+  , buildWidget
+  ) where
 
 import Halogen.VDom.DOM.Monad
 import Halogen.VDom.Machine
 import Halogen.VDom.Types
 import Halogen.VDom.Utils
 import Protolude hiding (state)
+import Web.DOM.Element
 
-type VDomMachine m a w = Machine m (VDOM a w) (Node m)
+type VDomMachine m a w = Machine m (VDom a w) Node
 
-type VDomStep m a w = Step m (VDOM a w) (Node m)
+type VDomStep m a w = Step m (VDom a w) Node
 
 data VDomSpec m a w = VDomSpec
-  { buildComponent :: VDomSpec m a w -> Machine m w (Node m)
-  , buildAttributes :: Element m -> Machine m a ()
-  , document :: Document m
+  { buildWidget :: VDomSpec m a w -> Machine m w Node
+  , buildAttributes :: Element -> Machine m a ()
+  , document :: Document
   }
 
 buildVDom :: MonadDOM m => VDomSpec m a w -> VDomMachine m a w
@@ -21,15 +28,15 @@ buildVDom spec = build
   where
     build = \case
       Text txt -> buildText spec build txt
-      Element ns n props children -> buildElem spec build ns n props children
-      Component w -> buildComponent spec build w
+      Elem ns n props children -> buildElem spec build ns n props children
+      Widget w -> buildWidget spec build w
       Grafted g -> build (runGraft g)
 
 ----------------------------------------------------------------------
 
 data TextState m a w = TextState
   { build :: VDomMachine m a w
-  , node :: Node m
+  , node :: Node
   , value :: Text
   }
 
@@ -39,7 +46,7 @@ buildText spec build value = do
   let state = TextState {..}
   pure $ Step node state patchText haltText
 
-patchText :: MonadDOM m => TextState m a w -> VDOM a w -> m (VDomStep m a w)
+patchText :: MonadDOM m => TextState m a w -> VDom a w -> m (VDomStep m a w)
 patchText state vdom = do
   let TextState {build, node, value = value1} = state
   case vdom of
@@ -63,7 +70,7 @@ haltText TextState {node} = do
 
 data ElemState m a w = ElemState
   { build :: VDomMachine m a w
-  , node :: Node m
+  , node :: Node
   , attrs :: Step m a ()
   , ns :: Maybe Namespace
   , name :: ElemName
@@ -77,11 +84,10 @@ buildElem
   -> Maybe Namespace
   -> ElemName
   -> a
-  -> [VDOM a w]
+  -> [VDom a w]
   -> m (VDomStep m a w)
 buildElem spec build ns1 name1 as1 ch1 = do
   el <- createElement ns1 name1 spec.document
-
   let node = elementToNode el
       onChild ix child = do
         res <- build child
@@ -93,13 +99,13 @@ buildElem spec build ns1 name1 as1 ch1 = do
   let state = ElemState {build, node, attrs, ns = ns1, name = name1, children}
   pure $ Step node state patchElem haltElem
 
-patchElem :: MonadDOM m => ElemState m a w -> VDOM a w -> m (VDomStep m a w)
+patchElem :: MonadDOM m => ElemState m a w -> VDom a w -> m (VDomStep m a w)
 patchElem state vdom = do
   let ElemState {build, node, attrs, ns = ns1, name = name1, children = ch1} = state
   case vdom of
     Grafted g ->
       patchElem state (runGraft g)
-    Element ns2 name2 as2 ch2 | (ns1, name1) == (ns2, name2) ->
+    Elem ns2 name2 as2 ch2 | (ns1, name1) == (ns2, name2) ->
       case (ch1, ch2) of
         ([], []) -> do
           attrs2 <- step attrs as2
@@ -132,28 +138,28 @@ haltElem ElemState {node, attrs, children} = do
 
 ----------------------------------------------------------------------
 
-data ComponentState m a w = ComponentState
+data WidgetState m a w = WidgetState
   { build :: VDomMachine m a w
-  , component :: Step m w (Node m)
+  , widget :: Step m w Node 
   }
 
-buildComponent :: Monad m => VDomSpec m a w -> VDomMachine m a w -> w -> m (VDomStep m a w)
-buildComponent spec build w = do
-  res@(Step node _ _ _) <- spec.buildComponent spec w
-  pure $ Step node (ComponentState {build, component = res}) patchComponent haltComponent
+buildWidget :: Monad m => VDomSpec m a w -> VDomMachine m a w -> w -> m (VDomStep m a w)
+buildWidget spec build w = do
+  res@(Step node _ _ _) <- spec.buildWidget spec w
+  pure $ Step node (WidgetState {build, widget = res}) patchWidget haltWidget
 
-patchComponent :: Monad m => ComponentState m a w -> VDOM a w -> m (VDomStep m a w)
-patchComponent state vdom = do
-  let ComponentState {build, component} = state
+patchWidget :: Monad m => WidgetState m a w -> VDom a w -> m (VDomStep m a w)
+patchWidget state vdom = do
+  let WidgetState {build, widget} = state
   case vdom of
-    Grafted g -> patchComponent state (runGraft g)
-    Component w -> do
-      res@(Step n _ _ _) <- step component w
+    Grafted g -> patchWidget state (runGraft g)
+    Widget w -> do
+      res@(Step n _ _ _) <- step widget w
 
-      pure $ Step n (ComponentState {build, component = res}) patchComponent haltComponent
+      pure $ Step n (WidgetState {build, widget = res}) patchWidget haltWidget
     _ -> do
-      haltComponent state
+      haltWidget state
       build vdom
 
-haltComponent :: ComponentState m a w -> m ()
-haltComponent ComponentState {component} = halt component
+haltWidget :: WidgetState m a w -> m ()
+haltWidget WidgetState {widget} = halt widget

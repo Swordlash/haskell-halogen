@@ -2,7 +2,7 @@ module Halogen.Component where
 
 import Data.Row (Row)
 import Halogen.Data.Slot
-import Halogen.HTML
+import Halogen.HTML.Core
 import Halogen.Query.HalogenM
 import Halogen.Query.HalogenQ
 import Protolude

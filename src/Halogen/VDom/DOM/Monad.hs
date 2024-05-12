@@ -1,34 +1,37 @@
+{-# LANGUAGE CPP #-}
 module Halogen.VDom.DOM.Monad where
 
 import Halogen.VDom.Types
 import Protolude
-import Web.DOM.Types
+import Unsafe.Coerce (unsafeCoerce)
+import Web.UIEvent.MouseEvent
+import Web.Event.Event
+import Web.HTML.Common
+import Web.DOM.Element
+import Data.Foreign
+
+newtype EventListener = EventListener (Foreign EventListener)
+newtype Node = Node (Foreign Node)
+newtype Document = Element (Foreign Document)
 
 class Monad m => MonadDOM m where
-  data EventListener m
-  data Node m
-  data Element m
-  data Document m
+  mkEventListener :: (Event -> m a) -> m EventListener
 
-  data Event m
-  data EventTarget m
-  data MouseEvent m
+  createTextNode :: Text -> Document -> m Node
+  setTextContent :: Text -> Node -> m ()
+  createElement :: Maybe Namespace -> ElemName -> Document -> m Element
+  insertChildIx :: Int -> Node -> Node -> m ()
+  removeChild :: Node -> Node -> m ()
+  parentNode :: Node -> m Node 
+  setAttribute :: Maybe Namespace -> AttrName -> Text -> Element -> m ()
+  removeAttribute :: Maybe Namespace -> AttrName -> Element -> m ()
+  hasAttribute :: Maybe Namespace -> AttrName -> Element -> m Bool
 
-  mkEventListener :: (Event m -> m a) -> m (EventListener m)
+  addEventListener :: EventType -> EventListener -> EventTarget -> m ()
+  removeEventListener :: EventType -> EventListener -> EventTarget -> m ()
 
-  unsafeRefEq :: a -> b -> m Bool
-  createTextNode :: Text -> Document m -> m (Node m)
-  setTextContent :: Text -> Node m -> m ()
-  createElement :: Maybe Namespace -> ElemName -> Document m -> m (Element m)
-  insertChildIx :: Int -> Node m -> Node m -> m ()
-  removeChild :: Node m -> Node m -> m ()
-  parentNode :: Node m -> m (Node m)
-  setAttribute :: Maybe Namespace -> AttrName -> Text -> Element m -> m ()
-  removeAttribute :: Maybe Namespace -> AttrName -> Element m -> m ()
-  hasAttribute :: Maybe Namespace -> AttrName -> Element m -> m Bool
+mouseHandler :: (MouseEvent -> a) -> Event -> a
+mouseHandler = unsafeCoerce
 
-  addEventListener :: EventType -> EventListener m -> EventTarget m -> m ()
-  removeEventListener :: EventType -> EventListener m -> EventTarget m -> m ()
-
-  mouseHandler :: (MouseEvent m -> a) -> Event m -> a
-  elementToNode :: Element m -> Node m
+elementToNode :: Element -> Node
+elementToNode = unsafeCoerce

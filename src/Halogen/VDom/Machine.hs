@@ -1,4 +1,10 @@
-module Halogen.VDom.Machine where
+module Halogen.VDom.Machine
+  ( Machine
+  , Step (..)
+  , extract
+  , step
+  , halt
+  ) where
 
 type Machine m a b = a -> m (Step m a b)
 

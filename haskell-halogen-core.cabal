@@ -22,9 +22,12 @@ extra-source-files: CHANGELOG.md
 library
     exposed-modules:
       Control.Monad.UUID
+      Data.Foreign
 
+      Halogen.VDom
       Halogen.Data.Slot
 
+      Halogen.HTML.Core
       Halogen.HTML.Elements
       Halogen.HTML.Properties
 
@@ -42,10 +45,14 @@ library
       Halogen.VDom.Types
 
       Halogen.Component
-      Halogen.HTML
       Halogen.Subscription
 
-      Web.DOM.Types
+      Web.DOM.Internal.Types
+      Web.DOM.Element
+      Web.Event.Internal.Types
+      Web.Event.Event
+      Web.HTML.Common
+      Web.UIEvent.MouseEvent
       
     
     default-extensions:

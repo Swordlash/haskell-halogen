@@ -1,4 +1,11 @@
-module Halogen.VDom.Types where
+module Halogen.VDom.Types 
+  ( VDom(..)
+  , renderWidget
+  , Graft (..)
+  , runGraft
+  , ElemName(..)
+  , Namespace(..)
+  ) where
 
 import Protolude
 
@@ -8,34 +15,34 @@ newtype ElemName = ElemName Text
 newtype Namespace = Namespace Text
   deriving (Eq, Ord, Show, IsString)
 
-data VDOM a w
+data VDom a w
   = Text !Text
-  | Element !(Maybe Namespace) !ElemName a [VDOM a w]
-  | Component w
+  | Elem !(Maybe Namespace) !ElemName a [VDom a w]
+  | Widget w
   | Grafted (Graft a w)
   deriving (Functor)
 
-instance Bifunctor VDOM where
+instance Bifunctor VDom where
   bimap f g = \case
     Text s -> Text s
-    Element ns'm en props children -> Element ns'm en (f props) (map (bimap f g) children)
-    Component w -> Component $ g w
+    Elem ns'm en props children -> Elem ns'm en (f props) (map (bimap f g) children)
+    Widget w -> Widget $ g w
     Grafted graft -> Grafted $ bimap f g graft
 
-data Graft a w = forall a' w'. Graft (a' -> a) (w' -> w) (VDOM a' w')
+data Graft a w = forall a' w'. Graft (a' -> a) (w' -> w) (VDom a' w')
 
 deriving instance Functor (Graft a)
 
 instance Bifunctor Graft where
   bimap f g (Graft fm wm v) = Graft (f . fm) (g . wm) v
 
-runGraft :: Graft a w -> VDOM a w
+runGraft :: Graft a w -> VDom a w
 runGraft (Graft fm fw v) = bimap fm fw v
 
-renderComponent :: (a -> a') -> (w -> VDOM a' w') -> VDOM a w -> VDOM a' w'
-renderComponent fm injComponent = \case
+renderWidget :: (a -> a') -> (w -> VDom a' w') -> VDom a w -> VDom a' w'
+renderWidget fm injWidget = \case
   Text txt -> Text txt
-  Element ns'm en props children ->
-    Element ns'm en (fm props) (map (renderComponent fm injComponent) children)
-  Component w -> injComponent w
-  Grafted graft -> renderComponent fm injComponent (runGraft graft)
+  Elem ns'm en props children ->
+    Elem ns'm en (fm props) (map (renderWidget fm injWidget) children)
+  Widget w -> injWidget w
+  Grafted graft -> renderWidget fm injWidget (runGraft graft)

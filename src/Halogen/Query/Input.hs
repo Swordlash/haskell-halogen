@@ -1,10 +1,12 @@
 module Halogen.Query.Input where
 
-import Halogen.VDom.DOM.Monad
+
 import Protolude
+import Web.DOM.Element
 
 newtype RefLabel = RefLabel Text
 
-data Input msg m
+data Input msg
   = Action msg
-  | RefUpdate RefLabel (Maybe (Element m))
+  | RefUpdate RefLabel (Maybe Element)
+  deriving Functor

@@ -3,13 +3,13 @@ module Halogen.Query.Event where
 import Halogen.Subscription
 import Halogen.VDom.DOM.Monad
 import Protolude
-import Web.DOM.Types
+import Web.Event.Event
 
 eventListener
   :: MonadDOM m
   => EventType
-  -> EventTarget m
-  -> (Event m -> Maybe a)
+  -> EventTarget
+  -> (Event -> Maybe a)
   -> Emitter m a
 eventListener eventType target f =
   makeEmitter $ \push -> do
