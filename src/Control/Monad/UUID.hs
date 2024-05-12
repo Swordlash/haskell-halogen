@@ -4,6 +4,7 @@ import Control.Monad.Trans
 import Data.UUID (UUID)
 import Data.UUID.V4
 import Protolude
+import Data.Type.Equality
 
 class (Monad m) => MonadUUID m where
   generateV4 :: m UUID
