@@ -1,16 +1,19 @@
 module Halogen.Query.HalogenM where
 
-import Control.Applicative.Free
+import Control.Applicative.Free.Fast
 import Control.Monad.Free.Church
 import Halogen.Query.ChildQuery
 import Halogen.Query.Input
 import Halogen.Subscription
 import Protolude hiding (Ap)
 import Web.DOM.Element
+import Control.Monad.Parallel
 
 newtype SubscriptionId = SubscriptionId Int
+  deriving newtype (Eq, Ord, Show)
 
 newtype ForkId = ForkId Int
+  deriving newtype (Eq, Ord, Show)
 
 data HalogenF state action slots output m a
   = State (state -> (a, state))
@@ -31,7 +34,7 @@ newtype HalogenM state action slots output m a
   deriving (Functor, Applicative, Monad)
 
 newtype HalogenAp state action slots output m a
-  = HalogenAp (Ap (HalogenF state action slots output m) a)
+  = HalogenAp (Ap (HalogenM state action slots output m) a)
   deriving (Functor, Applicative)
 
 getM :: (Functor m) => HalogenM state _ _ _ m state
@@ -39,3 +42,7 @@ getM = HalogenM $ liftF $ State $ \s -> (s, s)
 
 putM :: (Functor m) => state -> HalogenM state _ _ _ m ()
 putM s = HalogenM $ liftF $ State (const ((), s))
+
+instance Functor m => Parallel (HalogenAp state action slots output m) (HalogenM state action slots output m) where
+  parallel = HalogenAp . liftAp
+  sequential = HalogenM . liftF . Par

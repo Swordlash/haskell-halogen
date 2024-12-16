@@ -1,14 +1,14 @@
 module Halogen.Query.HalogenQ where
 
-import Data.Functor.Yoneda
 import Protolude
+import Data.Functor.Coyoneda
 
 data HalogenQ query msg input a
   = Initialize a
   | Finalize a
   | Receive input a
   | Message msg a
-  | Query (Yoneda query a) (() -> a)
+  | Query (Coyoneda query a) (() -> a)
   deriving (Functor)
 
 instance Bifunctor (HalogenQ query msg) where

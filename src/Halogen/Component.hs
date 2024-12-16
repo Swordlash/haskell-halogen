@@ -6,6 +6,7 @@ import Halogen.HTML.Core
 import Halogen.Query.HalogenM
 import Halogen.Query.HalogenQ
 import Protolude
+import Control.Monad.Parallel
 
 data ComponentSlot (slots :: Row Type) m msg
   = forall query input output.
@@ -18,10 +19,12 @@ data ComponentSlot (slots :: Row Type) m msg
   , output :: output -> Maybe msg
   }
 
+data ComponentSpec state query action slots input output m = ComponentSpec
+  { initialState :: input -> state
+  , render :: state -> HTML action (ComponentSlot slots m action)
+  , eval :: HalogenQ query action input ~> HalogenM state action slots output m
+  }
+
 data Component query input output m
   = forall model msg slots.
-  Component
-  { initState :: input -> m model
-  , render :: model -> HTML msg (ComponentSlot slots m msg)
-  , eval :: forall a. HalogenQ query msg input a -> HalogenM model msg slots output m a
-  }
+  Component (ComponentSpec model query msg slots input output m)

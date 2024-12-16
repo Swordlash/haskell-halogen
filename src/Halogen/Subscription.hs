@@ -6,6 +6,8 @@ import Control.Monad.UUID
 import Data.Coerce
 import Data.Functor.Contravariant
 import Protolude
+import Control.Monad.Primitive
+import Data.Primitive
 
 -- | A paired `Listener` and `Emitter` produced with the `create` function.
 data Subscribe m a = Subscribe
@@ -13,41 +15,41 @@ data Subscribe m a = Subscribe
   , emitter :: Emitter m a
   }
 
-create :: (MonadRef m, MonadUUID m) => m (Subscribe m a)
+create :: (PrimMonad m, MonadUUID m) => m (Subscribe m a)
 create = do
-  subscribers <- newRef []
+  subscribers <- newMutVar []
   pure $
     Subscribe
       { emitter = Emitter $ \handler -> do
           uuid <- generateV4
-          modifyRef' subscribers (<> [(handler, uuid)])
+          atomicModifyMutVar' subscribers ((,()) . (<> [(handler, uuid)]))
           pure $
             Subscription
-              { unsubscribe = modifyRef' subscribers (Protolude.filter (\(_, uuid') -> uuid /= uuid'))
+              { unsubscribe = atomicModifyMutVar' subscribers ((,()) . Protolude.filter (\(_, uuid') -> uuid /= uuid'))
               }
-      , listener = Listener {notify = \a -> readRef subscribers >>= traverse_ (\(k, _) -> k a)}
+      , listener = Listener {notify = \a -> readMutVar subscribers >>= traverse_ (\(k, _) -> k a)}
       }
 
 newtype Emitter m a = Emitter {registerHandler :: (a -> m ()) -> m (Subscription m)}
   deriving (Functor)
 
-instance (MonadRef m) => Applicative (Emitter m) where
+instance (PrimMonad m) => Applicative (Emitter m) where
   pure a = Emitter $ \k -> do
     k a
     pure (Subscription (pure ()))
 
   (Emitter e1) <*> (Emitter e2) = Emitter $ \k -> do
-    latestA <- newRef Nothing
-    latestB <- newRef Nothing
+    latestA <- newMutVar Nothing
+    latestB <- newMutVar Nothing
     Subscription c1 <- e1 $ \a -> do
-      writeRef latestA (Just a)
-      readRef latestB >>= traverse_ (k . a)
+      writeMutVar latestA (Just a)
+      readMutVar latestB >>= traverse_ (k . a)
     Subscription c2 <- e2 $ \b -> do
-      writeRef latestB (Just b)
-      readRef latestA >>= traverse_ (k . ($ b))
+      writeMutVar latestB (Just b)
+      readMutVar latestA >>= traverse_ (k . ($ b))
     pure (Subscription (c1 *> c2))
 
-instance (MonadRef m) => Alternative (Emitter m) where
+instance (PrimMonad m) => Alternative (Emitter m) where
   empty = Emitter $ \_ -> pure (Subscription (pure ()))
   (Emitter f) <|> (Emitter g) = Emitter $ \k -> do
     Subscription c1 <- f k
@@ -75,6 +77,9 @@ subscribe
   -> (a -> m r)
   -> m (Subscription m)
 subscribe em k = em.registerHandler (void . k)
+
+unsubscribe :: Subscription m -> m ()
+unsubscribe (Subscription unsub) = unsub
 
 fold :: (MonadAtomicRef m) => (a -> b -> b) -> Emitter m a -> b -> Emitter m b
 fold f (Emitter e) b = Emitter $ \k -> do
