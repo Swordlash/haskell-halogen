@@ -1,10 +1,10 @@
 module Halogen.Aff.Driver.Eval
   ( Renderer
   , evalF
-  --, evalQ
-  --, evalM
-  --, handleLifecycle
-  --, queueOrRun
+  , evalQ
+  , evalM
+  , handleLifecycle
+  , queueOrRun
   --, handleAff
   ) where
 
@@ -28,6 +28,7 @@ import UnliftIO.Async (AsyncCancelled(..))
 import Control.Exception.Safe (finally, MonadMask)
 import Halogen.Component (ComponentSpec(..))
 import Data.Functor.Coyoneda
+import Data.MutVarF
 
 
 type Renderer m r =
@@ -44,8 +45,8 @@ evalF
   -> m ()
 evalF render ref = \case
   Input.RefUpdate (Input.RefLabel p) el -> do
-    atomicModifyMutVar' ref $ \st ->
-      (st { refs = M.alter (const el) p st.refs }, ())
+    atomicModifyMutVar'_ ref $ \st ->
+      st { refs = M.alter (const el) p st.refs }
   Input.Action act -> do
     st <- readMutVar ref
     evalM render ref (runNT st.component.eval (HQ.Message act ()))
@@ -81,7 +82,7 @@ evalM render initRef (HalogenM hm) = foldF (go initRef) hm
         (a, state')
           | unsafeRefEq state state' -> pure a
           | otherwise -> do
-              writeMutVar ref (st { state = state' })
+              atomicWriteMutVar ref (st { state = state' })
               handleLifecycle lifecycleHandlers (render lifecycleHandlers ref)
               pure a
     Subscribe fes k -> do
@@ -89,7 +90,7 @@ evalM render initRef (HalogenM hm) = foldF (go initRef) hm
       finalize <- HS.subscribe (fes sid) $ \act ->
         evalF render ref (Input.Action act)
       DriverState{ subscriptions } <- readMutVar ref
-      atomicModifyMutVar' subscriptions ((,()) . map (M.insert sid finalize))
+      atomicModifyMutVar'_ subscriptions (map (M.insert sid finalize))
       pure (k sid)
     Unsubscribe sid next -> do
       unsubscribe sid ref
@@ -110,12 +111,12 @@ evalM render initRef (HalogenM hm) = foldF (go initRef) hm
       doneRef <- newMutVar False
       fiber <- fork $ finally
         ( do
-            atomicModifyMutVar' forks ((,()) . M.delete fid)
-            writeMutVar doneRef True
+            atomicModifyMutVar'_ forks (M.delete fid)
+            atomicWriteMutVar doneRef True
         )
         (evalM render ref hmu)
       unlessM (readMutVar doneRef) $ do
-        atomicModifyMutVar' forks ((,()) . M.insert fid fiber)
+        atomicModifyMutVar'_ forks (M.insert fid fiber)
       pure (k fid)
     Join fid a -> do
       DriverState { forks } <- readMutVar ref
@@ -155,7 +156,7 @@ unsubscribe sid ref = do
 
 handleLifecycle :: (PrimMonad m, Parallel f m, MonadFork f' m) => MutVar (PrimState m) (LifecycleHandlers m) -> m a -> m a
 handleLifecycle lchs f = do
-  writeMutVar lchs $ LifecycleHandlers { initializers = [], finalizers = [] }
+  atomicWriteMutVar lchs $ LifecycleHandlers { initializers = [], finalizers = [] }
   result <- f
   LifecycleHandlers { initializers, finalizers } <- readMutVar lchs
   traverse_ fork finalizers
@@ -179,4 +180,4 @@ queueOrRun
 queueOrRun ref au =
   readMutVar ref >>= \case
     Nothing -> au
-    Just p -> writeMutVar ref (Just (au : p))
+    Just p -> atomicWriteMutVar ref (Just (au : p))

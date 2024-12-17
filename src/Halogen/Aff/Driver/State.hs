@@ -3,11 +3,12 @@ module Halogen.Aff.Driver.State
   , DriverState(..)
   , DriverStateRef(..)
   , DriverStateX (..)
-  -- , unDriverStateX
+  , unDriverStateX
   -- , mkDriverStateXRef
+  , readDriverStateRef
   , RenderStateX (..)
-  -- , renderStateX
-  -- , renderStateX_
+  , renderStateX
+  , renderStateX_
   -- , unRenderStateX
   , initDriverState
   ) where
@@ -20,6 +21,7 @@ import Web.DOM.Element (Element)
 import Halogen.Component
 import Halogen.Query.HalogenM
 import qualified Halogen.Subscription as HS
+import Data.MutVarF
 
 data LifecycleHandlers m = LifecycleHandlers
   { initializers :: [m ()]
@@ -48,8 +50,29 @@ data DriverState m r s f act ps i o = DriverState
 data DriverStateX m r f o = forall s act ps i. DriverStateX (DriverState m r s f act ps i o)
 data DriverStateRef m r f o = forall s act ps i. DriverStateRef (MutVar (PrimState m) (DriverState m r s f act ps i o))
 
+readDriverStateRef :: PrimMonad m => DriverStateRef m r f o -> m (DriverStateX m r f o)
+readDriverStateRef (DriverStateRef ref) = DriverStateX <$> readMutVar ref
+
 data RenderStateX r = forall s act ps o. RenderStateX (r s act ps o)
 
+renderStateX
+  :: Functor m
+  => (forall s act ps. Maybe (r s act ps o) -> m (r s act ps o))
+  -> DriverStateX m r f o
+  -> m (RenderStateX r)
+renderStateX f = unDriverStateX $ \st ->
+  RenderStateX <$> f st.rendering
+
+renderStateX_
+  :: Applicative m
+  => (forall s act ps. r s act ps o -> m ())
+  -> DriverStateX m r f o
+  -> m ()
+renderStateX_ f = unDriverStateX $ \st ->
+  traverse_ f st.rendering
+
+unDriverStateX :: (forall s act ps i. DriverState m r s f act ps i o -> a) -> DriverStateX m r f o -> a
+unDriverStateX f (DriverStateX st) = f st
 
 initDriverState
   :: PrimMonad m
@@ -57,7 +80,7 @@ initDriverState
   -> i
   -> (o -> m ())
   -> MutVar (PrimState m) (LifecycleHandlers m)
-  -> m (DriverStateRef m r f o)
+  -> m (DriverState m r s f act ps i o)
 initDriverState component input handler lchs = do
   selfRef <- newMutVar (fix identity)
   childrenIn <- newMutVar SlotStorage.empty
@@ -88,5 +111,5 @@ initDriverState component input handler lchs = do
       , forks
       , lifecycleHandlers = lchs
       }
-  writeMutVar selfRef ds
-  pure $ DriverStateRef selfRef
+  atomicWriteMutVar selfRef ds
+  pure ds

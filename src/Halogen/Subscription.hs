@@ -8,6 +8,7 @@ import Data.Functor.Contravariant
 import Protolude
 import Control.Monad.Primitive
 import Data.Primitive
+import Data.MutVarF
 
 -- | A paired `Listener` and `Emitter` produced with the `create` function.
 data Subscribe m a = Subscribe
@@ -22,10 +23,10 @@ create = do
     Subscribe
       { emitter = Emitter $ \handler -> do
           uuid <- generateV4
-          atomicModifyMutVar' subscribers ((,()) . (<> [(handler, uuid)]))
+          atomicModifyMutVar'_ subscribers (<> [(handler, uuid)])
           pure $
             Subscription
-              { unsubscribe = atomicModifyMutVar' subscribers ((,()) . Protolude.filter (\(_, uuid') -> uuid /= uuid'))
+              { unsubscribe = atomicModifyMutVar'_ subscribers (Protolude.filter (\(_, uuid') -> uuid /= uuid'))
               }
       , listener = Listener {notify = \a -> readMutVar subscribers >>= traverse_ (\(k, _) -> k a)}
       }
@@ -42,10 +43,10 @@ instance (PrimMonad m) => Applicative (Emitter m) where
     latestA <- newMutVar Nothing
     latestB <- newMutVar Nothing
     Subscription c1 <- e1 $ \a -> do
-      writeMutVar latestA (Just a)
+      atomicWriteMutVar latestA (Just a)
       readMutVar latestB >>= traverse_ (k . a)
     Subscription c2 <- e2 $ \b -> do
-      writeMutVar latestB (Just b)
+      atomicWriteMutVar latestB (Just b)
       readMutVar latestA >>= traverse_ (k . ($ b))
     pure (Subscription (c1 *> c2))
 
@@ -65,6 +66,9 @@ makeEmitter f = Emitter (fmap Subscription . f)
 ----------------------------------------------------------------------
 
 newtype Listener m a = Listener {notify :: a -> m ()}
+
+notify :: Listener m a -> a -> m ()
+notify (Listener f) = f
 
 instance Contravariant (Listener m) where
   contramap f (Listener g) = coerce (g . f)

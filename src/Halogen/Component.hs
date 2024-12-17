@@ -21,7 +21,7 @@ data ComponentSlot (slots :: Row Type) m msg
 
 data ComponentSpec state query action slots input output m = ComponentSpec
   { initialState :: input -> state
-  , render :: state -> HTML action (ComponentSlot slots m action)
+  , render :: state -> HTML (ComponentSlot slots m action) action
   , eval :: HalogenQ query action input ~> HalogenM state action slots output m
   }
 
