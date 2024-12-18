@@ -1,10 +1,10 @@
 module Control.Monad.UUID where
 
 import Control.Monad.Trans
-import Data.UUID (UUID)
-import Data.UUID.V4
+import Data.UUID.Types (UUID, fromWords64)
 import Protolude
 import Data.Type.Equality
+import System.Random
 
 class (Monad m) => MonadUUID m where
   generateV4 :: m UUID
@@ -12,4 +12,4 @@ class (Monad m) => MonadUUID m where
   generateV4 = lift generateV4
 
 instance MonadUUID IO where
-  generateV4 = nextRandom
+  generateV4 = fromWords64 <$> randomIO <*> randomIO

@@ -61,11 +61,11 @@ library
       Web.HTML.Common
       Web.UIEvent.MouseEvent
       
-    
     default-extensions:
       RankNTypes
       GeneralizedNewtypeDeriving
       MultiParamTypeClasses
+      FunctionalDependencies
       FlexibleContexts
       FlexibleInstances
       UndecidableInstances
@@ -94,8 +94,8 @@ library
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
     build-depends:    
-      base, free, transformers, mtl, text, protolude, extra,
-      row-types, hashable, containers, kan-extensions, uuid, ref-tf, primitive, unliftio, safe-exceptions
+      base, free, transformers, mtl, text, protolude, extra, random,
+      row-types, hashable, containers, kan-extensions, uuid-types, primitive, unliftio, safe-exceptions
     hs-source-dirs:   src
     default-language: GHC2021
     ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures

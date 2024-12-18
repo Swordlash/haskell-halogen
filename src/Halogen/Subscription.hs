@@ -1,7 +1,6 @@
 module Halogen.Subscription where
 
 import Control.Arrow ((&&&))
-import Control.Monad.Ref
 import Control.Monad.UUID
 import Data.Coerce
 import Data.Functor.Contravariant
@@ -85,10 +84,10 @@ subscribe em k = em.registerHandler (void . k)
 unsubscribe :: Subscription m -> m ()
 unsubscribe (Subscription unsub) = unsub
 
-fold :: (MonadAtomicRef m) => (a -> b -> b) -> Emitter m a -> b -> Emitter m b
+fold :: (PrimMonad m) => (a -> b -> b) -> Emitter m a -> b -> Emitter m b
 fold f (Emitter e) b = Emitter $ \k -> do
-  result <- newRef b
-  e $ \a -> atomicModifyRef' result (f a &&& f a) >>= k
+  result <- newMutVar b
+  e $ \a -> atomicModifyMutVar' result (f a &&& f a) >>= k
 
 filter :: (Applicative m) => (a -> Bool) -> Emitter m a -> Emitter m a
 filter p (Emitter e) = Emitter $ \k -> e $ \a -> when (p a) (k a)
