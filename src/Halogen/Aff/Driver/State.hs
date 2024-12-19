@@ -1,7 +1,7 @@
 module Halogen.Aff.Driver.State
-  ( LifecycleHandlers(..)
-  , DriverState(..)
-  , DriverStateRef(..)
+  ( LifecycleHandlers (..)
+  , DriverState (..)
+  , DriverStateRef (..)
   , DriverStateX (..)
   , unDriverStateX
   -- , mkDriverStateXRef
@@ -11,18 +11,19 @@ module Halogen.Aff.Driver.State
   , renderStateX_
   -- , unRenderStateX
   , initDriverState
-  ) where
+  )
+where
 
-import Protolude
-import Halogen.Data.Slot as SlotStorage
-import Data.Primitive
 import Control.Monad.Primitive
-import Web.DOM.Element (Element)
-import Halogen.Component
-import Halogen.Query.HalogenM
-import qualified Halogen.Subscription as HS
 import Data.MutVarF
+import Data.Primitive
 import Data.Row
+import Halogen.Component
+import Halogen.Data.Slot as SlotStorage
+import Halogen.Query.HalogenM
+import Halogen.Subscription qualified as HS
+import Protolude
+import Web.DOM.Element (Element)
 
 data LifecycleHandlers m = LifecycleHandlers
   { initializers :: [m ()]
@@ -49,15 +50,16 @@ data DriverState m r s f act ps i o = DriverState
   }
 
 data DriverStateX m r f o = forall s act ps i. DriverStateX (DriverState m r s f act ps i o)
+
 data DriverStateRef m r f o = forall s act ps i. DriverStateRef (MutVar (PrimState m) (DriverState m r s f act ps i o))
 
-readDriverStateRef :: PrimMonad m => DriverStateRef m r f o -> m (DriverStateX m r f o)
+readDriverStateRef :: (PrimMonad m) => DriverStateRef m r f o -> m (DriverStateX m r f o)
 readDriverStateRef (DriverStateRef ref) = DriverStateX <$> readMutVar ref
 
 data RenderStateX (r :: Type -> Type -> Row Type -> Type -> Type) = forall s act ps o. RenderStateX (r s act ps o)
 
 renderStateX
-  :: Functor m
+  :: (Functor m)
   => (forall s act ps. Maybe (r s act ps o) -> m (r s act ps o))
   -> DriverStateX m r f o
   -> m (RenderStateX r)
@@ -65,7 +67,7 @@ renderStateX f = unDriverStateX $ \st ->
   RenderStateX <$> f st.rendering
 
 renderStateX_
-  :: Applicative m
+  :: (Applicative m)
   => (forall s act ps. r s act ps o -> m ())
   -> DriverStateX m r f o
   -> m ()
@@ -76,7 +78,7 @@ unDriverStateX :: (forall s act ps i. DriverState m r s f act ps i o -> a) -> Dr
 unDriverStateX f (DriverStateX st) = f st
 
 initDriverState
-  :: PrimMonad m
+  :: (PrimMonad m)
   => ComponentSpec s f act ps i o m
   -> i
   -> (o -> m ())
@@ -93,24 +95,24 @@ initDriverState component input handler lchs = do
   fresh <- newMutVar 1
   subscriptions <- newMutVar (Just mempty)
   forks <- newMutVar mempty
-  let
-    ds = DriverState
-      { component
-      , state = component.initialState input
-      , refs = mempty
-      , children = SlotStorage.empty
-      , childrenIn
-      , childrenOut
-      , selfRef
-      , handlerRef
-      , pendingQueries
-      , pendingOuts
-      , pendingHandlers
-      , rendering = Nothing
-      , fresh
-      , subscriptions
-      , forks
-      , lifecycleHandlers = lchs
-      }
+  let ds =
+        DriverState
+          { component
+          , state = component.initialState input
+          , refs = mempty
+          , children = SlotStorage.empty
+          , childrenIn
+          , childrenOut
+          , selfRef
+          , handlerRef
+          , pendingQueries
+          , pendingOuts
+          , pendingHandlers
+          , rendering = Nothing
+          , fresh
+          , subscriptions
+          , forks
+          , lifecycleHandlers = lchs
+          }
   atomicWriteMutVar selfRef ds
   pure ds

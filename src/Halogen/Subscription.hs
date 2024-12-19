@@ -1,13 +1,13 @@
 module Halogen.Subscription where
 
 import Control.Arrow ((&&&))
+import Control.Monad.Primitive
 import Control.Monad.UUID
 import Data.Coerce
 import Data.Functor.Contravariant
-import Protolude
-import Control.Monad.Primitive
-import Data.Primitive
 import Data.MutVarF
+import Data.Primitive
+import Protolude
 
 -- | A paired `Listener` and `Emitter` produced with the `create` function.
 data Subscribe m a = Subscribe

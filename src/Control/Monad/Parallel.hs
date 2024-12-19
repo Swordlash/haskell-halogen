@@ -2,7 +2,7 @@ module Control.Monad.Parallel where
 
 import Protolude
 
-newtype (~>) m n = NT (forall a. m a -> n a) 
+newtype (~>) m n = NT (forall a. m a -> n a)
 
 runNT :: (m ~> n) -> m a -> n a
 runNT (NT f) = f

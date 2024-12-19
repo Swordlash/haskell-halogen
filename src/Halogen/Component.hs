@@ -1,13 +1,13 @@
 module Halogen.Component where
 
+import Control.Monad.Parallel
 import Data.Row (Row)
 import Halogen.Data.Slot
 import Halogen.HTML.Core
 import Halogen.Query.HalogenM
 import Halogen.Query.HalogenQ
-import Protolude
-import Control.Monad.Parallel
 import Halogen.VDom.Thunk
+import Protolude
 
 data ComponentSlotBox slots m msg = forall query input output. ComponentSlotBox
   { get :: forall slot. SlotStorage slots slot -> Maybe (slot query output)
@@ -30,4 +30,4 @@ data ComponentSpec state query action slots input output m = ComponentSpec
 
 data Component query input output m
   = forall model msg slots.
-  Component (ComponentSpec model query msg slots input output m)
+    Component (ComponentSpec model query msg slots input output m)

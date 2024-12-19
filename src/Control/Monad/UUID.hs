@@ -1,9 +1,9 @@
 module Control.Monad.UUID where
 
 import Control.Monad.Trans
+import Data.Type.Equality
 import Data.UUID.Types (UUID, fromWords64)
 import Protolude
-import Data.Type.Equality
 import System.Random
 
 class (Monad m) => MonadUUID m where

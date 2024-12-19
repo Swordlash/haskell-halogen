@@ -1,10 +1,11 @@
-{-# LANGUAGE CPP, MagicHash #-}
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE MagicHash #-}
 
 module Data.Foreign where
 
+import GHC.Base (Int (..), reallyUnsafePtrEquality, reallyUnsafePtrEquality#)
 import Protolude
 import Unsafe.Coerce (unsafeCoerce)
-import GHC.Base (reallyUnsafePtrEquality, Int (..), reallyUnsafePtrEquality#)
 
 #if defined(javascript_HOST_ARCH)
 import GHC.JS.Prim

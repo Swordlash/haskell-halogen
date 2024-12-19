@@ -1,7 +1,7 @@
 module Halogen.Query.HalogenQ where
 
-import Protolude
 import Data.Functor.Coyoneda
+import Protolude
 
 data HalogenQ query msg input a
   = Initialize a

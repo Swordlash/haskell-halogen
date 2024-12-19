@@ -16,6 +16,7 @@ newtype HTMLCollection = HTMLCollection (Foreign HTMLCollection)
 newtype EventListener = EventListener (Foreign EventListener)
 
 newtype Document = Document (Foreign Document)
+
 newtype HTMLDocument = HMTLDocument (Foreign Document)
 
 newtype Window = Window (Foreign Window)

@@ -6,10 +6,10 @@ import Halogen.VDom.Types
 import Protolude
 import Unsafe.Coerce (unsafeCoerce)
 import Web.DOM.Element
+import Web.DOM.Internal.Types
 import Web.Event.Event
 import Web.HTML.Common
 import Web.UIEvent.MouseEvent
-import Web.DOM.Internal.Types
 
 data PropValue val where
   IntProp :: (Integral a) => !a -> PropValue a
@@ -25,7 +25,7 @@ class (Monad m) => MonadDOM m where
   createElement :: Maybe Namespace -> ElemName -> Document -> m Element
   insertBefore :: Node -> Node -> Node -> m ()
   appendChild :: Node -> Node -> m ()
-  replaceChild :: Node -> Node -> Node ->  m ()
+  replaceChild :: Node -> Node -> Node -> m ()
   insertChildIx :: Int -> Node -> Node -> m ()
   removeChild :: Node -> Node -> m ()
   parentNode :: Node -> m (Maybe Node)

@@ -1,44 +1,45 @@
 module Halogen.VDom.Driver
   ( runUI
   , module Halogen.Aff.Driver
-  ) where
+  )
+where
 
-import Protolude
-import Halogen.Aff.Driver (HalogenIO)
-import Halogen.Aff.Driver qualified as AD
-import Halogen.VDom qualified as V
-import Halogen.VDom.DOM.Prop
-import Halogen.Query.Input
-import Halogen.Component
-import Halogen.Aff.Driver.State
-import Data.Foreign
-import Halogen.HTML.Core (HTML(..))
-import Data.Primitive
-import Control.Monad.Primitive
-import Halogen.VDom.Thunk (Thunk)
-import qualified Web.DOM.Internal.Types as DOM
-import qualified Halogen.VDom.DOM.Prop as VP
-import qualified Halogen.VDom.Thunk as Thunk
-import Data.Coerce
-import qualified Halogen.VDom.DOM.Monad as DOM
-import Web.DOM.Internal.Types
-import Data.MutVarF (atomicWriteMutVar)
+import Control.Exception.Safe
 import Control.Monad.Fork
 import Control.Monad.Parallel
-import Control.Exception.Safe
+import Control.Monad.Primitive
 import Control.Monad.UUID
+import Data.Coerce
+import Data.Foreign
+import Data.MutVarF (atomicWriteMutVar)
+import Data.Primitive
+import Halogen.Aff.Driver (HalogenIO)
+import Halogen.Aff.Driver qualified as AD
+import Halogen.Aff.Driver.State
+import Halogen.Component
+import Halogen.HTML.Core (HTML (..))
+import Halogen.Query.Input
+import Halogen.VDom qualified as V
+import Halogen.VDom.DOM.Monad qualified as DOM
+import Halogen.VDom.DOM.Prop
+import Halogen.VDom.DOM.Prop qualified as VP
+import Halogen.VDom.Thunk (Thunk)
+import Halogen.VDom.Thunk qualified as Thunk
+import Protolude
+import Web.DOM.Internal.Types
+import Web.DOM.Internal.Types qualified as DOM
 
 type VHTML m action slots =
   V.VDom [Prop (Input action)] (ComponentSlot slots m action)
 
 type ChildRenderer m action slots = ComponentSlotBox slots m action -> m (RenderStateX (RenderState m))
 
-data RenderState m state action slots output =
-  RenderState
-    { node :: DOM.Node
-    , machine :: V.Step m (VHTML m action slots) DOM.Node
-    , renderChildRef :: MutVar (PrimState m) (ChildRenderer m action slots)
-    }
+data RenderState m state action slots output
+  = RenderState
+  { node :: DOM.Node
+  , machine :: V.Step m (VHTML m action slots) DOM.Node
+  , renderChildRef :: MutVar (PrimState m) (ChildRenderer m action slots)
+  }
 
 type HTMLThunk m slots action =
   Thunk (HTML (ComponentSlot slots m action)) action
@@ -54,64 +55,64 @@ mkSpec
   -> DOM.Document
   -> V.VDomSpec m [Prop (Input action)] (ComponentSlot slots m action)
 mkSpec handler renderChildRef document =
-  V.VDomSpec { buildWidget, buildAttributes, document }
+  V.VDomSpec {buildWidget, buildAttributes, document}
   where
+    buildAttributes
+      :: DOM.Element
+      -> V.Machine m [Prop (Input action)] ()
+    buildAttributes = VP.buildProp handler
 
-  buildAttributes
-    :: DOM.Element
-    -> V.Machine m [Prop (Input action)] ()
-  buildAttributes = VP.buildProp handler
-
-  buildWidget
-    :: V.VDomSpec m
-         [Prop (Input action)]
-         (ComponentSlot slots m action)
-    -> V.Machine m
-         (ComponentSlot slots m action)
-         DOM.Node
-  buildWidget spec = render
-    where
-
-    render :: V.Machine m (ComponentSlot slots m action) DOM.Node
-    render = \case
-      ComponentSlot cs ->
-        renderComponentSlot cs
-      ThunkSlot t -> do
-        step <- buildThunk t
-        pure $ V.Step (V.extract step) (Just step) patch done
-
-    patch
-      :: WidgetState m slots action
-      -> ComponentSlot slots m action
-      -> m (V.Step m (ComponentSlot slots m action) DOM.Node)
-    patch st slot =
-      case st of
-        Just step -> case slot of
-          ComponentSlot cs -> do
-            V.halt step
+    buildWidget
+      :: V.VDomSpec
+          m
+          [Prop (Input action)]
+          (ComponentSlot slots m action)
+      -> V.Machine
+          m
+          (ComponentSlot slots m action)
+          DOM.Node
+    buildWidget spec = render
+      where
+        render :: V.Machine m (ComponentSlot slots m action) DOM.Node
+        render = \case
+          ComponentSlot cs ->
             renderComponentSlot cs
           ThunkSlot t -> do
-            step' <- V.step step t
-            pure $ V.Step (V.extract step') (Just step') patch done
-        _ -> render slot
+            step <- buildThunk t
+            pure $ V.Step (V.extract step) (Just step) patch done
 
-    buildThunk :: V.Machine m (HTMLThunk m slots action) DOM.Node
-    buildThunk = Thunk.buildThunk coerce spec
+        patch
+          :: WidgetState m slots action
+          -> ComponentSlot slots m action
+          -> m (V.Step m (ComponentSlot slots m action) DOM.Node)
+        patch st slot =
+          case st of
+            Just step -> case slot of
+              ComponentSlot cs -> do
+                V.halt step
+                renderComponentSlot cs
+              ThunkSlot t -> do
+                step' <- V.step step t
+                pure $ V.Step (V.extract step') (Just step') patch done
+            _ -> render slot
 
-    renderComponentSlot
-      :: ComponentSlotBox slots m action
-      -> m (V.Step m (ComponentSlot slots m action) DOM.Node)
-    renderComponentSlot cs = do
-      renderChild <- readMutVar renderChildRef
-      rsx <- renderChild cs
-      let node = getNode rsx
-      pure $ V.Step node Nothing patch done
+        buildThunk :: V.Machine m (HTMLThunk m slots action) DOM.Node
+        buildThunk = Thunk.buildThunk coerce spec
 
-  done :: WidgetState m slots action -> m ()
-  done = traverse_ V.halt
+        renderComponentSlot
+          :: ComponentSlotBox slots m action
+          -> m (V.Step m (ComponentSlot slots m action) DOM.Node)
+        renderComponentSlot cs = do
+          renderChild <- readMutVar renderChildRef
+          rsx <- renderChild cs
+          let node = getNode rsx
+          pure $ V.Step node Nothing patch done
 
-  getNode :: RenderStateX (RenderState m) -> DOM.Node
-  getNode (RenderStateX(RenderState { node })) = node
+    done :: WidgetState m slots action -> m ()
+    done = traverse_ V.halt
+
+    getNode :: RenderStateX (RenderState m) -> DOM.Node
+    getNode (RenderStateX (RenderState {node})) = node
 
 runUI
   :: forall m query input output
@@ -132,44 +133,44 @@ renderSpec
   -> AD.RenderSpec m (RenderState m)
 renderSpec document container =
   AD.RenderSpec
-  { render
-  , renderChild = identity
-  , removeChild
-  , dispose = removeChild
-  }
+    { render
+    , renderChild = identity
+    , removeChild
+    , dispose = removeChild
+    }
   where
-  render
-    :: forall state action slots output
-     . (Input action -> m ())
-    -> (ComponentSlotBox slots m action -> m (RenderStateX (RenderState m)))
-    -> HTML (ComponentSlot slots m action) action
-    -> Maybe (RenderState m state action slots output)
-    -> m (RenderState m state action slots output)
-  render handler child (HTML vdom) =
-    \case
-      Nothing -> do
-        renderChildRef <- newMutVar child
-        let spec = mkSpec handler renderChildRef document
-        machine <- V.buildVDom spec vdom
-        let node = V.extract machine
-        void $ DOM.appendChild node (toNode container)
-        pure $ RenderState { machine, node, renderChildRef }
-      Just (RenderState { machine, node, renderChildRef }) -> do
-        atomicWriteMutVar renderChildRef child
-        parent <- DOM.parentNode node
-        nextSib <- DOM.nextSibling node
-        machine' <- V.step machine vdom
-        let newNode = V.extract machine'
-        unless (node `unsafeRefEq` newNode) $
-          substInParent newNode nextSib parent
-        pure $ RenderState { machine = machine', node = newNode, renderChildRef }
+    render
+      :: forall state action slots output
+       . (Input action -> m ())
+      -> (ComponentSlotBox slots m action -> m (RenderStateX (RenderState m)))
+      -> HTML (ComponentSlot slots m action) action
+      -> Maybe (RenderState m state action slots output)
+      -> m (RenderState m state action slots output)
+    render handler child (HTML vdom) =
+      \case
+        Nothing -> do
+          renderChildRef <- newMutVar child
+          let spec = mkSpec handler renderChildRef document
+          machine <- V.buildVDom spec vdom
+          let node = V.extract machine
+          void $ DOM.appendChild node (toNode container)
+          pure $ RenderState {machine, node, renderChildRef}
+        Just (RenderState {machine, node, renderChildRef}) -> do
+          atomicWriteMutVar renderChildRef child
+          parent <- DOM.parentNode node
+          nextSib <- DOM.nextSibling node
+          machine' <- V.step machine vdom
+          let newNode = V.extract machine'
+          unless (node `unsafeRefEq` newNode) $
+            substInParent newNode nextSib parent
+          pure $ RenderState {machine = machine', node = newNode, renderChildRef}
 
-removeChild :: DOM.MonadDOM m => RenderState m state action slots output -> m ()
-removeChild (RenderState { node }) = do
+removeChild :: (DOM.MonadDOM m) => RenderState m state action slots output -> m ()
+removeChild (RenderState {node}) = do
   npn <- DOM.parentNode node
   traverse_ (DOM.removeChild node) npn
 
-substInParent :: DOM.MonadDOM m => DOM.Node -> Maybe DOM.Node -> Maybe DOM.Node -> m ()
+substInParent :: (DOM.MonadDOM m) => DOM.Node -> Maybe DOM.Node -> Maybe DOM.Node -> m ()
 substInParent newNode (Just sib) (Just pn) = void $ DOM.insertBefore newNode sib pn
 substInParent newNode Nothing (Just pn) = void $ DOM.appendChild newNode pn
 substInParent _ _ _ = pass
