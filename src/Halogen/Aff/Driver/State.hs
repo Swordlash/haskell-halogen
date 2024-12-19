@@ -22,6 +22,7 @@ import Halogen.Component
 import Halogen.Query.HalogenM
 import qualified Halogen.Subscription as HS
 import Data.MutVarF
+import Data.Row
 
 data LifecycleHandlers m = LifecycleHandlers
   { initializers :: [m ()]
@@ -53,7 +54,7 @@ data DriverStateRef m r f o = forall s act ps i. DriverStateRef (MutVar (PrimSta
 readDriverStateRef :: PrimMonad m => DriverStateRef m r f o -> m (DriverStateX m r f o)
 readDriverStateRef (DriverStateRef ref) = DriverStateX <$> readMutVar ref
 
-data RenderStateX r = forall s act ps o. RenderStateX (r s act ps o)
+data RenderStateX (r :: Type -> Type -> Row Type -> Type -> Type) = forall s act ps o. RenderStateX (r s act ps o)
 
 renderStateX
   :: Functor m

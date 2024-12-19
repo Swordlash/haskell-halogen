@@ -7,10 +7,9 @@ import Halogen.Query.HalogenM
 import Halogen.Query.HalogenQ
 import Protolude
 import Control.Monad.Parallel
+import Halogen.VDom.Thunk
 
-data ComponentSlot (slots :: Row Type) m msg
-  = forall query input output.
-  ComponentSlot
+data ComponentSlotBox slots m msg = forall query input output. ComponentSlotBox
   { get :: forall slot. SlotStorage slots slot -> Maybe (slot query output)
   , pop :: forall slot. SlotStorage slots slot -> Maybe (slot query output, SlotStorage slots slot)
   , set :: forall slot. slot query output -> SlotStorage slots slot -> SlotStorage slots slot
@@ -18,6 +17,10 @@ data ComponentSlot (slots :: Row Type) m msg
   , input :: input
   , output :: output -> Maybe msg
   }
+
+data ComponentSlot (slots :: Row Type) m msg
+  = ComponentSlot (ComponentSlotBox slots m msg)
+  | ThunkSlot (Thunk (HTML (ComponentSlot slots m msg)) msg)
 
 data ComponentSpec state query action slots input output m = ComponentSpec
   { initialState :: input -> state

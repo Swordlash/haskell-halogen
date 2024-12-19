@@ -4,7 +4,7 @@ module Data.Foreign where
 
 import Protolude
 import Unsafe.Coerce (unsafeCoerce)
-import GHC.Base (reallyUnsafePtrEquality, Int (..))
+import GHC.Base (reallyUnsafePtrEquality, Int (..), reallyUnsafePtrEquality#)
 
 #if defined(javascript_HOST_ARCH)
 import GHC.JS.Prim
@@ -24,3 +24,6 @@ unsafeFromForeign (Foreign o) = unsafeCoerce o
 
 unsafeRefEq :: a -> a -> Bool
 unsafeRefEq p q = I# (reallyUnsafePtrEquality p q) == 1
+
+unsafeRefEqHet :: a -> b -> Bool
+unsafeRefEqHet p q = I# (reallyUnsafePtrEquality# p q) == 1

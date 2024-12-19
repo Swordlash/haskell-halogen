@@ -38,7 +38,7 @@ type Renderer m r =
   -> m ()
 
 evalF
-  :: (PrimMonad m, Parallel f' m, MonadMask m, MonadFork Async m, MonadKill Async m)
+  :: (PrimMonad m, MonadParallel m, MonadMask m, MonadFork Async m, MonadKill Async m)
   => Renderer m r
   -> MutVar (PrimState m) (DriverState m r s f act ps i o)
   -> Input act
@@ -52,7 +52,7 @@ evalF render ref = \case
     evalM render ref (runNT st.component.eval (HQ.Message act ()))
 
 evalQ
-  :: (PrimMonad m, Parallel f' m, MonadMask m, MonadFork Async m, MonadKill Async m)
+  :: (PrimMonad m, MonadParallel m, MonadMask m, MonadFork Async m, MonadKill Async m)
   => Renderer m r
   -> MutVar (PrimState m) (DriverState m r s f act ps i o)
   -> f a
@@ -62,8 +62,8 @@ evalQ render ref q = do
   evalM render ref (runNT st.component.eval (HQ.Query (Just <$> liftCoyoneda q) (const Nothing)))
 
 evalM
-  :: forall m r s f f' act ps i o a
-   . (PrimMonad m, Parallel f' m, MonadMask m, MonadFork Async m, MonadKill Async m)
+  :: forall m r s f act ps i o a
+   . (PrimMonad m, MonadParallel m, MonadMask m, MonadFork Async m, MonadKill Async m)
   => Renderer m r
   -> MutVar (PrimState m) (DriverState m r s f act ps i o)
   -> HalogenM s act ps o m a
@@ -154,7 +154,7 @@ unsubscribe sid ref = do
   subs <- readMutVar subscriptions
   traverse_ HS.unsubscribe (M.lookup sid =<< subs)
 
-handleLifecycle :: (PrimMonad m, Parallel f m, MonadFork f' m) => MutVar (PrimState m) (LifecycleHandlers m) -> m a -> m a
+handleLifecycle :: (PrimMonad m, MonadParallel m, MonadFork f' m) => MutVar (PrimState m) (LifecycleHandlers m) -> m a -> m a
 handleLifecycle lchs f = do
   atomicWriteMutVar lchs $ LifecycleHandlers { initializers = [], finalizers = [] }
   result <- f

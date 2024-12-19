@@ -13,6 +13,7 @@ import Halogen.VDom.Types
 import Halogen.VDom.Utils
 import Protolude hiding (state)
 import Web.DOM.Element
+import Web.DOM.Internal.Types
 
 type VDomMachine m a w = Machine m (VDom a w) Node
 
@@ -63,9 +64,8 @@ patchText state vdom = do
       build vdom
 
 haltText :: (MonadDOM m) => TextState m a w -> m ()
-haltText TextState {node} = do
-  parent <- parentNode node
-  removeChild node parent
+haltText TextState {node} =
+  traverse_ (removeChild node) =<< parentNode node
 
 ----------------------------------------------------------------------
 
@@ -132,8 +132,7 @@ patchElem state vdom = do
 
 haltElem :: (MonadDOM m) => ElemState m a w -> m ()
 haltElem ElemState {node, attrs, children} = do
-  parent <- parentNode node
-  removeChild node parent
+  traverse_ (removeChild node) =<< parentNode node
   for_ children halt
   halt attrs
 

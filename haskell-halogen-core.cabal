@@ -47,8 +47,10 @@ library
       Halogen.VDom.DOM
       Halogen.VDom.DOM.Monad
       Halogen.VDom.DOM.Prop
+      Halogen.VDom.Driver
       Halogen.VDom.Machine
       Halogen.VDom.Utils
+      Halogen.VDom.Thunk
       Halogen.VDom.Types
 
       Halogen.Component

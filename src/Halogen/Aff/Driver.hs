@@ -36,7 +36,7 @@ data RenderSpec (m :: Type -> Type) (r :: Type -> Type -> Row Type -> Type -> Ty
   { render ::
       forall s act ps o
        . (Input act -> m ())
-      -> (ComponentSlot ps m act -> m (RenderStateX r))
+      -> (ComponentSlotBox ps m act -> m (RenderStateX r))
       -> HC.HTML (ComponentSlot ps m act) act
       -> Maybe (r s act ps o)
       -> m (r s act ps o)
@@ -47,7 +47,7 @@ data RenderSpec (m :: Type -> Type) (r :: Type -> Type -> Row Type -> Type -> Ty
 
 runUI
   :: forall m r f i o
-   . (PrimMonad m, MonadFork Async m, MonadKill Async m, Parallel f m, MonadMask m, MonadUUID m)
+   . (PrimMonad m, MonadFork Async m, MonadKill Async m, MonadParallel m, MonadMask m, MonadUUID m)
   => RenderSpec m r
   -> Component f i o m
   -> i
@@ -147,9 +147,9 @@ runUI RenderSpec{render = renderS, renderChild = renderChildS, removeChild = rem
     -> (act -> m ())
     -> MutVar (PrimState m) (Slot.SlotStorage ps (DriverStateRef m r))
     -> MutVar (PrimState m) (Slot.SlotStorage ps (DriverStateRef m r))
-    -> ComponentSlot ps m act
+    -> ComponentSlotBox ps m act
     -> m (RenderStateX r)
-  renderChild lchs handler childrenInRef childrenOutRef ComponentSlot{pop, output, input, component = c, get, set} = do
+  renderChild lchs handler childrenInRef childrenOutRef ComponentSlotBox{pop, output, input, component = c, get, set} = do
     childrenIn <- pop <$> readMutVar childrenInRef
     var <- case childrenIn of
       Just (existing, childrenIn') -> do
