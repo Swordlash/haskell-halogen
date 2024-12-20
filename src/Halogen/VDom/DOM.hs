@@ -14,6 +14,7 @@ import Halogen.VDom.Utils
 import Protolude hiding (state)
 import Web.DOM.Element
 import Web.DOM.Internal.Types
+import Web.DOM.ParentNode
 
 type VDomMachine m a w = Machine m (VDom a w) Node
 
@@ -92,7 +93,7 @@ buildElem spec build ns1 name1 as1 ch1 = do
   let node = elementToNode el
       onChild ix child = do
         res <- build child
-        insertChildIx ix (extract res) node
+        insertChildIx ix (extract res) $ toParentNode node
         pure res
 
   children <- for (zip [0 ..] ch1) (uncurry onChild)
@@ -115,12 +116,12 @@ patchElem state vdom = do
         _ -> do
           let onThese ix s v = do
                 res <- step s v
-                insertChildIx ix (extract res) node
+                insertChildIx ix (extract res) $ toParentNode node
                 pure $ Just res
               onThis _ s = halt s $> Nothing
               onThat ix v = do
                 res <- build v
-                insertChildIx ix (extract res) node
+                insertChildIx ix (extract res) $ toParentNode node
                 pure $ Just res
           children2 <- diffWithIxE ch1 ch2 onThese onThis onThat
           attrs2 <- step attrs as2

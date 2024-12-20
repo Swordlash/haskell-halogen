@@ -29,6 +29,7 @@ import Protolude
 import UnliftIO (MonadUnliftIO)
 import Web.DOM.Internal.Types
 import Web.DOM.Internal.Types qualified as DOM
+import Web.DOM.ParentNode (ParentNode, toParentNode)
 
 type VHTML m action slots =
   V.VDom [Prop (Input action)] (ComponentSlot slots m action)
@@ -154,7 +155,7 @@ renderSpec document container =
           let spec = mkSpec handler renderChildRef document
           machine <- V.buildVDom spec vdom
           let node = V.extract machine
-          void $ DOM.appendChild node (toNode container)
+          void $ DOM.appendChild node $ toParentNode $ toNode container
           pure $ RenderState {machine, node, renderChildRef}
         Just (RenderState {machine, node, renderChildRef}) -> do
           atomicWriteMutVar renderChildRef child
@@ -171,7 +172,7 @@ removeChild (RenderState {node}) = do
   npn <- DOM.parentNode node
   traverse_ (DOM.removeChild node) npn
 
-substInParent :: (DOM.MonadDOM m) => DOM.Node -> Maybe DOM.Node -> Maybe DOM.Node -> m ()
+substInParent :: (DOM.MonadDOM m) => DOM.Node -> Maybe DOM.Node -> Maybe ParentNode -> m ()
 substInParent newNode (Just sib) (Just pn) = void $ DOM.insertBefore newNode sib pn
 substInParent newNode Nothing (Just pn) = void $ DOM.appendChild newNode pn
 substInParent _ _ _ = pass
