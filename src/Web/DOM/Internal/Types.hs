@@ -1,6 +1,7 @@
 module Web.DOM.Internal.Types where
 
 import Data.Foreign (Foreign)
+import Protolude
 import Unsafe.Coerce (unsafeCoerce)
 
 newtype Node = Node (Foreign Node)
@@ -20,6 +21,9 @@ newtype Document = Document (Foreign Document)
 newtype HTMLDocument = HMTLDocument (Foreign Document)
 
 newtype Window = Window (Foreign Window)
+
+fromElement :: Element -> Maybe HTMLElement
+fromElement = Just . unsafeCoerce
 
 toDocument :: a -> Document
 toDocument = unsafeCoerce

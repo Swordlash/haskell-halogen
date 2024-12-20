@@ -12,6 +12,7 @@ import Control.Monad.Parallel
 import Control.Monad.Primitive
 import Control.Monad.UUID
 import Data.MutVarF
+import Data.NT
 import Data.Primitive
 import Data.Row
 import Halogen.Aff.Driver.Eval qualified as Eval
@@ -24,7 +25,7 @@ import Halogen.Query.Input
 import Halogen.Query.Input qualified as Input
 import Halogen.Subscription qualified as HS
 import Protolude hiding (get)
-import UnliftIO (AsyncCancelled (AsyncCancelled))
+import UnliftIO (AsyncCancelled (AsyncCancelled), MonadUnliftIO)
 import Unsafe.Coerce
 
 data HalogenIO query output m = HalogenIO
@@ -48,7 +49,7 @@ data RenderSpec (m :: Type -> Type) (r :: Type -> Type -> Row Type -> Type -> Ty
 
 runUI
   :: forall m r f i o
-   . (PrimMonad m, MonadFork Async m, MonadKill Async m, MonadParallel m, MonadMask m, MonadUUID m)
+   . (PrimMonad m, MonadUnliftIO m, MonadFork Async m, MonadKill Async m, MonadParallel m, MonadMask m, MonadUUID m)
   => RenderSpec m r
   -> Component f i o m
   -> i

@@ -1,4 +1,4 @@
-module Halogen.HTML.Core where
+module Halogen.HTML.Core (module Halogen.HTML.Core, module Web.HTML.Common, Namespace (..), ElemName (..)) where
 
 import Halogen.Query.Input
 import Halogen.VDom.DOM.Prop

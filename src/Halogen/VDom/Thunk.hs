@@ -1,3 +1,6 @@
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+
+{-# HLINT ignore "Eta reduce" #-}
 module Halogen.VDom.Thunk where
 
 import Data.Foreign
@@ -21,6 +24,12 @@ data ThunkState m f i a w = ThunkState
   { vdom :: V.Step m (V.VDom a w) Node
   , thunk :: Thunk f i
   }
+
+hoist :: forall f g a. (forall x. f x -> g x) -> Thunk f a -> Thunk g a
+hoist f = mapThunk f
+
+mapThunk :: forall f g i j. (f i -> g j) -> Thunk f i -> Thunk g j
+mapThunk k (Thunk a b c d) = Thunk a b (k . c) d
 
 runThunk :: forall f i. Thunk f i -> f i
 runThunk (Thunk _ _ render arg) = render arg

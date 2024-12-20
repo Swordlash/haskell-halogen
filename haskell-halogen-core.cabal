@@ -26,6 +26,9 @@ library
       Control.Monad.UUID
       Data.Foreign
       Data.MutVarF
+      Data.NT
+
+      Halogen
 
       Halogen.VDom
       Halogen.Data.Slot
@@ -34,10 +37,12 @@ library
       Halogen.Aff.Driver.Eval
       Halogen.Aff.Driver.State
 
+      Halogen.HTML
       Halogen.HTML.Core
       Halogen.HTML.Elements
       Halogen.HTML.Properties
 
+      Halogen.Query
       Halogen.Query.ChildQuery
       Halogen.Query.Event
       Halogen.Query.Input

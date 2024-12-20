@@ -19,16 +19,18 @@ import Data.Foreign
 import Data.Functor.Coyoneda
 import Data.Map.Strict qualified as M
 import Data.MutVarF
+import Data.NT
 import Data.Primitive
 import Halogen.Aff.Driver.State
-import Halogen.Component (ComponentSpec (..))
+import Halogen.Component
 import Halogen.Query.ChildQuery qualified as CQ
-import Halogen.Query.HalogenM
+import Halogen.Query.HalogenM hiding (fork, join, kill, query, unsubscribe)
 import Halogen.Query.HalogenQ qualified as HQ
 import Halogen.Query.Input
 import Halogen.Query.Input qualified as Input
 import Halogen.Subscription qualified as HS
 import Protolude hiding (Concurrently, finally, join, runConcurrently, state)
+import UnliftIO (MonadUnliftIO (..))
 import UnliftIO.Async (AsyncCancelled (..))
 
 type Renderer m r =
@@ -38,7 +40,7 @@ type Renderer m r =
   -> m ()
 
 evalF
-  :: (PrimMonad m, MonadParallel m, MonadMask m, MonadFork Async m, MonadKill Async m)
+  :: (PrimMonad m, MonadUnliftIO m, MonadParallel m, MonadMask m, MonadFork Async m, MonadKill Async m)
   => Renderer m r
   -> MutVar (PrimState m) (DriverState m r s f act ps i o)
   -> Input act
@@ -49,10 +51,10 @@ evalF render ref = \case
       st {refs = M.alter (const el) p st.refs}
   Input.Action act -> do
     st <- readMutVar ref
-    evalM render ref (runNT st.component.eval (HQ.Message act ()))
+    evalM render ref (runNT st.component.eval (HQ.Action act ()))
 
 evalQ
-  :: (PrimMonad m, MonadParallel m, MonadMask m, MonadFork Async m, MonadKill Async m)
+  :: (PrimMonad m, MonadUnliftIO m, MonadParallel m, MonadMask m, MonadFork Async m, MonadKill Async m)
   => Renderer m r
   -> MutVar (PrimState m) (DriverState m r s f act ps i o)
   -> f a
@@ -63,7 +65,7 @@ evalQ render ref q = do
 
 evalM
   :: forall m r s f act ps i o a
-   . (PrimMonad m, MonadParallel m, MonadMask m, MonadFork Async m, MonadKill Async m)
+   . (PrimMonad m, MonadUnliftIO m, MonadParallel m, MonadMask m, MonadFork Async m, MonadKill Async m)
   => Renderer m r
   -> MutVar (PrimState m) (DriverState m r s f act ps i o)
   -> HalogenM s act ps o m a
@@ -87,8 +89,8 @@ evalM render initRef (HalogenM hm) = foldF (go initRef) hm
                 pure a
       Subscribe fes k -> do
         sid <- fresh SubscriptionId ref
-        finalize <- HS.subscribe (fes sid) $ \act ->
-          evalF render ref (Input.Action act)
+        finalize <- fmap (HS.transSubscription (NT liftIO)) $ withRunInIO $ \runInIO -> HS.subscribe (fes sid) $ \act ->
+          runInIO $ evalF render ref (Input.Action act)
         DriverState {subscriptions} <- readMutVar ref
         atomicModifyMutVar'_ subscriptions (map (M.insert sid finalize))
         pure (k sid)

@@ -6,6 +6,7 @@ import Control.Monad.UUID
 import Data.Coerce
 import Data.Functor.Contravariant
 import Data.MutVarF
+import Data.NT
 import Data.Primitive
 import Protolude
 
@@ -73,6 +74,9 @@ instance Contravariant (Listener m) where
   contramap f (Listener g) = coerce (g . f)
 
 newtype Subscription m = Subscription {unsubscribe :: m ()}
+
+transSubscription :: (m ~> n) -> Subscription m -> Subscription n
+transSubscription (NT f) (Subscription unsub) = Subscription (f unsub)
 
 subscribe
   :: (Functor m)

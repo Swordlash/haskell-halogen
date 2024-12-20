@@ -2,11 +2,6 @@ module Control.Monad.Parallel where
 
 import Protolude
 
-newtype (~>) m n = NT (forall a. m a -> n a)
-
-runNT :: (m ~> n) -> m a -> n a
-runNT (NT f) = f
-
 class (Applicative (Parallel m), Monad m) => MonadParallel m where
   type Parallel m :: Type -> Type
   parallel :: m a -> Parallel m a

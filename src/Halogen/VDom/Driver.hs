@@ -26,6 +26,7 @@ import Halogen.VDom.DOM.Prop qualified as VP
 import Halogen.VDom.Thunk (Thunk)
 import Halogen.VDom.Thunk qualified as Thunk
 import Protolude
+import UnliftIO (MonadUnliftIO)
 import Web.DOM.Internal.Types
 import Web.DOM.Internal.Types qualified as DOM
 
@@ -116,7 +117,7 @@ mkSpec handler renderChildRef document =
 
 runUI
   :: forall m query input output
-   . (DOM.MonadDOM m, PrimMonad m, MonadFork Async m, MonadKill Async m, MonadParallel m, MonadMask m, MonadUUID m)
+   . (DOM.MonadDOM m, PrimMonad m, MonadUnliftIO m, MonadFork Async m, MonadKill Async m, MonadParallel m, MonadMask m, MonadUUID m)
   => Component query input output m
   -> input
   -> DOM.HTMLElement
