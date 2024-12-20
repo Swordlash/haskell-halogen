@@ -1,7 +1,7 @@
 module Halogen.Aff.Driver
   ( RenderSpec (..)
   , runUI
-  , HalogenIO (..)
+  , HalogenSocket (..)
   )
 where
 
@@ -28,7 +28,7 @@ import Protolude hiding (get)
 import UnliftIO (AsyncCancelled (AsyncCancelled), MonadUnliftIO)
 import Unsafe.Coerce
 
-data HalogenIO query output m = HalogenIO
+data HalogenSocket query output m = HalogenSocket
   { query :: forall a. query a -> m (Maybe a)
   , messages :: HS.Emitter m output
   , dispose :: m ()
@@ -53,7 +53,7 @@ runUI
   => RenderSpec m r
   -> Component f i o m
   -> i
-  -> m (HalogenIO f o m)
+  -> m (HalogenSocket f o m)
 runUI RenderSpec {render = renderS, renderChild = renderChildS, removeChild = removeChildS, dispose = disposeS} component i = do
   lchs <- newLifecycleHandlers
   disposed <- newMutVar False
@@ -61,7 +61,7 @@ runUI RenderSpec {render = renderS, renderChild = renderChildS, removeChild = re
     sio <- HS.create
     dsx@(DriverStateX st) <- readDriverStateRef =<< runComponent lchs (HS.notify sio.listener) i component
     pure $
-      HalogenIO
+      HalogenSocket
         { query = evalDriver disposed st.selfRef
         , messages = sio.emitter
         , dispose = dispose disposed lchs dsx

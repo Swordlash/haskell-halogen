@@ -1,7 +1,7 @@
 module Web.Event.Event
   ( EventType (..)
-  , Event
-  , EventTarget
+  , Event (..)
+  , EventTarget (..)
   )
 where
 

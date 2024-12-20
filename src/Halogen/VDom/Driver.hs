@@ -13,7 +13,7 @@ import Data.Coerce
 import Data.Foreign
 import Data.MutVarF (atomicWriteMutVar)
 import Data.Primitive
-import Halogen.Aff.Driver (HalogenIO)
+import Halogen.Aff.Driver (HalogenSocket)
 import Halogen.Aff.Driver qualified as AD
 import Halogen.Aff.Driver.State
 import Halogen.Component
@@ -121,7 +121,7 @@ runUI
   => Component query input output m
   -> input
   -> DOM.HTMLElement
-  -> m (HalogenIO query output m)
+  -> m (HalogenSocket query output m)
 runUI component i element = do
   document <- toDocument <$> (DOM.document =<< DOM.window)
   AD.runUI (renderSpec document element) component i

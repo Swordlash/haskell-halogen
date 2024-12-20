@@ -38,6 +38,8 @@ newtype HalogenM state action slots output m a
   = HalogenM (F (HalogenF state action slots output m) a)
   deriving (Functor, Applicative, Monad)
 
+type HalogenIO state action slots output a = HalogenM state action slots output IO a
+
 newtype HalogenAp state action slots output m a
   = HalogenAp (Ap (HalogenM state action slots output m) a)
   deriving (Functor, Applicative)

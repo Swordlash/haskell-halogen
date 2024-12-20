@@ -5,6 +5,7 @@ module Halogen.VDom.Types
   , runGraft
   , ElemName (..)
   , Namespace (..)
+  , unNamespace
   )
 where
 
@@ -15,6 +16,9 @@ newtype ElemName = ElemName Text
 
 newtype Namespace = Namespace Text
   deriving (Eq, Ord, Show, IsString)
+
+unNamespace :: Namespace -> Text
+unNamespace (Namespace ns) = ns
 
 data VDom a w
   = Text !Text

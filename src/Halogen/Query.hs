@@ -49,7 +49,7 @@ type Tell f = () -> f ()
 -- | ```purescript
 -- | data Query a = Tick a
 -- |
--- | sendTick :: forall o. H.HalogenIO Query o Aff -> Aff (Maybe ())
+-- | sendTick :: forall o. H.HalogenSocket Query o Aff -> Aff (Maybe ())
 -- | sendTick app = app.query (H.mkTell Tick)
 -- | ```
 mkTell :: forall f. Tell f -> f ()
@@ -95,7 +95,7 @@ type Request f a = (a -> a) -> f a
 -- | ```purescript
 -- | data Query a = GetTickCount (Int -> a)
 -- |
--- | getTickCount :: forall o. H.HalogenIO Query o Aff -> Aff (Maybe Int)
+-- | getTickCount :: forall o. H.HalogenSocket Query o Aff -> Aff (Maybe Int)
 -- | getTickCount app = app.query (H.mkRequest GetTickCount)
 -- | ```
 mkRequest :: forall f a. Request f a -> f a

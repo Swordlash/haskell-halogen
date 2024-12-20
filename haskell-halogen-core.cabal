@@ -107,6 +107,10 @@ library
     default-language: GHC2021
     ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures
 
+    if arch(javascript)
+      js-sources:
+        jsbits/monad_dom.js
+
 
 
 test-suite Halogen-core-test

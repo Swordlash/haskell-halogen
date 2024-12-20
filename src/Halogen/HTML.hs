@@ -113,7 +113,7 @@ memoized
 memoized eqFn f =
   -- Note: This implementation must not be eta-expanded, as it relies on
   -- partial application to work.
-  Core.widget . ThunkSlot <$> Thunk (ThunkId $ toForeign f) eqFn f
+  Core.widget . ThunkSlot <$> Thunk (unsafeThunkId f) eqFn f
 
 -- | Skips rendering for referentially equal arguments. You should not use this
 -- | function fully saturated, but instead partially apply it for use within a

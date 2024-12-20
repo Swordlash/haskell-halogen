@@ -12,6 +12,9 @@ import Web.DOM.Internal.Types
 
 newtype ThunkId = ThunkId (Foreign ThunkId)
 
+unsafeThunkId :: a -> ThunkId
+unsafeThunkId = unsafeCoerce
+
 data Thunk f i = forall a. Thunk ThunkId (a -> a -> Bool) (a -> f i) a
 
 unsafeEqThunk :: forall f i. Thunk f i -> Thunk f i -> Bool

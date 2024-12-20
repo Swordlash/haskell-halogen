@@ -11,9 +11,24 @@ import Unsafe.Coerce (unsafeCoerce)
 import GHC.JS.Prim
 type Foreign tag = JSVal
 
+newtype Nullable tag = Nullable (Foreign tag)
+
+nullableToMaybe :: Nullable tag -> Maybe (Foreign tag)
+nullableToMaybe (Nullable o) = if isNull o then Nothing else Just o
+
+toForeign :: a -> Foreign tag
+toForeign = unsafeCoerce
+
+unsafeFromForeign :: Foreign tag -> a
+unsafeFromForeign = unsafeCoerce
 #else
 
 data Foreign tag = forall a. Foreign a
+
+type Nullable tag = Maybe (Foreign tag)
+
+nullableToMaybe :: Nullable tag -> Maybe (Foreign tag)
+nullableToMaybe = identity
 
 toForeign :: a -> Foreign tag
 toForeign = Foreign
