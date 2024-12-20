@@ -140,11 +140,11 @@ defaultEval =
 -- |   }
 -- | ```
 mkEval
-  :: forall state query action slots input output m a
+  :: forall state query action slots input output m
    . EvalSpec state query action slots input output m
-  -> HalogenQ query action input a
-  -> HalogenM state action slots output m a
-mkEval args@EvalSpec {handleQuery} = \case
+  -> HalogenQ query action input
+    ~> HalogenM state action slots output m
+mkEval args@EvalSpec {handleQuery} = NT $ \case
   Initialize a ->
     traverse_ args.handleAction args.initialize $> a
   Finalize a ->

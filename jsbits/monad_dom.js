@@ -79,11 +79,11 @@ function h$js_has_attribute(namespace, attrName, element) {
 }
 
 function h$js_add_event_listener(eventType, eventListener, eventTarget) {
-  eventTarget.addEventListener(eventType, eventListener);
+  eventTarget.addEventListener(eventType, eventListener, false);
 }
 
 function h$js_remove_event_listener(eventType, eventListener, eventTarget) {
-  eventTarget.removeEventListener(eventType, eventListener);
+  eventTarget.removeEventListener(eventType, eventListener, false);
 }
 
 function h$js_get_window() {
@@ -92,4 +92,12 @@ function h$js_get_window() {
 
 function h$js_get_document(window) {
   return window.document;
+}
+
+function h$js_query_selector(selector, element) {
+  return element.querySelector(selector);
+}
+
+function h$js_ready_state(element) {
+  return element.readyState;
 }

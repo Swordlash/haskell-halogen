@@ -7,8 +7,10 @@ import Protolude
 import Unsafe.Coerce (unsafeCoerce)
 import Web.DOM.Element
 import Web.DOM.Internal.Types
+import Web.DOM.ParentNode
 import Web.Event.Event
 import Web.HTML.Common
+import Web.HTML.HTMLDocument.ReadyState as ReadyState
 import Web.UIEvent.MouseEvent
 
 #if defined(javascript_HOST_ARCH)
@@ -49,6 +51,9 @@ class (Monad m) => MonadDOM m where
   window :: m Window
   document :: Window -> m HTMLDocument
 
+  querySelector :: QuerySelector -> ParentNode -> m (Maybe Element)
+  readyState :: HTMLDocument -> m ReadyState
+
 mouseHandler :: (MouseEvent -> a) -> Event -> a
 mouseHandler = unsafeCoerce
 
@@ -81,6 +86,8 @@ foreign import javascript unsafe "js_remove_attribute" js_remove_attribute :: JS
 foreign import javascript unsafe "js_has_attribute" js_has_attribute :: JSVal -> JSVal -> Element -> IO Bool
 foreign import javascript unsafe "js_add_event_listener" js_add_event_listener :: JSVal -> EventListener -> EventTarget -> IO ()
 foreign import javascript unsafe "js_remove_event_listener" js_remove_event_listener :: JSVal -> EventListener -> EventTarget -> IO ()
+foreign import javascript unsafe "js_query_selector" js_query_selector :: JSVal -> ParentNode -> IO (Nullable Element)
+foreign import javascript unsafe "js_ready_state" js_ready_state :: HTMLDocument -> IO JSVal
 
 foreign import javascript unsafe "(($1) => { return $1; })"
   js_toJSBool :: Bool -> JSVal
@@ -89,7 +96,7 @@ foreign import javascript unsafe "(($1) => { return $1; })"
   js_toJSNum :: Double -> JSVal
 
 instance MonadDOM IO where
-  mkEventListener f = EventListener <$> syncCallback1 ThrowWouldBlock (f . Event)
+  mkEventListener f = EventListener <$> asyncCallback1 (f . Event)
 
   window = js_get_window
   document = js_get_document
@@ -114,6 +121,9 @@ instance MonadDOM IO where
   removeEventListener (EventType et) listener@(EventListener clb) target = do
     js_remove_event_listener (toJSString $ toS et) listener target
     releaseCallback clb
+
+  querySelector (QuerySelector qs) parent = fmap Element . nullableToMaybe <$> js_query_selector (toJSString $ toS qs) parent
+  readyState doc = (fromMaybe ReadyState.Loading . ReadyState.parse . toS . fromJSString) <$> js_ready_state doc
 
 propValueToJSVal :: PropValue a -> JSVal
 propValueToJSVal (IntProp x) = toJSInt $ fromIntegral x

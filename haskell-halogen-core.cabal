@@ -36,10 +36,12 @@ library
       Halogen.Aff.Driver
       Halogen.Aff.Driver.Eval
       Halogen.Aff.Driver.State
+      Halogen.Aff.Util
 
       Halogen.HTML
       Halogen.HTML.Core
       Halogen.HTML.Elements
+      Halogen.HTML.Events
       Halogen.HTML.Properties
 
       Halogen.Query
@@ -63,10 +65,15 @@ library
 
       Web.DOM.Internal.Types
       Web.DOM.Element
+      Web.DOM.ParentNode
       Web.Event.Internal.Types
       Web.Event.Event
       Web.HTML.Common
+      Web.HTML.Event.EventTypes
+      Web.HTML.HTMLDocument
+      Web.HTML.HTMLDocument.ReadyState
       Web.UIEvent.MouseEvent
+      Web.UIEvent.MouseEvent.EventTypes
       
     default-extensions:
       RankNTypes
@@ -111,7 +118,38 @@ library
       js-sources:
         jsbits/monad_dom.js
 
-
+executable halogen-core-prototype
+  main-is:          Main.hs
+  build-depends:    base, free, transformers, mtl, text, protolude, extra, random,
+    row-types, hashable, containers, kan-extensions, uuid-types, primitive, unliftio, safe-exceptions, haskell-halogen-core
+  hs-source-dirs:   app
+  default-language: GHC2021
+  default-extensions:
+    RankNTypes
+    GeneralizedNewtypeDeriving
+    MultiParamTypeClasses
+    FunctionalDependencies
+    FlexibleContexts
+    FlexibleInstances
+    UndecidableInstances
+    GADTs
+    DeriveFunctor
+    DerivingStrategies
+    NoImplicitPrelude
+    KindSignatures
+    DataKinds
+    OverloadedStrings
+    TypeOperators
+    LambdaCase
+    TypeFamilies
+    OverloadedRecordDot
+    RecordWildCards
+    NamedFieldPuns
+    DuplicateRecordFields
+    PartialTypeSignatures
+    DefaultSignatures
+    StandaloneKindSignatures
+    NoFieldSelectors
 
 test-suite Halogen-core-test
     default-language: GHC2021

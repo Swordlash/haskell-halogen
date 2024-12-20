@@ -50,6 +50,9 @@ getM = HalogenM $ liftF $ State $ \s -> (s, s)
 putM :: (Functor m) => state -> HalogenM state _ _ _ m ()
 putM s = HalogenM $ liftF $ State (const ((), s))
 
+instance (Functor m) => MonadState state (HalogenM state action slots output m) where
+  state = HalogenM . liftF . State
+
 instance (Functor m) => MonadParallel (HalogenM state action slots output m) where
   type Parallel (HalogenM state action slots output m) = HalogenAp state action slots output m
   parallel = HalogenAp . liftAp
