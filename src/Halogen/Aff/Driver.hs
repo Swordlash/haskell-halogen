@@ -54,17 +54,17 @@ runUI
   -> Component f i o m
   -> i
   -> m (HalogenSocket f o m)
-runUI RenderSpec {render = renderS, renderChild = renderChildS, removeChild = removeChildS, dispose = disposeS} component i = do
+runUI RenderSpec {..} c i = do
   lchs <- newLifecycleHandlers
   disposed <- newMutVar False
   Eval.handleLifecycle lchs $ do
     sio <- HS.create
-    dsx@(DriverStateX st) <- readDriverStateRef =<< runComponent lchs (HS.notify sio.listener) i component
+    dsx@(DriverStateX st) <- readDriverStateRef =<< runComponent lchs (HS.notify sio.listener) i c
     pure $
       HalogenSocket
         { query = evalDriver disposed st.selfRef
         , messages = sio.emitter
-        , dispose = dispose disposed lchs dsx
+        , dispose = dispose' disposed lchs dsx
         }
   where
     evalDriver
@@ -75,7 +75,7 @@ runUI RenderSpec {render = renderS, renderChild = renderChildS, removeChild = re
     evalDriver disposed ref q =
       readMutVar disposed >>= \case
         True -> pure Nothing
-        False -> Eval.evalQ render ref q
+        False -> Eval.evalQ render' ref q
 
     runComponent
       :: forall f' i' o'
@@ -84,21 +84,21 @@ runUI RenderSpec {render = renderS, renderChild = renderChildS, removeChild = re
       -> i'
       -> Component f' i' o' m
       -> m (DriverStateRef m r f' o')
-    runComponent lchs handler j (Component c) = do
+    runComponent lchs handler j (Component cs) = do
       lchs' <- newLifecycleHandlers
-      st <- initDriverState c j handler lchs'
+      st <- initDriverState cs j handler lchs'
       pre <- readMutVar lchs
       atomicWriteMutVar lchs $ LifecycleHandlers {initializers = [], finalizers = pre.finalizers}
-      render lchs st.selfRef
+      render' lchs st.selfRef
       squashChildInitializers lchs pre.initializers (DriverStateX st)
       pure $ DriverStateRef st.selfRef
 
-    render
+    render'
       :: forall s f' act ps i' o'
        . MutVar (PrimState m) (LifecycleHandlers m)
       -> MutVar (PrimState m) (DriverState m r s f' act ps i' o')
       -> m ()
-    render lchs var =
+    render' lchs var =
       readMutVar var >>= \ds -> do
         shouldProcessHandlers <- isNothing <$> readMutVar ds.pendingHandlers
         when shouldProcessHandlers $ atomicWriteMutVar ds.pendingHandlers (Just [])
@@ -111,15 +111,15 @@ runUI RenderSpec {render = renderS, renderChild = renderChildS, removeChild = re
             -- selfRef = identity ds.selfRef
 
             handler :: Input act -> m ()
-            handler = Eval.queueOrRun ds.pendingHandlers . void . Eval.evalF render ds.selfRef
+            handler = Eval.queueOrRun ds.pendingHandlers . void . Eval.evalF render' ds.selfRef
 
             childHandler :: act -> m ()
             childHandler = Eval.queueOrRun ds.pendingQueries . handler . Input.Action
 
         rendering <-
-          renderS
+          render
             handler
-            (renderChild lchs childHandler ds.childrenIn ds.childrenOut)
+            (renderChild' lchs childHandler ds.childrenIn ds.childrenOut)
             (ds.component.render ds.state)
             ds.rendering
 
@@ -128,7 +128,7 @@ runUI RenderSpec {render = renderS, renderChild = renderChildS, removeChild = re
 
         Slot.foreachSlot childrenIn $ \(DriverStateRef childVar) -> do
           childDS <- DriverStateX <$> readMutVar childVar
-          renderStateX_ removeChildS childDS
+          renderStateX_ removeChild childDS
           finalize lchs childDS
 
         atomicModifyMutVar'_ ds.selfRef $ \ds' ->
@@ -144,7 +144,7 @@ runUI RenderSpec {render = renderS, renderChild = renderChildS, removeChild = re
               then atomicWriteMutVar ds.pendingHandlers Nothing $> Right ()
               else pure $ Left ()
 
-    renderChild
+    renderChild'
       :: forall ps act
        . MutVar (PrimState m) (LifecycleHandlers m)
       -> (act -> m ())
@@ -152,7 +152,7 @@ runUI RenderSpec {render = renderS, renderChild = renderChildS, removeChild = re
       -> MutVar (PrimState m) (Slot.SlotStorage ps (DriverStateRef m r))
       -> ComponentSlotBox ps m act
       -> m (RenderStateX r)
-    renderChild lchs handler childrenInRef childrenOutRef ComponentSlotBox {pop, output, input, component = c, get, set} = do
+    renderChild' lchs handler childrenInRef childrenOutRef ComponentSlotBox {..} = do
       childrenIn <- pop <$> readMutVar childrenInRef
       var <- case childrenIn of
         Just (existing, childrenIn') -> do
@@ -160,17 +160,17 @@ runUI RenderSpec {render = renderS, renderChild = renderChildS, removeChild = re
           DriverStateX st <- readDriverStateRef existing
           atomicWriteMutVar st.handlerRef $ maybe pass handler . output
           -- forgive me gods but it just doesnt typecheck with input
-          void $ Eval.evalM render st.selfRef (runNT (unsafeCoerce st.component.eval) (HQ.Receive input ()))
+          void $ Eval.evalM render' st.selfRef (runNT (unsafeCoerce st.component.eval) (HQ.Receive input ()))
           pure existing
         Nothing ->
-          runComponent lchs (maybe pass handler . output) input c
+          runComponent lchs (maybe pass handler . output) input component
       isDuplicate <- isJust . get <$> readMutVar childrenOutRef
       when isDuplicate $
         traceM "Halogen: Duplicate slot address was detected during rendering, unexpected results may occur"
       atomicModifyMutVar'_ childrenOutRef (set var)
       (readDriverStateRef var >>=) $ renderStateX $ \case
         Nothing -> throwString "Halogen internal error: child was not initialized in renderChild"
-        Just r -> pure (renderChildS r)
+        Just r -> pure (renderChild r)
 
     squashChildInitializers
       :: forall f' o'
@@ -179,7 +179,7 @@ runUI RenderSpec {render = renderS, renderChild = renderChildS, removeChild = re
       -> DriverStateX m r f' o'
       -> m ()
     squashChildInitializers lchs preInits (DriverStateX st) = do
-      let parentInitializer = Eval.evalM render st.selfRef (runNT st.component.eval (HQ.Initialize ()))
+      let parentInitializer = Eval.evalM render' st.selfRef (runNT st.component.eval (HQ.Initialize ()))
       atomicModifyMutVar'_ lchs $ \handlers ->
         handlers
           { initializers =
@@ -201,7 +201,7 @@ runUI RenderSpec {render = renderS, renderChild = renderChildS, removeChild = re
     finalize lchs (DriverStateX DriverState {selfRef}) = do
       st <- readMutVar selfRef
       cleanupSubscriptionsAndForks st
-      let f = Eval.evalM render st.selfRef (runNT st.component.eval (HQ.Finalize ()))
+      let f = Eval.evalM render' st.selfRef (runNT st.component.eval (HQ.Finalize ()))
       atomicModifyMutVar'_ lchs $ \handlers ->
         handlers
           { initializers = handlers.initializers
@@ -211,20 +211,20 @@ runUI RenderSpec {render = renderS, renderChild = renderChildS, removeChild = re
         ds <- DriverStateX <$> readMutVar ref
         finalize lchs ds
 
-    dispose
+    dispose'
       :: forall f' o'
        . MutVar (PrimState m) Bool
       -> MutVar (PrimState m) (LifecycleHandlers m)
       -> DriverStateX m r f' o'
       -> m ()
-    dispose disposed lchs dsx@(DriverStateX DriverState {selfRef}) = Eval.handleLifecycle lchs $ do
+    dispose' disposed lchs dsx@(DriverStateX DriverState {selfRef}) = Eval.handleLifecycle lchs $ do
       readMutVar disposed >>= \case
         True -> pass
         False -> do
           atomicWriteMutVar disposed True
           finalize lchs dsx
           ds <- readMutVar selfRef
-          for_ ds.rendering disposeS
+          for_ ds.rendering dispose
 
 newLifecycleHandlers :: (PrimMonad m) => m (MutVar (PrimState m) (LifecycleHandlers m))
 newLifecycleHandlers = newMutVar $ LifecycleHandlers {initializers = [], finalizers = []}
