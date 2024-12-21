@@ -6,27 +6,46 @@ import Halogen as H
 import Halogen.Aff.Util as HA
 import Halogen.HTML as HH
 import Halogen.HTML.Events as HE
+import Halogen.Subscription qualified as HS
+import Halogen.VDom.DOM.Monad qualified as DOM
 import Halogen.VDom.Driver (runUI)
 import Protolude
 
-main :: IO ()
+attachComponent :: IO (HalogenSocket Query Int IO)
+logStr :: Text -> IO ()
+
 #if defined(javascript_HOST_ARCH)
-main = do
-  body <- HA.awaitBody
-  void $ runUI component () body
+attachComponent = HA.awaitBody >>= runUI component ()
+logStr = DOM.log
 #else
-main = panic "This module can only be run on JavaScript"
+attachComponent = panic "This module can only be run on JavaScript"
+logStr = putStrLn
 #endif
+
+main :: IO ()
+main = do
+  HalogenSocket {query, messages} <- attachComponent
+
+  void $ HS.subscribe messages $ \st ->
+    logStr $ "State changed: " <> show st
+
+  forever $ do
+    threadDelay 5_000_000
+    void $ query (IncrementQ ())
+    threadDelay 5_000_000
+    void $ query (DecrementQ ())
 
 data Action = Increment Int | Decrement Int
 
-component :: H.Component query () output IO
+data Query a = IncrementQ a | DecrementQ a
+
+component :: H.Component Query () Int IO
 component =
   H.Component $
     H.ComponentSpec
       { initialState
       , render
-      , eval = H.mkEval $ H.defaultEval {handleAction}
+      , eval = H.mkEval $ H.defaultEval {handleAction, handleQuery}
       }
   where
     initialState _ = 0
@@ -40,6 +59,20 @@ component =
              ]
           <> [HH.button [HE.onClick $ const $ Increment 2] [HH.text "++"] | state > 5]
 
+    handleQuery = \case
+      IncrementQ cb -> do
+        modify (+ 1)
+        get >>= H.raise
+        pure $ Just cb
+      DecrementQ cb -> do
+        modify (subtract 1)
+        get >>= H.raise
+        pure $ Just cb
+
     handleAction = \case
-      Increment n -> modify (+ n)
-      Decrement n -> modify (subtract n)
+      Increment n -> do
+        modify (+ n)
+        get >>= H.raise
+      Decrement n -> do
+        modify (subtract n)
+        get >>= H.raise

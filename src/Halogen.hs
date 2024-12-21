@@ -1,5 +1,5 @@
 module Halogen
-  ( HalogenSocket
+  ( HalogenSocket (..)
   , module Halogen.Data.Slot
   , module Halogen.Component
   , module Halogen.HTML
@@ -8,7 +8,7 @@ module Halogen
   )
 where
 
-import Halogen.Aff.Driver (HalogenSocket)
+import Halogen.Aff.Driver (HalogenSocket (..))
 import Halogen.Component (Component (..), ComponentSlot, ComponentSlotBox, ComponentSpec (..), EvalSpec (..), componentSlot, defaultEval, hoist, mkEval)
 import Halogen.Data.Slot (Slot)
 import Halogen.HTML (ComponentHTML)

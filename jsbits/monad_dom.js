@@ -123,3 +123,8 @@ function js_ready_state(element) {
   // console.log("Getting ready state");
   return element.readyState;
 }
+
+function js_crypto_random_uuid() {
+  // console.log("Generating random UUID");
+  return window.crypto.randomUUID();
+}
