@@ -9,7 +9,7 @@ While the library itself compiles under any GHC (tested with 9.6, 9.8 and 9.10) 
 The easiest way to get it is to use `ghcup` precompiled binaries from [here](https://www.haskell.org/ghcup/guide/#cross-support), then run
 
 ```
-./run_dev_server-9.10.sh
+./run_dev_server.sh
 ```
 
 to compile the JS sources and serve them on localhost. 
