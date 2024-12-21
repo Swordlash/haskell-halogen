@@ -1,21 +1,22 @@
-{-# LANGUAGE FunctionalDependencies #-}
-
 module Control.Monad.Fork where
 
 import Control.Exception.Safe
 import Protolude
 
-class (Monad m, Functor f) => MonadFork f m | m -> f where
+class (Monad m, Functor (Fork m)) => MonadFork m where
+  type Fork m :: Type -> Type
+
   -- suspend :: m a -> m (f a)
-  fork :: m a -> m (f a)
-  join :: f a -> m a
+  fork :: m a -> m (Fork m a)
+  join :: Fork m a -> m a
 
-class (MonadFork f m, MonadThrow m) => MonadKill f m | m -> f where
-  kill :: (Exception e) => e -> f a -> m ()
+class (MonadFork m, MonadThrow m) => MonadKill m where
+  kill :: (Exception e) => e -> Fork m a -> m ()
 
-instance MonadFork Async IO where
+instance MonadFork IO where
+  type Fork IO = Async
   fork = async
   join = wait
 
-instance MonadKill Async IO where
+instance MonadKill IO where
   kill = flip cancelWith

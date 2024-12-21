@@ -14,6 +14,7 @@ module Halogen.Aff.Driver.State
   )
 where
 
+import Control.Monad.Fork
 import Control.Monad.Primitive
 import Data.MutVarF
 import Data.Primitive
@@ -45,7 +46,7 @@ data DriverState m r s f act ps i o = DriverState
   , rendering :: Maybe (r s act ps o)
   , fresh :: MutVar (PrimState m) Int
   , subscriptions :: MutVar (PrimState m) (Maybe (Map SubscriptionId (HS.Subscription m)))
-  , forks :: MutVar (PrimState m) (Map ForkId (Async ()))
+  , forks :: MutVar (PrimState m) (Map ForkId (Fork m ()))
   , lifecycleHandlers :: MutVar (PrimState m) (LifecycleHandlers m)
   }
 

@@ -49,7 +49,7 @@ data RenderSpec (m :: Type -> Type) (r :: Type -> Type -> Row Type -> Type -> Ty
 
 runUI
   :: forall m r f i o
-   . (PrimMonad m, MonadUnliftIO m, MonadFork Async m, MonadKill Async m, MonadParallel m, MonadMask m, MonadUUID m)
+   . (PrimMonad m, MonadUnliftIO m, MonadFork m, MonadKill m, MonadParallel m, MonadMask m, MonadUUID m)
   => RenderSpec m r
   -> Component f i o m
   -> i
@@ -229,14 +229,14 @@ runUI RenderSpec {render = renderS, renderChild = renderChildS, removeChild = re
 newLifecycleHandlers :: (PrimMonad m) => m (MutVar (PrimState m) (LifecycleHandlers m))
 newLifecycleHandlers = newMutVar $ LifecycleHandlers {initializers = [], finalizers = []}
 
-handlePending :: (PrimMonad m, MonadFork f m) => MutVar (PrimState m) (Maybe [m ()]) -> m ()
+handlePending :: (PrimMonad m, MonadFork m) => MutVar (PrimState m) (Maybe [m ()]) -> m ()
 handlePending ref = do
   queue <- readMutVar ref
   atomicWriteMutVar ref Nothing
   for_ queue (traverse_ fork . reverse)
 
 cleanupSubscriptionsAndForks
-  :: (PrimMonad m, MonadKill Async m)
+  :: (PrimMonad m, MonadKill m)
   => DriverState m r s f act ps i o
   -> m ()
 cleanupSubscriptionsAndForks ds = do

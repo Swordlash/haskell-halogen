@@ -118,7 +118,7 @@ mkSpec handler renderChildRef document =
 
 runUI
   :: forall m query input output
-   . (DOM.MonadDOM m, PrimMonad m, MonadUnliftIO m, MonadFork Async m, MonadKill Async m, MonadParallel m, MonadMask m, MonadUUID m)
+   . (DOM.MonadDOM m, PrimMonad m, MonadUnliftIO m, MonadFork m, MonadKill m, MonadParallel m, MonadMask m, MonadUUID m)
   => Component query input output m
   -> input
   -> DOM.HTMLElement
