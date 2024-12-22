@@ -104,6 +104,7 @@ library
       Halogen.VDom.Types
 
       Halogen.Component
+      Halogen.Component.Debounced
       Halogen.Subscription
 
       Web.DOM.Internal.Types
