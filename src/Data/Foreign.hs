@@ -4,7 +4,7 @@
 module Data.Foreign where
 
 import GHC.Base (Int (..), reallyUnsafePtrEquality, reallyUnsafePtrEquality#)
-import Protolude
+import HPrelude
 import Unsafe.Coerce (unsafeCoerce)
 
 #if defined(javascript_HOST_ARCH)
@@ -22,8 +22,7 @@ toForeign = unsafeCoerce
 unsafeFromForeign :: Foreign tag -> a
 unsafeFromForeign = unsafeCoerce
 #else
-
-data Foreign tag = forall a. Foreign a
+newtype Foreign tag = Foreign Any
 
 type Nullable tag = Maybe (Foreign tag)
 
@@ -31,11 +30,10 @@ nullableToMaybe :: Nullable tag -> Maybe (Foreign tag)
 nullableToMaybe = identity
 
 toForeign :: a -> Foreign tag
-toForeign = Foreign
+toForeign = Foreign . unsafeCoerce
 
 unsafeFromForeign :: Foreign tag -> a
 unsafeFromForeign (Foreign o) = unsafeCoerce o
-
 #endif
 
 unsafeRefEq :: a -> a -> Bool

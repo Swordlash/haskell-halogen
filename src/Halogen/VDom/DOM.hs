@@ -7,11 +7,11 @@ module Halogen.VDom.DOM
   )
 where
 
+import HPrelude hiding (state)
 import Halogen.VDom.DOM.Monad
 import Halogen.VDom.Machine
 import Halogen.VDom.Types
 import Halogen.VDom.Utils
-import Protolude hiding (state)
 import Web.DOM.Element
 import Web.DOM.Internal.Types
 import Web.DOM.ParentNode

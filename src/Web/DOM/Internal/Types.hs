@@ -3,7 +3,7 @@
 module Web.DOM.Internal.Types where
 
 import Data.Foreign (Foreign)
-import Protolude
+import HPrelude
 import Unsafe.Coerce (unsafeCoerce)
 
 #if defined(javascript_HOST_ARCH)

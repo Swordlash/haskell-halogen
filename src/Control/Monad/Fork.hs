@@ -1,7 +1,7 @@
 module Control.Monad.Fork where
 
 import Control.Exception.Safe
-import Protolude
+import HPrelude
 
 class (Monad m, Functor (Fork m)) => MonadFork m where
   type Fork m :: Type -> Type

@@ -1,8 +1,8 @@
 module Halogen.Query.ChildQuery where
 
 import Data.Row
+import HPrelude
 import Halogen.Data.Slot
-import Protolude
 
 data ChildQuery (ps :: Row Type) (a :: Type) where
   ChildQuery

@@ -1,6 +1,6 @@
 module Control.Monad.Parallel where
 
-import Protolude
+import HPrelude
 
 class (Applicative (Parallel m), Monad m) => MonadParallel m where
   type Parallel m :: Type -> Type
@@ -8,7 +8,7 @@ class (Applicative (Parallel m), Monad m) => MonadParallel m where
   sequential :: Parallel m a -> m a
 
 instance MonadParallel IO where
-  type Parallel IO = Concurrently
+  type Parallel IO = Concurrently IO
   parallel = Concurrently
   sequential = runConcurrently
 

@@ -9,7 +9,7 @@ module Halogen.VDom.Types
   )
 where
 
-import Protolude
+import HPrelude
 
 newtype ElemName = ElemName Text
   deriving (Eq, Ord, Show, IsString)

@@ -1,10 +1,10 @@
 module Halogen.HTML.Events where
 
 import Data.Row
+import HPrelude
 import Halogen.HTML.Core qualified as Core
 import Halogen.HTML.Properties
 import Halogen.Query.Input
-import Protolude
 import Unsafe.Coerce (unsafeCoerce)
 import Web.Event.Event
 import Web.UIEvent.MouseEvent

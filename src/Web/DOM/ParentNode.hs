@@ -1,7 +1,7 @@
 module Web.DOM.ParentNode where
 
 import Data.Foreign
-import Protolude
+import HPrelude
 import Unsafe.Coerce (unsafeCoerce)
 import Web.DOM.Internal.Types
 

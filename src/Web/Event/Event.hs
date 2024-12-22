@@ -5,7 +5,7 @@ module Web.Event.Event
   )
 where
 
-import Protolude
+import HPrelude
 import Web.Event.Internal.Types
 
 newtype EventType = EventType Text

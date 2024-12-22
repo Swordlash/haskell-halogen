@@ -19,14 +19,55 @@ maintainer:         mateusz.goslinowski@gmail.com
 category:           Web
 extra-source-files: CHANGELOG.md
 
+common commons
+  build-depends:    
+      base, free, transformers, mtl, text, protolude, extra, random, time, bytestring, stm, deepseq, unordered-containers, async,
+      row-types, hashable, containers, kan-extensions, uuid-types, unliftio, safe-exceptions
+  
+  default-language: GHC2021
+  ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures
+
+  default-extensions:
+      RankNTypes
+      GeneralizedNewtypeDeriving
+      MultiParamTypeClasses
+      FunctionalDependencies
+      FlexibleContexts
+      FlexibleInstances
+      UndecidableInstances
+      GADTs
+      DeriveFunctor
+      DerivingStrategies
+      NoImplicitPrelude
+      KindSignatures
+      DataKinds
+      OverloadedStrings
+      TypeOperators
+      LambdaCase
+      TypeFamilies
+      OverloadedRecordDot
+      RecordWildCards
+      NamedFieldPuns
+      DuplicateRecordFields
+      PartialTypeSignatures
+      DefaultSignatures
+      StandaloneKindSignatures
+      NoFieldSelectors
+      DerivingVia
+      CPP
+
 library
+    import: commons
+
     exposed-modules:
       Control.Monad.Fork
       Control.Monad.Parallel
+      Control.Monad.State.Delayed.Class
+      Control.Monad.State.Delayed.Delayer
+      Control.Monad.State.Delayed.Trans
       Control.Monad.State.Prim
       Control.Monad.UUID
       Data.Foreign
-      Data.MutVarF
       Data.NT
 
       Halogen
@@ -76,85 +117,24 @@ library
       Web.UIEvent.MouseEvent
       Web.UIEvent.MouseEvent.EventTypes
       
-    default-extensions:
-      RankNTypes
-      GeneralizedNewtypeDeriving
-      MultiParamTypeClasses
-      FunctionalDependencies
-      FlexibleContexts
-      FlexibleInstances
-      UndecidableInstances
-      GADTs
-      DeriveFunctor
-      DerivingStrategies
-      NoImplicitPrelude
-      KindSignatures
-      DataKinds
-      OverloadedStrings
-      TypeOperators
-      LambdaCase
-      TypeFamilies
-      OverloadedRecordDot
-      RecordWildCards
-      NamedFieldPuns
-      DuplicateRecordFields
-      PartialTypeSignatures
-      DefaultSignatures
-      StandaloneKindSignatures
-      NoFieldSelectors
-
-    -- Modules included in this library but not exported.
-    -- other-modules:
-
-    -- LANGUAGE extensions used by modules in this package.
-    -- other-extensions:
-    build-depends:    
-      base, free, transformers, mtl, text, protolude, extra, random,
-      row-types, hashable, containers, kan-extensions, uuid-types, primitive, unliftio, safe-exceptions
+    other-modules:
+      HPrelude
+    
     hs-source-dirs:   src
-    default-language: GHC2021
-    ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures
 
     if arch(javascript)
       js-sources:
         jsbits/monad_dom.js
 
 executable halogen-core-prototype
+  import: commons
   main-is:          Main.hs
-  build-depends:    base, free, transformers, mtl, text, protolude, extra, random,
-    row-types, hashable, containers, kan-extensions, uuid-types, primitive, unliftio, safe-exceptions, haskell-halogen-core
+  build-depends:    haskell-halogen-core
   hs-source-dirs:   app
-  default-language: GHC2021
-  default-extensions:
-    RankNTypes
-    GeneralizedNewtypeDeriving
-    MultiParamTypeClasses
-    FunctionalDependencies
-    FlexibleContexts
-    FlexibleInstances
-    UndecidableInstances
-    GADTs
-    DeriveFunctor
-    DerivingStrategies
-    NoImplicitPrelude
-    KindSignatures
-    DataKinds
-    OverloadedStrings
-    TypeOperators
-    LambdaCase
-    TypeFamilies
-    OverloadedRecordDot
-    RecordWildCards
-    NamedFieldPuns
-    DuplicateRecordFields
-    PartialTypeSignatures
-    DefaultSignatures
-    StandaloneKindSignatures
-    NoFieldSelectors
 
 test-suite Halogen-core-test
-    default-language: GHC2021
+    import: commons
     type:             exitcode-stdio-1.0
     hs-source-dirs:   test
     main-is:          MyLibTest.hs
-    build-depends:    base
+    build-depends:    haskell-halogen-core

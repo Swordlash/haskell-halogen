@@ -4,7 +4,7 @@ module Control.Monad.UUID where
 
 import Control.Monad.Trans
 import Data.Type.Equality
-import Protolude
+import HPrelude
 
 #if defined(javascript_HOST_ARCH)
 import GHC.JS.Prim

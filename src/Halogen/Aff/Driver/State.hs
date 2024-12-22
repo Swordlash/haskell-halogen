@@ -15,15 +15,12 @@ module Halogen.Aff.Driver.State
 where
 
 import Control.Monad.Fork
-import Control.Monad.Primitive
-import Data.MutVarF
-import Data.Primitive
 import Data.Row
+import HPrelude
 import Halogen.Component
 import Halogen.Data.Slot as SlotStorage
 import Halogen.Query.HalogenM
 import Halogen.Subscription qualified as HS
-import Protolude
 import Web.DOM.Element (Element)
 
 data LifecycleHandlers m = LifecycleHandlers
@@ -36,26 +33,26 @@ data DriverState m r s f act ps i o = DriverState
   , state :: s
   , refs :: Map Text Element
   , children :: SlotStorage ps (DriverStateRef m r)
-  , childrenIn :: MutVar (PrimState m) (SlotStorage ps (DriverStateRef m r))
-  , childrenOut :: MutVar (PrimState m) (SlotStorage ps (DriverStateRef m r))
-  , selfRef :: MutVar (PrimState m) (DriverState m r s f act ps i o)
-  , handlerRef :: MutVar (PrimState m) (o -> m ())
-  , pendingQueries :: MutVar (PrimState m) (Maybe [m ()])
-  , pendingOuts :: MutVar (PrimState m) (Maybe [m ()])
-  , pendingHandlers :: MutVar (PrimState m) (Maybe [m ()])
+  , childrenIn :: IORef (SlotStorage ps (DriverStateRef m r))
+  , childrenOut :: IORef (SlotStorage ps (DriverStateRef m r))
+  , selfRef :: IORef (DriverState m r s f act ps i o)
+  , handlerRef :: IORef (o -> m ())
+  , pendingQueries :: IORef (Maybe [m ()])
+  , pendingOuts :: IORef (Maybe [m ()])
+  , pendingHandlers :: IORef (Maybe [m ()])
   , rendering :: Maybe (r s act ps o)
-  , fresh :: MutVar (PrimState m) Int
-  , subscriptions :: MutVar (PrimState m) (Maybe (Map SubscriptionId (HS.Subscription m)))
-  , forks :: MutVar (PrimState m) (Map ForkId (Fork m ()))
-  , lifecycleHandlers :: MutVar (PrimState m) (LifecycleHandlers m)
+  , fresh :: IORef Int
+  , subscriptions :: IORef (Maybe (Map SubscriptionId (HS.Subscription m)))
+  , forks :: IORef (Map ForkId (Fork m ()))
+  , lifecycleHandlers :: IORef (LifecycleHandlers m)
   }
 
 data DriverStateX m r f o = forall s act ps i. DriverStateX (DriverState m r s f act ps i o)
 
-data DriverStateRef m r f o = forall s act ps i. DriverStateRef (MutVar (PrimState m) (DriverState m r s f act ps i o))
+data DriverStateRef m r f o = forall s act ps i. DriverStateRef (IORef (DriverState m r s f act ps i o))
 
-readDriverStateRef :: (PrimMonad m) => DriverStateRef m r f o -> m (DriverStateX m r f o)
-readDriverStateRef (DriverStateRef ref) = DriverStateX <$> readMutVar ref
+readDriverStateRef :: (MonadIO m) => DriverStateRef m r f o -> m (DriverStateX m r f o)
+readDriverStateRef (DriverStateRef ref) = DriverStateX <$> readIORef ref
 
 data RenderStateX (r :: Type -> Type -> Row Type -> Type -> Type) = forall s act ps o. RenderStateX (r s act ps o)
 
@@ -79,23 +76,23 @@ unDriverStateX :: (forall s act ps i. DriverState m r s f act ps i o -> a) -> Dr
 unDriverStateX f (DriverStateX st) = f st
 
 initDriverState
-  :: (PrimMonad m)
+  :: (MonadIO m)
   => ComponentSpec s f act ps i o m
   -> i
   -> (o -> m ())
-  -> MutVar (PrimState m) (LifecycleHandlers m)
+  -> IORef (LifecycleHandlers m)
   -> m (DriverState m r s f act ps i o)
 initDriverState component input handler lchs = do
-  selfRef <- newMutVar (fix identity)
-  childrenIn <- newMutVar SlotStorage.empty
-  childrenOut <- newMutVar SlotStorage.empty
-  handlerRef <- newMutVar handler
-  pendingQueries <- newMutVar (Just [])
-  pendingOuts <- newMutVar (Just [])
-  pendingHandlers <- newMutVar Nothing
-  fresh <- newMutVar 1
-  subscriptions <- newMutVar (Just mempty)
-  forks <- newMutVar mempty
+  selfRef <- newIORef (fix identity)
+  childrenIn <- newIORef SlotStorage.empty
+  childrenOut <- newIORef SlotStorage.empty
+  handlerRef <- newIORef handler
+  pendingQueries <- newIORef (Just [])
+  pendingOuts <- newIORef (Just [])
+  pendingHandlers <- newIORef Nothing
+  fresh <- newIORef 1
+  subscriptions <- newIORef (Just mempty)
+  forks <- newIORef mempty
   let ds =
         DriverState
           { component
@@ -115,5 +112,5 @@ initDriverState component input handler lchs = do
           , forks
           , lifecycleHandlers = lchs
           }
-  atomicWriteMutVar selfRef ds
+  atomicWriteIORef selfRef ds
   pure ds

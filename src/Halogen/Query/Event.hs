@@ -1,8 +1,8 @@
 module Halogen.Query.Event where
 
+import HPrelude
 import Halogen.Subscription
 import Halogen.VDom.DOM.Monad
-import Protolude
 import Web.Event.Event
 
 eventListener

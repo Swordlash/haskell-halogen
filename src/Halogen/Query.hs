@@ -17,11 +17,11 @@ module Halogen.Query
 where
 
 import Data.Row as Row
+import HPrelude
 import Halogen.Data.Slot (Slot)
 import Halogen.Query.HalogenM (ForkId, HalogenF (..), HalogenM (..), SubscriptionId, fork, getRef, join, kill, query, queryAll, raise, subscribe, subscribe', unsubscribe)
 import Halogen.Query.HalogenQ (HalogenQ (..))
 import Halogen.Query.Input (RefLabel (..))
-import Protolude
 import Web.DOM.Internal.Types
 
 -- | Type synonym for a "tell-style" query - queries that only cause effects,

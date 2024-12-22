@@ -1,9 +1,9 @@
 module Halogen.HTML.Core (module Halogen.HTML.Core, module Web.HTML.Common, Namespace (..), ElemName (..)) where
 
+import HPrelude hiding (Handler)
 import Halogen.Query.Input
 import Halogen.VDom.DOM.Prop
 import Halogen.VDom.Types as VDom
-import Protolude hiding (Handler)
 import Web.DOM.Element
 import Web.Event.Event
 import Web.HTML.Common
@@ -45,8 +45,9 @@ handler = Handler
 
 ref :: forall i. (Maybe Element -> Maybe i) -> Prop i
 ref f =
-  Ref $
-    f . \case
+  Ref
+    $ f
+    . \case
       Created x -> Just x
       Removed _ -> Nothing
 

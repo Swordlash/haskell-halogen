@@ -2,10 +2,10 @@ module Halogen.HTML.Properties where
 
 import Data.Coerce
 import Data.Row
+import HPrelude
 import Halogen.HTML.Core (IsProp (..))
 import Halogen.Query.Input
 import Halogen.VDom.DOM.Prop
-import Protolude hiding (Handler)
 import Web.HTML.Common
 
 newtype IProp (r :: Row Type) msg = IProp (Prop (Input msg))

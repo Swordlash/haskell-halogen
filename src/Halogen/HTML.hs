@@ -18,6 +18,7 @@ where
 
 import Data.Foreign
 import Data.Row
+import HPrelude
 import Halogen.Component
 import Halogen.Data.Slot (Slot)
 import Halogen.HTML.Core (AttrName (..), ClassName (..), ElemName (..), HTML (..), IsProp (..), Namespace (..), PropName (..), handler, text)
@@ -25,7 +26,6 @@ import Halogen.HTML.Core qualified as Core
 import Halogen.HTML.Elements
 import Halogen.HTML.Properties (IProp, attr, prop)
 import Halogen.VDom.Thunk
-import Protolude
 
 -- | A convenience synonym for the output type of a `render` function for a
 -- | component that renders HTML.

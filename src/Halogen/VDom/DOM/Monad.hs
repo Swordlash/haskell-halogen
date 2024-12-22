@@ -2,8 +2,8 @@
 
 module Halogen.VDom.DOM.Monad where
 
+import HPrelude
 import Halogen.VDom.Types
-import Protolude
 import Unsafe.Coerce (unsafeCoerce)
 import Web.DOM.Element
 import Web.DOM.Internal.Types

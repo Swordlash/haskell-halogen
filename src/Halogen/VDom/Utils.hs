@@ -1,7 +1,7 @@
 module Halogen.VDom.Utils where
 
 import Data.Map.Strict qualified as M
-import Protolude
+import HPrelude
 
 diffWithIxE :: (Monad m) => [b] -> [c] -> (Int -> b -> c -> m (Maybe d)) -> (Int -> b -> m (Maybe d)) -> (Int -> c -> m (Maybe d)) -> m [d]
 diffWithIxE u v onThese onThis onThat = reverse . catMaybes <$> go 0 u v []

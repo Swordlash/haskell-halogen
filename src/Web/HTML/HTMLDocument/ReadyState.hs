@@ -1,6 +1,6 @@
 module Web.HTML.HTMLDocument.ReadyState where
 
-import Protolude
+import HPrelude
 
 data ReadyState
   = Loading

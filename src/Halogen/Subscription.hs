@@ -1,14 +1,11 @@
 module Halogen.Subscription where
 
 import Control.Arrow ((&&&))
-import Control.Monad.Primitive
 import Control.Monad.UUID
 import Data.Coerce
 import Data.Functor.Contravariant
-import Data.MutVarF
 import Data.NT
-import Data.Primitive
-import Protolude
+import HPrelude
 
 -- | A paired `Listener` and `Emitter` produced with the `create` function.
 data Subscribe m a = Subscribe
@@ -16,41 +13,41 @@ data Subscribe m a = Subscribe
   , emitter :: Emitter m a
   }
 
-create :: (PrimMonad m, MonadUUID m) => m (Subscribe m a)
+create :: (MonadIO m, MonadUUID m) => m (Subscribe m a)
 create = do
-  subscribers <- newMutVar []
-  pure $
-    Subscribe
+  subscribers <- newIORef []
+  pure
+    $ Subscribe
       { emitter = Emitter $ \handler -> do
           uuid <- generateV4
-          atomicModifyMutVar'_ subscribers (<> [(handler, uuid)])
-          pure $
-            Subscription
-              { unsubscribe = atomicModifyMutVar'_ subscribers (Protolude.filter (\(_, uuid') -> uuid /= uuid'))
+          atomicModifyIORef'_ subscribers (<> [(handler, uuid)])
+          pure
+            $ Subscription
+              { unsubscribe = atomicModifyIORef'_ subscribers (HPrelude.filter (\(_, uuid') -> uuid /= uuid'))
               }
-      , listener = Listener {notify = \a -> readMutVar subscribers >>= traverse_ (\(k, _) -> k a)}
+      , listener = Listener {notify = \a -> readIORef subscribers >>= traverse_ (\(k, _) -> k a)}
       }
 
 newtype Emitter m a = Emitter {registerHandler :: (a -> m ()) -> m (Subscription m)}
   deriving (Functor)
 
-instance (PrimMonad m) => Applicative (Emitter m) where
+instance (MonadIO m) => Applicative (Emitter m) where
   pure a = Emitter $ \k -> do
     k a
     pure (Subscription (pure ()))
 
   (Emitter e1) <*> (Emitter e2) = Emitter $ \k -> do
-    latestA <- newMutVar Nothing
-    latestB <- newMutVar Nothing
+    latestA <- newIORef Nothing
+    latestB <- newIORef Nothing
     Subscription c1 <- e1 $ \a -> do
-      atomicWriteMutVar latestA (Just a)
-      readMutVar latestB >>= traverse_ (k . a)
+      atomicWriteIORef latestA (Just a)
+      readIORef latestB >>= traverse_ (k . a)
     Subscription c2 <- e2 $ \b -> do
-      atomicWriteMutVar latestB (Just b)
-      readMutVar latestA >>= traverse_ (k . ($ b))
+      atomicWriteIORef latestB (Just b)
+      readIORef latestA >>= traverse_ (k . ($ b))
     pure (Subscription (c1 *> c2))
 
-instance (PrimMonad m) => Alternative (Emitter m) where
+instance (MonadIO m) => Alternative (Emitter m) where
   empty = Emitter $ \_ -> pure (Subscription (pure ()))
   (Emitter f) <|> (Emitter g) = Emitter $ \k -> do
     Subscription c1 <- f k
@@ -88,10 +85,10 @@ subscribe em k = em.registerHandler (void . k)
 unsubscribe :: Subscription m -> m ()
 unsubscribe (Subscription unsub) = unsub
 
-fold :: (PrimMonad m) => (a -> b -> b) -> Emitter m a -> b -> Emitter m b
+fold :: (MonadIO m) => (a -> b -> b) -> Emitter m a -> b -> Emitter m b
 fold f (Emitter e) b = Emitter $ \k -> do
-  result <- newMutVar b
-  e $ \a -> atomicModifyMutVar' result (f a &&& f a) >>= k
+  result <- newIORef b
+  e $ \a -> atomicModifyIORef' result (f a &&& f a) >>= k
 
 filter :: (Applicative m) => (a -> Bool) -> Emitter m a -> Emitter m a
 filter p (Emitter e) = Emitter $ \k -> e $ \a -> when (p a) (k a)

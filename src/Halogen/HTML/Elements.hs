@@ -2,10 +2,10 @@ module Halogen.HTML.Elements where
 
 import Data.Coerce
 import Data.Row
+import HPrelude hiding (div)
 import Halogen.HTML.Core (HTML (..))
 import Halogen.HTML.Properties
 import Halogen.VDom.Types
-import Protolude hiding (div)
 import Web.UIEvent.MouseEvent
 
 type Node r w msg = [IProp r msg] -> [HTML w msg] -> HTML w msg

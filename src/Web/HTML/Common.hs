@@ -1,6 +1,6 @@
 module Web.HTML.Common where
 
-import Protolude
+import HPrelude
 
 newtype PropName value = PropName Text
   deriving (Eq, Ord, Show, IsString)

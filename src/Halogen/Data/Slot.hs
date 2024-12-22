@@ -5,7 +5,7 @@ import Data.Map.Strict qualified as M
 import Data.Row
 import Data.Set qualified as S
 import GHC.TypeLits (sameSymbol)
-import Protolude
+import HPrelude
 
 data Slot (query :: Type -> Type) (output :: Type) (slotType :: Type)
 

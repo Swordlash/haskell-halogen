@@ -6,12 +6,12 @@ import Control.Monad.Parallel
 import Data.Map.Strict qualified as M
 import Data.NT
 import Data.Row
+import HPrelude hiding (Ap)
 import Halogen.Data.Slot as Slot
 import Halogen.Query.ChildQuery qualified as CQ
 import Halogen.Query.Input
 import Halogen.Subscription hiding (Subscribe)
 import Halogen.Subscription qualified as HS
-import Protolude hiding (Ap)
 import Web.DOM.Element
 
 newtype SubscriptionId = SubscriptionId Int
@@ -44,12 +44,6 @@ newtype HalogenAp state action slots output m a
   = HalogenAp (Ap (HalogenM state action slots output m) a)
   deriving (Functor, Applicative)
 
-getM :: (Functor m) => HalogenM state _ _ _ m state
-getM = HalogenM $ liftF $ State $ \s -> (s, s)
-
-putM :: (Functor m) => state -> HalogenM state _ _ _ m ()
-putM s = HalogenM $ liftF $ State (const ((), s))
-
 instance (Functor m) => MonadState state (HalogenM state action slots output m) where
   state = HalogenM . liftF . State
 
@@ -74,10 +68,10 @@ query
   -> query a
   -> HalogenM state action slots output m (Maybe a)
 query label p q =
-  HalogenM $
-    liftF $
-      ChildQuery $
-        CQ.ChildQuery (\k -> maybe (pure Nothing) k . Slot.lookup label p) q identity
+  HalogenM
+    $ liftF
+    $ ChildQuery
+    $ CQ.ChildQuery (\k -> maybe (pure Nothing) k . Slot.lookup label p) q identity
 
 -- | Sends a query to all children of a component at a given slot label.
 queryAll
@@ -90,10 +84,10 @@ queryAll
   -> query a
   -> HalogenM state action slots output m (Map slot a)
 queryAll label q =
-  HalogenM $
-    liftF $
-      ChildQuery $
-        CQ.ChildQuery (\k -> map catMapMaybes . traverse k . Slot.slots label) q identity
+  HalogenM
+    $ liftF
+    $ ChildQuery
+    $ CQ.ChildQuery (\k -> map catMapMaybes . traverse k . Slot.slots label) q identity
   where
     catMapMaybes :: forall k v. (Ord k) => Map k (Maybe v) -> Map k v
     catMapMaybes = M.foldlWithKey' (\acc k v -> maybe acc (flip (M.insert k) acc) v) M.empty

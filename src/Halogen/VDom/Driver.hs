@@ -7,12 +7,10 @@ where
 import Control.Exception.Safe
 import Control.Monad.Fork
 import Control.Monad.Parallel
-import Control.Monad.Primitive
 import Control.Monad.UUID
 import Data.Coerce
 import Data.Foreign
-import Data.MutVarF (atomicWriteMutVar)
-import Data.Primitive
+import HPrelude
 import Halogen.Aff.Driver (HalogenSocket)
 import Halogen.Aff.Driver qualified as AD
 import Halogen.Aff.Driver.State
@@ -25,8 +23,6 @@ import Halogen.VDom.DOM.Prop
 import Halogen.VDom.DOM.Prop qualified as VP
 import Halogen.VDom.Thunk (Thunk)
 import Halogen.VDom.Thunk qualified as Thunk
-import Protolude
-import UnliftIO (MonadUnliftIO)
 import Web.DOM.Internal.Types
 import Web.DOM.Internal.Types qualified as DOM
 import Web.DOM.ParentNode (ParentNode, toParentNode)
@@ -40,7 +36,7 @@ data RenderState m state action slots output
   = RenderState
   { node :: DOM.Node
   , machine :: V.Step m (VHTML m action slots) DOM.Node
-  , renderChildRef :: MutVar (PrimState m) (ChildRenderer m action slots)
+  , renderChildRef :: IORef (ChildRenderer m action slots)
   }
 
 type HTMLThunk m slots action =
@@ -51,9 +47,9 @@ type WidgetState m slots action =
 
 mkSpec
   :: forall m action slots
-   . (PrimMonad m, DOM.MonadDOM m)
+   . (MonadIO m, DOM.MonadDOM m)
   => (Input action -> m ())
-  -> MutVar (PrimState m) (ChildRenderer m action slots)
+  -> IORef (ChildRenderer m action slots)
   -> DOM.Document
   -> V.VDomSpec m [Prop (Input action)] (ComponentSlot slots m action)
 mkSpec handler renderChildRef document =
@@ -105,7 +101,7 @@ mkSpec handler renderChildRef document =
           :: ComponentSlotBox slots m action
           -> m (V.Step m (ComponentSlot slots m action) DOM.Node)
         renderComponentSlot cs = do
-          renderChild <- readMutVar renderChildRef
+          renderChild <- readIORef renderChildRef
           rsx <- renderChild cs
           let node = getNode rsx
           pure $ V.Step node Nothing patch done
@@ -118,7 +114,7 @@ mkSpec handler renderChildRef document =
 
 runUI
   :: forall m query input output
-   . (DOM.MonadDOM m, PrimMonad m, MonadUnliftIO m, MonadFork m, MonadKill m, MonadParallel m, MonadMask m, MonadUUID m)
+   . (DOM.MonadDOM m, MonadUnliftIO m, MonadFork m, MonadKill m, MonadParallel m, MonadMask m, MonadUUID m)
   => Component query input output m
   -> input
   -> DOM.HTMLElement
@@ -129,7 +125,7 @@ runUI component i element = do
 
 renderSpec
   :: forall m
-   . (DOM.MonadDOM m, PrimMonad m)
+   . (DOM.MonadDOM m, MonadIO m)
   => DOM.Document
   -> DOM.HTMLElement
   -> AD.RenderSpec m (RenderState m)
@@ -151,20 +147,20 @@ renderSpec document container =
     render handler child (HTML vdom) =
       \case
         Nothing -> do
-          renderChildRef <- newMutVar child
+          renderChildRef <- newIORef child
           let spec = mkSpec handler renderChildRef document
           machine <- V.buildVDom spec vdom
           let node = V.extract machine
           void $ DOM.appendChild node $ toParentNode $ toNode container
           pure $ RenderState {machine, node, renderChildRef}
         Just (RenderState {machine, node, renderChildRef}) -> do
-          atomicWriteMutVar renderChildRef child
+          atomicWriteIORef renderChildRef child
           parent <- DOM.parentNode node
           nextSib <- DOM.nextSibling node
           machine' <- V.step machine vdom
           let newNode = V.extract machine'
-          unless (node `unsafeRefEq` newNode) $
-            substInParent newNode nextSib parent
+          unless (node `unsafeRefEq` newNode)
+            $ substInParent newNode nextSib parent
           pure $ RenderState {machine = machine', node = newNode, renderChildRef}
 
 removeChild :: (DOM.MonadDOM m) => RenderState m state action slots output -> m ()

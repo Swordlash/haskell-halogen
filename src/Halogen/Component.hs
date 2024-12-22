@@ -3,6 +3,7 @@ module Halogen.Component where
 import Data.Functor.Coyoneda (Coyoneda (..))
 import Data.NT
 import Data.Row (HasType, Row)
+import HPrelude hiding (get)
 import Halogen.Data.Slot hiding (pop)
 import Halogen.Data.Slot qualified as Slot
 import Halogen.HTML.Core
@@ -11,7 +12,6 @@ import Halogen.Query.HalogenM qualified as HM
 import Halogen.Query.HalogenQ
 import Halogen.VDom.Thunk hiding (hoist)
 import Halogen.VDom.Thunk qualified as Thunk
-import Protolude hiding (get)
 
 data ComponentSlotBox slots m msg = forall query input output. ComponentSlotBox
   { get :: forall slot. SlotStorage slots slot -> Maybe (slot query output)
@@ -75,8 +75,8 @@ hoist
   -> Component query input output m
   -> Component query input output m'
 hoist nat (Component ComponentSpec {render, eval, initialState}) =
-  Component $
-    ComponentSpec
+  Component
+    $ ComponentSpec
       { initialState = initialState
       , render = first (hoistSlot nat) . render
       , eval = NT $ HM.hoist nat . runNT eval

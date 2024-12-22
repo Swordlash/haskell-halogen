@@ -1,6 +1,6 @@
 module Halogen.Query.Input where
 
-import Protolude
+import HPrelude
 import Web.DOM.Element
 
 newtype RefLabel = RefLabel Text
