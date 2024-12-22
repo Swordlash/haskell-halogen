@@ -1,6 +1,6 @@
 module Halogen.HTML.Core (module Halogen.HTML.Core, module Web.HTML.Common, Namespace (..), ElemName (..)) where
 
-import HPrelude hiding (Handler)
+import HPrelude
 import Halogen.Query.Input
 import Halogen.VDom.DOM.Prop
 import Halogen.VDom.Types as VDom

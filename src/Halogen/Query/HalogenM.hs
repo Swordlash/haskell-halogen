@@ -25,6 +25,7 @@ data HalogenF state action slots output m a
   | Subscribe (SubscriptionId -> Emitter IO action) (SubscriptionId -> a)
   | Unsubscribe SubscriptionId a
   | Lift (m a)
+  | Unlift (UnliftIO m -> a)
   | ChildQuery (CQ.ChildQuery slots a)
   | Raise output a
   | Par (HalogenAp state action slots output m a)
@@ -208,6 +209,7 @@ mapHalogen lens fa fo nat (HalogenM alg) = HalogenM (hoistF go alg)
       Subscribe fes k -> Subscribe (map fa . fes) k
       Unsubscribe sid a -> Unsubscribe sid a
       Lift q -> Lift (runNT nat q)
+      Unlift q -> Unlift $ q . mapUnliftIO (runNT nat)
       ChildQuery cq -> ChildQuery cq
       Raise o a -> Raise (fo o) a
       Par (HalogenAp p) -> Par (HalogenAp $ hoistAp (mapHalogen lens fa fo nat) p)

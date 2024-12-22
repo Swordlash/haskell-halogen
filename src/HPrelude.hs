@@ -147,6 +147,9 @@ module HPrelude
     -- * Foreign functions
   , module Foreign
   , atomicModifyIORef'_
+  , UnliftIO (..)
+  , askUnliftIO
+  , mapUnliftIO
   , MonadUnliftIO (..)
   , module Coercible
   )
@@ -422,6 +425,7 @@ import Control.Monad.State as State
   )
 import Control.Monad.Trans as Trans
   ( MonadIO
+  , MonadTrans (..)
   , lift
   , liftIO
   )
@@ -973,3 +977,6 @@ flipSeqScanl' a !_b = a
 
 atomicModifyIORef'_ :: (MonadIO m) => IORef a -> (a -> a) -> m ()
 atomicModifyIORef'_ ref f = atomicModifyIORef' ref ((,()) . f)
+
+mapUnliftIO :: (forall a. m a -> n a) -> UnliftIO n -> UnliftIO m
+mapUnliftIO nt (UnliftIO f) = UnliftIO $ f . nt

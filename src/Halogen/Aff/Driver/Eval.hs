@@ -94,6 +94,7 @@ evalM render initRef (HalogenM hm) = foldF (go initRef) hm
         pure next
       Lift aff ->
         aff
+      Unlift q -> q <$> askUnliftIO
       ChildQuery cq ->
         evalChildQuery ref cq
       Raise o a -> do

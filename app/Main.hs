@@ -1,15 +1,19 @@
 {-# LANGUAGE CPP #-}
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
 
 module Main where
 
-import HPrelude
 import Halogen as H
-import Halogen.Aff.Util as HA
 import Halogen.HTML as HH
 import Halogen.HTML.Events as HE
 import Halogen.Subscription qualified as HS
+import Protolude
+
+#if defined(javascript_HOST_ARCH)
+import Halogen.Aff.Util as HA
 import Halogen.VDom.DOM.Monad qualified as DOM
 import Halogen.VDom.Driver (runUI)
+#endif
 
 attachComponent :: IO (HalogenSocket Query Int IO)
 logStr :: Text -> IO ()
@@ -41,8 +45,8 @@ data Query a = IncrementQ a | DecrementQ a
 
 component :: H.Component Query () Int IO
 component =
-  H.Component
-    $ H.ComponentSpec
+  H.Component $
+    H.ComponentSpec
       { initialState
       , render
       , eval = H.mkEval $ H.defaultEval {handleAction, handleQuery}
@@ -51,13 +55,13 @@ component =
     initialState _ = 0
 
     render state =
-      HH.div_
-        $ [HH.button [HE.onClick $ const $ Decrement 1] [HH.text "-"]]
-        <> [HH.button [HE.onClick $ const $ Decrement 2] [HH.text "--"] | state > 5]
-        <> [ HH.div_ [HH.text $ show state]
-           , HH.button [HE.onClick $ const $ Increment 1] [HH.text "+"]
-           ]
-        <> [HH.button [HE.onClick $ const $ Increment 2] [HH.text "++"] | state > 5]
+      HH.div_ $
+        [HH.button [HE.onClick $ const $ Decrement 1] [HH.text "-"]]
+          <> [HH.button [HE.onClick $ const $ Decrement 2] [HH.text "--"] | state > 5]
+          <> [ HH.div_ [HH.text $ show state]
+             , HH.button [HE.onClick $ const $ Increment 1] [HH.text "+"]
+             ]
+          <> [HH.button [HE.onClick $ const $ Increment 2] [HH.text "++"] | state > 5]
 
     handleQuery = \case
       IncrementQ cb -> do

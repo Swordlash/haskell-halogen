@@ -22,7 +22,6 @@ import Halogen.Query.HalogenQ qualified as HQ
 import Halogen.Query.Input
 import Halogen.Query.Input qualified as Input
 import Halogen.Subscription qualified as HS
-import UnliftIO (AsyncCancelled (AsyncCancelled), MonadUnliftIO)
 import Unsafe.Coerce
 
 data HalogenSocket query output m = HalogenSocket

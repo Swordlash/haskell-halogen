@@ -1,6 +1,5 @@
 module Halogen.Data.Slot where
 
-import Data.Coerce (coerce)
 import Data.Map.Strict qualified as M
 import Data.Row
 import Data.Set qualified as S

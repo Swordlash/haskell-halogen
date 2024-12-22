@@ -55,6 +55,7 @@ common commons
       NoFieldSelectors
       DerivingVia
       CPP
+      StrictData
 
 library
     import: commons

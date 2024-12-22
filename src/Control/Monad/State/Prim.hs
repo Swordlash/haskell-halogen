@@ -1,7 +1,6 @@
 module Control.Monad.State.Prim where
 
 import Control.Exception.Safe
-import Control.Monad.Trans (MonadTrans (..))
 import HPrelude hiding (StateT (..), evalStateT, execStateT)
 
 type StateT :: Type -> (Type -> Type) -> Type -> Type
