@@ -4,6 +4,7 @@ module Halogen.VDom.DOM
   , buildText
   , buildElem
   , buildWidget
+  , buildKeyed
   )
 where
 
@@ -32,6 +33,7 @@ buildVDom spec = build
     build = \case
       Text txt -> buildText spec build txt
       Elem ns n props children -> buildElem spec build ns n props children
+      Keyed ns n props children -> buildKeyed spec build ns n props children
       Widget w -> buildWidget spec build w
       Grafted g -> build (runGraft g)
 
@@ -67,6 +69,95 @@ patchText state vdom = do
 haltText :: (MonadDOM m) => TextState m a w -> m ()
 haltText TextState {node} =
   traverse_ (removeChild node) =<< parentNode node
+
+----------------------------------------------------------------------
+
+data KeyedState m a w = KeyedState
+  { build :: VDomMachine m a w
+  , node :: Node
+  , attrs :: Step m a ()
+  , ns :: Maybe Namespace
+  , name :: ElemName
+  , children :: Map Text (VDomStep m a w)
+  , length :: Int
+  }
+
+buildKeyed :: (MonadDOM m) => VDomSpec m a w -> VDomMachine m a w -> Maybe Namespace -> ElemName -> a -> [(Text, VDom a w)] -> m (VDomStep m a w)
+buildKeyed spec build ns1 name1 as1 ch1 = do
+  el <- createElement ns1 name1 spec.document
+  let node = elementToNode el
+      onChild _ ix (_, vdom) = do
+        res <- build vdom
+        insertChildIx ix (extract res) $ toParentNode node
+        pure res
+  children <- strMapWithIxE ch1 fst onChild
+  attrs <- spec.buildAttributes el as1
+  let state =
+        KeyedState
+          { build
+          , node
+          , attrs
+          , ns = ns1
+          , name = name1
+          , children
+          , length = length ch1
+          }
+  pure $ Step node state patchKeyed haltKeyed
+
+patchKeyed :: (MonadDOM m) => KeyedState m a w -> VDom a w -> m (VDomStep m a w)
+patchKeyed state vdom = do
+  let KeyedState {build, node, attrs, ns = ns1, name = name1, children = ch1, length = len1} = state
+  case vdom of
+    Grafted g ->
+      patchKeyed state (runGraft g)
+    Keyed ns2 name2 as2 ch2 | (ns1, name1) == (ns2, name2) ->
+      case (len1, length ch2) of
+        (0, 0) -> do
+          attrs2 <- step attrs as2
+          let nextState =
+                KeyedState
+                  { build
+                  , node
+                  , attrs = attrs2
+                  , ns = ns2
+                  , name = name2
+                  , children = ch1
+                  , length = 0
+                  }
+          pure $ Step node nextState patchKeyed haltKeyed
+        (_, len2) -> do
+          let onThese _ ix' s (_, v) = do
+                res <- step s v
+                insertChildIx ix' (extract res) $ toParentNode node
+                pure res
+              onThis _ = halt
+              onThat _ ix (_, v) = do
+                res <- build v
+                insertChildIx ix (extract res) $ toParentNode node
+                pure res
+          children2 <- diffWithKeyAndIxE ch1 ch2 fst onThese onThis onThat
+          attrs2 <- step attrs as2
+          let nextState =
+                KeyedState
+                  { build
+                  , node
+                  , attrs = attrs2
+                  , ns = ns2
+                  , name = name2
+                  , children = children2
+                  , length = len2
+                  }
+          pure $ Step node nextState patchKeyed haltKeyed
+    _ -> do
+      haltKeyed state
+      build vdom
+
+haltKeyed :: (MonadDOM m) => KeyedState m a w -> m ()
+haltKeyed (KeyedState {node, attrs, children}) = do
+  parent <- parentNode node
+  traverse_ (removeChild node) parent
+  for_ children halt
+  halt attrs
 
 ----------------------------------------------------------------------
 

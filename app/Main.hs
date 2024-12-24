@@ -20,7 +20,9 @@ attachComponent :: IO (HalogenSocket Query Int IO)
 logStr :: Text -> IO ()
 
 #if defined(javascript_HOST_ARCH)
-attachComponent = HA.awaitBody >>= runUI component ()
+attachComponent = do 
+  c <- component
+  HA.awaitBody >>= runUI c ()
 logStr = DOM.log
 #else
 attachComponent = panic "This module can only be run on JavaScript"
@@ -48,7 +50,7 @@ data Query a = IncrementQ a | DecrementQ a
 
 component :: IO (H.Component Query () Int IO)
 component = do
-  --debComp <- H.mkDebouncedComponent 0.5 $ _
+  -- debComp <- H.mkDebouncedComponent 0.5 $ _
 
   pure $
     H.mkComponent $

@@ -3,7 +3,10 @@
 
 module Data.Foreign where
 
+#if !defined(javascript_HOST_ARCH)
 import GHC.Base (Int (..), reallyUnsafePtrEquality, reallyUnsafePtrEquality#)
+#endif
+
 import HPrelude
 import Unsafe.Coerce (unsafeCoerce)
 
@@ -48,6 +51,6 @@ unsafeFromForeign (Foreign o) = unsafeCoerce o
 unsafeRefEq :: a -> a -> Bool
 unsafeRefEq p q = I# (reallyUnsafePtrEquality p q) == 1
 
-unsafeRefEqHet :: a -> b -> Bool
-unsafeRefEqHet p q = I# (reallyUnsafePtrEquality# p q) == 1
+unsafeRefEq' :: a -> b -> Bool
+unsafeRefEq' p q = I# (reallyUnsafePtrEquality# p q) == 1
 #endif

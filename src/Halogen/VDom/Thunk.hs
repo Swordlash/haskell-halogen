@@ -20,7 +20,7 @@ data Thunk f i = forall a. Thunk ThunkId (a -> a -> Bool) (a -> f i) a
 unsafeEqThunk :: forall f i. Thunk f i -> Thunk f i -> Bool
 unsafeEqThunk (Thunk a1 b1 _ d1) (Thunk a2 b2 _ d2) =
   unsafeRefEq a1 a2
-    && unsafeRefEqHet b1 b2
+    && unsafeRefEq' b1 b2
     && b1 d1 (unsafeCoerce d2)
 
 data ThunkState m f i a w = ThunkState

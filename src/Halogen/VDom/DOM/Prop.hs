@@ -137,7 +137,7 @@ buildProp emit el = renderProp
               setAttribute ns2 attr2 val2 el
               pure v2
         (Property _ val1, Property prop2 val2) ->
-          case (val1 `unsafeRefEqHet` val2, prop2) of
+          case (val1 `unsafeRefEq'` val2, prop2) of
             (True, _) ->
               pure v2
             (_, "value") -> do
