@@ -110,24 +110,31 @@ library
       Halogen.Component.Debounced
       Halogen.Subscription
 
+      Web.Clipboard
+      Web.Clipboard.ClipboardEvent
+      Web.Clipboard.ClipboardEvent.EventTypes
+
       Web.DOM.Internal.Types
       Web.DOM.Element
       Web.DOM.ParentNode
       Web.Event.Internal.Types
       Web.Event.Event
       Web.HTML.Common
+      Web.HTML.Event.DragEvent
+      Web.HTML.Event.DragEvent.EventTypes
       Web.HTML.Event.EventTypes
       Web.HTML.HTMLDocument
       Web.HTML.HTMLDocument.ReadyState
-      Web.UIEvent.ClipboardEvent
-      Web.UIEvent.DragEvent
       Web.UIEvent.FocusEvent
+      Web.UIEvent.FocusEvent.EventTypes
       Web.UIEvent.KeyboardEvent
+      Web.UIEvent.KeyboardEvent.EventTypes
       Web.UIEvent.MouseEvent
       Web.UIEvent.MouseEvent.EventTypes
       Web.UIEvent.PointerEvent
       Web.UIEvent.TouchEvent
       Web.UIEvent.WheelEvent
+      Web.UIEvent.WheelEvent.EventTypes
       
     other-modules:
       HPrelude

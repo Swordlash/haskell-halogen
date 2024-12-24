@@ -6,6 +6,8 @@ import Data.Set qualified as S
 import GHC.TypeLits (sameSymbol)
 import HPrelude
 
+data VoidF p
+
 data Slot (query :: Type -> Type) (output :: Type) (slotType :: Type)
 
 -- some element of the `slots` row type, ordered by label and slot Ord instance

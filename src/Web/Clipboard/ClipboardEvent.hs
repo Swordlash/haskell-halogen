@@ -1,4 +1,4 @@
-module Web.UIEvent.ClipboardEvent where
+module Web.Clipboard.ClipboardEvent where
 
 import Web.Event.Internal.Types
 

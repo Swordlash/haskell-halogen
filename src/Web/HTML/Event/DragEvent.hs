@@ -1,4 +1,4 @@
-module Web.UIEvent.DragEvent where
+module Web.HTML.Event.DragEvent where
 
 import Web.Event.Internal.Types
 

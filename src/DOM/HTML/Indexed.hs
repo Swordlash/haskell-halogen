@@ -5,9 +5,9 @@ import Data.Row
 import Data.Text qualified as T
 import Data.Time
 import HPrelude hiding (Any)
+import Web.Clipboard.ClipboardEvent
 import Web.Event.Event
-import Web.UIEvent.ClipboardEvent
-import Web.UIEvent.DragEvent
+import Web.HTML.Event.DragEvent
 import Web.UIEvent.FocusEvent
 import Web.UIEvent.KeyboardEvent
 import Web.UIEvent.MouseEvent

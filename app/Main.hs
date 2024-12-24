@@ -3,6 +3,7 @@
 
 module Main where
 
+import Data.Row
 import Halogen as H
 import Halogen.HTML as HH
 import Halogen.HTML.Events as HE
@@ -41,16 +42,21 @@ main = do
 
 data Action = Increment Int | Decrement Int
 
+type Slots = ("debounced" .== H.Slot VoidF () ())
+
 data Query a = IncrementQ a | DecrementQ a
 
-component :: H.Component Query () Int IO
-component =
-  H.mkComponent $
-    H.ComponentSpec
-      { initialState
-      , render
-      , eval = H.mkEval $ H.defaultEval {handleAction, handleQuery}
-      }
+component :: IO (H.Component Query () Int IO)
+component = do
+  --debComp <- H.mkDebouncedComponent 0.5 $ _
+
+  pure $
+    H.mkComponent $
+      H.ComponentSpec
+        { initialState
+        , render
+        , eval = H.mkEval $ H.defaultEval {handleAction, handleQuery}
+        }
   where
     initialState _ = 0
 
@@ -80,3 +86,16 @@ component =
       Decrement n -> do
         modify (subtract n)
         get >>= H.raise
+
+---------------------------------------
+
+-- debComp :: Component VoidF () () IO
+debComp = ComponentSpec {initialState, render, eval = H.mkEval H.defaultEval}
+  where
+    initialState _ = ""
+
+    render txt =
+      HH.div_
+        []
+
+-- HH.textarea [HE.onInput ]
