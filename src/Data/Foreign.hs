@@ -3,9 +3,9 @@
 
 module Data.Foreign where
 
-#if !defined(javascript_HOST_ARCH)
+-- #if !defined(javascript_HOST_ARCH)
 import GHC.Base (Int (..), reallyUnsafePtrEquality, reallyUnsafePtrEquality#)
-#endif
+-- #endif
 
 import HPrelude
 import Unsafe.Coerce (unsafeCoerce)
@@ -25,13 +25,14 @@ toForeign = unsafeCoerce
 unsafeFromForeign :: Foreign tag -> a
 unsafeFromForeign = unsafeCoerce
 
-foreign import javascript unsafe "js_unsafe_ref_eq" js_unsafe_ref_eq :: JSVal -> JSVal -> Bool
+-- TODO this doesn't work for some reason
+--foreign import javascript unsafe "js_unsafe_ref_eq" js_unsafe_ref_eq :: JSVal -> JSVal -> Bool
 
-unsafeRefEq' :: a -> b -> Bool
-unsafeRefEq' a b = js_unsafe_ref_eq (unsafeCoerce a) (unsafeCoerce b)
+--unsafeRefEq' :: a -> b -> Bool
+--unsafeRefEq' a b = js_unsafe_ref_eq (unsafeCoerce a) (unsafeCoerce b)
 
-unsafeRefEq :: a -> a -> Bool
-unsafeRefEq a b = unsafeRefEq' a b
+--unsafeRefEq :: a -> a -> Bool
+--unsafeRefEq a b = unsafeRefEq' a b
 
 #else
 
@@ -47,10 +48,10 @@ toForeign = Foreign . unsafeCoerce
 
 unsafeFromForeign :: Foreign tag -> a
 unsafeFromForeign (Foreign o) = unsafeCoerce o
+#endif
 
 unsafeRefEq :: a -> a -> Bool
 unsafeRefEq p q = I# (reallyUnsafePtrEquality p q) == 1
 
 unsafeRefEq' :: a -> b -> Bool
 unsafeRefEq' p q = I# (reallyUnsafePtrEquality# p q) == 1
-#endif
