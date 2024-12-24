@@ -21,7 +21,17 @@ toForeign = unsafeCoerce
 
 unsafeFromForeign :: Foreign tag -> a
 unsafeFromForeign = unsafeCoerce
+
+foreign import javascript unsafe "js_unsafe_ref_eq" js_unsafe_ref_eq :: JSVal -> JSVal -> Bool
+
+unsafeRefEq' :: a -> b -> Bool
+unsafeRefEq' a b = js_unsafe_ref_eq (unsafeCoerce a) (unsafeCoerce b)
+
+unsafeRefEq :: a -> a -> Bool
+unsafeRefEq a b = unsafeRefEq' a b
+
 #else
+
 newtype Foreign tag = Foreign Any
 
 type Nullable tag = Maybe (Foreign tag)
@@ -34,10 +44,10 @@ toForeign = Foreign . unsafeCoerce
 
 unsafeFromForeign :: Foreign tag -> a
 unsafeFromForeign (Foreign o) = unsafeCoerce o
-#endif
 
 unsafeRefEq :: a -> a -> Bool
 unsafeRefEq p q = I# (reallyUnsafePtrEquality p q) == 1
 
 unsafeRefEqHet :: a -> b -> Bool
 unsafeRefEqHet p q = I# (reallyUnsafePtrEquality# p q) == 1
+#endif

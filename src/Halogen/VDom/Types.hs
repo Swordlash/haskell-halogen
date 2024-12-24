@@ -23,6 +23,7 @@ unNamespace (Namespace ns) = ns
 data VDom a w
   = Text !Text
   | Elem !(Maybe Namespace) !ElemName a [VDom a w]
+  | Keyed (Maybe Namespace) ElemName a [(Text, VDom a w)]
   | Widget w
   | Grafted (Graft a w)
   deriving (Functor)
@@ -31,6 +32,7 @@ instance Bifunctor VDom where
   bimap f g = \case
     Text s -> Text s
     Elem ns'm en props children -> Elem ns'm en (f props) (map (bimap f g) children)
+    Keyed ns'm en props children -> Keyed ns'm en (f props) (map (second (bimap f g)) children)
     Widget w -> Widget $ g w
     Grafted graft -> Grafted $ bimap f g graft
 
@@ -49,5 +51,7 @@ renderWidget fm injWidget = \case
   Text txt -> Text txt
   Elem ns'm en props children ->
     Elem ns'm en (fm props) (map (renderWidget fm injWidget) children)
+  Keyed ns'm en props children ->
+    Keyed ns'm en (fm props) (map (second (renderWidget fm injWidget)) children)
   Widget w -> injWidget w
   Grafted graft -> renderWidget fm injWidget (runGraft graft)

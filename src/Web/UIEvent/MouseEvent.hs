@@ -1,5 +1,5 @@
 module Web.UIEvent.MouseEvent where
 
-import Data.Foreign (Foreign)
+import Web.Event.Internal.Types
 
-newtype MouseEvent = MouseEvent (Foreign MouseEvent)
+newtype MouseEvent = MouseEvent Event

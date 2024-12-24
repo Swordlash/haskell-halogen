@@ -12,6 +12,9 @@ type DelayedStateT :: Type -> (Type -> Type) -> Type -> Type
 newtype DelayedStateT s m a = DelayedStateT (Delayer s -> m a)
   deriving (Functor, Applicative, Monad, MonadIO, MonadUnliftIO) via ReaderT (Delayer s) m
 
+runDelayedStateT :: (Monad m) => Delayer s -> DelayedStateT s m a -> m a
+runDelayedStateT d (DelayedStateT f) = f d
+
 instance MonadTrans (DelayedStateT s) where
   lift = DelayedStateT . const
 

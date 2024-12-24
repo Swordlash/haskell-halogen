@@ -26,15 +26,21 @@ data ComponentSlot (slots :: Row Type) m msg
   = ComponentSlot (ComponentSlotBox slots m msg)
   | ThunkSlot (Thunk (HTML (ComponentSlot slots m msg)) msg)
 
-data ComponentSpec state query action slots input output m = ComponentSpec
+data ComponentSpec' state query action slots input output m n = ComponentSpec
   { initialState :: input -> state
   , render :: state -> HTML (ComponentSlot slots m action) action
-  , eval :: HalogenQ query action input ~> HalogenM state action slots output m
+  , eval :: HalogenQ query action input ~> n
   }
+
+type ComponentSpec state query action slots input output m =
+  ComponentSpec' state query action slots input output m (HalogenM state action slots output m)
 
 data Component query input output m
   = forall model msg slots.
     Component (ComponentSpec model query msg slots input output m)
+
+mkComponent :: ComponentSpec state query action slots input output m -> Component query input output m
+mkComponent = Component
 
 -- | Constructs a ComponentSlot
 -- |

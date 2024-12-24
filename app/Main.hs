@@ -45,7 +45,7 @@ data Query a = IncrementQ a | DecrementQ a
 
 component :: H.Component Query () Int IO
 component =
-  H.Component $
+  H.mkComponent $
     H.ComponentSpec
       { initialState
       , render

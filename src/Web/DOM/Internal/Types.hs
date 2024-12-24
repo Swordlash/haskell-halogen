@@ -34,7 +34,7 @@ newtype HTMLDocument = HTMLDocument (Foreign HTMLDocument)
 newtype Window = Window (Foreign Window)
 
 fromElement :: Element -> Maybe HTMLElement
-fromElement = Just . unsafeCoerce
+fromElement = Just . coerce
 
 toDocument :: a -> Document
 toDocument = unsafeCoerce

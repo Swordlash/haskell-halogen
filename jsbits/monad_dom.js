@@ -128,3 +128,7 @@ function js_crypto_random_uuid() {
   // console.log("Generating random UUID");
   return window.crypto.randomUUID();
 }
+
+function js_unsafe_ref_eq(a, b) {
+  return a === b;
+}

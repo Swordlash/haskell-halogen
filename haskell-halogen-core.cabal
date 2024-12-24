@@ -69,7 +69,10 @@ library
       Control.Monad.State.Prim
       Control.Monad.UUID
       Data.Foreign
+      Data.MediaType
       Data.NT
+
+      DOM.HTML.Indexed
 
       Halogen
 
@@ -116,8 +119,15 @@ library
       Web.HTML.Event.EventTypes
       Web.HTML.HTMLDocument
       Web.HTML.HTMLDocument.ReadyState
+      Web.UIEvent.ClipboardEvent
+      Web.UIEvent.DragEvent
+      Web.UIEvent.FocusEvent
+      Web.UIEvent.KeyboardEvent
       Web.UIEvent.MouseEvent
       Web.UIEvent.MouseEvent.EventTypes
+      Web.UIEvent.PointerEvent
+      Web.UIEvent.TouchEvent
+      Web.UIEvent.WheelEvent
       
     other-modules:
       HPrelude

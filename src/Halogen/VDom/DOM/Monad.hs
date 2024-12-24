@@ -24,6 +24,7 @@ data PropValue val where
   NumProp :: !Double -> PropValue Double
   BoolProp :: !Bool -> PropValue Bool
   TxtProp :: !Text -> PropValue Text
+  ViaTxtProp :: (a -> Text) -> a -> PropValue a
 
 class (Monad m) => MonadDOM m where
   mkEventListener :: (Event -> m ()) -> m EventListener
@@ -56,10 +57,10 @@ class (Monad m) => MonadDOM m where
   log :: Text -> m ()
 
 mouseHandler :: (MouseEvent -> a) -> Event -> a
-mouseHandler = unsafeCoerce
+mouseHandler = coerce
 
 elementToNode :: Element -> Node
-elementToNode = unsafeCoerce
+elementToNode = coerce
 
 toEventTarget :: a -> EventTarget
 toEventTarget = unsafeCoerce
@@ -135,6 +136,7 @@ propValueToJSVal (IntProp x) = toJSInt $ fromIntegral x
 propValueToJSVal (NumProp x) = js_toJSNum x
 propValueToJSVal (BoolProp x) = js_toJSBool x
 propValueToJSVal (TxtProp x) = toJSString $ toS x
+propValueToJSVal (ViaTxtProp f x) = toJSString $ toS $ f x
 
 
 #endif

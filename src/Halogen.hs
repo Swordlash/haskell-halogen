@@ -9,7 +9,7 @@ module Halogen
 where
 
 import Halogen.Aff.Driver (HalogenSocket (..))
-import Halogen.Component (Component (..), ComponentSlot, ComponentSlotBox, ComponentSpec (..), EvalSpec (..), componentSlot, defaultEval, hoist, mkEval)
+import Halogen.Component (Component (..), ComponentSlot, ComponentSlotBox, ComponentSpec' (..), EvalSpec (..), componentSlot, defaultEval, hoist, mkComponent, mkEval)
 import Halogen.Data.Slot (Slot)
 import Halogen.HTML (ComponentHTML)
 import Halogen.HTML.Core (AttrName (..), ClassName (..), ElemName (..), Namespace (..), PropName (..))
