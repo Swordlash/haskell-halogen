@@ -4,7 +4,7 @@ import DOM.HTML.Indexed qualified as I
 import Data.Coerce
 import HPrelude hiding (div, head, map)
 import Halogen.HTML.Core (HTML (..))
-import Halogen.HTML.Properties
+import Halogen.HTML.Properties hiding (style, title)
 import Halogen.VDom qualified as VDom
 import Halogen.VDom.Types
 
@@ -27,14 +27,14 @@ elementNS ns en props htmls =
 -- | Creates an HTML element that expects indexed properties, with keyed
 -- | children.
 keyed :: forall r w i. ElemName -> Array (IProp r i) -> Array (Text, HTML w i) -> HTML w i
-keyed name props children =
-  HTML $ VDom.Keyed Nothing name (coerce props) (fmap (second (.unHTML)) children)
+keyed _name props children =
+  HTML $ VDom.Keyed Nothing _name (coerce props) (fmap (second (.unHTML)) children)
 
 -- | Creates a Namespaced HTML element that expects indexed properties, with
 -- | keyed children.
 keyedNS :: forall r w i. Namespace -> ElemName -> Array (IProp r i) -> Array (Text, HTML w i) -> HTML w i
-keyedNS ns name props children =
-  HTML $ VDom.Keyed (Just ns) name (coerce props) (fmap (second (.unHTML)) children)
+keyedNS ns _name props children =
+  HTML $ VDom.Keyed (Just ns) _name (coerce props) (fmap (second (.unHTML)) children)
 
 withKeys :: forall r w i. (Array (IProp r i) -> Array (HTML w i) -> HTML w i) -> Array (IProp r i) -> Array (Text, HTML w i) -> HTML w i
 withKeys ctor props children =

@@ -23,7 +23,7 @@ import Halogen.Component
 import Halogen.Data.Slot (Slot)
 import Halogen.HTML.Core (AttrName (..), ClassName (..), ElemName (..), HTML (..), IsProp (..), Namespace (..), PropName (..), handler, text)
 import Halogen.HTML.Core qualified as Core
-import Halogen.HTML.Elements hiding (input, label, p)
+import Halogen.HTML.Elements hiding (label, p)
 import Halogen.HTML.Properties (IProp, attr, prop)
 import Halogen.VDom.Thunk
 
@@ -65,8 +65,8 @@ slot
   -> input
   -> (output -> action)
   -> ComponentHTML action slots m
-slot label p component input outputQuery =
-  Core.widget (ComponentSlot (componentSlot label p component input (Just . outputQuery)))
+slot label p component _input outputQuery =
+  Core.widget (ComponentSlot (componentSlot label p component _input (Just . outputQuery)))
 
 -- | Defines a slot for a child component, ignoring its output.
 -- |
@@ -89,8 +89,8 @@ slot_
   -> Component query input output m
   -> input
   -> ComponentHTML action slots m
-slot_ label p component input =
-  Core.widget (ComponentSlot (componentSlot label p component input (const Nothing)))
+slot_ label p component _input =
+  Core.widget (ComponentSlot (componentSlot label p component _input (const Nothing)))
 
 -- | Optimizes rendering of a subtree given an equality predicate. If an argument
 -- | is deemed equivalent to the previous value, rendering and diffing will be

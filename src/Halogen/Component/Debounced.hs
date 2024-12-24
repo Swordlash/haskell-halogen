@@ -8,14 +8,14 @@ import Data.Time
 import HPrelude
 import Halogen.Component
 import Halogen.Query.HalogenM
+import System.IO.Unsafe (unsafePerformIO)
 
-mkDebouncedComponent
-  :: (MonadUnliftIO m)
-  => NominalDiffTime
+unsafeMkDebouncedComponent
+  :: NominalDiffTime
   -> ComponentSpec' state query action slots input output m (DelayedStateT state (HalogenM state action slots output m))
-  -> m (Component query input output m)
-mkDebouncedComponent timeout cs = do
-  flip mkDebouncedComponent' cs <$> mkEmptyDelayer timeout
+  -> Component query input output m
+unsafeMkDebouncedComponent timeout cs = do
+  mkDebouncedComponent' (unsafePerformIO $ mkEmptyDelayer timeout) cs
 
 mkDebouncedComponent'
   :: Delayer state

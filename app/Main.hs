@@ -20,9 +20,8 @@ attachComponent :: IO (HalogenSocket Query Int IO)
 logStr :: Text -> IO ()
 
 #if defined(javascript_HOST_ARCH)
-attachComponent = do 
-  c <- component
-  HA.awaitBody >>= runUI c ()
+attachComponent =
+  HA.awaitBody >>= runUI component ()
 logStr = DOM.log
 #else
 attachComponent = panic "This module can only be run on JavaScript"
@@ -48,17 +47,14 @@ type Slots = ("debounced" .== H.Slot VoidF () ())
 
 data Query a = IncrementQ a | DecrementQ a
 
-component :: IO (H.Component Query () Int IO)
-component = do
-  -- debComp <- H.mkDebouncedComponent 0.5 $ _
-
-  pure $
-    H.mkComponent $
-      H.ComponentSpec
-        { initialState
-        , render
-        , eval = H.mkEval $ H.defaultEval {handleAction, handleQuery}
-        }
+component :: H.Component Query () Int IO
+component =
+  H.mkComponent $
+    H.ComponentSpec
+      { initialState
+      , render
+      , eval = H.mkEval $ H.defaultEval {handleAction, handleQuery}
+      }
   where
     initialState _ = 0
 
@@ -99,5 +95,7 @@ debComp = ComponentSpec {initialState, render, eval = H.mkEval H.defaultEval}
     render txt =
       HH.div_
         []
+
+-- HH.input [HH.inputT ]
 
 -- HH.textarea [HE.onInput ]
