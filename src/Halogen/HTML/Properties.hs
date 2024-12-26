@@ -180,8 +180,8 @@ multiple = prop (PropName "multiple")
 accept :: (HasType "accept" I.InputAcceptType r) => I.InputAcceptType -> IProp r i
 accept = prop (PropName "accept")
 
-pattern :: (HasType "pattern" Text r) => Text -> IProp r i
-pattern = prop (PropName "pattern")
+pattern_ :: (HasType "pattern" Text r) => Text -> IProp r i
+pattern_ = prop (PropName "pattern")
 
 autoplay :: (HasType "autoplay" Bool r) => Bool -> IProp r i
 autoplay = prop (PropName "autoplay")

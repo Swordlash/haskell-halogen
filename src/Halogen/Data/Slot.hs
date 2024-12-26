@@ -16,7 +16,7 @@ data SlotElem (slots :: Row Type) (slot :: (Type -> Type) -> Type -> Type) where
     :: (HasType sym (Slot query output s) slots, KnownSymbol sym, Ord s)
     => Proxy sym
     -> s
-    -> slot query output
+    -> ~(slot query output)
     -> SlotElem slots slot
 
 instance Eq (SlotElem slots slot) where

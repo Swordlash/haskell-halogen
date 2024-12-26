@@ -61,13 +61,13 @@ componentSlot
   -> input
   -> (output -> Maybe action)
   -> ComponentSlotBox slots m action
-componentSlot label p comp input output =
+componentSlot label p component input output =
   ComponentSlotBox
     { get = Slot.lookup label p
     , pop = Slot.pop label p
     , set = Slot.insert label p
-    , component = comp
-    , input = input
+    , component
+    , input
     , output
     }
 

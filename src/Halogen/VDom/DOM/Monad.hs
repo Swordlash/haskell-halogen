@@ -20,10 +20,10 @@ import GHC.JS.Foreign.Callback
 #endif
 
 data PropValue val where
-  IntProp :: (Integral a) => !a -> PropValue a
-  NumProp :: !Double -> PropValue Double
-  BoolProp :: !Bool -> PropValue Bool
-  TxtProp :: !Text -> PropValue Text
+  IntProp :: (Integral a) => a -> PropValue a
+  NumProp :: Double -> PropValue Double
+  BoolProp :: Bool -> PropValue Bool
+  TxtProp :: Text -> PropValue Text
   ViaTxtProp :: (a -> Text) -> a -> PropValue a
 
 class (Monad m) => MonadDOM m where

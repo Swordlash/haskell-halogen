@@ -130,5 +130,9 @@ function js_crypto_random_uuid() {
 }
 
 function js_unsafe_ref_eq(a, b) {
-  return a === b;
+  return (a === b);
+}
+
+function js_current_target(e) {
+  return e.target;
 }

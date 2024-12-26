@@ -23,9 +23,9 @@ import Web.Event.Event qualified as DOM
 import Web.HTML.Common
 
 data Prop msg
-  = Attribute !(Maybe Namespace) !AttrName !Text
-  | forall val. Property !(PropName val) !(PropValue val)
-  | Handler !EventType !(Event -> Maybe msg)
+  = Attribute (Maybe Namespace) AttrName Text
+  | forall val. Property (PropName val) (PropValue val)
+  | Handler EventType (Event -> Maybe msg)
   | Ref (ElemRef Element -> Maybe msg)
 
 deriving instance Functor Prop

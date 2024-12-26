@@ -10,11 +10,11 @@ data TimeoutKilled = TimeoutKilled
   deriving stock (Show)
   deriving anyclass (Exception)
 
-data Delayer s = Delayer !NominalDiffTime !(MVar (Maybe (DelayerState s)))
+data Delayer s = Delayer NominalDiffTime (MVar (Maybe (DelayerState s)))
 
 data DelayerState s = DelayerState
-  { delayedState :: !s
-  , commitFiber :: !(Async ())
+  { delayedState :: s
+  , commitFiber :: Async ()
   }
 
 mkEmptyDelayer :: (MonadIO m) => NominalDiffTime -> m (Delayer s)

@@ -21,8 +21,8 @@ unNamespace :: Namespace -> Text
 unNamespace (Namespace ns) = ns
 
 data VDom a w
-  = Text !Text
-  | Elem !(Maybe Namespace) !ElemName a [VDom a w]
+  = Text Text
+  | Elem (Maybe Namespace) ElemName a [VDom a w]
   | Keyed (Maybe Namespace) ElemName a [(Text, VDom a w)]
   | Widget w
   | Grafted (Graft a w)

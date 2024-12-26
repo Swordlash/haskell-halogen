@@ -1,5 +1,6 @@
 module Halogen.HTML.Events where
 
+import Data.Foreign
 import Data.Row
 import HPrelude
 import Halogen.HTML.Core qualified as Core
@@ -8,6 +9,7 @@ import Halogen.Query.Input
 import Web.Clipboard.ClipboardEvent
 import Web.Clipboard.ClipboardEvent.EventTypes qualified as CET
 import Web.Event.Event
+import Web.Event.Event qualified as EE
 import Web.HTML.Event.DragEvent
 import Web.HTML.Event.DragEvent.EventTypes qualified as DET
 import Web.HTML.Event.EventTypes qualified as ET
@@ -23,6 +25,9 @@ import Web.UIEvent.WheelEvent.EventTypes qualified as WET
 
 handler :: forall r i. EventType -> (Event -> i) -> IProp r i
 handler et f = IProp $ Core.handler et (Just . Action . f)
+
+handler' :: forall r i. EventType -> (Event -> Maybe i) -> IProp r i
+handler' et f = IProp $ Core.handler et (fmap Action . f)
 
 onAbort :: forall r i. (HasType "onAbort" Event r) => (Event -> i) -> IProp r i
 onAbort = handler (EventType "abort")
@@ -205,3 +210,30 @@ clipboardHandler = coerce
 
 touchHandler :: forall i. (TouchEvent -> i) -> Event -> i
 touchHandler = coerce
+
+-- | Attaches event handler to event `key` with getting `prop` field as an
+-- | argument of `handler`.
+addForeignPropHandler :: EventType -> Text -> (Foreign tag -> Maybe value) -> (value -> i) -> IProp r i
+addForeignPropHandler key prop_ reader_ f =
+  handler' key $ EE.currentTarget >=> go
+  where
+    go a = f <$> readProp prop_ reader_ (coerce a)
+
+-- | Attaches an event handler which will produce an input when the value of an
+-- | input field changes.
+onValueChange :: forall r i. (HasType "value" Text r, HasType "onChange" Event r) => (Text -> i) -> IProp r i
+onValueChange = addForeignPropHandler ET.change "value" (Just . foreignToString)
+
+-- | Attaches an event handler which will produce an input when the seleced index of a
+-- | `select` element changes.
+onSelectedIndexChange :: forall r i. (HasType "selectedIndex" Int r, HasType "onChange" Event r) => (Int -> i) -> IProp r i
+onSelectedIndexChange = addForeignPropHandler ET.change "selectedIndex" (Just . foreignToInt)
+
+-- | Attaches an event handler which will fire on input.
+onValueInput :: forall r i. (HasType "value" Text r, HasType "onInput" Event r) => (Text -> i) -> IProp r i
+onValueInput = addForeignPropHandler ET.input "value" (Just . foreignToString)
+
+-- | Attaches an event handler which will fire when a checkbox is checked or
+-- | unchecked.
+onChecked :: forall r i. (HasType "checked" Bool r, HasType "onChange" Event r) => (Bool -> i) -> IProp r i
+onChecked = addForeignPropHandler ET.change "checked" (Just . foreignToBool)
