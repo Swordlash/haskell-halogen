@@ -4,6 +4,8 @@
 module Main where
 
 import DOM.HTML.Indexed qualified as I
+import Data.Coerce
+import Data.Foreign
 import Data.Functor.Coyoneda
 import Data.NT
 import Data.Row
@@ -14,6 +16,7 @@ import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 import Halogen.Subscription qualified as HS
 import Protolude
+import Web.Event.Event
 
 #if defined(javascript_HOST_ARCH)
 import Halogen.Aff.Util as HA
@@ -40,13 +43,13 @@ main = do
   void $ HS.subscribe messages $ \st ->
     logStr $ "State changed: " <> show st
 
-  {-
-  forever $ do
-    threadDelay 5_000_000
-    void $ query (IncrementQ ())
-    threadDelay 5_000_000
-    void $ query (DecrementQ ())
-    -}
+{-
+forever $ do
+  threadDelay 5_000_000
+  void $ query (IncrementQ ())
+  threadDelay 5_000_000
+  void $ query (DecrementQ ())
+  -}
 
 data Action = Increment Int | Decrement Int
 
@@ -110,7 +113,10 @@ debComp = unsafeMkDebouncedComponent 0.5 $ ComponentSpec {initialState, render, 
         , HH.input
             [ HP.type_ I.InputText
             , HP.value txt
-            , HE.onValueChange DebChanged
+            , HE.onInput $ \ev ->
+                DebChanged $ fromMaybe txt $ do
+                  trg <- coerce <$> currentTarget ev
+                  readProp "value" (Just . foreignToString) trg
             ]
         ]
 
