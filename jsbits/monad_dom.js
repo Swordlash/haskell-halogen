@@ -1,15 +1,27 @@
+var ENABLE_LOGGING = false; // Set this to false to disable logging
+
+function log(message) {
+  if (ENABLE_LOGGING) {
+    console.log(message);
+  }
+}
+
+function getNodeType(node) {
+  return node.nodeType === 1 ? node.tagName : node.nodeType;
+}
+
 function js_create_text_node(text, document) {
-  // console.log("Creating text node with text: " + text);
+  log("Creating text node with text: " + text);
   return document.createTextNode(text);
 }
 
 function js_set_text_content(text, node) {
-  // console.log("Setting text content to: " + text);
+  log("Setting text content to: " + text + " on node type: " + getNodeType(node));
   node.textContent = text;
 }
 
 function js_create_element(namespace, elemName, document) {
-  // console.log("Creating element with name: " + elemName);
+  log("Creating element with name: " + elemName);
   if (namespace === null) {
     return document.createElement(elemName);
   } else {
@@ -18,42 +30,51 @@ function js_create_element(namespace, elemName, document) {
 }
 
 function js_insert_before(newNode, referenceNode, parentNode) {
-  // console.log("Inserting node before reference node");
+  log("Inserting node type: " + getNodeType(newNode) + " before reference node type: " + getNodeType(referenceNode));
   parentNode.insertBefore(newNode, referenceNode);
 }
 
 function js_append_child(newNode, parentNode) {
-  // console.log("Appending child to parent");
-  parentNode.appendChild(newNode);
+  if (parentNode.lastChild !== newNode) {
+    log("Appending child node type: " + getNodeType(newNode) + " to parent node type: " + getNodeType(parentNode));
+    parentNode.appendChild(newNode);
+  } else {
+    log("Child node type: " + getNodeType(newNode) + " is already the last child of parent node type: " + getNodeType(parentNode));
+  }
 }
 
 function js_replace_child(newNode, oldNode, parentNode) {
-  // console.log("Replacing child node");
+  log("Replacing old node type: " + getNodeType(oldNode) + " with new node type: " + getNodeType(newNode));
   parentNode.replaceChild(newNode, oldNode);
 }
 
 function js_insert_child_ix(index, newNode, parentNode) {
-  // console.log("Inserting child at index: " + index);
-  parentNode.insertBefore(newNode, parentNode.childNodes[index] || null);
+  var n = parentNode.childNodes.item(index) || null;
+  if (n !== newNode) {
+    log("Inserting child node type: " + getNodeType(newNode) + " at index: " + index + " in parent node type: " + getNodeType(parentNode));
+    parentNode.insertBefore(newNode, n);
+  } else {
+    log("Node is already at index: " + index);
+  }
 }
 
 function js_remove_child(childNode, parentNode) {
-  // console.log("Removing child from parent");
+  log("Removing child node type: " + getNodeType(childNode) + " from parent node type: " + getNodeType(parentNode));
   parentNode.removeChild(childNode);
 }
 
 function js_parent_node(node) {
-  // console.log("Getting parent node");
+  log("Getting parent node of node type: " + getNodeType(node));
   return node.parentNode;
 }
 
 function js_next_sibling(node) {
-  // console.log("Getting next sibling");
+  log("Getting next sibling of node type: " + getNodeType(node));
   return node.nextSibling;
 }
 
 function js_set_attribute(namespace, attrName, value, element) {
-  // console.log("Setting attribute: " + attrName + " with value: " + value);
+  log("Setting attribute: " + attrName + " with value: " + value + " on element type: " + getNodeType(element));
   if (namespace === null) {
     element.setAttribute(attrName, value);
   } else {
@@ -62,22 +83,26 @@ function js_set_attribute(namespace, attrName, value, element) {
 }
 
 function js_set_property(propName, propValue, element) {
-  // console.log("Setting property: " + propName + " with value: " + propValue);
-  element[propName] = propValue;
+  if (element[propName] !== propValue) {
+    log("Setting property: " + propName + " with value: " + propValue + " on element type: " + getNodeType(element));
+    element[propName] = propValue;
+  } else {
+    log("Property: " + propName + " is already set to: " + propValue);
+  }
 }
 
 function js_unsafe_get_property(propName, element) {
-  // console.log("Getting property: " + propName);
+  log("Getting property: " + propName + " from element type: " + getNodeType(element) + " value: " + element[propName]);
   return element[propName];
 }
 
 function js_remove_property(propName, element) {
-  // console.log("Removing property: " + propName);
+  log("Removing property: " + propName + " from element type: " + getNodeType(element));
   delete element[propName];
 }
 
 function js_remove_attribute(namespace, attrName, element) {
-  // console.log("Removing attribute: " + attrName);
+  log("Removing attribute: " + attrName + " from element type: " + getNodeType(element));
   if (namespace === null) {
     element.removeAttribute(attrName);
   } else {
@@ -86,7 +111,7 @@ function js_remove_attribute(namespace, attrName, element) {
 }
 
 function js_has_attribute(namespace, attrName, element) {
-  // console.log("Checking if element has attribute: " + attrName);
+  log("Checking if element type: " + getNodeType(element) + " has attribute: " + attrName);
   if (namespace === null) {
     return element.hasAttribute(attrName);
   } else {
@@ -95,37 +120,37 @@ function js_has_attribute(namespace, attrName, element) {
 }
 
 function js_add_event_listener(eventType, eventListener, eventTarget) {
-  // console.log("Adding event listener for " + eventType);
+  log("Adding event listener for " + eventType + " on target type: " + getNodeType(eventTarget));
   eventTarget.addEventListener(eventType, eventListener, false);
 }
 
 function js_remove_event_listener(eventType, eventListener, eventTarget) {
-  // console.log("Removing event listener for " + eventType);
+  log("Removing event listener for " + eventType + " from target type: " + getNodeType(eventTarget));
   eventTarget.removeEventListener(eventType, eventListener, false);
 }
 
 function js_get_window() {
-  // console.log("Getting window");
+  log("Getting window");
   return window;
 }
 
 function js_get_document(window) {
-  // console.log("Getting document");
+  log("Getting document from window");
   return window.document;
 }
 
 function js_query_selector(selector, element) {
-  // console.log("Querying selector: " + selector);
+  log("Querying selector: " + selector + " on element type: " + getNodeType(element));
   return element.querySelector(selector);
 }
 
 function js_ready_state(element) {
-  // console.log("Getting ready state");
+  log("Getting ready state of element type: " + getNodeType(element));
   return element.readyState;
 }
 
 function js_crypto_random_uuid() {
-  // console.log("Generating random UUID");
+  log("Generating random UUID");
   return window.crypto.randomUUID();
 }
 
