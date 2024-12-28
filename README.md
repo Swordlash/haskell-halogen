@@ -4,12 +4,12 @@ A port of [purescript-halogen](https://github.com/purescript-halogen/purescript-
 
 ## Running the project
 
-While the library itself compiles under any GHC (tested with 9.6, 9.8 and 9.10) to compile the example app you need a `javascript-unknown-ghcjs-ghc-9.10`, cross-compiled GHC executable capable of compiling sources to JavaScript.
+While the library itself compiles under any GHC (tested with 9.6-9.12) to compile the example app you need a `javascript-unknown-ghcjs-ghc-9.12.1`, cross-compiled GHC executable capable of compiling sources to JavaScript (9.10 works as well).
 
 The easiest way to get it is to use `ghcup` precompiled binaries from [here](https://www.haskell.org/ghcup/guide/#cross-support), then run
 
 ```
-./run_dev_server.sh
+./run_dev_server_minify.sh
 ```
 
 to compile the JS sources and serve them on localhost. 
