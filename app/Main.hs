@@ -3,6 +3,7 @@
 
 module Main where
 
+import Clay qualified as C
 import DOM.HTML.Indexed qualified as I
 import Data.Coerce
 import Data.Foreign
@@ -107,9 +108,10 @@ debComp = unsafeMkDebouncedComponent 0.5 $ ComponentSpec {initialState, render, 
     initialState _ = ""
 
     render txt =
-      HH.div_
-        [ HH.text "The text below is debounced"
-        , HH.text $ "Input content: " <> txt
+      HH.div
+        [HP.style $ C.display C.flex <> C.flexDirection C.column]
+        [ HH.div_ [HH.text "The text below is debounced"]
+        , HH.div_ [HH.text $ "Input content: " <> txt]
         , HH.input
             [ HP.type_ I.InputText
             , HP.value txt

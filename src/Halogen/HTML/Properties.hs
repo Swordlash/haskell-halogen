@@ -1,5 +1,6 @@
 module Halogen.HTML.Properties where
 
+import Clay qualified as C
 import DOM.HTML.Indexed qualified as I
 import Data.Coerce
 import Data.MediaType
@@ -88,16 +89,11 @@ src = prop "src"
 srcDoc :: (HasType "srcDoc" Text r) => Text -> IProp r i
 srcDoc = prop "srcdoc"
 
--- | Sets the `style` attribute to the specified Text.
--- |
--- | ```purs
--- | ... [ style "height: 50px;" ]
--- | ```
--- |
--- | If you prefer to use typed CSS for this attribute, you can use the purescript-halogen-css library:
--- | https://github.com/purescript-halogen/purescript-halogen-css
-style :: (HasType "style" Text r) => Text -> IProp r i
-style = attr (AttrName "style")
+style :: (HasType "style" Text r) => C.Css -> IProp r i
+style = styleText . toS . C.renderWith C.compact []
+
+styleText :: (HasType "style" Text r) => Text -> IProp r i
+styleText = attr (AttrName "style")
 
 scope :: (HasType "scope" I.ScopeValue r) => I.ScopeValue -> IProp r i
 scope = prop (PropName "scope")

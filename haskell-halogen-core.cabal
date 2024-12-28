@@ -22,7 +22,7 @@ extra-source-files: CHANGELOG.md
 common commons
   build-depends:    
       base, free, transformers, mtl, text, protolude, extra, random, time, bytestring, stm, deepseq, unordered-containers, async,
-      row-types, hashable, containers, kan-extensions, uuid-types, unliftio, safe-exceptions
+      row-types, hashable, containers, kan-extensions, uuid-types, unliftio, safe-exceptions, clay
   
   default-language: GHC2021
   ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures
