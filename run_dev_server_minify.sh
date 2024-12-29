@@ -13,4 +13,4 @@ cabal build -v0 -fforce-recomp --project-file=cabal-ghcjs.project all
 google-closure-compiler -O ADVANCED --js_output_file $OUT1 $IN1 $IN2
 cp $OUT1 $OUT2
 # terser $IN --compress toplevel=true --mangle toplevel=true --output $OUT
-http-server dev/
+# http-server dev/ -- or parcel dev/index.html or webpack
