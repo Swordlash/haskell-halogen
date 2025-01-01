@@ -47,11 +47,11 @@ alt = prop "alt"
 charset :: (HasType "charset" Text r) => Text -> IProp r i
 charset = prop "charset"
 
-class_ :: (HasType "className" Text r) => ClassName -> IProp r i
-class_ (ClassName txt) = prop "className" txt
+class_ :: (HasType "class" Text r) => ClassName -> IProp r i
+class_ (ClassName txt) = prop "class" txt
 
-classes :: (HasType "className" Text r) => [ClassName] -> IProp r i
-classes = prop "className" . T.intercalate " " . coerce
+classes :: (HasType "class" Text r) => [ClassName] -> IProp r i
+classes = prop "class" . T.intercalate " " . coerce
 
 cols :: (HasType "cols" Int r) => Int -> IProp r i
 cols = prop "cols"
