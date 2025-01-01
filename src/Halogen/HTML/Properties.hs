@@ -48,10 +48,10 @@ charset :: (HasType "charset" Text r) => Text -> IProp r i
 charset = prop "charset"
 
 class_ :: (HasType "class" Text r) => ClassName -> IProp r i
-class_ (ClassName txt) = prop "class" txt
+class_ (ClassName txt) = prop "className" txt
 
 classes :: (HasType "class" Text r) => [ClassName] -> IProp r i
-classes = prop "class" . T.intercalate " " . coerce
+classes = prop "className" . T.unwords . coerce
 
 cols :: (HasType "cols" Int r) => Int -> IProp r i
 cols = prop "cols"

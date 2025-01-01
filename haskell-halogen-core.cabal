@@ -89,6 +89,7 @@ library
       Halogen.HTML.Elements
       Halogen.HTML.Events
       Halogen.HTML.Properties
+      Halogen.HTML.Properties.ARIA
 
       Halogen.Query
       Halogen.Query.ChildQuery
