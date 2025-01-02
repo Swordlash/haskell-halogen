@@ -1,1 +1,0 @@
-/** @return {*} */ var halogen_init_material_button = function (element) {};

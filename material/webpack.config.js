@@ -4,8 +4,8 @@ const HtmlWebpackPlugin = require('html-webpack-plugin');
 
 module.exports = {
   entry: 
-    [ './dev/index.js'
-    , './src/Halogen/Material/Button.js'
+    [ './src/Halogen/Material/halogen.js'
+    , './dev/index.js'
     , './dev/style.scss'
     ],
   output: {

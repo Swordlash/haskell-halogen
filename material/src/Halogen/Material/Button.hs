@@ -21,7 +21,7 @@ import Protolude hiding (log)
 import Web.DOM.Internal.Types (HTMLElement)
 
 #if defined(javascript_HOST_ARCH)
-foreign import javascript unsafe "halogen_init_material_button" initButton :: HTMLElement -> IO MDCRipple
+foreign import javascript unsafe "window.Halogen.init_material_button" initButton :: HTMLElement -> IO MDCRipple
 #else
 initButton :: HTMLElement -> IO MDCRipple
 initButton _ = panic "can only be run in JS"

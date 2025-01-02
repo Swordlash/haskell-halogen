@@ -37,10 +37,6 @@ library
     hs-source-dirs:   src
     default-language: GHC2024
 
-    if arch(javascript)
-        js-sources: 
-            src/Halogen/Material/Button.externs.js
-
 executable halogen-material-app
     import:           warnings
     main-is:          Main.hs
