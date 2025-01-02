@@ -2,7 +2,7 @@
 
 set -ex
 
-export EXE="./dist-newstyle/build/javascript-ghcjs/ghc-9.12.1/haskell-halogen-core-0.1.0.0/x/halogen-core-prototype/build/halogen-core-prototype/halogen-core-prototype.jsexe"
+export EXE=$(cabal exec -v0 --project-file=cabal-ghcjs.project -- which halogen-core-prototype)".jsexe"
 export IN1=$EXE"/all.js"
 export IN2=$EXE"/all.externs.js"
 export OUT1=$EXE"/all.min.js"
