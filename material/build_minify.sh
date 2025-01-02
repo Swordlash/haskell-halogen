@@ -15,7 +15,7 @@ export OUT2="dev/index.js"
 # cp $IN1 $OUT1
 cp $IN1 $OUT2
 
-npx parcel build dev/index.html --dist-dir dist
+npx webpack-cli --mode production --config webpack.config.js
 
 # this fails on undeclared variable for some reason (from parcel, not ghc output)
 # export IN=$(ls dist/*.js)

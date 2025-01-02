@@ -5,15 +5,18 @@
     "@material/button": "^14.0.0"
   },
   "devDependencies": {
-    "@parcel/transformer-sass": "^2.13.3",
+    "css-loader": "^7.1.2",
     "google-closure-compiler": "^20240317.0.0",
+    "html-webpack-plugin": "^5.6.3",
     "http-server": "^14.1.1",
-    "parcel": "^2.13.3",
-    "process": "^0.11.10"
+    "sass": "^1.83.0",
+    "sass-loader": "^16.0.4",
+    "style-loader": "^4.0.0",
+    "webpack": "^5.97.1",
+    "webpack-cli": "^6.0.1"
   },
   "scripts": {
     "build": "./build_minify.sh",
-    "serve": "parcel dev/index.html",
     "clean": "rm -rf dist/*",
     "serve-dist": "http-server dist -p 1234"
   }
