@@ -4,4 +4,4 @@ Implementation of Google Material Components using (haskell-halogen-core)[https:
 
 ATM requires a fork of GHC to build (with fixed support of GHCJS_BROWSER - (PR)[https://gitlab.haskell.org/ghc/ghc/-/issues/25613] is under review).
 
-![image](./screenshot.png)
+![image](screenshot.png)
