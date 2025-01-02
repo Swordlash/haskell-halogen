@@ -1,4 +1,7 @@
 @use "@material/button/styles";
+@use "@material/list";
+
+@include list.deprecated-core-styles;
 
 /* fallback */
 @font-face {

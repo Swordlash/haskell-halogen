@@ -37,13 +37,16 @@ library
     exposed-modules:  
         Halogen.Material.Button
         Halogen.Material.Icons
+        Halogen.Material.List
     -- other-modules:
     -- other-extensions:
     hs-source-dirs:   src
     default-language: GHC2024
 
     if !flag(no-bundle-jsbits) && arch(javascript)
-        js-sources: src/Halogen/Material/Button.js
+        js-sources: 
+            src/Halogen/Material/Button.js
+            src/Halogen/Material/List.js
 
 executable halogen-material-app
     import:           warnings

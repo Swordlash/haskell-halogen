@@ -2,7 +2,8 @@
   "name": "haskell-halogen-material",
   "version": "0.1.0",
   "dependencies": {
-    "@material/button": "^14.0.0"
+    "@material/button": "^14.0.0",
+    "@material/list": "^14.0.0"
   },
   "devDependencies": {
     "css-loader": "^7.1.2",
