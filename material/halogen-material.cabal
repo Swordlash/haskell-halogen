@@ -39,7 +39,7 @@ library
 
     if arch(javascript)
         js-sources: 
-            src/Halogen/Material/Button.js
+            src/Halogen/Material/Button.externs.js
 
 executable halogen-material-app
     import:           warnings

@@ -11,9 +11,9 @@ export IN2=$EXE"/all.externs.js"
 export OUT1=$EXE"/all.min.js"
 export OUT2="dev/index.js"
 
-# npx google-closure-compiler -O ADVANCED --js_output_file $OUT1 $IN1 $IN2
-# cp $IN1 $OUT1
-cp $IN1 $OUT2
+npx google-closure-compiler -O ADVANCED --js_output_file $OUT1 $IN1 $IN2
+#cp $IN1 $OUT1
+cp $OUT1 $OUT2
 
 npx webpack-cli --mode production --config webpack.config.js
 

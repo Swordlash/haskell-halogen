@@ -3,7 +3,11 @@ const HtmlWebpackPlugin = require('html-webpack-plugin');
 
 
 module.exports = {
-  entry: ['./dev/index.js', './dev/style.scss'],
+  entry: 
+    [ './dev/index.js'
+    , './src/Halogen/Material/Button.js'
+    , './dev/style.scss'
+    ],
   output: {
     filename: 'main.js',
     path: path.resolve(__dirname, 'dist'),
