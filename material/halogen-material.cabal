@@ -13,6 +13,11 @@ build-type:         Simple
 extra-doc-files:    CHANGELOG.md
 -- extra-source-files:
 
+flag no-bundle-jsbits
+  description: Don't bundle foreign code implementation into the library
+  default:     False
+  manual:      True
+
 common warnings
     ghc-options: -Wall
     default-extensions: 
@@ -36,6 +41,9 @@ library
     -- other-extensions:
     hs-source-dirs:   src
     default-language: GHC2024
+
+    if !flag(no-bundle-jsbits) && arch(javascript)
+        js-sources: src/Halogen/Material/Button.js
 
 executable halogen-material-app
     import:           warnings
