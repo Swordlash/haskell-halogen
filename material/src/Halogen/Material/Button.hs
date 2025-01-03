@@ -8,6 +8,7 @@ module Halogen.Material.Button
   )
 where
 
+import Clay (Css)
 import Data.Text qualified as T
 import Halogen qualified as H hiding (Initialize)
 import Halogen.Component
@@ -31,6 +32,7 @@ data ButtonCfg = ButtonCfg
   , style :: Maybe ButtonStyle
   , icon :: Maybe (Icon, IconPosition)
   , enabled :: Bool
+  , extraStyle :: Css
   }
 
 emptyButtonCfg :: ButtonCfg
@@ -40,6 +42,7 @@ emptyButtonCfg =
     , style = Nothing
     , icon = Nothing
     , enabled = True
+    , extraStyle = mempty
     }
 
 data ButtonState = ButtonState
@@ -49,6 +52,7 @@ data ButtonState = ButtonState
   , style :: Maybe ButtonStyle
   , icon :: Maybe (Icon, IconPosition)
   , enabled :: Bool
+  , extraStyle :: Css
   }
 
 data ButtonAction
@@ -70,7 +74,7 @@ button =
       HH.div [HP.class_ (HH.ClassName "mdc-touch-target-wrapper")]
         $ pure
         $ HH.button
-          [HP.classes classes, HP.disabled (not enabled), HE.onClick (const Clicked), HP.ref ref]
+          [HP.classes classes, HP.style extraStyle, HP.disabled (not enabled), HE.onClick (const Clicked), HP.ref ref]
         $ fold
         $ case icon of
           Just (_, Trailing) ->

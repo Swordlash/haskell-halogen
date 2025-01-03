@@ -51,7 +51,7 @@ component =
       where
         extraStyle :: C.Css
         extraStyle = do
-          C.backgroundColor $ C.parse "#fff"
+          C.backgroundColor C.white
           C.border (C.px 1) C.solid (C.rgb 229 229 229)
           C.width (C.pct 50)
 
