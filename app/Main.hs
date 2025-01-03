@@ -109,7 +109,7 @@ debComp = unsafeMkDebouncedComponent 0.5 $ ComponentSpec {initialState, render, 
 
     render txt =
       HH.div
-        [HP.style $ C.display C.flex <> C.flexDirection C.column, HP.classes [ HH.ClassName "test1", HH.ClassName "test2"]]
+        [HP.style $ C.display C.flex <> C.flexDirection C.column, HP.classes [HH.ClassName "test1", HH.ClassName "test2"]]
         [ HH.div_ [HH.text "The text below is debounced"]
         , HH.div_ [HH.text $ "Input content: " <> txt]
         , HH.input

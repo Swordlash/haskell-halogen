@@ -22,9 +22,16 @@ data ComponentSlotBox slots m msg = forall query input output. ComponentSlotBox
   , output :: output -> Maybe msg
   }
 
+deriving instance Functor (ComponentSlotBox slots m)
+
 data ComponentSlot (slots :: Row Type) m msg
   = ComponentSlot (ComponentSlotBox slots m msg)
   | ThunkSlot (Thunk (HTML (ComponentSlot slots m msg)) msg)
+
+instance Functor (ComponentSlot slots m) where
+  fmap f = \case
+    ComponentSlot box -> ComponentSlot $ map f box
+    ThunkSlot t -> ThunkSlot $ mapThunk (bimap (fmap f) f) t
 
 data ComponentSpec' state query action slots input output m n = ComponentSpec
   { initialState :: input -> state

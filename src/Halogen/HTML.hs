@@ -2,6 +2,7 @@ module Halogen.HTML
   ( ComponentHTML
   , PlainHTML
   , fromPlainHTML
+  , mapHTMLAction
   , slot
   , slot_
   , memoized
@@ -35,6 +36,9 @@ import Halogen.VDom.Thunk
 -- | - `slots` is the set of child component types that can be used in the HTML
 -- | - `m` is the monad used by the child component during evaluation
 type ComponentHTML action slots m = HTML (ComponentSlot slots m action) action
+
+mapHTMLAction :: (a -> a') -> ComponentHTML a slots m -> ComponentHTML a' slots m
+mapHTMLAction f = bimap (fmap f) f
 
 -- | A type useful for a chunk of HTML with no slot-embedding or query-raising.
 -- |
