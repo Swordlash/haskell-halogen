@@ -1,6 +1,7 @@
 module Halogen.HTML.Properties where
 
 import Clay qualified as C
+import Clay.Render qualified as C
 import DOM.HTML.Indexed qualified as I
 import Data.Coerce
 import Data.MediaType
@@ -90,7 +91,7 @@ srcDoc :: (HasType "srcDoc" Text r) => Text -> IProp r i
 srcDoc = prop "srcdoc"
 
 style :: (HasType "style" Text r) => C.Css -> IProp r i
-style = styleText . toS . C.renderWith C.compact []
+style = styleText . toS . C.renderWith C.htmlInline []
 
 styleText :: (HasType "style" Text r) => Text -> IProp r i
 styleText = attr (AttrName "style")
