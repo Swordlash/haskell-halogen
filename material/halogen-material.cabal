@@ -38,15 +38,14 @@ library
         Halogen.Material.Button
         Halogen.Material.Icons
         Halogen.Material.List
-    -- other-modules:
-    -- other-extensions:
+        Halogen.Material.Ripple
     hs-source-dirs:   src
     default-language: GHC2024
 
     if !flag(no-bundle-jsbits) && arch(javascript)
-        js-sources: 
-            src/Halogen/Material/Button.js
+        js-sources:
             src/Halogen/Material/List.js
+            src/Halogen/Material/Ripple.js
 
 executable halogen-material-app
     import:           warnings

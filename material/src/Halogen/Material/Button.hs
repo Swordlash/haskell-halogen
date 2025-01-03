@@ -1,6 +1,3 @@
-{-# LANGUAGE CPP #-}
-{-# OPTIONS_GHC -Wno-unused-top-binds #-}
-
 module Halogen.Material.Button
   ( button
   , emptyButtonCfg
@@ -11,25 +8,17 @@ module Halogen.Material.Button
   )
 where
 
-import Data.Foreign
+import Data.Text qualified as T
 import Halogen qualified as H hiding (Initialize)
 import Halogen.Component
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
 import Halogen.Material.Icons
+import Halogen.Material.Ripple
 import Halogen.VDom.DOM.Monad
 import Protolude hiding (log)
 import Web.DOM.Internal.Types (HTMLElement)
-
-newtype MDCRipple = MDCRipple (Foreign MDCRipple)
-
-#if defined(javascript_HOST_ARCH)
-foreign import javascript unsafe "window.Halogen.init_material_ripple" initRipple :: HTMLElement -> IO MDCRipple
-#else
-initRipple :: HTMLElement -> IO MDCRipple
-initRipple _ = panic "can only be run in JS"
-#endif
 
 data IconPosition = Leading | Trailing
 
@@ -86,19 +75,22 @@ button =
         $ case icon of
           Just (_, Trailing) ->
             [ [HH.span [HP.class_ (HH.ClassName "mdc-button__ripple")] []]
-            , [HH.span [HP.class_ (HH.ClassName "mdc-button__label")] [HH.text label]]
+            , -- when the icon is trailing, label is not optional
+              [HH.span [HP.class_ (HH.ClassName "mdc-button__label")] [HH.text label]]
             , renderedIc
             ]
           Just (_, Leading) ->
             [ [HH.span [HP.class_ (HH.ClassName "mdc-button__ripple")] []]
             , renderedIc
-            , [HH.span [HP.class_ (HH.ClassName "mdc-button__label")] [HH.text label]]
+            , lab
             ]
           Nothing ->
             [ [HH.span [HP.class_ (HH.ClassName "mdc-button__ripple")] []]
-            , [HH.span [HP.class_ (HH.ClassName "mdc-button__label")] [HH.text label]]
+            , lab
             ]
       where
+        lab = if T.null label then [] else [HH.span [HP.class_ (HH.ClassName "mdc-button__label")] [HH.text label]]
+
         (renderedIc, renderIconClass) = case icon of
           Just (ic, Leading) -> ([renderIcon [HH.ClassName "mdc-button__icon"] ic], [HH.ClassName "mdc-button--icon-leading"])
           Just (ic, Trailing) -> ([renderIcon [HH.ClassName "mdc-button__icon"] ic], [HH.ClassName "mdc-button--icon-trailing"])
@@ -117,6 +109,10 @@ button =
 
     handleAction = \case
       Initialize ->
-        H.getHTMLElementRef ref >>= traverse_ (liftIO . initRipple)
+        H.getHTMLElementRef ref >>= \case
+          Nothing -> lift $ log "Cannot initialize button Ripple, no HTML element found"
+          Just e -> do
+            ripple <- liftIO $ initRipple e
+            modify $ \s -> s {mdcRipple = Just ripple}
       Clicked ->
         H.raise ButtonClicked

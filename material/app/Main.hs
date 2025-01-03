@@ -1,12 +1,15 @@
 module Main where
 
+import Clay qualified as C
 import Data.Row
 import Halogen as H
 import Halogen.HTML as HH hiding (map)
 import Halogen.Material.Button as HM
 import Halogen.Material.Icons qualified as Icon
+import Halogen.Material.List as HL
 import Halogen.VDom.DOM.Monad
 import Protolude
+import Protolude.Partial ((!!))
 
 #if defined(javascript_HOST_ARCH)
 import Halogen.Aff.Util as HA
@@ -24,7 +27,11 @@ attachComponent = panic "This module can only be run on JavaScript"
 main :: IO ()
 main = void attachComponent
 
-type Slots = ("debounced" .== H.Slot VoidF ButtonClicked Text)
+type Slots =
+  ("list" .== H.Slot (ListQuery Buttons VoidF) (ListOutput Void) ())
+    .+ Buttons
+
+type Buttons = ("buttons" .== H.Slot VoidF ButtonClicked Text)
 
 component :: forall m. (MonadDOM m, MonadIO m) => H.Component H.VoidF () () m
 component =
@@ -35,22 +42,40 @@ component =
       , eval = H.mkEval H.defaultEval
       }
   where
-    p = Proxy @"debounced"
+    p = Proxy @"buttons"
+    pl = Proxy @"list"
 
     render :: () -> H.ComponentHTML Void Slots m
     render _ =
-      HH.ul
-        []
-        $ map (HH.li [] . pure)
-        $ [ HH.slot_ p "Text" HM.button emptyButtonCfg {label = "Text button"}
-          , HH.slot_ p "Text-Icon" HM.button emptyButtonCfg {label = "Text button with icon", icon = Just (Icon.Search, HM.Leading)}
-          , HH.slot_ p "Outlined" HM.button emptyButtonCfg {label = "Outlined button", style = Just HM.Outlined}
-          , HH.slot_ p "Outlined-Icon" HM.button emptyButtonCfg {label = "Outlined button with icon", style = Just HM.Outlined, icon = Just (Icon.Info, HM.Leading)}
-          , HH.slot_ p "Contained" HM.button emptyButtonCfg {label = "Contained button", style = Just HM.Raised}
-          , HH.slot_ p "Contained-Icon" HM.button emptyButtonCfg {label = "Contained button with icon", style = Just HM.Raised, icon = Just (Icon.Favorite, HM.Leading)}
-          , HH.slot_ p "Unelevated" HM.button emptyButtonCfg {label = "Unelevated button", style = Just HM.Unelevated}
-          , HH.slot_ p "Unelevated-Icon" HM.button emptyButtonCfg {label = "Unelevated button with icon", style = Just HM.Unelevated, icon = Just (Icon.Settings, HM.Leading)}
-          , HH.slot_ p "Disabled" HM.button emptyButtonCfg {label = "Disabled button", enabled = False}
-          , HH.slot_ p "Disabled-Icon" HM.button emptyButtonCfg {label = "Disabled button with icon", icon = Just (Icon.Delete, HM.Leading), enabled = False}
-          , HH.slot_ p "Contained-Icon-Trailing" HM.button emptyButtonCfg {label = "Contained button with trailing icon", style = Just HM.Raised, icon = Just (Icon.Favorite, HM.Trailing)}
-          ]
+      HH.slot_ pl () HL.list ListCfg {items, elemRenderer, extraStyle}
+      where
+        extraStyle :: C.Css
+        extraStyle = do
+          C.backgroundColor $ C.parse "#fff"
+          C.border (C.px 1) C.solid (C.rgb 229 229 229)
+          C.width (C.pct 50)
+
+        items =
+          map ListElem $
+            zip
+              [0 ..]
+              [ ("Text", emptyButtonCfg {label = "Text button"})
+              , ("Text-Icon", emptyButtonCfg {label = "Text button with icon", icon = Just (Icon.Search, HM.Leading)})
+              , ("Outlined", emptyButtonCfg {label = "Outlined button", style = Just HM.Outlined})
+              , ("Outlined-Icon", emptyButtonCfg {label = "Outlined button with icon", style = Just HM.Outlined, icon = Just (Icon.Info, HM.Leading)})
+              , ("Contained", emptyButtonCfg {label = "Contained button", style = Just HM.Raised})
+              , ("Contained-Icon", emptyButtonCfg {label = "Contained button with icon", style = Just HM.Raised, icon = Just (Icon.Favorite, HM.Leading)})
+              , ("Unelevated", emptyButtonCfg {label = "Unelevated button", style = Just HM.Unelevated})
+              , ("Unelevated-Icon", emptyButtonCfg {label = "Unelevated button with icon", style = Just HM.Unelevated, icon = Just (Icon.Settings, HM.Leading)})
+              , ("Disabled", emptyButtonCfg {label = "Disabled button", enabled = False})
+              , ("Disabled-Icon", emptyButtonCfg {label = "Disabled button with icon", icon = Just (Icon.Delete, HM.Leading), enabled = False})
+              , ("Contained-Icon-Trailing", emptyButtonCfg {label = "Contained button with trailing icon", style = Just HM.Raised, icon = Just (Icon.Favorite, HM.Trailing)})
+              ]
+
+        elemRenderer :: ElemRenderer (Int, (Text, ButtonCfg)) Buttons Void m
+        elemRenderer =
+          ElemRenderer
+            { metaRenderer = Just $ \(_, (name, cfg)) -> HH.slot_ p name HM.button cfg
+            , textRenderer = Oneline (fst . snd)
+            , iconRenderer = Just $ \(idx, _) -> [minBound .. maxBound] !! idx
+            }

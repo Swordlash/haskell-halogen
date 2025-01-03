@@ -13,6 +13,14 @@ data Icon
   | Info
   | Delete
   | Favorite
+  | Apps
+  | Download
+  | Add
+  | Menu
+  | Close
+  | Cancel
+  | Block
+  deriving (Enum, Bounded)
 
 iconText :: Icon -> Text
 iconText = \case
@@ -22,6 +30,13 @@ iconText = \case
   Info -> "info"
   Delete -> "delete"
   Favorite -> "favorite"
+  Apps -> "apps"
+  Download -> "download"
+  Add -> "add"
+  Menu -> "menu"
+  Close -> "close"
+  Cancel -> "cancel"
+  Block -> "block"
 
 renderIcon :: [ClassName] -> Icon -> HH.HTML w i
 renderIcon clss icon =
