@@ -19,6 +19,11 @@ maintainer:         mateusz.goslinowski@gmail.com
 category:           Web
 extra-source-files: CHANGELOG.md
 
+flag trace-dom
+  description: Enable tracing of DOM operations
+  default: False
+  manual: True
+
 common commons
   build-depends:    
       base, free, transformers, mtl, text, protolude, extra, random, time, bytestring, stm, deepseq, unordered-containers, async,
@@ -145,6 +150,9 @@ library
     if arch(javascript)
       js-sources:
         jsbits/monad_dom.js
+      
+      if flag(trace-dom)
+        ghc-options: -optJSP-DHALOGEN_TRACE_DOM
 
 executable halogen-core-prototype
   import: commons

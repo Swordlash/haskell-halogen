@@ -115,6 +115,7 @@ debComp = unsafeMkDebouncedComponent 0.5 $ ComponentSpec {initialState, render, 
         , HH.input
             [ HP.type_ I.InputText
             , HP.value txt
+            , HP.style $ C.width C.auto
             , HE.onInput $ \ev ->
                 DebChanged $ fromMaybe txt $ do
                   trg <- coerce <$> currentTarget ev
