@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "dependencies": {
     "@material/button": "^14.0.0",
-    "@material/list": "^14.0.0"
+    "@material/list": "^14.0.0",
+    "@material/tab-bar": "^14.0.0"
   },
   "devDependencies": {
     "compression-webpack-plugin": "^11.1.0",

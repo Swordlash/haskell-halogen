@@ -72,8 +72,7 @@ data ListCfg a slots i m = ListCfg
   }
 
 data ListState a slots i m = ListState
-  { listElement :: Maybe HTMLElement
-  , mdcList :: Maybe MDCList
+  { mdcList :: Maybe MDCList
   , items :: [ListElem a]
   , elemRenderer :: ElemRenderer a slots i m
   , extraStyle :: Css
@@ -101,7 +100,7 @@ list
 list =
   H.mkComponent $
     H.ComponentSpec
-      { initialState = \ListCfg {..} -> ListState {listElement = Nothing, mdcList = Nothing, ..}
+      { initialState = \ListCfg {..} -> ListState {mdcList = Nothing, ..}
       , render
       , eval = H.mkEval $ H.defaultEval {handleAction, handleQuery, initialize = Just Initialize, receive = const $ Just InitRipples}
       }

@@ -30,7 +30,15 @@ common warnings
         RecordWildCards
         NamedFieldPuns
         NoImplicitPrelude
-    build-depends: base, protolude, unliftio, text, containers, haskell-halogen-core, clay, row-types
+    build-depends: 
+        base, 
+        protolude, 
+        unliftio, 
+        text, 
+        containers, 
+        haskell-halogen-core, 
+        clay, 
+        row-types
 
 library
     import:           warnings
@@ -39,6 +47,7 @@ library
         Halogen.Material.Icons
         Halogen.Material.List
         Halogen.Material.Ripple
+        Halogen.Material.Tabs
     hs-source-dirs:   src
     default-language: GHC2024
 

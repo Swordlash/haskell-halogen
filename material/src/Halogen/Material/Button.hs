@@ -19,7 +19,6 @@ import Halogen.Material.Icons
 import Halogen.Material.Ripple
 import Halogen.VDom.DOM.Monad
 import Protolude hiding (log)
-import Web.DOM.Internal.Types (HTMLElement)
 
 data IconPosition = Leading | Trailing
 
@@ -46,8 +45,7 @@ emptyButtonCfg =
     }
 
 data ButtonState = ButtonState
-  { buttonElement :: Maybe HTMLElement
-  , mdcRipple :: Maybe MDCRipple
+  { mdcRipple :: Maybe MDCRipple
   , label :: Text
   , style :: Maybe ButtonStyle
   , icon :: Maybe (Icon, IconPosition)
@@ -63,7 +61,7 @@ button :: (MonadIO m, MonadDOM m) => H.Component H.VoidF ButtonCfg ButtonClicked
 button =
   H.mkComponent $
     H.ComponentSpec
-      { initialState = \ButtonCfg {..} -> ButtonState {buttonElement = Nothing, mdcRipple = Nothing, ..}
+      { initialState = \ButtonCfg {..} -> ButtonState {mdcRipple = Nothing, ..}
       , render
       , eval = H.mkEval $ H.defaultEval {handleAction, H.initialize = Just Initialize}
       }

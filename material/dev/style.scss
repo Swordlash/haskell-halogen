@@ -1,7 +1,13 @@
 @use "@material/button/styles";
 @use "@material/list";
 
+@use "@material/tab-bar/mdc-tab-bar";
+@use "@material/tab-scroller/mdc-tab-scroller";
+@use "@material/tab-indicator/mdc-tab-indicator";
+@use "@material/tab/mdc-tab";
+
 @include list.deprecated-core-styles;
+
 
 /* fallback */
 @font-face {
@@ -24,5 +30,6 @@
   word-wrap: normal;
   direction: ltr;
   -webkit-font-feature-settings: 'liga';
+  font-feature-settings: 'liga';
   -webkit-font-smoothing: antialiased;
 }
