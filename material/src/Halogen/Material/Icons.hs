@@ -20,6 +20,7 @@ data Icon
   | Close
   | Cancel
   | Block
+  | Logout
   deriving (Enum, Bounded)
 
 iconText :: Icon -> Text
@@ -37,6 +38,7 @@ iconText = \case
   Close -> "close"
   Cancel -> "cancel"
   Block -> "block"
+  Logout -> "logout"
 
 renderIcon :: [ClassName] -> Icon -> HH.HTML w i
 renderIcon clss icon =

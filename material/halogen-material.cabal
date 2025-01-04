@@ -38,7 +38,8 @@ common warnings
         containers, 
         haskell-halogen-core, 
         clay, 
-        row-types
+        row-types,
+        extra
 
 library
     import:           warnings

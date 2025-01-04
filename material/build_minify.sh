@@ -12,7 +12,7 @@ export IN3="jsbits/halogen.externs.js"
 export OUT1=$EXE"/all.min.js"
 export OUT2="dev/index.js"
 
-npx google-closure-compiler -O ADVANCED --js_output_file $OUT1 $IN1 $IN2 $IN3
+npx google-closure-compiler -O ADVANCED --warning_level QUIET --isolation_mode IIFE --assume_function_wrapper --emit_use_strict --js_output_file $OUT1 $IN1 $IN2 $IN3
 
 #cp $IN1 $OUT1
 cp $OUT1 $OUT2

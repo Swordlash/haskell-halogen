@@ -11,10 +11,12 @@ module Halogen.Material.List
 where
 
 import Clay (Css)
+import Control.Monad.Extra (pureIf)
 import Data.Row (HasType)
 import Halogen qualified as H hiding (Initialize)
 import Halogen.Component
 import Halogen.HTML qualified as HH
+import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
 import Halogen.HTML.Properties.ARIA qualified as HPA
 import Halogen.Material.Icons qualified as Icon
@@ -63,17 +65,17 @@ data ListAction i
   | Finalize
   | InitRipples
   | DestroyRipples
-  | ParentAction i
+  | Clicked Int
+  | ChildAction i
 
 data ListQuery slots q a
   = forall label output' slot.
     (HasType label (H.Slot q output' slot) slots, KnownSymbol label, Ord slot) =>
     ParentQuery (Proxy label) slot (q a)
-  | GetSelectedIndex (Int -> a)
 
 data ListOutput i
-  = SelectedIndex Int
-  | ParentOutput i
+  = ClickedIndex Int
+  | ChildOutput i
 
 list
   :: forall a q slots i m
@@ -95,21 +97,23 @@ list =
         [ HP.ref ref
         , HP.style extraStyle
         , HP.classes $
-            fold
-              [ [HH.ClassName "mdc-deprecated-list"]
-              , [HH.ClassName "mdc-deprecated-list--two-line" | isTwoLine textRenderer]
-              , [HH.ClassName "mdc-deprecated-list--icon-list" | isJust iconRenderer]
+            catMaybes
+              [ Just $ HH.ClassName "mdc-deprecated-list"
+              , pureIf (isTwoLine textRenderer) $ HH.ClassName "mdc-deprecated-list--two-line"
+              , pureIf (isJust iconRenderer) $ HH.ClassName "mdc-deprecated-list--icon-list"
               ]
         ]
         elems
       where
         elClassName x = HH.ClassName $ if isSeparator x then "mdc-deprecated-list-divider" else "mdc-deprecated-list-item"
 
-        elems = case items of
-          [] -> []
-          (x : xs) ->
-            HH.li [HP.class_ (elClassName x), HP.tabIndex 0] (renderElem x)
-              : map (\y -> HH.li [HP.class_ $ elClassName y] (renderElem y)) xs
+        elems = flip map (zip [0 ..] items) $ \(i, x) ->
+          HH.li
+            [ HP.class_ (elClassName x)
+            , HP.tabIndex (if i == 0 then 0 else -1)
+            , HE.onClick $ const $ Clicked i
+            ]
+            (renderElem x)
 
         renderElem Separator = []
         renderElem (ListElem a) =
@@ -117,7 +121,7 @@ list =
             [ Just $ HH.span [HP.class_ (HH.ClassName "mdc-deprecated-list-item__ripple")] []
             , HH.span [HP.classes [HH.ClassName "mdc-deprecated-list-item__graphic", HH.ClassName "material-icons"], HPA.hidden "true"] . pure . HH.text . Icon.iconText . ($ a) <$> iconRenderer
             , Just $ HH.span [HP.class_ (HH.ClassName "mdc-deprecated-list-item__text")] (renderText a)
-            , HH.span [HP.class_ (HH.ClassName "mdc-deprecated-list-item__meta")] . pure . HH.mapHTMLAction ParentAction . ($ a) <$> metaRenderer
+            , HH.span [HP.class_ (HH.ClassName "mdc-deprecated-list-item__meta")] . pure . HH.mapHTMLAction ChildAction . ($ a) <$> metaRenderer
             ]
 
         renderText a = case textRenderer of
@@ -132,7 +136,6 @@ list =
       :: ListQuery slots q x
       -> H.HalogenM (ListState a slots i m) (ListAction i) slots (ListOutput i) m (Maybe x)
     handleQuery = \case
-      GetSelectedIndex k -> pure $ Just $ k (-1) -- TODO
       ParentQuery lab slot q -> H.query lab slot q
 
     handleAction = \case
@@ -154,4 +157,5 @@ list =
       Finalize -> do
         handleAction DestroyRipples
         traverse_ (lift . destroyList) =<< gets (.mdcList)
-      ParentAction i -> H.raise $ ParentOutput i
+      ChildAction i -> H.raise $ ChildOutput i
+      Clicked i -> H.raise $ ClickedIndex i

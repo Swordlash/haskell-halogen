@@ -76,41 +76,37 @@ button =
         $ pure
         $ HH.button
           [HP.classes classes, HP.style extraStyle, HP.disabled (not enabled), HE.onClick (const Clicked), HP.ref ref]
-        $ fold
         $ case icon of
           Just (_, Trailing) ->
-            [ [HH.span [HP.class_ (HH.ClassName "mdc-button__ripple")] []]
-            , -- when the icon is trailing, label is not optional
-              [HH.span [HP.class_ (HH.ClassName "mdc-button__label")] [HH.text label]]
-            , renderedIc
-            ]
+            HH.span [HP.class_ (HH.ClassName "mdc-button__ripple")] []
+              -- when the icon is trailing, label is not optional
+              : HH.span [HP.class_ (HH.ClassName "mdc-button__label")] [HH.text label]
+              : maybeToList renderedIc
           Just (_, Leading) ->
-            [ [HH.span [HP.class_ (HH.ClassName "mdc-button__ripple")] []]
-            , renderedIc
-            , lab
-            ]
+            HH.span [HP.class_ (HH.ClassName "mdc-button__ripple")] []
+              : catMaybes
+                [ renderedIc
+                , lab
+                ]
           Nothing ->
-            [ [HH.span [HP.class_ (HH.ClassName "mdc-button__ripple")] []]
-            , lab
-            ]
+            HH.span [HP.class_ (HH.ClassName "mdc-button__ripple")] [] : maybeToList lab
       where
-        lab = if T.null label then [] else [HH.span [HP.class_ (HH.ClassName "mdc-button__label")] [HH.text label]]
+        lab = if T.null label then Nothing else Just $ HH.span [HP.class_ (HH.ClassName "mdc-button__label")] [HH.text label]
 
         (renderedIc, renderIconClass) = case icon of
-          Just (ic, Leading) -> ([renderIcon [HH.ClassName "mdc-button__icon"] ic], [HH.ClassName "mdc-button--icon-leading"])
-          Just (ic, Trailing) -> ([renderIcon [HH.ClassName "mdc-button__icon"] ic], [HH.ClassName "mdc-button--icon-trailing"])
-          Nothing -> ([], [])
+          Just (ic, dir) -> (Just $ renderIcon [HH.ClassName "mdc-button__icon"] ic,) $ case dir of
+            Leading -> Just $ HH.ClassName "mdc-button--icon-leading"
+            Trailing -> Just $ HH.ClassName "mdc-button--icon-trailing"
+          Nothing -> (empty, empty)
 
         classes =
-          fold
-            [ [HH.ClassName "mdc-button", HH.ClassName "mdc-button--touch"]
-            , case style of
-                Nothing -> []
-                Just Raised -> [HH.ClassName "mdc-button--raised"]
-                Just Unelevated -> [HH.ClassName "mdc-button--unelevated"]
-                Just Outlined -> [HH.ClassName "mdc-button--outlined"]
-            , renderIconClass
-            ]
+          [HH.ClassName "mdc-button", HH.ClassName "mdc-button--touch"]
+            <> case style of
+              Nothing -> []
+              Just Raised -> [HH.ClassName "mdc-button--raised"]
+              Just Unelevated -> [HH.ClassName "mdc-button--unelevated"]
+              Just Outlined -> [HH.ClassName "mdc-button--outlined"]
+            <> maybeToList renderIconClass
 
     handleAction = \case
       Initialize ->
