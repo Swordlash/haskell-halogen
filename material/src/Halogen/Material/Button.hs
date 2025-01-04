@@ -16,7 +16,7 @@ import Halogen.HTML qualified as HH
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
 import Halogen.Material.Icons
-import Halogen.Material.Ripple
+import Halogen.Material.Monad
 import Halogen.VDom.DOM.Monad
 import Protolude hiding (log)
 
@@ -58,7 +58,9 @@ data ButtonAction
   | Finalize
   | Clicked
 
-button :: (MonadIO m, MonadDOM m) => H.Component H.VoidF ButtonCfg ButtonClicked m
+button
+  :: (MonadIO m, MonadDOM m, MonadMaterial m)
+  => H.Component H.VoidF ButtonCfg ButtonClicked m
 button =
   H.mkComponent $
     H.ComponentSpec
@@ -115,8 +117,8 @@ button =
         H.getHTMLElementRef ref >>= \case
           Nothing -> lift $ log "Cannot initialize button Ripple, no HTML element found"
           Just e -> do
-            ripple <- liftIO $ initRipple e
+            ripple <- lift $ initRipple e
             modify $ \s -> s {mdcRipple = Just ripple}
-      Finalize -> traverse_ (liftIO . destroyRipple) =<< gets (.mdcRipple)
+      Finalize -> traverse_ (lift . destroyRipple) =<< gets (.mdcRipple)
       Clicked ->
         H.raise ButtonClicked

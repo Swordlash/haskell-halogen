@@ -11,7 +11,6 @@ module Halogen.Material.List
 where
 
 import Clay (Css)
-import Data.Foreign
 import Data.Row (HasType)
 import Halogen qualified as H hiding (Initialize)
 import Halogen.Component
@@ -19,41 +18,9 @@ import Halogen.HTML qualified as HH
 import Halogen.HTML.Properties qualified as HP
 import Halogen.HTML.Properties.ARIA qualified as HPA
 import Halogen.Material.Icons qualified as Icon
-import Halogen.Material.Ripple
+import Halogen.Material.Monad
 import Halogen.VDom.DOM.Monad
 import Protolude hiding (list, log)
-import Web.DOM.Internal.Types (HTMLElement)
-
-#if defined(javascript_HOST_ARCH)
-import GHC.JS.Prim
-import Data.Coerce
-
-foreign import javascript unsafe "window.Halogen.init_material_list" initList :: HTMLElement -> IO MDCList
-foreign import javascript unsafe "window.Halogen.init_material_list_items" initListItems' :: MDCList -> IO JSVal
-
-foreign import javascript unsafe "window.Halogen.destroy_material_list" destroyList :: MDCList -> IO ()
-foreign import javascript unsafe "window.Halogen.destroy_material_list_items" destroyListItems' :: JSVal -> IO ()
-
-initListItems :: MDCList -> IO [MDCRipple]
-initListItems = fmap coerce . (fromJSArray <=< initListItems')
-
-destroyListItems :: [MDCRipple] -> IO ()
-destroyListItems = (destroyListItems' <=< toJSArray) . coerce
-#else
-initList :: HTMLElement -> IO MDCList
-initList _ = panic "can only be run in JS"
-
-destroyList :: MDCList -> IO ()
-destroyList _ = panic "can only be run in JS"
-
-initListItems :: MDCList -> IO [MDCRipple]
-initListItems _ = panic "can only be run in JS" 
-
-destroyListItems :: [MDCRipple] -> IO ()
-destroyListItems _ = panic "can only be run in JS"
-#endif
-
-newtype MDCList = MDCList (Foreign MDCList)
 
 data ElemTextRenderer a
   = Oneline (a -> Text)
@@ -110,7 +77,7 @@ data ListOutput i
 
 list
   :: forall a q slots i m
-   . (MonadIO m, MonadDOM m)
+   . (MonadIO m, MonadDOM m, MonadMaterial m)
   => H.Component (ListQuery slots q) (ListCfg a slots i m) (ListOutput i) m
 list =
   H.mkComponent $
@@ -150,7 +117,7 @@ list =
             [ Just $ HH.span [HP.class_ (HH.ClassName "mdc-deprecated-list-item__ripple")] []
             , HH.span [HP.classes [HH.ClassName "mdc-deprecated-list-item__graphic", HH.ClassName "material-icons"], HPA.hidden "true"] . pure . HH.text . Icon.iconText . ($ a) <$> iconRenderer
             , Just $ HH.span [HP.class_ (HH.ClassName "mdc-deprecated-list-item__text")] (renderText a)
-            , HH.span [HP.class_ (HH.ClassName "mdc-deprecated-list-item__meta"), HPA.hidden "true"] . pure . HH.mapHTMLAction ParentAction . ($ a) <$> metaRenderer
+            , HH.span [HP.class_ (HH.ClassName "mdc-deprecated-list-item__meta")] . pure . HH.mapHTMLAction ParentAction . ($ a) <$> metaRenderer
             ]
 
         renderText a = case textRenderer of
@@ -172,7 +139,7 @@ list =
       Initialize ->
         H.getHTMLElementRef ref >>= \case
           Just el -> do
-            mdcList <- liftIO $ initList el
+            mdcList <- lift $ initList el
             modify $ \s -> s {mdcList = Just mdcList}
             handleAction InitRipples
           Nothing -> lift $ log "Cannot initialize list, no HTML element found"
@@ -180,11 +147,11 @@ list =
         handleAction DestroyRipples -- first destroy old ones
         gets (.mdcList) >>= \case
           Just l ->
-            void $ liftIO $ initListItems l
+            void $ lift $ initListItems l
           Nothing -> lift $ log "Cannot initialize ripples, MDCList not initialized"
       DestroyRipples ->
-        liftIO . destroyListItems =<< gets (.mdcItems)
+        traverse_ (lift . destroyRipple) =<< gets (.mdcItems)
       Finalize -> do
         handleAction DestroyRipples
-        traverse_ (liftIO . destroyList) =<< gets (.mdcList)
+        traverse_ (lift . destroyList) =<< gets (.mdcList)
       ParentAction i -> H.raise $ ParentOutput i

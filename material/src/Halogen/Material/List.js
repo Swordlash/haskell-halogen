@@ -15,7 +15,3 @@ window.Halogen.init_material_list_items = function(mdcList) {
 window.Halogen.destroy_material_list = function(mdcList) {
   mdcList.destroy();
 }
-
-window.Halogen.destroy_material_list_items = function(mdcRipples) {
-  mdcRipples.forEach((mdcRipple) => mdcRipple.destroy());
-}

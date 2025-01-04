@@ -46,7 +46,7 @@ library
         Halogen.Material.Button
         Halogen.Material.Icons
         Halogen.Material.List
-        Halogen.Material.Ripple
+        Halogen.Material.Monad
         Halogen.Material.Tabs
     hs-source-dirs:   src
     default-language: GHC2024
@@ -55,6 +55,7 @@ library
         js-sources:
             src/Halogen/Material/List.js
             src/Halogen/Material/Ripple.js
+            src/Halogen/Material/Tabs.js
 
 executable halogen-material-app
     import:           warnings

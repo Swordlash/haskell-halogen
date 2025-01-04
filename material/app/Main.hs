@@ -7,6 +7,7 @@ import Halogen.HTML as HH hiding (map)
 import Halogen.Material.Button as HM
 import Halogen.Material.Icons qualified as Icon
 import Halogen.Material.List as HL
+import Halogen.Material.Monad
 import Halogen.VDom.DOM.Monad
 import Protolude
 import Protolude.Partial ((!!))
@@ -33,7 +34,7 @@ type Slots =
 
 type Buttons = ("buttons" .== H.Slot VoidF ButtonClicked Text)
 
-component :: forall m. (MonadDOM m, MonadIO m) => H.Component H.VoidF () () m
+component :: forall m. (MonadDOM m, MonadMaterial m, MonadIO m) => H.Component H.VoidF () () m
 component =
   H.mkComponent $
     H.ComponentSpec

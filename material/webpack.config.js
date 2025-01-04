@@ -30,7 +30,9 @@ module.exports = {
     ],
   },
   plugins: 
-    [ new HtmlWebpackPlugin()
+    [ new HtmlWebpackPlugin({
+        title: 'Halogen Material Components'
+    })
     , new CompressionPlugin({
         filename: "[path][base].br",
         algorithm: "brotliCompress",
