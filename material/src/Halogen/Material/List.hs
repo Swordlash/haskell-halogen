@@ -31,14 +31,26 @@ import Data.Coerce
 foreign import javascript unsafe "window.Halogen.init_material_list" initList :: HTMLElement -> IO MDCList
 foreign import javascript unsafe "window.Halogen.init_material_list_items" initListItems' :: MDCList -> IO JSVal
 
+foreign import javascript unsafe "window.Halogen.destroy_material_list" destroyList :: MDCList -> IO ()
+foreign import javascript unsafe "window.Halogen.destroy_material_list_items" destroyListItems' :: JSVal -> IO ()
+
 initListItems :: MDCList -> IO [MDCRipple]
 initListItems = fmap coerce . (fromJSArray <=< initListItems')
+
+destroyListItems :: [MDCRipple] -> IO ()
+destroyListItems = (destroyListItems' <=< toJSArray) . coerce
 #else
 initList :: HTMLElement -> IO MDCList
 initList _ = panic "can only be run in JS"
 
+destroyList :: MDCList -> IO ()
+destroyList _ = panic "can only be run in JS"
+
 initListItems :: MDCList -> IO [MDCRipple]
 initListItems _ = panic "can only be run in JS" 
+
+destroyListItems :: [MDCRipple] -> IO ()
+destroyListItems _ = panic "can only be run in JS"
 #endif
 
 newtype MDCList = MDCList (Foreign MDCList)
@@ -73,6 +85,7 @@ data ListCfg a slots i m = ListCfg
 
 data ListState a slots i m = ListState
   { mdcList :: Maybe MDCList
+  , mdcItems :: [MDCRipple]
   , items :: [ListElem a]
   , elemRenderer :: ElemRenderer a slots i m
   , extraStyle :: Css
@@ -80,7 +93,9 @@ data ListState a slots i m = ListState
 
 data ListAction i
   = Initialize
+  | Finalize
   | InitRipples
+  | DestroyRipples
   | ParentAction i
 
 data ListQuery slots q a
@@ -100,9 +115,9 @@ list
 list =
   H.mkComponent $
     H.ComponentSpec
-      { initialState = \ListCfg {..} -> ListState {mdcList = Nothing, ..}
+      { initialState = \ListCfg {..} -> ListState {mdcList = Nothing, mdcItems = [], ..}
       , render
-      , eval = H.mkEval $ H.defaultEval {handleAction, handleQuery, initialize = Just Initialize, receive = const $ Just InitRipples}
+      , eval = H.mkEval $ H.defaultEval {handleAction, handleQuery, initialize = Just Initialize, receive = const $ Just InitRipples, finalize = Just DestroyRipples}
       }
   where
     ref = H.RefLabel "list"
@@ -161,9 +176,15 @@ list =
             modify $ \s -> s {mdcList = Just mdcList}
             handleAction InitRipples
           Nothing -> lift $ log "Cannot initialize list, no HTML element found"
-      InitRipples ->
+      InitRipples -> do
+        handleAction DestroyRipples -- first destroy old ones
         gets (.mdcList) >>= \case
           Just l ->
             void $ liftIO $ initListItems l
           Nothing -> lift $ log "Cannot initialize ripples, MDCList not initialized"
+      DestroyRipples ->
+        liftIO . destroyListItems =<< gets (.mdcItems)
+      Finalize -> do
+        handleAction DestroyRipples
+        traverse_ (liftIO . destroyList) =<< gets (.mdcList)
       ParentAction i -> H.raise $ ParentOutput i

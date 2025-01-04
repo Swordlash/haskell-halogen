@@ -18,9 +18,13 @@ newtype MDCTabBar = MDCTabBar (Foreign MDCTabBar)
 
 #if defined (javascript_HOST_ARCH)
 foreign import javascript unsafe "window.Halogen.init_material_tab_bar" initTabBar :: HTMLElement -> IO MDCTabBar
+foreign import javascript unsafe "window.Halogen.destroy_material_tab_bar" destroyTabBar :: MDCTabBar -> IO ()
 #else
 initTabBar :: HTMLElement -> IO MDCTabBar
 initTabBar _ = panic "can only be run in JS"
+
+destroyTabBar :: MDCTabBar -> IO ()
+destroyTabBar _ = panic "can only be run in JS"
 #endif
 
 data IconPosition = Leading | Stacked

@@ -55,6 +55,7 @@ data ButtonState = ButtonState
 
 data ButtonAction
   = Initialize
+  | Finalize
   | Clicked
 
 button :: (MonadIO m, MonadDOM m) => H.Component H.VoidF ButtonCfg ButtonClicked m
@@ -63,7 +64,7 @@ button =
     H.ComponentSpec
       { initialState = \ButtonCfg {..} -> ButtonState {mdcRipple = Nothing, ..}
       , render
-      , eval = H.mkEval $ H.defaultEval {handleAction, H.initialize = Just Initialize}
+      , eval = H.mkEval $ H.defaultEval {handleAction, initialize = Just Initialize, finalize = Just Finalize}
       }
   where
     ref = H.RefLabel "elem"
@@ -116,5 +117,6 @@ button =
           Just e -> do
             ripple <- liftIO $ initRipple e
             modify $ \s -> s {mdcRipple = Just ripple}
+      Finalize -> traverse_ (liftIO . destroyRipple) =<< gets (.mdcRipple)
       Clicked ->
         H.raise ButtonClicked
