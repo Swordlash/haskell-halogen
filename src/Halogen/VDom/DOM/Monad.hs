@@ -137,6 +137,4 @@ propValueToJSVal (NumProp x) = js_toJSNum x
 propValueToJSVal (BoolProp x) = js_toJSBool x
 propValueToJSVal (TxtProp x) = toJSString $ toS x
 propValueToJSVal (ViaTxtProp f x) = toJSString $ toS $ f x
-
-
 #endif

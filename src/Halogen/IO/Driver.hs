@@ -43,6 +43,7 @@ data RenderSpec (m :: Type -> Type) (r :: Type -> Type -> Row Type -> Type -> Ty
   , dispose :: forall s act ps o. r s act ps o -> m ()
   }
 
+{-# SPECIALISE runUI :: RenderSpec IO r -> Component f i o IO -> i -> IO (HalogenSocket f o IO) #-}
 runUI
   :: forall m r f i o
    . (MonadUnliftIO m, MonadFork m, MonadKill m, MonadParallel m, MonadMask m, MonadUUID m)
@@ -222,15 +223,18 @@ runUI RenderSpec {..} c i = do
           ds <- readIORef selfRef
           for_ ds.rendering dispose
 
+{-# INLINE newLifecycleHandlers #-}
 newLifecycleHandlers :: (MonadIO m) => m (IORef (LifecycleHandlers m))
 newLifecycleHandlers = newIORef $ LifecycleHandlers {initializers = [], finalizers = []}
 
+{-# SPECIALISE handlePending :: IORef (Maybe [IO ()]) -> IO () #-}
 handlePending :: (MonadIO m, MonadFork m) => IORef (Maybe [m ()]) -> m ()
 handlePending ref = do
   queue <- readIORef ref
   atomicWriteIORef ref Nothing
   for_ queue (traverse_ fork . reverse)
 
+{-# SPECIALISE cleanupSubscriptionsAndForks :: DriverState IO r s f act ps i o -> IO () #-}
 cleanupSubscriptionsAndForks
   :: (MonadIO m, MonadKill m)
   => DriverState m r s f act ps i o
