@@ -16,7 +16,7 @@ import Protolude
 import Protolude.Partial (fromJust, (!!))
 
 #if defined(javascript_HOST_ARCH)
-import Halogen.Aff.Util as HA
+import Halogen.IO.Util as HA
 import Halogen.VDom.Driver (runUI)
 #endif
 
