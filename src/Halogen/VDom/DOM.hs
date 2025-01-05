@@ -17,6 +17,21 @@ import Web.DOM.Element
 import Web.DOM.Internal.Types
 import Web.DOM.ParentNode
 
+#if defined(javascript_HOST_ARCH)
+{-# SPECIALISE buildVDom :: VDomSpec IO a w -> VDomMachine IO a w #-}
+{-# SPECIALISE buildText :: VDomSpec IO a w -> VDomMachine IO a w -> Text -> IO (VDomStep IO a w) #-}
+{-# SPECIALISE patchText :: TextState IO a w -> VDom a w -> IO (VDomStep IO a w) #-}
+{-# SPECIALISE haltText :: TextState IO a w -> IO () #-}
+{-# SPECIALISE buildKeyed :: VDomSpec IO a w -> VDomMachine IO a w -> Maybe Namespace -> ElemName -> a -> [(Text, VDom a w)] -> IO (VDomStep IO a w) #-}
+{-# SPECIALISE patchKeyed :: KeyedState IO a w -> VDom a w -> IO (VDomStep IO a w) #-}
+{-# SPECIALISE haltKeyed :: KeyedState IO a w -> IO () #-}
+{-# SPECIALISE buildElem :: VDomSpec IO a w -> VDomMachine IO a w -> Maybe Namespace -> ElemName -> a -> [VDom a w] -> IO (VDomStep IO a w) #-}
+{-# SPECIALISE patchElem :: ElemState IO a w -> VDom a w -> IO (VDomStep IO a w) #-}
+{-# SPECIALISE haltElem :: ElemState IO a w -> IO () #-}
+{-# SPECIALISE buildWidget :: VDomSpec IO a w -> VDomMachine IO a w -> w -> IO (VDomStep IO a w) #-}
+{-# SPECIALISE patchWidget :: WidgetState IO a w -> VDom a w -> IO (VDomStep IO a w) #-}
+#endif
+
 type VDomMachine m a w = Machine m (VDom a w) Node
 
 type VDomStep m a w = Step m (VDom a w) Node

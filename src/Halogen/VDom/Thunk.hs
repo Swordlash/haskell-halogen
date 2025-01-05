@@ -39,6 +39,9 @@ mapThunk k (Thunk a b c d) = Thunk a b (k . c) d
 runThunk :: forall f i. Thunk f i -> f i
 runThunk (Thunk _ _ render arg) = render arg
 
+#if defined(javascript_HOST_ARCH)
+{-# SPECIALISE buildThunk :: (f i -> V.VDom a w) -> V.VDomSpec IO a w -> V.Machine IO (Thunk f i) Node #-}
+#endif
 buildThunk
   :: forall m f i a w
    . (MonadDOM m)

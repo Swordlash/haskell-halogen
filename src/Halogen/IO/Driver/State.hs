@@ -51,11 +51,13 @@ data DriverStateX m r f o = forall s act ps i. DriverStateX (DriverState m r s f
 
 data DriverStateRef m r f o = forall s act ps i. DriverStateRef (IORef (DriverState m r s f act ps i o))
 
+{-# INLINE readDriverStateRef #-}
 readDriverStateRef :: (MonadIO m) => DriverStateRef m r f o -> m (DriverStateX m r f o)
 readDriverStateRef (DriverStateRef ref) = DriverStateX <$> readIORef ref
 
 data RenderStateX (r :: Type -> Type -> Row Type -> Type -> Type) = forall s act ps o. RenderStateX (r s act ps o)
 
+{-# INLINE renderStateX #-}
 renderStateX
   :: (Functor m)
   => (forall s act ps. Maybe (r s act ps o) -> m (r s act ps o))
@@ -64,6 +66,7 @@ renderStateX
 renderStateX f = unDriverStateX $ \st ->
   RenderStateX <$> f st.rendering
 
+{-# INLINE renderStateX_ #-}
 renderStateX_
   :: (Applicative m)
   => (forall s act ps. r s act ps o -> m ())
@@ -72,9 +75,11 @@ renderStateX_
 renderStateX_ f = unDriverStateX $ \st ->
   traverse_ f st.rendering
 
+{-# INLINE unDriverStateX #-}
 unDriverStateX :: (forall s act ps i. DriverState m r s f act ps i o -> a) -> DriverStateX m r f o -> a
 unDriverStateX f (DriverStateX st) = f st
 
+{-# SPECIALISE initDriverState :: ComponentSpec s f act ps i o IO -> i -> (o -> IO ()) -> IORef (LifecycleHandlers IO) -> IO (DriverState IO r s f act ps i o) #-}
 initDriverState
   :: (MonadIO m)
   => ComponentSpec s f act ps i o m

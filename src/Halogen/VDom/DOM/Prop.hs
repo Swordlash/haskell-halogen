@@ -50,6 +50,9 @@ propToStrKey = \case
   Handler (DOM.EventType ty) _ -> "handler/" <> ty
   Ref _ -> "ref"
 
+#if defined(javascript_HOST_ARCH)
+{-# SPECIALISE buildProp :: (a -> IO ()) -> DOM.Element -> V.Machine IO [Prop a] () #-}
+#endif
 buildProp
   :: forall m a
    . (MonadIO m, MonadDOM m)
