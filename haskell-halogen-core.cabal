@@ -84,10 +84,10 @@ library
       Halogen.VDom
       Halogen.Data.Slot
 
-      Halogen.Aff.Driver
-      Halogen.Aff.Driver.Eval
-      Halogen.Aff.Driver.State
-      Halogen.Aff.Util
+      Halogen.IO.Driver
+      Halogen.IO.Driver.Eval
+      Halogen.IO.Driver.State
+      Halogen.IO.Util
 
       Halogen.HTML
       Halogen.HTML.Core

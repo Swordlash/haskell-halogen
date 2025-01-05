@@ -79,7 +79,7 @@ componentSlot label p component input output =
     }
 
 -- | Changes the Component's `m` type. A use case for this
--- | might be to interpret some `Free` monad as `Aff` so the component can be
+-- | might be to interpret some `Free` monad as `IO` so the component can be
 -- | used with `runUI`.
 hoist
   :: forall query input output m m'

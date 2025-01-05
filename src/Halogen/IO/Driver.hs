@@ -1,4 +1,4 @@
-module Halogen.Aff.Driver
+module Halogen.IO.Driver
   ( RenderSpec (..)
   , runUI
   , HalogenSocket (..)
@@ -13,8 +13,8 @@ import Control.Monad.UUID
 import Data.NT
 import Data.Row
 import HPrelude hiding (get)
-import Halogen.Aff.Driver.Eval qualified as Eval
-import Halogen.Aff.Driver.State
+import Halogen.IO.Driver.Eval qualified as Eval
+import Halogen.IO.Driver.State
 import Halogen.Component
 import Halogen.Data.Slot qualified as Slot
 import Halogen.HTML.Core qualified as HC

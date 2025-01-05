@@ -1,4 +1,4 @@
-module Halogen.Aff.Util where
+module Halogen.IO.Util where
 
 import HPrelude
 import Halogen.VDom.DOM.Monad

@@ -1,4 +1,4 @@
-module Halogen.Aff.Driver.State
+module Halogen.IO.Driver.State
   ( LifecycleHandlers (..)
   , DriverState (..)
   , DriverStateRef (..)

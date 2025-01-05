@@ -20,7 +20,7 @@ import Protolude
 import Web.Event.Event
 
 #if defined(javascript_HOST_ARCH)
-import Halogen.Aff.Util as HA
+import Halogen.IO.Util as HA
 import Halogen.VDom.DOM.Monad qualified as DOM
 import Halogen.VDom.Driver (runUI)
 #endif

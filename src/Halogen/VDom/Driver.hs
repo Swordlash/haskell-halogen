@@ -1,6 +1,6 @@
 module Halogen.VDom.Driver
   ( runUI
-  , module Halogen.Aff.Driver
+  , module Halogen.IO.Driver
   )
 where
 
@@ -11,9 +11,9 @@ import Control.Monad.UUID
 import Data.Coerce
 import Data.Foreign
 import HPrelude
-import Halogen.Aff.Driver (HalogenSocket)
-import Halogen.Aff.Driver qualified as AD
-import Halogen.Aff.Driver.State
+import Halogen.IO.Driver (HalogenSocket)
+import Halogen.IO.Driver qualified as AD
+import Halogen.IO.Driver.State
 import Halogen.Component
 import Halogen.HTML.Core (HTML (..))
 import Halogen.Query.Input

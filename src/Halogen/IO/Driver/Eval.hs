@@ -1,11 +1,11 @@
-module Halogen.Aff.Driver.Eval
+module Halogen.IO.Driver.Eval
   ( Renderer
   , evalF
   , evalQ
   , evalM
   , handleLifecycle
   , queueOrRun
-  -- , handleAff
+  -- , handleIO
   )
 where
 
@@ -19,7 +19,7 @@ import Data.Functor.Coyoneda
 import Data.Map.Strict qualified as M
 import Data.NT
 import HPrelude hiding (Concurrently, finally, join, runConcurrently, state)
-import Halogen.Aff.Driver.State
+import Halogen.IO.Driver.State
 import Halogen.Component
 import Halogen.Query.ChildQuery qualified as CQ
 import Halogen.Query.HalogenM hiding (fork, join, kill, query, unsubscribe)
