@@ -14,6 +14,14 @@ module.exports = {
     filename: 'main.js',
     path: path.resolve(__dirname, 'dist'),
   },
+  resolve: {
+    fallback: {
+      os: false,
+      fs: false,
+      child_process: false,
+      path: false,
+    }
+  },
   module: {
     rules: [
       {

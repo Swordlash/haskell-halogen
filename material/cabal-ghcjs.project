@@ -3,8 +3,8 @@ packages: .
 allow-newer:
   *:*
 
-with-compiler: javascript-unknown-ghcjs-ghc-9.13
-with-hc-pkg: javascript-unknown-ghcjs-ghc-pkg-9.13
+with-compiler: javascript-unknown-ghcjs-ghc
+with-hc-pkg: javascript-unknown-ghcjs-ghc-pkg
 
 source-repository-package
   type: git
