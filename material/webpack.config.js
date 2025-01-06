@@ -6,8 +6,7 @@ const CompressionPlugin = require("compression-webpack-plugin");
 
 module.exports = {
   entry: 
-    [ './jsbits/halogen.js'
-    , './dev/index.js'
+    [ './dev/index.js'
     , './dev/style.scss'
     ],
   output: {
@@ -26,15 +25,15 @@ module.exports = {
     rules: [
       {
         test: /\.s[ac]ss$/i,
-        use: [
-          // Creates `style` nodes from JS strings
-          "style-loader",
-          // Translates CSS into CommonJS
-          "css-loader",
-          // Compiles Sass to CSS
-          "sass-loader",
-        ],
+        use: [ "style-loader", "css-loader", "sass-loader"],
       },
+      {
+        test: /\.m?js$/,
+        exclude: /(node_modules)/,
+        use: {
+          loader: "swc-loader"
+        }
+      }
     ],
   },
   plugins: 

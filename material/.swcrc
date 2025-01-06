@@ -1,0 +1,10 @@
+{
+  "minify": true,
+  "jsc": {
+    "minify": {
+      "compress": true,
+      "mangle": true,
+      "sourceMap": false
+    }
+  }
+}

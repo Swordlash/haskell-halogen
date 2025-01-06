@@ -26,13 +26,13 @@ class (Monad m) => MonadMaterial m where
 
 #if defined(javascript_HOST_ARCH)
 
-foreign import javascript unsafe "window.Halogen.init_material_ripple" initRipple' :: HTMLElement -> IO MDCRipple
-foreign import javascript unsafe "window.Halogen.destroy_material_ripple" destroyRipple' :: MDCRipple -> IO ()
-foreign import javascript unsafe "window.Halogen.init_material_list" initList' :: HTMLElement -> IO MDCList
-foreign import javascript unsafe "window.Halogen.destroy_material_list" destroyList' :: MDCList -> IO ()
-foreign import javascript unsafe "window.Halogen.init_material_list_items" initListItems' :: MDCList -> IO JSVal
-foreign import javascript unsafe "window.Halogen.init_material_tab_bar" initTabBar' :: HTMLElement -> IO MDCTabBar
-foreign import javascript unsafe "window.Halogen.destroy_material_tab_bar" destroyTabBar' :: MDCTabBar -> IO ()
+foreign import javascript unsafe "halogen_init_material_ripple" initRipple' :: HTMLElement -> IO MDCRipple
+foreign import javascript unsafe "halogen_destroy_material_ripple" destroyRipple' :: MDCRipple -> IO ()
+foreign import javascript unsafe "halogen_init_material_list" initList' :: HTMLElement -> IO MDCList
+foreign import javascript unsafe "halogen_destroy_material_list" destroyList' :: MDCList -> IO ()
+foreign import javascript unsafe "halogen_init_material_list_items" initListItems' :: MDCList -> IO JSVal
+foreign import javascript unsafe "halogen_init_material_tab_bar" initTabBar' :: HTMLElement -> IO MDCTabBar
+foreign import javascript unsafe "halogen_destroy_material_tab_bar" destroyTabBar' :: MDCTabBar -> IO ()
 
 instance MonadMaterial IO where
   initRipple = initRipple'
