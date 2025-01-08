@@ -2,6 +2,8 @@
 
 set -ex
 
+sh run_fourmolu.sh
+
 export EXE=$(cabal exec -v0 --project-file=cabal-ghcjs.project -- which halogen-core-prototype)".jsexe"
 export IN1=$EXE"/all.js"
 export IN2=$EXE"/all.externs.js"

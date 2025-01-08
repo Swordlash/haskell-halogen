@@ -14,9 +14,9 @@ import Halogen.VDom.Thunk hiding (hoist)
 import Halogen.VDom.Thunk qualified as Thunk
 
 data ComponentSlotBox slots m msg = forall query input output. ComponentSlotBox
-  { get :: forall slot. SlotStorage slots slot -> Maybe (slot query output)
-  , pop :: forall slot. SlotStorage slots slot -> Maybe (slot query output, SlotStorage slots slot)
-  , set :: forall slot. slot query output -> SlotStorage slots slot -> SlotStorage slots slot
+  { get :: forall slot. SlotStorage slots slot -> Maybe (slot query input output)
+  , pop :: forall slot. SlotStorage slots slot -> Maybe (slot query input output, SlotStorage slots slot)
+  , set :: forall slot. slot query input output -> SlotStorage slots slot -> SlotStorage slots slot
   , component :: Component query input output m
   , input :: input
   , output :: output -> Maybe msg
@@ -59,7 +59,7 @@ mkComponent = Component
 -- | - a function mapping outputs from the component to a query in the parent
 componentSlot
   :: forall query input output slots m action label slot
-   . (HasType label (Slot query output slot) slots)
+   . (HasType label (Slot query input output slot) slots)
   => (KnownSymbol label)
   => (Ord slot)
   => Proxy label

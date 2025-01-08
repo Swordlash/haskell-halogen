@@ -13,16 +13,15 @@ import Control.Monad.UUID
 import Data.NT
 import Data.Row
 import HPrelude hiding (get)
-import Halogen.IO.Driver.Eval qualified as Eval
-import Halogen.IO.Driver.State
 import Halogen.Component
 import Halogen.Data.Slot qualified as Slot
 import Halogen.HTML.Core qualified as HC
+import Halogen.IO.Driver.Eval qualified as Eval
+import Halogen.IO.Driver.State
 import Halogen.Query.HalogenQ qualified as HQ
 import Halogen.Query.Input
 import Halogen.Query.Input qualified as Input
 import Halogen.Subscription qualified as HS
-import Unsafe.Coerce
 
 data HalogenSocket query output m = HalogenSocket
   { query :: forall a. query a -> m (Maybe a)
@@ -43,7 +42,7 @@ data RenderSpec (m :: Type -> Type) (r :: Type -> Type -> Row Type -> Type -> Ty
   , dispose :: forall s act ps o. r s act ps o -> m ()
   }
 
-{-# SPECIALISE runUI :: RenderSpec IO r -> Component f i o IO -> i -> IO (HalogenSocket f o IO) #-}
+{-# SPECIALIZE runUI :: RenderSpec IO r -> Component f i o IO -> i -> IO (HalogenSocket f o IO) #-}
 runUI
   :: forall m r f i o
    . (MonadUnliftIO m, MonadFork m, MonadKill m, MonadParallel m, MonadMask m, MonadUUID m)
@@ -80,7 +79,7 @@ runUI RenderSpec {..} c i = do
       -> (o' -> m ())
       -> i'
       -> Component f' i' o' m
-      -> m (DriverStateRef m r f' o')
+      -> m (DriverStateRef m r f' i' o')
     runComponent lchs handler j (Component cs) = do
       lchs' <- newLifecycleHandlers
       st <- initDriverState cs j handler lchs'
@@ -157,7 +156,7 @@ runUI RenderSpec {..} c i = do
           DriverStateX st <- readDriverStateRef existing
           atomicWriteIORef st.handlerRef $ maybe pass handler . output
           -- forgive me gods but it just doesnt typecheck with input
-          void $ Eval.evalM render' st.selfRef (runNT (unsafeCoerce st.component.eval) (HQ.Receive input ()))
+          void $ Eval.evalM render' st.selfRef (runNT st.component.eval (HQ.Receive input ()))
           pure existing
         Nothing ->
           runComponent lchs (maybe pass handler . output) input component
@@ -170,10 +169,10 @@ runUI RenderSpec {..} c i = do
         Just r -> pure (renderChild r)
 
     squashChildInitializers
-      :: forall f' o'
+      :: forall f' i' o'
        . IORef (LifecycleHandlers m)
       -> [m ()]
-      -> DriverStateX m r f' o'
+      -> DriverStateX m r f' i' o'
       -> m ()
     squashChildInitializers lchs preInits (DriverStateX st) = do
       let parentInitializer = Eval.evalM render' st.selfRef (runNT st.component.eval (HQ.Initialize ()))
@@ -191,9 +190,9 @@ runUI RenderSpec {..} c i = do
           }
 
     finalize
-      :: forall f' o'
+      :: forall f' i' o'
        . IORef (LifecycleHandlers m)
-      -> DriverStateX m r f' o'
+      -> DriverStateX m r f' i' o'
       -> m ()
     finalize lchs (DriverStateX DriverState {selfRef}) = do
       st <- readIORef selfRef
@@ -209,10 +208,10 @@ runUI RenderSpec {..} c i = do
         finalize lchs ds
 
     dispose'
-      :: forall f' o'
+      :: forall f' i' o'
        . IORef Bool
       -> IORef (LifecycleHandlers m)
-      -> DriverStateX m r f' o'
+      -> DriverStateX m r f' i' o'
       -> m ()
     dispose' disposed lchs dsx@(DriverStateX DriverState {selfRef}) = Eval.handleLifecycle lchs $ do
       readIORef disposed >>= \case
@@ -227,14 +226,14 @@ runUI RenderSpec {..} c i = do
 newLifecycleHandlers :: (MonadIO m) => m (IORef (LifecycleHandlers m))
 newLifecycleHandlers = newIORef $ LifecycleHandlers {initializers = [], finalizers = []}
 
-{-# SPECIALISE handlePending :: IORef (Maybe [IO ()]) -> IO () #-}
+{-# SPECIALIZE handlePending :: IORef (Maybe [IO ()]) -> IO () #-}
 handlePending :: (MonadIO m, MonadFork m) => IORef (Maybe [m ()]) -> m ()
 handlePending ref = do
   queue <- readIORef ref
   atomicWriteIORef ref Nothing
   for_ queue (traverse_ fork . reverse)
 
-{-# SPECIALISE cleanupSubscriptionsAndForks :: DriverState IO r s f act ps i o -> IO () #-}
+{-# SPECIALIZE cleanupSubscriptionsAndForks :: DriverState IO r s f act ps i o -> IO () #-}
 cleanupSubscriptionsAndForks
   :: (MonadIO m, MonadKill m)
   => DriverState m r s f act ps i o

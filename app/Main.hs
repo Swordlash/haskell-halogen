@@ -54,7 +54,7 @@ forever $ do
 
 data Action = Increment Int | Decrement Int
 
-type Slots = ("debounced" .== H.Slot VoidF () ())
+type Slots = ("debounced" .== H.Slot VoidF () () ())
 
 data Query a = IncrementQ a | DecrementQ a
 

@@ -19,8 +19,8 @@ import Data.Functor.Coyoneda
 import Data.Map.Strict qualified as M
 import Data.NT
 import HPrelude hiding (Concurrently, finally, join, runConcurrently, state)
-import Halogen.IO.Driver.State
 import Halogen.Component
+import Halogen.IO.Driver.State
 import Halogen.Query.ChildQuery qualified as CQ
 import Halogen.Query.HalogenM hiding (fork, join, kill, query, unsubscribe)
 import Halogen.Query.HalogenQ qualified as HQ
@@ -34,7 +34,7 @@ type Renderer m r =
   -> IORef (DriverState m r s f act ps i o)
   -> m ()
 
-{-# SPECIALISE evalF :: Renderer IO r -> IORef (DriverState IO r s f act ps i o) -> Input act -> IO () #-}
+{-# SPECIALIZE evalF :: Renderer IO r -> IORef (DriverState IO r s f act ps i o) -> Input act -> IO () #-}
 evalF
   :: (MonadUnliftIO m, MonadParallel m, MonadMask m, MonadFork m, MonadKill m)
   => Renderer m r
@@ -49,7 +49,7 @@ evalF render ref = \case
     st <- readIORef ref
     evalM render ref (runNT st.component.eval (HQ.Action act ()))
 
-{-# SPECIALISE evalQ :: Renderer IO r -> IORef (DriverState IO r s f act ps i o) -> f a -> IO (Maybe a) #-}
+{-# SPECIALIZE evalQ :: Renderer IO r -> IORef (DriverState IO r s f act ps i o) -> f a -> IO (Maybe a) #-}
 evalQ
   :: (MonadUnliftIO m, MonadParallel m, MonadMask m, MonadFork m, MonadKill m)
   => Renderer m r
@@ -60,7 +60,7 @@ evalQ render ref q = do
   st <- readIORef ref
   evalM render ref (runNT st.component.eval (HQ.Query (Just <$> liftCoyoneda q) (const Nothing)))
 
-{-# SPECIALISE evalM :: Renderer IO r -> IORef (DriverState IO r s f act ps i o) -> HalogenM s act ps o IO a -> IO a #-}
+{-# SPECIALIZE evalM :: Renderer IO r -> IORef (DriverState IO r s f act ps i o) -> HalogenM s act ps o IO a -> IO a #-}
 evalM
   :: forall m r s f act ps i o a
    . (MonadUnliftIO m, MonadParallel m, MonadMask m, MonadFork m, MonadKill m)
@@ -146,7 +146,7 @@ evalM render initRef (HalogenM hm) = foldF (go initRef) hm
             evalQ render dsx.selfRef query
       reply <$> sequential (unpack evalChild st.children)
 
-{-# SPECIALISE unsubscribe :: SubscriptionId -> IORef (DriverState IO r s f act ps i o) -> IO () #-}
+{-# SPECIALIZE unsubscribe :: SubscriptionId -> IORef (DriverState IO r s f act ps i o) -> IO () #-}
 unsubscribe
   :: (MonadIO m)
   => SubscriptionId
@@ -157,7 +157,7 @@ unsubscribe sid ref = do
   subs <- readIORef subscriptions
   traverse_ HS.unsubscribe (M.lookup sid =<< subs)
 
-{-# SPECIALISE handleLifecycle :: IORef (LifecycleHandlers IO) -> IO a -> IO a #-}
+{-# SPECIALIZE handleLifecycle :: IORef (LifecycleHandlers IO) -> IO a -> IO a #-}
 handleLifecycle :: (MonadIO m, MonadParallel m, MonadFork m) => IORef (LifecycleHandlers m) -> m a -> m a
 handleLifecycle lchs f = do
   atomicWriteIORef lchs $ LifecycleHandlers {initializers = [], finalizers = []}
@@ -167,7 +167,7 @@ handleLifecycle lchs f = do
   parSequence_ initializers
   pure result
 
-{-# SPECIALISE fresh :: (Int -> a) -> IORef (DriverState IO r s f act ps i o) -> IO a #-}
+{-# SPECIALIZE fresh :: (Int -> a) -> IORef (DriverState IO r s f act ps i o) -> IO a #-}
 fresh
   :: (MonadIO m)
   => (Int -> a)
@@ -177,7 +177,7 @@ fresh f ref = do
   st <- readIORef ref
   atomicModifyIORef' st.fresh (\i -> (i + 1, f i))
 
-{-# SPECIALISE queueOrRun :: IORef (Maybe [IO ()]) -> IO () -> IO () #-}
+{-# SPECIALIZE queueOrRun :: IORef (Maybe [IO ()]) -> IO () -> IO () #-}
 queueOrRun
   :: (MonadIO m)
   => IORef (Maybe [m ()])

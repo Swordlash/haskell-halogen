@@ -60,7 +60,7 @@ fromPlainHTML = bimap absurd absurd
 -- | - a function mapping outputs from the component to a query in the parent
 slot
   :: forall query action input output slots m label slot
-   . (HasType label (Slot query output slot) slots)
+   . (HasType label (Slot query input output slot) slots)
   => (KnownSymbol label)
   => (Ord slot)
   => Proxy label
@@ -85,7 +85,7 @@ slot label p component _input outputQuery =
 -- | - the input value to pass to the component
 slot_
   :: forall query action input output slots m label slot
-   . (HasType label (Slot query output slot) slots)
+   . (HasType label (Slot query input output slot) slots)
   => (KnownSymbol label)
   => (Ord slot)
   => Proxy label

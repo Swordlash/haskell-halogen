@@ -3,14 +3,14 @@ module Halogen.VDom.Utils where
 import Data.Map.Strict qualified as M
 import HPrelude
 
-{-# SPECIALISE 
-  diffWithIxE 
-  :: [a] 
-  -> [b] 
-  -> (Int -> a -> b -> IO (Maybe c)) 
-  -> (Int -> a -> IO (Maybe c)) 
-  -> (Int -> b -> IO (Maybe c)) 
-  -> IO [c] #-}
+{-# SPECIALIZE diffWithIxE ::
+  [a]
+  -> [b]
+  -> (Int -> a -> b -> IO (Maybe c))
+  -> (Int -> a -> IO (Maybe c))
+  -> (Int -> b -> IO (Maybe c))
+  -> IO [c]
+  #-}
 diffWithIxE :: (Monad m) => [b] -> [c] -> (Int -> b -> c -> m (Maybe d)) -> (Int -> b -> m (Maybe d)) -> (Int -> c -> m (Maybe d)) -> m [d]
 diffWithIxE u v onThese onThis onThat = reverse . catMaybes <$> go 0 u v []
   where
@@ -25,15 +25,15 @@ diffWithIxE u v onThese onThis onThat = reverse . catMaybes <$> go 0 u v []
       val <- onThese i x y
       go (i + 1) xs ys (val : acc)
 
-{-# SPECIALISE 
-  diffWithKeyAndIxE 
-  :: Map Text a 
-  -> [b] 
-  -> (b -> Text) 
-  -> (Text -> Int -> a -> b -> IO c) 
-  -> (Text -> a -> IO d) 
-  -> (Text -> Int -> b -> IO c) 
-  -> IO (Map Text c) #-}
+{-# SPECIALIZE diffWithKeyAndIxE ::
+  Map Text a
+  -> [b]
+  -> (b -> Text)
+  -> (Text -> Int -> a -> b -> IO c)
+  -> (Text -> a -> IO d)
+  -> (Text -> Int -> b -> IO c)
+  -> IO (Map Text c)
+  #-}
 diffWithKeyAndIxE
   :: (Monad m)
   => Map Text a
@@ -55,12 +55,12 @@ diffWithKeyAndIxE o1 as fk f1 f2 f3 = do
         Nothing -> f3 k i a
       pure $ M.insert k val acc
 
-{-# SPECIALISE 
-  strMapWithIxE 
-  :: [a] 
-  -> (a -> Text) 
-  -> (Text -> Int -> a -> IO b) 
-  -> IO (Map Text b) #-}
+{-# SPECIALIZE strMapWithIxE ::
+  [a]
+  -> (a -> Text)
+  -> (Text -> Int -> a -> IO b)
+  -> IO (Map Text b)
+  #-}
 strMapWithIxE :: (Monad m) => [a] -> (a -> Text) -> (Text -> Int -> a -> m b) -> m (Map Text b)
 strMapWithIxE = strMapWithIxE' . zip [0 ..]
   where

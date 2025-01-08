@@ -69,8 +69,8 @@ raise o = HalogenM $ liftF $ Raise o ()
 
 -- | Sends a query to a child of a component at the specified slot.
 query
-  :: forall state action output m label slots query output' slot a
-   . (HasType label (Slot query output' slot) slots)
+  :: forall state action output m label slots query input' output' slot a
+   . (HasType label (Slot query input' output' slot) slots)
   => (KnownSymbol label)
   => (Ord slot)
   => (Functor m)
@@ -86,8 +86,8 @@ query label p q =
 
 -- | Sends a query to all children of a component at a given slot label.
 queryAll
-  :: forall state action output m label slots query output' slot a
-   . (HasType label (Slot query output' slot) slots)
+  :: forall state action output m label slots query input' output' slot a
+   . (HasType label (Slot query input' output' slot) slots)
   => (KnownSymbol label)
   => (Ord slot)
   => (Functor m)

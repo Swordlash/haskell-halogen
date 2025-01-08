@@ -11,11 +11,11 @@ import Control.Monad.UUID
 import Data.Coerce
 import Data.Foreign
 import HPrelude
+import Halogen.Component
+import Halogen.HTML.Core (HTML (..))
 import Halogen.IO.Driver (HalogenSocket)
 import Halogen.IO.Driver qualified as AD
 import Halogen.IO.Driver.State
-import Halogen.Component
-import Halogen.HTML.Core (HTML (..))
 import Halogen.Query.Input
 import Halogen.VDom qualified as V
 import Halogen.VDom.DOM.Monad qualified as DOM
