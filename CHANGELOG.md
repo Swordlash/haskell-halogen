@@ -1,5 +1,9 @@
 # Revision history for haskell-halogen
 
+## 0.3.1 -- 2025-01-09
+
+Use `isTrue#` for `reallyUnsafePtrEquality#`
+
 ## 0.3.0 -- 2025-01-08
 
 Fix bugs related to style and class rendering, add IO specialisation, add `input` type to `H.Slot` to avoid `unsafeCoerce`.

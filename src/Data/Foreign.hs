@@ -4,7 +4,7 @@
 module Data.Foreign where
 
 -- #if !defined(javascript_HOST_ARCH)
-import GHC.Base (Int (..), reallyUnsafePtrEquality, reallyUnsafePtrEquality#)
+import GHC.Base (isTrue#, reallyUnsafePtrEquality, reallyUnsafePtrEquality#)
 -- #endif
 
 import HPrelude
@@ -71,7 +71,7 @@ foreignToBool :: Foreign tag -> Bool
 foreignToBool = unsafeFromForeign
 
 unsafeRefEq :: a -> a -> Bool
-unsafeRefEq p q = I# (reallyUnsafePtrEquality p q) == 1
+unsafeRefEq p q = isTrue# (reallyUnsafePtrEquality p q)
 
 unsafeRefEq' :: a -> b -> Bool
-unsafeRefEq' p q = I# (reallyUnsafePtrEquality# p q) == 1
+unsafeRefEq' p q = isTrue# (reallyUnsafePtrEquality# p q)
