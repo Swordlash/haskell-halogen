@@ -79,11 +79,13 @@ button =
         $ case icon of
           Just (_, Trailing) ->
             HH.span [HP.class_ (HH.ClassName "mdc-button__ripple")] []
+              : HH.span [HP.class_ (HH.ClassName "mdc-button__touch")] []
               -- when the icon is trailing, label is not optional
               : HH.span [HP.class_ (HH.ClassName "mdc-button__label")] [HH.text label]
               : maybeToList renderedIc
           Just (_, Leading) ->
             HH.span [HP.class_ (HH.ClassName "mdc-button__ripple")] []
+              : HH.span [HP.class_ (HH.ClassName "mdc-button__touch")] []
               : catMaybes
                 [ renderedIc
                 , lab

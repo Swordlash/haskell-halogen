@@ -31,11 +31,11 @@ attachComponent = panic "This module can only be run on JavaScript"
 main :: IO ()
 main = void attachComponent
 
-type Slots = ("tab" .== H.Slot (HMT.TabsQuery List VoidF) (HMT.TabsOutput Void) ())
+type Slots m = ("tab" .== H.Slot (HMT.TabsQuery (List m) VoidF) (HMT.TabsCfg (List m) Void m) (HMT.TabsOutput Void) ())
 
-type List = ("list" .== H.Slot (HML.ListQuery Buttons VoidF) (HML.ListOutput Void) ())
+type List m = ("list" .== H.Slot (HML.ListQuery Buttons VoidF) (HML.ListCfg (Int, (Text, HMB.ButtonCfg)) Buttons Void m) (HML.ListOutput Void) ())
 
-type Buttons = ("buttons" .== H.Slot VoidF HMB.ButtonClicked Text)
+type Buttons = ("buttons" .== H.Slot VoidF HMB.ButtonCfg HMB.ButtonClicked Text)
 
 component :: forall m. (MonadDOM m, MonadMaterial m, MonadIO m) => H.Component H.VoidF () () m
 component =
@@ -50,7 +50,7 @@ component =
     pl = Proxy @"list"
     pt = Proxy @"tab"
 
-    render :: () -> H.ComponentHTML Void Slots m
+    render :: () -> H.ComponentHTML Void (Slots m) m
     render _ =
       HH.slot_ pt () HMT.tabsComponent $ HMT.emptyTabsCfg {HMT.tabs = tabs, HMT.extraStyle = C.width (C.pct 50)}
       where
