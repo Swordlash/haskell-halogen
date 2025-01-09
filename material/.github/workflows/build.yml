@@ -1,0 +1,37 @@
+name: Docker CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  docker-ci:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+
+    - name: Build Docker Image
+      run: docker build -t haskell-halogen-image:latest .
+
+    - name: Run Build (JS)
+      run: |
+        docker run --rm \
+          -v $GITHUB_WORKSPACE:/workspace \
+          haskell-halogen-image \
+          bash -c "cd /workspace && ./.github/workflows/run_build_js.sh"
+    
+    - name: Run Build (native)
+      run: |
+        docker run --rm \
+          -v $GITHUB_WORKSPACE:/workspace \
+          haskell-halogen-image \
+          bash -c "cd /workspace && ./.github/workflows/run_build.sh"
