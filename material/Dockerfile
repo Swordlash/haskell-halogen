@@ -27,7 +27,7 @@ RUN git clone https://github.com/emscripten-core/emsdk.git && \
 
 ENV PATH="/emsdk/upstream/emscripten:/emsdk:/emsdk/upstream/bin:$PATH"
 
-RUN curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | BOOTSTRAP_HASKELL_GHC_VERSION=9.12.1 BOOTSTRAP_HASKELL_NONINTERACTIVE=1 BOOTSTRAP_HASKELL_CABAL_VERSION=3.14.1.1 bash && \
+RUN curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | BOOTSTRAP_HASKELL_GHC_VERSION=9.10.1 BOOTSTRAP_HASKELL_NONINTERACTIVE=1 BOOTSTRAP_HASKELL_CABAL_VERSION=3.14.1.1 bash && \
         echo "source /root/.ghcup/env" >> /root/.bashrc
 
 ENV PATH="/root/.ghcup/bin:/root/.cabal/bin:$PATH"
