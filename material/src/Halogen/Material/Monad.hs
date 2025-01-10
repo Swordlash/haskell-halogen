@@ -1,4 +1,13 @@
-module Halogen.Material.Monad where
+{-# OPTIONS_GHC -Wno-unused-top-binds #-}
+
+module Halogen.Material.Monad
+  ( MonadMaterial (..)
+  , MDCRipple
+  , MDCList
+  , MDCTabBar
+  , MDCTextField
+  )
+where
 
 import Data.Foreign
 import Protolude
@@ -15,6 +24,8 @@ newtype MDCList = MDCList (Foreign MDCList)
 
 newtype MDCTabBar = MDCTabBar (Foreign MDCTabBar)
 
+newtype MDCTextField = MDCTextField (Foreign MDCTextField)
+
 class (Monad m) => MonadMaterial m where
   initRipple :: HTMLElement -> m MDCRipple
   destroyRipple :: MDCRipple -> m ()
@@ -23,6 +34,8 @@ class (Monad m) => MonadMaterial m where
   initListItems :: MDCList -> m [MDCRipple]
   initTabBar :: HTMLElement -> m MDCTabBar
   destroyTabBar :: MDCTabBar -> m ()
+  initTextField :: HTMLElement -> m MDCTextField
+  destroyTextField :: MDCTextField -> m ()
 
 #if defined(javascript_HOST_ARCH)
 
@@ -33,6 +46,8 @@ foreign import javascript unsafe "halogen_destroy_material_list" destroyList' ::
 foreign import javascript unsafe "halogen_init_material_list_items" initListItems' :: MDCList -> IO JSVal
 foreign import javascript unsafe "halogen_init_material_tab_bar" initTabBar' :: HTMLElement -> IO MDCTabBar
 foreign import javascript unsafe "halogen_destroy_material_tab_bar" destroyTabBar' :: MDCTabBar -> IO ()
+foreign import javascript unsafe "halogen_init_material_text_field" initTextField' :: HTMLElement -> IO MDCTextField
+foreign import javascript unsafe "halogen_destroy_material_text_field" destroyTextField' :: MDCTextField -> IO ()
 
 instance MonadMaterial IO where
   initRipple = initRipple'
@@ -42,5 +57,7 @@ instance MonadMaterial IO where
   initListItems = fmap coerce . (fromJSArray <=< initListItems')
   initTabBar = initTabBar'
   destroyTabBar = destroyTabBar'
+  initTextField = initTextField'
+  destroyTextField = destroyTextField'
 
 #endif

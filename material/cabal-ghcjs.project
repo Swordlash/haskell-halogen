@@ -6,6 +6,9 @@ allow-newer:
 with-compiler: javascript-unknown-ghcjs-ghc-9.12.1
 with-hc-pkg: javascript-unknown-ghcjs-ghc-pkg-9.12.1
 
+package *
+  ghc-options: -O2 -fexpose-all-unfoldings -fspecialise-aggressively
+
 source-repository-package
   type: git
   location: https://github.com/tomjaguarpaw/protolude

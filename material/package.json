@@ -4,7 +4,8 @@
   "dependencies": {
     "@material/button": "^14.0.0",
     "@material/list": "^14.0.0",
-    "@material/tab-bar": "^14.0.0"
+    "@material/tab-bar": "^14.0.0",
+    "@material/textfield": "^14.0.0"
   },
   "devDependencies": {
     "@swc/core": "^1.10.4",

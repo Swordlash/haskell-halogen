@@ -1,4 +1,4 @@
-module Halogen.Material.Icons where
+module Halogen.Material.Icons (Icon (..), iconText, renderIcon) where
 
 import Halogen.HTML as HH
 import Halogen.HTML.Properties as HP

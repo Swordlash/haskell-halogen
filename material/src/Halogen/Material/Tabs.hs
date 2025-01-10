@@ -1,6 +1,15 @@
 {-# OPTIONS_GHC -Wno-ambiguous-fields #-}
 
-module Halogen.Material.Tabs where
+module Halogen.Material.Tabs
+  ( tabsComponent
+  , IconPosition (..)
+  , TabCfg (..)
+  , TabsCfg (..)
+  , TabsOutput (..)
+  , TabsQuery (..)
+  , emptyTabsCfg
+  )
+where
 
 import Clay qualified as C
 import Control.Monad.Extra (pureIf)
@@ -16,8 +25,7 @@ import Halogen.HTML.Properties qualified as HP
 import Halogen.HTML.Properties.ARIA qualified as HPA
 import Halogen.Material.Icons
 import Halogen.Material.Monad
-import Halogen.VDom.DOM.Monad
-import Protolude hiding (log)
+import Protolude
 
 data IconPosition = Leading | Stacked
   deriving (Eq)
@@ -66,7 +74,7 @@ data TabsOutput i
 
 tabsComponent
   :: forall q slots i m
-   . (MonadDOM m, MonadMaterial m)
+   . (MonadMaterial m)
   => H.Component (TabsQuery slots q) (TabsCfg slots i m) (TabsOutput i) m
 tabsComponent =
   H.mkComponent $
@@ -130,7 +138,7 @@ tabsComponent =
     handleAction = \case
       Initialize -> do
         H.getHTMLElementRef ref >>= \case
-          Nothing -> lift $ log "Cannot initialize Tab Bar, no HTML element found"
+          Nothing -> panic "Cannot initialize Tab Bar, no HTML element found\n"
           Just e -> do
             mdcTabBar <- lift $ initTabBar e
             modify $ \s -> s {mdcTabBar = Just mdcTabBar}

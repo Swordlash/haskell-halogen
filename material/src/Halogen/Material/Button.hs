@@ -17,8 +17,7 @@ import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
 import Halogen.Material.Icons
 import Halogen.Material.Monad
-import Halogen.VDom.DOM.Monad
-import Protolude hiding (log)
+import Protolude
 
 data IconPosition = Leading | Trailing
 
@@ -59,7 +58,7 @@ data ButtonAction
   | Clicked
 
 button
-  :: (MonadIO m, MonadDOM m, MonadMaterial m)
+  :: (MonadMaterial m)
   => H.Component H.VoidF ButtonCfg ButtonClicked m
 button =
   H.mkComponent $
@@ -113,7 +112,7 @@ button =
     handleAction = \case
       Initialize ->
         H.getHTMLElementRef ref >>= \case
-          Nothing -> lift $ log "Cannot initialize button Ripple, no HTML element found"
+          Nothing -> panic "Cannot initialize button Ripple, no HTML element found"
           Just e -> do
             ripple <- lift $ initRipple e
             modify $ \s -> s {mdcRipple = Just ripple}

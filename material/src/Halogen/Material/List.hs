@@ -5,7 +5,6 @@ module Halogen.Material.List
   , ListElem (..)
   , ListQuery (..)
   , ListOutput (..)
-  , MDCList (..)
   , list
   )
 where
@@ -21,8 +20,7 @@ import Halogen.HTML.Properties qualified as HP
 import Halogen.HTML.Properties.ARIA qualified as HPA
 import Halogen.Material.Icons qualified as Icon
 import Halogen.Material.Monad
-import Halogen.VDom.DOM.Monad
-import Protolude hiding (list, log)
+import Protolude hiding (list)
 
 data ElemTextRenderer a
   = Oneline (a -> Text)
@@ -79,7 +77,7 @@ data ListOutput i
 
 list
   :: forall a q slots i m
-   . (MonadIO m, MonadDOM m, MonadMaterial m)
+   . (MonadMaterial m)
   => H.Component (ListQuery slots q) (ListCfg a slots i m) (ListOutput i) m
 list =
   H.mkComponent $
@@ -145,13 +143,13 @@ list =
             mdcList <- lift $ initList el
             modify $ \s -> s {mdcList = Just mdcList}
             handleAction InitRipples
-          Nothing -> lift $ log "Cannot initialize list, no HTML element found"
+          Nothing -> panic "Cannot initialize list, no HTML element found"
       InitRipples -> do
         handleAction DestroyRipples -- first destroy old ones
         gets (.mdcList) >>= \case
           Just l ->
             void $ lift $ initListItems l
-          Nothing -> lift $ log "Cannot initialize ripples, MDCList not initialized"
+          Nothing -> panic "Cannot initialize ripples, MDCList not initialized"
       DestroyRipples ->
         traverse_ (lift . destroyRipple) =<< gets (.mdcItems)
       Finalize -> do

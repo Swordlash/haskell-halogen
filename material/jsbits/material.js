@@ -1,6 +1,7 @@
 import {MDCTabBar} from '@material/tab-bar';
 import {MDCList} from '@material/list';
 import {MDCRipple} from '@material/ripple';
+import {MDCTextField} from '@material/textfield';
 
 function halogen_init_material_ripple(element) {
   return new MDCRipple(element);
@@ -28,4 +29,12 @@ function halogen_init_material_tab_bar(element) {
 
 function halogen_destroy_material_tab_bar(mdcTabBar) {
   mdcTabBar.destroy();
+}
+
+function halogen_init_material_text_field(element) {
+  return new MDCTextField(element);
+}
+
+function halogen_destroy_material_text_field(mdcTextField) {
+  mdcTextField.destroy();
 }

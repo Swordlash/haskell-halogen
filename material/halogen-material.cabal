@@ -13,7 +13,7 @@ build-type:         Simple
 extra-doc-files:    CHANGELOG.md
 
 common warnings
-    ghc-options: -Wall
+    ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists 
     default-extensions: 
         OverloadedStrings
         CPP
@@ -43,6 +43,7 @@ library
         Halogen.Material.List
         Halogen.Material.Monad
         Halogen.Material.Tabs
+        Halogen.Material.TextField
     hs-source-dirs:   src
     default-language: GHC2024
 
