@@ -1,5 +1,9 @@
 # Revision history for haskell-halogen
 
+## 0.3.2 -- 2025-01-10
+
+Add `-fexpose-all-unfoldings` to JS build and export `label` and `p` mistakenly hidden from `Halogen.HTML`
+
 ## 0.3.1 -- 2025-01-09
 
 Use `isTrue#` for `reallyUnsafePtrEquality#`
