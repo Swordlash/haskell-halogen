@@ -129,8 +129,14 @@ value = prop (PropName "value")
 min :: (HasType "min" Double r) => Double -> IProp r i
 min = prop (PropName "min")
 
+minLength :: (HasType "minLength" Int r) => Int -> IProp r i
+minLength = prop (PropName "minLength")
+
 max :: (HasType "max" Double r) => Double -> IProp r i
 max = prop (PropName "max")
+
+maxLength :: (HasType "maxLength" Int r) => Int -> IProp r i
+maxLength = prop (PropName "maxLength")
 
 step :: (HasType "step" I.StepValue r) => I.StepValue -> IProp r i
 step = prop (PropName "step")
