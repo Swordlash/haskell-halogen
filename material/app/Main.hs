@@ -1,17 +1,19 @@
 {-# OPTIONS_GHC -Wno-ambiguous-fields #-}
 
-module Main where
+module Main (main, component) where
 
 import Clay qualified as C
+import DOM.HTML.Indexed (InputType (..))
 import Data.Row
 import Halogen as H
-import Halogen.HTML as HH hiding (map)
+import Halogen.HTML qualified as HH
+import Halogen.HTML.Properties qualified as HP
 import Halogen.Material.Button qualified as HMB
 import Halogen.Material.Icons qualified as HMI
 import Halogen.Material.List qualified as HML
 import Halogen.Material.Monad
 import Halogen.Material.Tabs qualified as HMT
-import Halogen.VDom.DOM.Monad
+import Halogen.Material.TextField qualified as HMTF
 import Protolude
 import Protolude.Partial (fromJust, (!!))
 
@@ -31,13 +33,15 @@ attachComponent = panic "This module can only be run on JavaScript"
 main :: IO ()
 main = void attachComponent
 
-type Slots m = ("tab" .== H.Slot (HMT.TabsQuery (List m) VoidF) (HMT.TabsCfg (List m) Void m) (HMT.TabsOutput Void) ())
+type Slots m = ("tab" .== H.Slot (HMT.TabsQuery (List m .+ TextFields) VoidF) (HMT.TabsCfg (List m .+ TextFields) Void m) (HMT.TabsOutput Void) ())
 
 type List m = ("list" .== H.Slot (HML.ListQuery Buttons VoidF) (HML.ListCfg (Int, (Text, HMB.ButtonCfg)) Buttons Void m) (HML.ListOutput Void) ())
 
 type Buttons = ("buttons" .== H.Slot VoidF HMB.ButtonCfg HMB.ButtonClicked Text)
 
-component :: forall m. (MonadDOM m, MonadMaterial m, MonadIO m) => H.Component H.VoidF () () m
+type TextFields = ("textFields" .== H.Slot HMTF.TextFieldQuery HMTF.TextFieldCfg HMTF.TextFieldOutput Int)
+
+component :: forall m. (MonadMaterial m) => H.Component H.VoidF () () m
 component =
   H.mkComponent $
     H.ComponentSpec
@@ -46,9 +50,10 @@ component =
       , eval = H.mkEval H.defaultEval
       }
   where
-    p = Proxy @"buttons"
+    pb = Proxy @"buttons"
     pl = Proxy @"list"
     pt = Proxy @"tab"
+    ptf = Proxy @"textFields"
 
     render :: () -> H.ComponentHTML Void (Slots m) m
     render _ =
@@ -63,9 +68,42 @@ component =
                 )
               ,
                 ( HMT.TabCfg {label = Just "Logout", icon = Just (HMI.Logout, HMT.Stacked)}
-                , HH.text "TODO!"
+                , HH.div
+                    [ HP.style $ do
+                        C.display C.flex
+                        C.flexDirection C.column
+                        C.width C.auto
+                        C.padding pad pad pad pad
+                        extraStyle
+                    ]
+                    [ HH.slot_ ptf 0 HMTF.textField $
+                        HMTF.emptyTextFieldCfg
+                          { HMTF.label = Just "Username"
+                          , HMTF.helperLine = HMTF.CharacterCounter
+                          , HMTF.minMaxLength = (Nothing, Just 20)
+                          }
+                    , HH.slot_ ptf 1 HMTF.textField $
+                        HMTF.emptyTextFieldCfg
+                          { HMTF.label = Just "Password"
+                          , HMTF.type_ = InputPassword
+                          , HMTF.helperLine = HMTF.CharacterCounter
+                          }
+                          {-
+                          , HH.slot_ ptf 2 HMTF.textField $
+                              HMTF.emptyTextFieldCfg
+                                { HMTF.label = Just "Donation"
+                                , HMTF.prefix = HMTF.TextAffix "$"
+                                , HMTF.suffix = HMTF.IconAffix HMI.CreditCard
+                                , HMTF.type_ = InputNumber
+                                , HMTF.helperLine = HMTF.HelperLine "Any donation helps our cause!"
+                                }
+                          -}
+                    ]
                 )
               ]
+
+        pad :: C.Size C.LengthUnit
+        pad = C.em 1
 
         extraStyle :: C.Css
         extraStyle = do
@@ -92,7 +130,7 @@ component =
         elemRenderer :: HML.ElemRenderer (Int, (Text, HMB.ButtonCfg)) Buttons Void m
         elemRenderer =
           HML.ElemRenderer
-            { metaRenderer = Just $ \(_, (name, cfg)) -> HH.slot_ p name HMB.button cfg
+            { metaRenderer = Just $ \(_, (name, cfg)) -> HH.slot_ pb name HMB.button cfg
             , textRenderer = HML.Oneline (fst . snd)
             , iconRenderer = Just $ \(idx, _) -> [minBound .. maxBound] !! idx
             }

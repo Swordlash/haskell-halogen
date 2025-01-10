@@ -33,7 +33,8 @@ common warnings
         haskell-halogen-core, 
         clay, 
         row-types,
-        extra
+        extra,
+        uuid-types
 
 library
     import:           warnings

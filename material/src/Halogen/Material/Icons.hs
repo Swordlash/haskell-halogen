@@ -21,6 +21,7 @@ data Icon
   | Cancel
   | Block
   | Logout
+  | CreditCard
   deriving (Enum, Bounded)
 
 iconText :: Icon -> Text
@@ -39,6 +40,7 @@ iconText = \case
   Cancel -> "cancel"
   Block -> "block"
   Logout -> "logout"
+  CreditCard -> "credit_card"
 
 renderIcon :: [ClassName] -> Icon -> HH.HTML w i
 renderIcon clss icon =
