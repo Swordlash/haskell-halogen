@@ -5,8 +5,6 @@ module Main where
 
 import Clay qualified as C
 import DOM.HTML.Indexed qualified as I
-import Data.Coerce
-import Data.Foreign
 import Data.Functor.Coyoneda
 import Data.NT
 import Data.Row
@@ -17,7 +15,6 @@ import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 import Halogen.Subscription qualified as HS
 import Protolude
-import Web.Event.Event
 
 #if defined(javascript_HOST_ARCH)
 import Halogen.IO.Util as HA
@@ -116,10 +113,7 @@ debComp = unsafeMkDebouncedComponent 0.5 $ ComponentSpec {initialState, render, 
             [ HP.type_ I.InputText
             , HP.value txt
             , HP.style $ C.width C.auto
-            , HE.onInput $ \ev ->
-                DebChanged $ fromMaybe txt $ do
-                  trg <- coerce <$> currentTarget ev
-                  readProp "value" (Just . foreignToString) trg
+            , HE.onInputValueChange $ Just . DebChanged
             ]
         ]
 

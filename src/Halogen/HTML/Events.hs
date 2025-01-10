@@ -224,6 +224,12 @@ addForeignPropHandler key prop_ reader_ f =
 onValueChange :: forall r i. (HasType "value" Text r, HasType "onChange" Event r) => (Text -> i) -> IProp r i
 onValueChange = addForeignPropHandler ET.change "value" (Just . foreignToString)
 
+--  | Reacts to the intermediate value change of the input element by checking the input value of event
+onInputValueChange :: forall r i. (HasType "value" Text r, HasType "onInput" Event r) => (Text -> Maybe i) -> IProp r i
+onInputValueChange f = handler' ET.input $ \ev -> do
+  trg <- coerce <$> currentTarget ev
+  readProp "value" (f . foreignToString) trg
+
 -- | Attaches an event handler which will produce an input when the seleced index of a
 -- | `select` element changes.
 onSelectedIndexChange :: forall r i. (HasType "selectedIndex" Int r, HasType "onChange" Event r) => (Int -> i) -> IProp r i
