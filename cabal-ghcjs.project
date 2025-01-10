@@ -3,6 +3,9 @@ packages: .
 allow-newer:
   *:base, *:template-haskell, protolude:ghc-prim
 
+package *
+  ghc-options: -O2 -fexpose-all-unfoldings -fspecialise-aggressively
+
 source-repository-package
   type: git
   location: https://github.com/tomjaguarpaw/protolude
