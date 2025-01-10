@@ -1,6 +1,6 @@
 cabal-version:      3.0
 name:               haskell-halogen-core
-version:            0.3.2.0
+version:            0.4.0
 synopsis:
 
 -- A longer description of the package.

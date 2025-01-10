@@ -1,5 +1,9 @@
 # Revision history for haskell-halogen
 
+## 0.4.0 -- 2025-01-10
+
+Fix unnecessary DOM replaces in foreign code
+
 ## 0.3.2 -- 2025-01-10
 
 Add `-fexpose-all-unfoldings` to JS build and export `label` and `p` mistakenly hidden from `Halogen.HTML`
