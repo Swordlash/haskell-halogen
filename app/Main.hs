@@ -75,7 +75,8 @@ component =
              , HH.button [HE.onClick $ const $ Increment 1] [HH.text "+"]
              ]
           <> [HH.button [HE.onClick $ const $ Increment 2] [HH.text "++"] | state > 5]
-          <> [HH.div_ [slot_ (Proxy @"debounced") () debComp ()]]
+          <> [slot_ (Proxy @"debounced") () debComp ()]
+          <> [HH.div_ [HH.text "Test sentinel element"]]
 
     handleQuery = \case
       IncrementQ cb -> do

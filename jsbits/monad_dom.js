@@ -30,10 +30,16 @@ function js_create_element(namespace, elemName, document) {
 }
 
 function js_insert_before(newNode, referenceNode, parentNode) {
+  if (newNode !== referenceNode.previousSibling) {
 #ifdef HALOGEN_TRACE_DOM
-  console.log("Inserting node type: " + getNodeType(newNode) + " before reference node type: " + getNodeType(referenceNode));
+    console.log("Inserting node type: " + getNodeType(newNode) + " before reference node type: " + getNodeType(referenceNode));
 #endif
-  parentNode.insertBefore(newNode, referenceNode);
+    parentNode.insertBefore(newNode, referenceNode);
+  } else {
+#ifdef HALOGEN_TRACE_DOM
+    console.log("Node type: " + getNodeType(newNode) + " is already before reference node type: " + getNodeType(referenceNode));
+#endif
+  }
 }
 
 function js_append_child(newNode, parentNode) {
@@ -50,10 +56,16 @@ function js_append_child(newNode, parentNode) {
 }
 
 function js_replace_child(newNode, oldNode, parentNode) {
+  if (newNode !== oldNode) {
 #ifdef HALOGEN_TRACE_DOM
-  console.log("Replacing old node type: " + getNodeType(oldNode) + " with new node type: " + getNodeType(newNode));
+    console.log("Replacing old node type: " + getNodeType(oldNode) + " with new node type: " + getNodeType(newNode));
 #endif
-  parentNode.replaceChild(newNode, oldNode);
+    parentNode.replaceChild(newNode, oldNode);
+  } else {
+#ifdef HALOGEN_TRACE_DOM
+    console.log("New node is the same as the old node, no replacement needed.");
+#endif
+  }
 }
 
 function js_insert_child_ix(index, newNode, parentNode) {
