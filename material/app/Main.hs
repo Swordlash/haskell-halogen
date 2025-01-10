@@ -88,16 +88,14 @@ component =
                           , HMTF.type_ = InputPassword
                           , HMTF.helperLine = HMTF.CharacterCounter
                           }
-                          {-
-                          , HH.slot_ ptf 2 HMTF.textField $
-                              HMTF.emptyTextFieldCfg
-                                { HMTF.label = Just "Donation"
-                                , HMTF.prefix = HMTF.TextAffix "$"
-                                , HMTF.suffix = HMTF.IconAffix HMI.CreditCard
-                                , HMTF.type_ = InputNumber
-                                , HMTF.helperLine = HMTF.HelperLine "Any donation helps our cause!"
-                                }
-                          -}
+                    , HH.slot_ ptf 2 HMTF.textField $
+                        HMTF.emptyTextFieldCfg
+                          { HMTF.label = Just "Donation"
+                          , HMTF.prefix = HMTF.TextAffix "$"
+                          , HMTF.suffix = HMTF.IconAffix HMI.CreditCard
+                          , HMTF.type_ = InputNumber
+                          , HMTF.helperLine = HMTF.HelperLine "Any donation helps our cause!"
+                          }
                     ]
                 )
               ]
