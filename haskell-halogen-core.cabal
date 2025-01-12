@@ -154,7 +154,7 @@ library
       ghc-options: -fexpose-all-unfoldings
       
       if flag(trace-dom)
-        ghc-options: -optJSP-DHALOGEN_TRACE_DOM
+        js-options: -optJSP-DHALOGEN_TRACE_DOM
 
 executable halogen-core-prototype
   import: commons
