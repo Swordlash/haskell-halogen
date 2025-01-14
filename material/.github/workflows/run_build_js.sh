@@ -2,4 +2,5 @@
 set -ex
 
 echo "Build with GHC-JS"
-cabal build --project-file=cabal-ghcjs.project all
+npm install
+npm run build

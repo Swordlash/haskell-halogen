@@ -16,8 +16,13 @@ RUN apt-get update && apt-get install -y \
     cmake \
     git \
     unzip \
+    ca-certificates \
+    gnupg \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - 
+RUN apt-get install -y nodejs
 
 RUN git clone https://github.com/emscripten-core/emsdk.git && \
     cd emsdk && \
