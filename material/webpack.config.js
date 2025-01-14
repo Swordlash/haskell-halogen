@@ -2,11 +2,11 @@ const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const zlib = require("zlib");
 const CompressionPlugin = require("compression-webpack-plugin");
-
+const webpack = require('webpack');
 
 module.exports = {
   entry: 
-    [ './dev/index.js'
+    [ './cabal-ghcjs.project'
     , './dev/style.scss'
     ],
   output: {
@@ -23,6 +23,21 @@ module.exports = {
   },
   module: {
     rules: [
+      {
+        test: /\.(cabal|project)$/,
+        use: [
+          {
+            loader: "swc-loader"
+          },
+          {
+            loader: "@haskell-org/haskell-loader",
+            options: {
+              "system-tools": true,
+              "executable": "halogen-material-app"
+            }
+          }
+        ]
+      },
       {
         test: /\.s[ac]ss$/i,
         use: [ "style-loader", "css-loader", "sass-loader"],
@@ -53,5 +68,6 @@ module.exports = {
         minRatio: 0.8,
         deleteOriginalAssets: false,
       }),
+    , new webpack.ProgressPlugin()
     ]
 };
