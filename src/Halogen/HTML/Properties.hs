@@ -63,7 +63,7 @@ colSpan = prop "colSpan"
 rowSpan :: (HasType "rowSpan" Int r) => Int -> IProp r i
 rowSpan = prop "rowSpan"
 
-for :: (HasType "htmlFor" Text r) => Text -> IProp r i
+for :: (HasType "for" Text r) => Text -> IProp r i
 for = prop "htmlFor"
 
 height :: (HasType "height" I.CSSPixel r) => I.CSSPixel -> IProp r i

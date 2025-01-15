@@ -1,5 +1,9 @@
 # Revision history for haskell-halogen
 
+## 0.5.1 -- 2025-01-15
+
+Fix `for` HTML property.
+
 ## 0.5.0 -- 2025-01-15
 
 Allow monadic `initialState` function.
