@@ -11,14 +11,16 @@ import Halogen.Query.HalogenM
 import System.IO.Unsafe (unsafePerformIO)
 
 unsafeMkDebouncedComponent
-  :: NominalDiffTime
+  :: forall state query action slots input output m
+   . NominalDiffTime
   -> ComponentSpec' state query action slots input output m (DelayedStateT state (HalogenM state action slots output m))
   -> Component query input output m
 unsafeMkDebouncedComponent timeout cs = do
   mkDebouncedComponent' (unsafePerformIO $ mkEmptyDelayer timeout) cs
 
 mkDebouncedComponent'
-  :: Delayer state
+  :: forall state query action slots input output m
+   . Delayer state
   -> ComponentSpec' state query action slots input output m (DelayedStateT state (HalogenM state action slots output m))
   -> Component query input output m
 mkDebouncedComponent' delayer ComponentSpec {..} =

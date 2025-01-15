@@ -22,13 +22,13 @@ data ComponentSlotBox slots m msg = forall query input output. ComponentSlotBox
   , output :: output -> Maybe msg
   }
 
-deriving instance Functor (ComponentSlotBox slots m)
+deriving instance Functor (ComponentSlotBox slots' m)
 
 data ComponentSlot (slots :: Row Type) m msg
   = ComponentSlot (ComponentSlotBox slots m msg)
   | ThunkSlot (Thunk (HTML (ComponentSlot slots m msg)) msg)
 
-instance Functor (ComponentSlot slots m) where
+instance Functor (ComponentSlot slots' m) where
   fmap f = \case
     ComponentSlot box -> ComponentSlot $ map f box
     ThunkSlot t -> ThunkSlot $ mapThunk (bimap (fmap f) f) t
@@ -46,7 +46,7 @@ data Component query input output m
   = forall model msg slots.
     Component (ComponentSpec model query msg slots input output m)
 
-mkComponent :: ComponentSpec state query action slots input output m -> Component query input output m
+mkComponent :: forall state query action slots input output m. ComponentSpec state query action slots input output m -> Component query input output m
 mkComponent = Component
 
 -- | Constructs a ComponentSlot
@@ -58,12 +58,12 @@ mkComponent = Component
 -- | - the input value to pass to the component
 -- | - a function mapping outputs from the component to a query in the parent
 componentSlot
-  :: forall query input output slots m action label slot
+  :: forall label
+    ->forall query input output slots m action slot
    . (HasType label (Slot query input output slot) slots)
   => (KnownSymbol label)
   => (Ord slot)
-  => Proxy label
-  -> slot
+  => slot
   -> Component query input output m
   -> input
   -> (output -> Maybe action)

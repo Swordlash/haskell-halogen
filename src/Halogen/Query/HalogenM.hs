@@ -39,13 +39,13 @@ newtype HalogenM state action slots output m a
   = HalogenM (F (HalogenF state action slots output m) a)
   deriving (Functor, Applicative, Monad)
 
-instance MonadTrans (HalogenM state action slots output) where
+instance MonadTrans (HalogenM state' action slots' output) where
   lift = HalogenM . liftF . Lift
 
-instance (MonadIO m) => MonadIO (HalogenM state action slots output m) where
+instance (MonadIO m) => MonadIO (HalogenM state' action slots' output m) where
   liftIO = HalogenM . liftF . Lift . liftIO
 
-instance (MonadUnliftIO m) => MonadUnliftIO (HalogenM state action slots output m) where
+instance (MonadUnliftIO m) => MonadUnliftIO (HalogenM state' action slots' output m) where
   withRunInIO inner =
     HalogenM $ liftF $ Unlift $ \(UnliftIO q) -> inner q
 
@@ -55,11 +55,11 @@ newtype HalogenAp state action slots output m a
   = HalogenAp (Ap (HalogenM state action slots output m) a)
   deriving (Functor, Applicative)
 
-instance (Functor m) => MonadState state (HalogenM state action slots output m) where
+instance (Functor m) => MonadState state' (HalogenM state' action slots' output m) where
   state = HalogenM . liftF . State
 
-instance (Functor m) => MonadParallel (HalogenM state action slots output m) where
-  type Parallel (HalogenM state action slots output m) = HalogenAp state action slots output m
+instance (Functor m) => MonadParallel (HalogenM state' action slots' output m) where
+  type Parallel (HalogenM state' action slots' output m) = HalogenAp state' action slots' output m
   parallel = HalogenAp . liftAp
   sequential = HalogenM . liftF . Par
 
@@ -69,13 +69,13 @@ raise o = HalogenM $ liftF $ Raise o ()
 
 -- | Sends a query to a child of a component at the specified slot.
 query
-  :: forall state action output m label slots query input' output' slot a
+  :: forall label
+    ->forall state action output m slots query input' output' slot a
    . (HasType label (Slot query input' output' slot) slots)
   => (KnownSymbol label)
   => (Ord slot)
   => (Functor m)
-  => Proxy label
-  -> slot
+  => slot
   -> query a
   -> HalogenM state action slots output m (Maybe a)
 query label p q =
@@ -86,13 +86,13 @@ query label p q =
 
 -- | Sends a query to all children of a component at a given slot label.
 queryAll
-  :: forall state action output m label slots query input' output' slot a
+  :: forall label
+    ->forall state action output m slots query input' output' slot a
    . (HasType label (Slot query input' output' slot) slots)
   => (KnownSymbol label)
   => (Ord slot)
   => (Functor m)
-  => Proxy label
-  -> query a
+  => query a
   -> HalogenM state action slots output m (Map slot a)
 queryAll label q =
   HalogenM

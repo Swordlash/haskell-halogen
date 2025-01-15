@@ -17,7 +17,7 @@ import Web.HTML.Common
 
 newtype IProp (r :: Row Type) msg = IProp (Prop (Input msg))
 
-prop :: (IsProp value) => PropName value -> value -> IProp r msg
+prop :: forall value r msg. (IsProp value) => PropName value -> value -> IProp r msg
 prop _name val = IProp $ Property _name (toPropValue val)
 
 attr :: AttrName -> Text -> IProp r msg
@@ -120,10 +120,10 @@ enctype = prop (PropName "enctype")
 noValidate :: (HasType "noValidate" Bool r) => Bool -> IProp r i
 noValidate = prop (PropName "noValidate")
 
-type_ :: (HasType "type" value r, IsProp value) => value -> IProp r i
+type_ :: forall value r i. (HasType "type" value r, IsProp value) => value -> IProp r i
 type_ = prop (PropName "type")
 
-value :: (HasType "value" value r, IsProp value) => value -> IProp r i
+value :: forall value r i. (HasType "value" value r, IsProp value) => value -> IProp r i
 value = prop (PropName "value")
 
 min :: (HasType "min" Double r) => Double -> IProp r i

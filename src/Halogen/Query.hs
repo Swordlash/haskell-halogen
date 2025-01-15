@@ -56,23 +56,23 @@ mkTell :: forall f. Tell f -> f ()
 mkTell act = act ()
 
 tell
-  :: forall state action output m label slots query input' output' slot
+  :: forall label
+    ->forall state action output m slots query input' output' slot
    . (HasType label (Slot query input' output' slot) slots, Functor m)
   => (KnownSymbol label)
   => (Ord slot)
-  => Proxy label
-  -> slot
+  => slot
   -> Tell query
   -> HalogenM state action slots output m ()
-tell slot label req = void $ query slot label (req ())
+tell label slot req = void $ query label slot (req ())
 
 tellAll
-  :: forall state action output m label slots query input' output' slot
+  :: forall label
+    ->forall state action output m slots query input' output' slot
    . (HasType label (Slot query input' output' slot) slots, Functor m)
   => (KnownSymbol label)
   => (Ord slot)
-  => Proxy label
-  -> Tell query
+  => Tell query
   -> HalogenM state action slots output m ()
 tellAll label req = void $ queryAll label (req ())
 
@@ -102,23 +102,23 @@ mkRequest :: forall f a. Request f a -> f a
 mkRequest req = req identity
 
 request
-  :: forall state action output m label slots query input' output' slot a
+  :: forall label
+    ->forall state action output m slots query input' output' slot a
    . (HasType label (Slot query input' output' slot) slots, Functor m)
   => (KnownSymbol label)
   => (Ord slot)
-  => Proxy label
-  -> slot
+  => slot
   -> Request query a
   -> HalogenM state action slots output m (Maybe a)
 request slot label req = query slot label (req identity)
 
 requestAll
-  :: forall state action output m label slots query input' output' slot a
+  :: forall label
+    ->forall state action output m slots query input' output' slot a
    . (HasType label (Slot query input' output' slot) slots, Functor m)
   => (KnownSymbol label)
   => (Ord slot)
-  => Proxy label
-  -> Request query a
+  => Request query a
   -> HalogenM state action slots output m (Map slot a)
 requestAll label req = queryAll label (req identity)
 

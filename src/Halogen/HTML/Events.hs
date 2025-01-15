@@ -213,7 +213,7 @@ touchHandler = coerce
 
 -- | Attaches event handler to event `key` with getting `prop` field as an
 -- | argument of `handler`.
-addForeignPropHandler :: EventType -> Text -> (Foreign tag -> Maybe value) -> (value -> i) -> IProp r i
+addForeignPropHandler :: forall value tag r i. EventType -> Text -> (Foreign tag -> Maybe value) -> (value -> i) -> IProp r i
 addForeignPropHandler key prop_ reader_ f =
   handler' key $ EE.currentTarget >=> go
   where

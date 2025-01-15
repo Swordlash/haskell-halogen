@@ -30,7 +30,7 @@ common commons
       row-types, hashable, containers, kan-extensions, uuid-types, unliftio, safe-exceptions, clay
   
   default-language: GHC2021
-  ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures
+  ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture
 
   default-extensions:
       RankNTypes
@@ -61,6 +61,7 @@ common commons
       DerivingVia
       CPP
       StrictData
+      RequiredTypeArguments
 
 library
     import: commons

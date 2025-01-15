@@ -29,10 +29,10 @@ import Web.DOM.ParentNode (ParentNode, toParentNode)
 
 #if defined(javascript_HOST_ARCH)
 {-# SPECIALISE substInParent :: DOM.Node -> Maybe DOM.Node -> Maybe ParentNode -> IO () #-}
-{-# SPECIALISE removeChild :: RenderState IO state action slots output -> IO () #-}
+{-# SPECIALISE removeChild :: forall state action slots output. RenderState IO state action slots output -> IO () #-}
 {-# SPECIALISE renderSpec :: DOM.Document -> DOM.HTMLElement -> AD.RenderSpec IO (RenderState IO) #-}
-{-# SPECIALISE runUI :: Component query input output IO -> input -> DOM.HTMLElement -> IO (HalogenSocket query output IO) #-}
-{-# SPECIALISE mkSpec :: (Input action -> IO ()) -> IORef (ChildRenderer IO action slots) -> DOM.Document -> V.VDomSpec IO [Prop (Input action)] (ComponentSlot slots IO action) #-}
+{-# SPECIALISE runUI :: forall query input output. Component query input output IO -> input -> DOM.HTMLElement -> IO (HalogenSocket query output IO) #-}
+{-# SPECIALISE mkSpec :: forall action slots. (Input action -> IO ()) -> IORef (ChildRenderer IO action slots) -> DOM.Document -> V.VDomSpec IO [Prop (Input action)] (ComponentSlot slots IO action) #-}
 #endif
 
 type VHTML m action slots =
@@ -171,7 +171,7 @@ renderSpec document container =
             $ substInParent newNode nextSib parent
           pure $ RenderState {machine = machine', node = newNode, renderChildRef}
 
-removeChild :: (DOM.MonadDOM m) => RenderState m state action slots output -> m ()
+removeChild :: forall m state action slots output. (DOM.MonadDOM m) => RenderState m state action slots output -> m ()
 removeChild (RenderState {node}) = do
   npn <- DOM.parentNode node
   traverse_ (DOM.removeChild node) npn

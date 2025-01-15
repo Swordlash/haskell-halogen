@@ -37,7 +37,7 @@ import Halogen.VDom.Thunk
 -- | - `m` is the monad used by the child component during evaluation
 type ComponentHTML action slots m = HTML (ComponentSlot slots m action) action
 
-mapHTMLAction :: (a -> a') -> ComponentHTML a slots m -> ComponentHTML a' slots m
+mapHTMLAction :: forall a a' slots m. (a -> a') -> ComponentHTML a slots m -> ComponentHTML a' slots m
 mapHTMLAction f = bimap (fmap f) f
 
 -- | A type useful for a chunk of HTML with no slot-embedding or query-raising.
@@ -59,18 +59,18 @@ fromPlainHTML = bimap absurd absurd
 -- | - the input value to pass to the component
 -- | - a function mapping outputs from the component to a query in the parent
 slot
-  :: forall query action input output slots m label slot
+  :: forall label
+    ->forall query action input output slots m slot
    . (HasType label (Slot query input output slot) slots)
   => (KnownSymbol label)
   => (Ord slot)
-  => Proxy label
-  -> slot
+  => slot
   -> Component query input output m
   -> input
   -> (output -> action)
   -> ComponentHTML action slots m
-slot label p component _input outputQuery =
-  Core.widget (ComponentSlot (componentSlot label p component _input (Just . outputQuery)))
+slot label' p' component _input outputQuery =
+  Core.widget (ComponentSlot (componentSlot label' p' component _input (Just . outputQuery)))
 
 -- | Defines a slot for a child component, ignoring its output.
 -- |
@@ -84,17 +84,17 @@ slot label p component _input outputQuery =
 -- | - the component for the slot
 -- | - the input value to pass to the component
 slot_
-  :: forall query action input output slots m label slot
+  :: forall label
+    ->forall query action input output slots m slot
    . (HasType label (Slot query input output slot) slots)
   => (KnownSymbol label)
   => (Ord slot)
-  => Proxy label
-  -> slot
+  => slot
   -> Component query input output m
   -> input
   -> ComponentHTML action slots m
-slot_ label p component _input =
-  Core.widget (ComponentSlot (componentSlot label p component _input (const Nothing)))
+slot_ label' p' component _input =
+  Core.widget (ComponentSlot (componentSlot label' p' component _input (const Nothing)))
 
 -- | Optimizes rendering of a subtree given an equality predicate. If an argument
 -- | is deemed equivalent to the previous value, rendering and diffing will be
