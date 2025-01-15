@@ -59,11 +59,11 @@ data ButtonAction
 
 button
   :: (MonadMaterial m)
-  => H.Component H.VoidF ButtonCfg ButtonClicked m
+  => H.Component q ButtonCfg ButtonClicked m
 button =
   H.mkComponent $
     H.ComponentSpec
-      { initialState = \ButtonCfg {..} -> ButtonState {mdcRipple = Nothing, ..}
+      { initialState = \ButtonCfg {..} -> pure ButtonState {mdcRipple = Nothing, ..}
       , render
       , eval = H.mkEval $ H.defaultEval {handleAction, initialize = Just Initialize, finalize = Just Finalize}
       }

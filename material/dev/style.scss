@@ -1,4 +1,3 @@
-@use "@material/button/styles";
 @use "@material/list";
 
 @use "@material/tab-bar/mdc-tab-bar";
@@ -10,10 +9,14 @@
 @use "@material/line-ripple/mdc-line-ripple";
 @use "@material/notched-outline/mdc-notched-outline";
 @use "@material/textfield";
+@use "@material/form-field";
+
+@import "@material/radio/styles";
+@import "@material/button/styles";
 
 @include textfield.core-styles;
 @include list.deprecated-core-styles;
-
+@include form-field.core-styles;
 
 /* fallback */
 @font-face {

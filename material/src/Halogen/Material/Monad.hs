@@ -6,6 +6,7 @@ module Halogen.Material.Monad
   , MDCList
   , MDCTabBar
   , MDCTextField
+  , MDCFormField
   )
 where
 
@@ -26,6 +27,8 @@ newtype MDCTabBar = MDCTabBar (Foreign MDCTabBar)
 
 newtype MDCTextField = MDCTextField (Foreign MDCTextField)
 
+newtype MDCFormField = MDCFormField (Foreign MDCFormField)
+
 class (Monad m) => MonadMaterial m where
   initRipple :: HTMLElement -> m MDCRipple
   destroyRipple :: MDCRipple -> m ()
@@ -36,6 +39,8 @@ class (Monad m) => MonadMaterial m where
   destroyTabBar :: MDCTabBar -> m ()
   initTextField :: HTMLElement -> m MDCTextField
   destroyTextField :: MDCTextField -> m ()
+  initRadioButton :: HTMLElement -> m MDCFormField
+  destroyRadioButton :: MDCFormField -> m ()
 
 #if defined(javascript_HOST_ARCH)
 
@@ -48,6 +53,8 @@ foreign import javascript unsafe "halogen_init_material_tab_bar" initTabBar' :: 
 foreign import javascript unsafe "halogen_destroy_material_tab_bar" destroyTabBar' :: MDCTabBar -> IO ()
 foreign import javascript unsafe "halogen_init_material_text_field" initTextField' :: HTMLElement -> IO MDCTextField
 foreign import javascript unsafe "halogen_destroy_material_text_field" destroyTextField' :: MDCTextField -> IO ()
+foreign import javascript unsafe "halogen_init_material_radio_button" initRadioButton' :: HTMLElement -> IO MDCFormField
+foreign import javascript unsafe "halogen_destroy_material_radio_button" destroyRadioButton' :: MDCFormField -> IO ()
 
 instance MonadMaterial IO where
   initRipple = initRipple'
@@ -59,5 +66,7 @@ instance MonadMaterial IO where
   destroyTabBar = destroyTabBar'
   initTextField = initTextField'
   destroyTextField = destroyTextField'
+  initRadioButton = initRadioButton'
+  destroyRadioButton = destroyRadioButton'
 
 #endif

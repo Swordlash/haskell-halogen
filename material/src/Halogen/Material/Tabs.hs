@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -Wno-ambiguous-fields #-}
+{-# OPTIONS_GHC -Wno-deprecated-type-abstractions #-}
 
 module Halogen.Material.Tabs
   ( tabsComponent
@@ -79,7 +79,7 @@ tabsComponent
 tabsComponent =
   H.mkComponent $
     H.ComponentSpec
-      { initialState = \TabsCfg {..} -> TabsState {mdcTabBar = Nothing, ..}
+      { initialState = \TabsCfg {..} -> pure TabsState {mdcTabBar = Nothing, ..}
       , render
       , eval = H.mkEval $ H.defaultEval {handleAction, handleQuery, initialize = Just Initialize, finalize = Just Finalize}
       }
@@ -133,7 +133,7 @@ tabsComponent =
       -> H.HalogenM (TabsState slots i m) (TabsAction i) slots (TabsOutput i) m (Maybe x)
     handleQuery = \case
       GetSelectedTab k -> Just . k <$> gets (.selectedTab)
-      ParentQuery lab slot q -> H.query lab slot q
+      ParentQuery (Proxy @lab) slot q -> H.query lab slot q
 
     handleAction = \case
       Initialize -> do

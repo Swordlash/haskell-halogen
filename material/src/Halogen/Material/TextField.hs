@@ -1,5 +1,3 @@
-{-# OPTIONS_GHC -Wno-ambiguous-fields #-}
-
 module Halogen.Material.TextField
   ( TextFieldCfg (..)
   , TextFieldStyle (..)
@@ -25,7 +23,6 @@ import Halogen.HTML.Properties.ARIA qualified as HPA
 import Halogen.Material.Icons
 import Halogen.Material.Monad
 import Protolude
-import System.IO.Unsafe (unsafePerformIO)
 
 data TextFieldStyle
   = Filled
@@ -96,17 +93,18 @@ data TextFieldAction
   | Finalize
   | InputChange Text
 
-textField :: (MonadMaterial m) => H.Component TextFieldQuery TextFieldCfg TextFieldOutput m
+textField :: (MonadMaterial m, MonadUUID m) => H.Component TextFieldQuery TextFieldCfg TextFieldOutput m
 textField =
   H.mkComponent $
     H.ComponentSpec
-      { initialState = \TextFieldCfg {..} ->
-          TextFieldState
-            { mdcTextField = Nothing
-            , labelId = unsafePerformIO generateV4
-            , helperId = unsafePerformIO generateV4
-            , ..
-            }
+      { initialState = \TextFieldCfg {..} -> do
+          labelId <- generateV4
+          helperId <- generateV4
+          pure $
+            TextFieldState
+              { mdcTextField = Nothing
+              , ..
+              }
       , render
       , eval = H.mkEval $ H.defaultEval {H.initialize = Just Initialize, H.finalize = Just Finalize, H.handleAction = handleAction, H.handleQuery = handleQuery}
       }

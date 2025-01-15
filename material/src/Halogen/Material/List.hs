@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wno-deprecated-type-abstractions #-}
+
 module Halogen.Material.List
   ( ElemRenderer (..)
   , ElemTextRenderer (..)
@@ -82,7 +84,7 @@ list
 list =
   H.mkComponent $
     H.ComponentSpec
-      { initialState = \ListCfg {..} -> ListState {mdcList = Nothing, mdcItems = [], ..}
+      { initialState = \ListCfg {..} -> pure ListState {mdcList = Nothing, mdcItems = [], ..}
       , render
       , eval = H.mkEval $ H.defaultEval {handleAction, handleQuery, initialize = Just Initialize, receive = const $ Just InitRipples, finalize = Just DestroyRipples}
       }
@@ -134,7 +136,7 @@ list =
       :: ListQuery slots q x
       -> H.HalogenM (ListState a slots i m) (ListAction i) slots (ListOutput i) m (Maybe x)
     handleQuery = \case
-      ParentQuery lab slot q -> H.query lab slot q
+      ParentQuery (Proxy @lab) slot q -> H.query lab slot q
 
     handleAction = \case
       Initialize ->

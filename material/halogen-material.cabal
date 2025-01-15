@@ -13,7 +13,7 @@ build-type:         Simple
 extra-doc-files:    CHANGELOG.md
 
 common warnings
-    ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists 
+    ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists -Wno-ambiguous-fields
     default-extensions: 
         OverloadedStrings
         CPP
@@ -24,6 +24,7 @@ common warnings
         RecordWildCards
         NamedFieldPuns
         NoImplicitPrelude
+        RequiredTypeArguments
     build-depends: 
         base, 
         protolude, 
@@ -43,6 +44,7 @@ library
         Halogen.Material.Icons
         Halogen.Material.List
         Halogen.Material.Monad
+        Halogen.Material.RadioButton
         Halogen.Material.Tabs
         Halogen.Material.TextField
     hs-source-dirs:   src
