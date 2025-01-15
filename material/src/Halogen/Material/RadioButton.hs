@@ -2,7 +2,7 @@ module Halogen.Material.RadioButton
   ( radio
   , RadioButtonCfg (..)
   , emptyRadioButtonCfg
-  , RadioChange (..)
+  , RadioClicked (..)
   )
 where
 
@@ -50,11 +50,11 @@ data RadioButtonState = RadioButtonState
 data RadioButtonAction
   = Initialize
   | Finalize
-  | Change
+  | Clicked
 
-data RadioChange = RadioChange Text Bool
+data RadioClicked = RadioClicked Text
 
-radio :: (MonadMaterial m, MonadUUID m) => H.Component q RadioButtonCfg RadioChange m
+radio :: (MonadMaterial m, MonadUUID m) => H.Component q RadioButtonCfg RadioClicked m
 radio =
   H.mkComponent $
     H.ComponentSpec
@@ -69,27 +69,29 @@ radio =
 
     render RadioButtonState {..} =
       HH.div
-        [HP.class_ (HH.ClassName "mdc-form-field")]
-        [ HH.div
-            [HP.classes $ HH.ClassName "mdc-radio" : pureIf (not enabled) (HH.ClassName "mdc-radio--disabled"), HP.ref ref, HP.style extraStyle]
-            [ HH.input
-                [ HP.type_ InputRadio
-                , HP.name groupName
-                , HP.id (UUID.toText id)
-                , HP.class_ (HH.ClassName "mdc-radio__native-control")
-                , HP.checked checked
-                , HP.disabled (not enabled)
-                , HE.onChange (const Change)
-                ]
-            , HH.div
-                [HP.class_ $ HH.ClassName "mdc-radio__background"]
-                [ HH.div [HP.class_ $ HH.ClassName "mdc-radio__outer-circle"] []
-                , HH.div [HP.class_ $ HH.ClassName "mdc-radio__inner-circle"] []
-                ]
-            , HH.div [HP.class_ $ HH.ClassName "mdc-radio__ripple"] []
-            ]
-        , HH.label [HP.for (UUID.toText id)] [HH.text label]
-        ]
+        [HP.class_ (HH.ClassName "mdc-touch-target-wrapper")]
+        $ pure
+        $ HH.div
+          [HP.class_ (HH.ClassName "mdc-form-field"), HE.onClick (const Clicked)]
+          [ HH.div
+              [HP.classes $ HH.ClassName "mdc-radio" : HH.ClassName "mdc-radio--touch" : pureIf (not enabled) (HH.ClassName "mdc-radio--disabled"), HP.ref ref, HP.style extraStyle]
+              [ HH.input
+                  [ HP.type_ InputRadio
+                  , HP.name groupName
+                  , HP.id (UUID.toText id)
+                  , HP.class_ (HH.ClassName "mdc-radio__native-control")
+                  , HP.checked checked
+                  , HP.disabled (not enabled)
+                  ]
+              , HH.div
+                  [HP.class_ $ HH.ClassName "mdc-radio__background"]
+                  [ HH.div [HP.class_ $ HH.ClassName "mdc-radio__outer-circle"] []
+                  , HH.div [HP.class_ $ HH.ClassName "mdc-radio__inner-circle"] []
+                  ]
+              , HH.div [HP.class_ $ HH.ClassName "mdc-radio__ripple"] []
+              ]
+          , HH.label [HP.for (UUID.toText id)] [HH.text label]
+          ]
 
     handleAction = \case
       Initialize -> do
@@ -99,6 +101,4 @@ radio =
             modify $ \s -> s {mdcFormField = Just mdcFormField}
           Nothing -> panic "Cannot initialize radion button!"
       Finalize -> traverse_ (lift . destroyRadioButton) =<< gets (.mdcFormField)
-      Change -> do
-        lab <- gets (.label)
-        state (\s -> (not s.checked, s {checked = not s.checked} :: RadioButtonState)) >>= H.raise . RadioChange lab
+      Clicked -> gets (.label) >>= H.raise . RadioClicked

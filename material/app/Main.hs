@@ -43,7 +43,7 @@ type Buttons = ("button" .== H.Slot VoidF HMB.ButtonCfg HMB.ButtonClicked Text)
 
 type TextFields = ("textField" .== H.Slot HMTF.TextFieldQuery HMTF.TextFieldCfg HMTF.TextFieldOutput Int)
 
-type Radios = ("radio" .== H.Slot VoidF HMR.RadioButtonCfg HMR.RadioChange Int)
+type Radios = ("radio" .== H.Slot VoidF HMR.RadioButtonCfg HMR.RadioClicked Int)
 
 component :: forall q i o m. (MonadMaterial m, MonadUUID m) => H.Component q i o m
 component =

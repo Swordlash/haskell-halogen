@@ -40,6 +40,9 @@ ENV PATH="/root/.ghcup/bin:/root/.cabal/bin:$PATH"
 RUN ghcup config add-release-channel cross
 RUN emconfigure ghcup install ghc --set javascript-unknown-ghcjs-9.12.1
 
+RUN cabal install fourmolu
+
 RUN emcc --version && \
     ghcup --version && \
+    cabal --version && \
     javascript-unknown-ghcjs-ghc --version
