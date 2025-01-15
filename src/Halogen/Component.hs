@@ -34,7 +34,7 @@ instance Functor (ComponentSlot slots m) where
     ThunkSlot t -> ThunkSlot $ mapThunk (bimap (fmap f) f) t
 
 data ComponentSpec' state query action slots input output m n = ComponentSpec
-  { initialState :: input -> state
+  { initialState :: input -> m state
   , render :: state -> HTML (ComponentSlot slots m action) action
   , eval :: HalogenQ query action input ~> n
   }
@@ -90,7 +90,7 @@ hoist
 hoist nat (Component ComponentSpec {render, eval, initialState}) =
   Component
     $ ComponentSpec
-      { initialState = initialState
+      { initialState = runNT nat . initialState
       , render = first (hoistSlot nat) . render
       , eval = NT $ HM.hoist nat . runNT eval
       }

@@ -64,7 +64,7 @@ component =
       , eval = H.mkEval $ H.defaultEval {handleAction, handleQuery}
       }
   where
-    initialState _ = 0
+    initialState _ = pure 0
 
     render :: Int -> H.ComponentHTML Action Slots IO
     render state =
@@ -103,7 +103,7 @@ newtype DebChanged = DebChanged Text
 debComp :: Component VoidF () () IO
 debComp = unsafeMkDebouncedComponent 0.5 $ ComponentSpec {initialState, render, eval}
   where
-    initialState _ = ""
+    initialState _ = pure ""
 
     render txt =
       HH.div

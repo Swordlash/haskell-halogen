@@ -1,5 +1,9 @@
 # Revision history for haskell-halogen
 
+## 0.5.0 -- 2025-01-15
+
+Allow monadic `initialState` function.
+
 ## 0.4.0 -- 2025-01-10
 
 Fix unnecessary DOM replaces in foreign code

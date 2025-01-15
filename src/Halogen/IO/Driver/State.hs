@@ -16,7 +16,7 @@ where
 
 import Control.Monad.Fork
 import Data.Row
-import HPrelude
+import HPrelude hiding (state)
 import Halogen.Component
 import Halogen.Data.Slot as SlotStorage
 import Halogen.Query.HalogenM
@@ -98,10 +98,11 @@ initDriverState component input handler lchs = do
   fresh <- newIORef 1
   subscriptions <- newIORef (Just mempty)
   forks <- newIORef mempty
+  state <- component.initialState input
   let ds =
         DriverState
           { component
-          , state = component.initialState input
+          , state
           , refs = mempty
           , children = SlotStorage.empty
           , childrenIn
