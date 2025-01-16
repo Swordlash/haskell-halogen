@@ -1,6 +1,6 @@
 cabal-version:      3.0
 name:               haskell-halogen-core
-version:            0.6.0
+version:            0.6.1
 synopsis:           Haskell port of purescript-halogen library
 homepage:           https://github.com/Swordlash/haskell-halogen
 license:            Apache-2.0
@@ -162,5 +162,5 @@ test-suite Halogen-core-test
     import: commons
     type:             exitcode-stdio-1.0
     hs-source-dirs:   test
-    main-is:          MyLibTest.hs
-    build-depends:    haskell-halogen-core
+    main-is:          Test.hs
+    build-depends:    protolude, haskell-halogen-core, hspec

@@ -1,5 +1,9 @@
 # Revision history for haskell-halogen
 
+## 0.6.1 -- 2025-01-16
+
+Fix `foreignToBool`
+
 ## 0.6.0 -- 2025-01-16
 
 - Add `Halogen.Svg` modules

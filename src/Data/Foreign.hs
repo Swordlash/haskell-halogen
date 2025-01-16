@@ -11,10 +11,14 @@ import HPrelude
 import Unsafe.Coerce (unsafeCoerce)
 
 #if defined(javascript_HOST_ARCH)
+import GHC.Base (Int#)
 import GHC.JS.Prim
+
 type Foreign tag = JSVal
 
 newtype Nullable tag = Nullable (Foreign tag)
+
+foreign import javascript unsafe "(($1) => { return (!!$1 ? 1 : 0); })" foreignToBool' :: Foreign tag -> Int#
 
 nullableToMaybe :: Nullable tag -> Maybe (Foreign tag)
 nullableToMaybe (Nullable o) = if isNull o || isUndefined o then Nothing else Just o
@@ -42,6 +46,9 @@ foreignToString = toS . fromJSString
 
 foreignToInt :: Foreign tag -> Int
 foreignToInt = fromJSInt
+
+foreignToBool :: Foreign tag -> Bool
+foreignToBool x = isTrue# (foreignToBool' x)
 #else
 
 newtype Foreign tag = Foreign Any
@@ -65,10 +72,10 @@ foreignToString = unsafeCoerce
 
 foreignToInt :: Foreign tag -> Int
 foreignToInt = unsafeCoerce
-#endif
 
 foreignToBool :: Foreign tag -> Bool
 foreignToBool = unsafeFromForeign
+#endif
 
 unsafeRefEq :: a -> a -> Bool
 unsafeRefEq p q = isTrue# (reallyUnsafePtrEquality p q)
