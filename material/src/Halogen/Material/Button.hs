@@ -1,7 +1,7 @@
 module Halogen.Material.Button
   ( button
-  , emptyButtonCfg
-  , ButtonCfg (..)
+  , emptyButtonSpec
+  , ButtonSpec (..)
   , ButtonStyle (..)
   , IconPosition (..)
   , ButtonClicked (..)
@@ -25,7 +25,7 @@ data ButtonStyle = Raised | Unelevated | Outlined
 
 data ButtonClicked = ButtonClicked
 
-data ButtonCfg = ButtonCfg
+data ButtonSpec = ButtonSpec
   { label :: Text
   , style :: Maybe ButtonStyle
   , icon :: Maybe (Icon, IconPosition)
@@ -33,9 +33,9 @@ data ButtonCfg = ButtonCfg
   , extraStyle :: Css
   }
 
-emptyButtonCfg :: ButtonCfg
-emptyButtonCfg =
-  ButtonCfg
+emptyButtonSpec :: ButtonSpec
+emptyButtonSpec =
+  ButtonSpec
     { label = ""
     , style = Nothing
     , icon = Nothing
@@ -59,11 +59,11 @@ data ButtonAction
 
 button
   :: (MonadMaterial m)
-  => H.Component q ButtonCfg ButtonClicked m
+  => H.Component q ButtonSpec ButtonClicked m
 button =
   H.mkComponent $
     H.ComponentSpec
-      { initialState = \ButtonCfg {..} -> pure ButtonState {mdcRipple = Nothing, ..}
+      { initialState = \ButtonSpec {..} -> pure ButtonState {mdcRipple = Nothing, ..}
       , render
       , eval = H.mkEval $ H.defaultEval {handleAction, initialize = Just Initialize, finalize = Just Finalize}
       }

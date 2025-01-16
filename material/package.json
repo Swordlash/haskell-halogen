@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "dependencies": {
     "@material/button": "^14.0.0",
+    "@material/checkbox": "^14.0.0",
     "@material/form-field": "^14.0.0",
     "@material/list": "^14.0.0",
     "@material/radio": "^14.0.0",
@@ -24,7 +25,8 @@
     "webpack-cli": "^6.0.1"
   },
   "scripts": {
-    "build": "npm run format && npx webpack-cli --mode production --config webpack.config.js",
+    "build": "npx webpack-cli --mode production --config webpack.config.js",
+    "build-dev": "npx webpack-cli --mode development --config webpack.config.js",
     "format": "./run_fourmolu.sh",
     "clean": "rm -rf dist/*",
     "serve-dist": "http-server dist"

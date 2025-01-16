@@ -1,12 +1,12 @@
 module Halogen.Material.TextField
-  ( TextFieldCfg (..)
+  ( TextFieldSpec (..)
   , TextFieldStyle (..)
   , TextFieldAffix (..)
   , TextFieldHelperLine (..)
   , TextFieldOutput (..)
   , TextFieldQuery (..)
   , textField
-  , emptyTextFieldCfg
+  , emptyTextFieldSpec
   )
 where
 
@@ -43,7 +43,7 @@ data TextFieldHelperLine
   | HelperLine Text
   | CharacterCounter
 
-data TextFieldCfg = TextFieldCfg
+data TextFieldSpec = TextFieldSpec
   { text :: Text
   , label :: Maybe Text
   , enabled :: Bool
@@ -55,9 +55,9 @@ data TextFieldCfg = TextFieldCfg
   , minMaxLength :: (Maybe Int, Maybe Int)
   }
 
-emptyTextFieldCfg :: TextFieldCfg
-emptyTextFieldCfg =
-  TextFieldCfg
+emptyTextFieldSpec :: TextFieldSpec
+emptyTextFieldSpec =
+  TextFieldSpec
     { text = ""
     , label = Nothing
     , enabled = True
@@ -93,11 +93,11 @@ data TextFieldAction
   | Finalize
   | InputChange Text
 
-textField :: (MonadMaterial m, MonadUUID m) => H.Component TextFieldQuery TextFieldCfg TextFieldOutput m
+textField :: (MonadMaterial m, MonadUUID m) => H.Component TextFieldQuery TextFieldSpec TextFieldOutput m
 textField =
   H.mkComponent $
     H.ComponentSpec
-      { initialState = \TextFieldCfg {..} -> do
+      { initialState = \TextFieldSpec {..} -> do
           labelId <- generateV4
           helperId <- generateV4
           pure $

@@ -3,11 +3,11 @@
 module Halogen.Material.Tabs
   ( tabsComponent
   , IconPosition (..)
-  , TabCfg (..)
-  , TabsCfg (..)
+  , TabSpec (..)
+  , TabsSpec (..)
   , TabsOutput (..)
   , TabsQuery (..)
-  , emptyTabsCfg
+  , emptyTabsSpec
   )
 where
 
@@ -30,28 +30,28 @@ import Protolude
 data IconPosition = Leading | Stacked
   deriving (Eq)
 
-data TabCfg = TabCfg
+data TabSpec = TabSpec
   { label :: Maybe Text
   , icon :: Maybe (Icon, IconPosition)
   }
 
-data TabsCfg slots i m = TabsCfg
-  { tabs :: NonEmpty (TabCfg, HH.ComponentHTML i slots m)
+data TabsSpec slots i m = TabsSpec
+  { tabs :: NonEmpty (TabSpec, HH.ComponentHTML i slots m)
   , selectedTab :: Int
   , extraStyle :: C.Css
   }
 
-emptyTabsCfg :: TabsCfg slots i m
-emptyTabsCfg =
-  TabsCfg
-    { tabs = pure (TabCfg Nothing Nothing, HH.text "")
+emptyTabsSpec :: TabsSpec slots i m
+emptyTabsSpec =
+  TabsSpec
+    { tabs = pure (TabSpec Nothing Nothing, HH.text "")
     , selectedTab = 0
     , extraStyle = mempty
     }
 
 data TabsState slots i m = TabsState
   { mdcTabBar :: Maybe MDCTabBar
-  , tabs :: NonEmpty (TabCfg, HH.ComponentHTML i slots m)
+  , tabs :: NonEmpty (TabSpec, HH.ComponentHTML i slots m)
   , selectedTab :: Int
   , extraStyle :: C.Css
   }
@@ -75,11 +75,11 @@ data TabsOutput i
 tabsComponent
   :: forall q slots i m
    . (MonadMaterial m)
-  => H.Component (TabsQuery slots q) (TabsCfg slots i m) (TabsOutput i) m
+  => H.Component (TabsQuery slots q) (TabsSpec slots i m) (TabsOutput i) m
 tabsComponent =
   H.mkComponent $
     H.ComponentSpec
-      { initialState = \TabsCfg {..} -> pure TabsState {mdcTabBar = Nothing, ..}
+      { initialState = \TabsSpec {..} -> pure TabsState {mdcTabBar = Nothing, ..}
       , render
       , eval = H.mkEval $ H.defaultEval {handleAction, handleQuery, initialize = Just Initialize, finalize = Just Finalize}
       }
@@ -106,7 +106,7 @@ tabsComponent =
                           zip [0 ..] $
                             toList tabHeaders
 
-        renderTab (i, TabCfg {..}) =
+        renderTab (i, TabSpec {..}) =
           HH.button
             [ HP.classes $
                 HH.ClassName "mdc-tab"

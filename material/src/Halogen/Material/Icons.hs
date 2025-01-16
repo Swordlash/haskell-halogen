@@ -23,6 +23,7 @@ data Icon
   | Logout
   | CreditCard
   | Radio
+  | CheckBox
   deriving (Enum, Bounded)
 
 iconText :: Icon -> Text
@@ -43,6 +44,7 @@ iconText = \case
   Logout -> "logout"
   CreditCard -> "credit_card"
   Radio -> "radio"
+  CheckBox -> "check_box"
 
 renderIcon :: [HH.ClassName] -> Icon -> HH.HTML w i
 renderIcon clss icon =

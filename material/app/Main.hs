@@ -8,6 +8,7 @@ import Halogen as H
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Properties qualified as HP
 import Halogen.Material.Button qualified as HMB
+import Halogen.Material.Checkbox qualified as HMC
 import Halogen.Material.Icons qualified as HMI
 import Halogen.Material.List qualified as HML
 import Halogen.Material.Monad
@@ -33,17 +34,19 @@ attachComponent = panic "This module can only be run on JavaScript"
 main :: IO ()
 main = void attachComponent
 
-type All m = List m .+ Radios .+ TextFields
+type All m = List m .+ Radios .+ TextFields .+ Checkboxes
 
-type Slots m = ("tab" .== H.Slot (HMT.TabsQuery (All m) VoidF) (HMT.TabsCfg (All m) Void m) (HMT.TabsOutput Void) ())
+type Slots m = ("tab" .== H.Slot (HMT.TabsQuery (All m) VoidF) (HMT.TabsSpec (All m) Void m) (HMT.TabsOutput Void) ())
 
-type List m = ("list" .== H.Slot (HML.ListQuery Buttons VoidF) (HML.ListCfg (Int, (Text, HMB.ButtonCfg)) Buttons Void m) (HML.ListOutput Void) ())
+type List m = ("list" .== H.Slot (HML.ListQuery Buttons VoidF) (HML.ListSpec (Int, (Text, HMB.ButtonSpec)) Buttons Void m) (HML.ListOutput Void) ())
 
-type Buttons = ("button" .== H.Slot VoidF HMB.ButtonCfg HMB.ButtonClicked Text)
+type Buttons = ("button" .== H.Slot VoidF HMB.ButtonSpec HMB.ButtonClicked Text)
 
-type TextFields = ("textField" .== H.Slot HMTF.TextFieldQuery HMTF.TextFieldCfg HMTF.TextFieldOutput Int)
+type TextFields = ("textField" .== H.Slot HMTF.TextFieldQuery HMTF.TextFieldSpec HMTF.TextFieldOutput Int)
 
-type Radios = ("radio" .== H.Slot VoidF HMR.RadioButtonCfg HMR.RadioClicked Int)
+type Radios = ("radio" .== H.Slot VoidF HMR.RadioButtonSpec HMR.RadioClicked Int)
+
+type Checkboxes = ("checkbox" .== H.Slot HMC.CheckboxQuery HMC.CheckboxSpec HMC.CheckboxChange Int)
 
 component :: forall q i o m. (MonadMaterial m, MonadUUID m) => H.Component q i o m
 component =
@@ -56,17 +59,17 @@ component =
   where
     render :: () -> H.ComponentHTML Void (Slots m) m
     render _ =
-      HH.slot_ "tab" () HMT.tabsComponent $ HMT.emptyTabsCfg {HMT.tabs = tabs, HMT.extraStyle = C.width (C.pct 50)}
+      HH.slot_ "tab" () HMT.tabsComponent $ HMT.emptyTabsSpec {HMT.tabs = tabs, HMT.extraStyle = C.width (C.pct 50)}
       where
         tabs =
           fromJust $
             nonEmpty
               [
-                ( HMT.TabCfg {label = Just "List", icon = Just (HMI.Menu, HMT.Stacked)}
-                , HH.slot_ "list" () HML.list HML.ListCfg {items, elemRenderer, extraStyle}
+                ( HMT.TabSpec {label = Just "List", icon = Just (HMI.Menu, HMT.Stacked)}
+                , HH.slot_ "list" () HML.list HML.ListSpec {items, elemRenderer, extraStyle}
                 )
               ,
-                ( HMT.TabCfg {label = Just "Logout", icon = Just (HMI.Logout, HMT.Stacked)}
+                ( HMT.TabSpec {label = Just "Logout", icon = Just (HMI.Logout, HMT.Stacked)}
                 , HH.div
                     [ HP.style $ do
                         C.display C.flex
@@ -76,19 +79,19 @@ component =
                         extraStyle
                     ]
                     [ HH.slot_ "textField" 0 HMTF.textField $
-                        HMTF.emptyTextFieldCfg
+                        HMTF.emptyTextFieldSpec
                           { HMTF.label = Just "Username"
                           , HMTF.helperLine = HMTF.CharacterCounter
                           , HMTF.minMaxLength = (Nothing, Just 20)
                           }
                     , HH.slot_ "textField" 1 HMTF.textField $
-                        HMTF.emptyTextFieldCfg
+                        HMTF.emptyTextFieldSpec
                           { HMTF.label = Just "Password"
                           , HMTF.type_ = InputPassword
                           , HMTF.helperLine = HMTF.CharacterCounter
                           }
                     , HH.slot_ "textField" 2 HMTF.textField $
-                        HMTF.emptyTextFieldCfg
+                        HMTF.emptyTextFieldSpec
                           { HMTF.label = Just "Donation"
                           , HMTF.prefix = HMTF.TextAffix "$"
                           , HMTF.suffix = HMTF.IconAffix HMI.CreditCard
@@ -98,7 +101,7 @@ component =
                     ]
                 )
               ,
-                ( HMT.TabCfg {label = Just "Radio Buttons", icon = Just (HMI.Radio, HMT.Stacked)}
+                ( HMT.TabSpec {label = Just "Radio Buttons", icon = Just (HMI.Radio, HMT.Stacked)}
                 , HH.div
                     [ HP.style $ do
                         C.display C.flex
@@ -106,25 +109,54 @@ component =
                         C.width C.auto
                     ]
                     [ HH.slot_ "radio" 0 HMR.radio $
-                        HMR.emptyRadioButtonCfg
+                        HMR.emptyRadioButtonSpec
                           { HMR.label = "White"
                           , HMR.groupName = "group1"
                           , HMR.checked = True
                           }
                     , HH.slot_ "radio" 1 HMR.radio $
-                        HMR.emptyRadioButtonCfg
+                        HMR.emptyRadioButtonSpec
                           { HMR.label = "Black"
                           , HMR.groupName = "group1"
                           }
                     , HH.slot_ "radio" 2 HMR.radio $
-                        HMR.emptyRadioButtonCfg
+                        HMR.emptyRadioButtonSpec
                           { HMR.label = "Red"
                           , HMR.groupName = "group1"
                           }
                     , HH.slot_ "radio" 3 HMR.radio $
-                        HMR.emptyRadioButtonCfg
+                        HMR.emptyRadioButtonSpec
                           { HMR.label = "Green"
                           , HMR.groupName = "group1"
+                          }
+                    ]
+                )
+              ,
+                ( HMT.TabSpec {label = Just "Checkboxes", icon = Just (HMI.CheckBox, HMT.Stacked)}
+                , HH.div
+                    [ HP.style $ do
+                        C.display C.flex
+                        C.flexDirection C.column
+                        C.width C.auto
+                    ]
+                    [ HH.slot_ "checkbox" 0 HMC.checkbox $
+                        HMC.emptyCheckboxSpec
+                          { HMC.label = "English"
+                          , HMC.checked = True
+                          }
+                    , HH.slot_ "checkbox" 1 HMC.checkbox $
+                        HMC.emptyCheckboxSpec
+                          { HMC.label = "German"
+                          }
+                    , HH.slot_ "checkbox" 2 HMC.checkbox $
+                        HMC.emptyCheckboxSpec
+                          { HMC.label = "French"
+                          }
+                    , HH.slot_ "checkbox" 3 HMC.checkbox $
+                        HMC.emptyCheckboxSpec
+                          { HMC.label = "Polish"
+                          , HMC.checked = True
+                          , HMC.enabled = False
                           }
                     ]
                 )
@@ -142,20 +174,20 @@ component =
           map HML.ListElem $
             zip
               [0 ..]
-              [ ("Text", HMB.emptyButtonCfg {HMB.label = "Text button"})
-              , ("Text-Icon", HMB.emptyButtonCfg {HMB.label = "Text button with icon", HMB.icon = Just (HMI.Search, HMB.Leading)})
-              , ("Outlined", HMB.emptyButtonCfg {HMB.label = "Outlined button", HMB.style = Just HMB.Outlined})
-              , ("Outlined-Icon", HMB.emptyButtonCfg {HMB.label = "Outlined button with icon", HMB.style = Just HMB.Outlined, HMB.icon = Just (HMI.Info, HMB.Leading)})
-              , ("Contained", HMB.emptyButtonCfg {HMB.label = "Contained button", HMB.style = Just HMB.Raised})
-              , ("Contained-Icon", HMB.emptyButtonCfg {HMB.label = "Contained button with icon", HMB.style = Just HMB.Raised, HMB.icon = Just (HMI.Favorite, HMB.Leading)})
-              , ("Unelevated", HMB.emptyButtonCfg {HMB.label = "Unelevated button", HMB.style = Just HMB.Unelevated})
-              , ("Unelevated-Icon", HMB.emptyButtonCfg {HMB.label = "Unelevated button with icon", HMB.style = Just HMB.Unelevated, HMB.icon = Just (HMI.Settings, HMB.Leading)})
-              , ("Disabled", HMB.emptyButtonCfg {HMB.label = "Disabled button", HMB.enabled = False})
-              , ("Disabled-Icon", HMB.emptyButtonCfg {HMB.label = "Disabled button with icon", HMB.icon = Just (HMI.Delete, HMB.Leading), HMB.enabled = False})
-              , ("Contained-Icon-Trailing", HMB.emptyButtonCfg {HMB.label = "Contained button with trailing icon", HMB.style = Just HMB.Raised, HMB.icon = Just (HMI.Favorite, HMB.Trailing)})
+              [ ("Text", HMB.emptyButtonSpec {HMB.label = "Text button"})
+              , ("Text-Icon", HMB.emptyButtonSpec {HMB.label = "Text button with icon", HMB.icon = Just (HMI.Search, HMB.Leading)})
+              , ("Outlined", HMB.emptyButtonSpec {HMB.label = "Outlined button", HMB.style = Just HMB.Outlined})
+              , ("Outlined-Icon", HMB.emptyButtonSpec {HMB.label = "Outlined button with icon", HMB.style = Just HMB.Outlined, HMB.icon = Just (HMI.Info, HMB.Leading)})
+              , ("Contained", HMB.emptyButtonSpec {HMB.label = "Contained button", HMB.style = Just HMB.Raised})
+              , ("Contained-Icon", HMB.emptyButtonSpec {HMB.label = "Contained button with icon", HMB.style = Just HMB.Raised, HMB.icon = Just (HMI.Favorite, HMB.Leading)})
+              , ("Unelevated", HMB.emptyButtonSpec {HMB.label = "Unelevated button", HMB.style = Just HMB.Unelevated})
+              , ("Unelevated-Icon", HMB.emptyButtonSpec {HMB.label = "Unelevated button with icon", HMB.style = Just HMB.Unelevated, HMB.icon = Just (HMI.Settings, HMB.Leading)})
+              , ("Disabled", HMB.emptyButtonSpec {HMB.label = "Disabled button", HMB.enabled = False})
+              , ("Disabled-Icon", HMB.emptyButtonSpec {HMB.label = "Disabled button with icon", HMB.icon = Just (HMI.Delete, HMB.Leading), HMB.enabled = False})
+              , ("Contained-Icon-Trailing", HMB.emptyButtonSpec {HMB.label = "Contained button with trailing icon", HMB.style = Just HMB.Raised, HMB.icon = Just (HMI.Favorite, HMB.Trailing)})
               ]
 
-        elemRenderer :: HML.ElemRenderer (Int, (Text, HMB.ButtonCfg)) Buttons Void m
+        elemRenderer :: HML.ElemRenderer (Int, (Text, HMB.ButtonSpec)) Buttons Void m
         elemRenderer =
           HML.ElemRenderer
             { metaRenderer = Just $ \(_, (name, cfg)) -> HH.slot_ "button" name HMB.button cfg

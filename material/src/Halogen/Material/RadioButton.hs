@@ -1,7 +1,7 @@
 module Halogen.Material.RadioButton
   ( radio
-  , RadioButtonCfg (..)
-  , emptyRadioButtonCfg
+  , RadioButtonSpec (..)
+  , emptyRadioButtonSpec
   , RadioClicked (..)
   )
 where
@@ -19,7 +19,7 @@ import Halogen.HTML.Properties qualified as HP
 import Halogen.Material.Monad
 import Protolude
 
-data RadioButtonCfg = RadioButtonCfg
+data RadioButtonSpec = RadioButtonSpec
   { label :: Text
   , enabled :: Bool
   , extraStyle :: Css
@@ -27,9 +27,9 @@ data RadioButtonCfg = RadioButtonCfg
   , checked :: Bool
   }
 
-emptyRadioButtonCfg :: RadioButtonCfg
-emptyRadioButtonCfg =
-  RadioButtonCfg
+emptyRadioButtonSpec :: RadioButtonSpec
+emptyRadioButtonSpec =
+  RadioButtonSpec
     { label = ""
     , enabled = True
     , extraStyle = mempty
@@ -54,11 +54,11 @@ data RadioButtonAction
 
 data RadioClicked = RadioClicked Text
 
-radio :: (MonadMaterial m, MonadUUID m) => H.Component q RadioButtonCfg RadioClicked m
+radio :: (MonadMaterial m, MonadUUID m) => H.Component q RadioButtonSpec RadioClicked m
 radio =
   H.mkComponent $
     H.ComponentSpec
-      { initialState = \RadioButtonCfg {..} -> do
+      { initialState = \RadioButtonSpec {..} -> do
           id <- generateV4
           pure $ RadioButtonState {mdcFormField = Nothing, ..}
       , render
@@ -74,7 +74,10 @@ radio =
         $ HH.div
           [HP.class_ (HH.ClassName "mdc-form-field"), HE.onClick (const Clicked)]
           [ HH.div
-              [HP.classes $ HH.ClassName "mdc-radio" : HH.ClassName "mdc-radio--touch" : pureIf (not enabled) (HH.ClassName "mdc-radio--disabled"), HP.ref ref, HP.style extraStyle]
+              [ HP.classes $ HH.ClassName "mdc-radio" : HH.ClassName "mdc-radio--touch" : pureIf (not enabled) (HH.ClassName "mdc-radio--disabled")
+              , HP.ref ref
+              , HP.style extraStyle
+              ]
               [ HH.input
                   [ HP.type_ InputRadio
                   , HP.name groupName

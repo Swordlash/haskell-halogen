@@ -41,6 +41,7 @@ library
     import:           warnings
     exposed-modules:  
         Halogen.Material.Button
+        Halogen.Material.Checkbox
         Halogen.Material.Icons
         Halogen.Material.List
         Halogen.Material.Monad

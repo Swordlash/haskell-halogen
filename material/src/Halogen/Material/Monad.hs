@@ -41,6 +41,8 @@ class (Monad m) => MonadMaterial m where
   destroyTextField :: MDCTextField -> m ()
   initRadioButton :: HTMLElement -> m MDCFormField
   destroyRadioButton :: MDCFormField -> m ()
+  initCheckbox :: HTMLElement -> m MDCFormField
+  destroyCheckbox :: MDCFormField -> m ()
 
 #if defined(javascript_HOST_ARCH)
 
@@ -55,6 +57,8 @@ foreign import javascript unsafe "halogen_init_material_text_field" initTextFiel
 foreign import javascript unsafe "halogen_destroy_material_text_field" destroyTextField' :: MDCTextField -> IO ()
 foreign import javascript unsafe "halogen_init_material_radio_button" initRadioButton' :: HTMLElement -> IO MDCFormField
 foreign import javascript unsafe "halogen_destroy_material_radio_button" destroyRadioButton' :: MDCFormField -> IO ()
+foreign import javascript unsafe "halogen_init_material_checkbox" initCheckbox' :: HTMLElement -> IO MDCFormField
+foreign import javascript unsafe "halogen_destroy_material_checkbox" destroyCheckbox' :: MDCFormField -> IO ()
 
 instance MonadMaterial IO where
   initRipple = initRipple'
@@ -68,5 +72,7 @@ instance MonadMaterial IO where
   destroyTextField = destroyTextField'
   initRadioButton = initRadioButton'
   destroyRadioButton = destroyRadioButton'
+  initCheckbox = initCheckbox'
+  destroyCheckbox = destroyCheckbox'
 
 #endif

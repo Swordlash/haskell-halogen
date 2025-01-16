@@ -3,7 +3,7 @@
 module Halogen.Material.List
   ( ElemRenderer (..)
   , ElemTextRenderer (..)
-  , ListCfg (..)
+  , ListSpec (..)
   , ListElem (..)
   , ListQuery (..)
   , ListOutput (..)
@@ -46,7 +46,7 @@ isSeparator :: ListElem a -> Bool
 isSeparator Separator = True
 isSeparator _ = False
 
-data ListCfg a slots i m = ListCfg
+data ListSpec a slots i m = ListSpec
   { items :: [ListElem a]
   , elemRenderer :: ElemRenderer a slots i m
   , extraStyle :: Css
@@ -80,11 +80,11 @@ data ListOutput i
 list
   :: forall a q slots i m
    . (MonadMaterial m)
-  => H.Component (ListQuery slots q) (ListCfg a slots i m) (ListOutput i) m
+  => H.Component (ListQuery slots q) (ListSpec a slots i m) (ListOutput i) m
 list =
   H.mkComponent $
     H.ComponentSpec
-      { initialState = \ListCfg {..} -> pure ListState {mdcList = Nothing, mdcItems = [], ..}
+      { initialState = \ListSpec {..} -> pure ListState {mdcList = Nothing, mdcItems = [], ..}
       , render
       , eval = H.mkEval $ H.defaultEval {handleAction, handleQuery, initialize = Just Initialize, receive = const $ Just InitRipples, finalize = Just DestroyRipples}
       }

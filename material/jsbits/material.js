@@ -4,6 +4,7 @@ import {MDCRipple} from '@material/ripple';
 import {MDCTextField} from '@material/textfield';
 import {MDCFormField} from '@material/form-field';
 import {MDCRadio} from '@material/radio';
+import {MDCCheckbox} from '@material/checkbox';
 
 function halogen_init_material_ripple(element) {
   return new MDCRipple(element);
@@ -50,6 +51,19 @@ function halogen_init_material_radio_button(element) {
 }
 
 function halogen_destroy_material_radio_button(mdcFormField) {
+  mdcFormField.input.destroy();
+  mdcFormField.destroy();
+}
+
+function halogen_init_material_checkbox(element) {
+  const checkbox = new MDCCheckbox(element);
+  const formField = new MDCFormField(element.parentElement);
+  formField.input = checkbox;
+
+  return formField;
+}
+
+function halogen_destroy_material_checkbox(mdcFormField) {
   mdcFormField.input.destroy();
   mdcFormField.destroy();
 }

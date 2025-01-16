@@ -11,12 +11,15 @@
 @use "@material/textfield";
 @use "@material/form-field";
 
+@use "@material/checkbox";
+
 @import "@material/radio/styles";
 @import "@material/button/styles";
 
 @include textfield.core-styles;
 @include list.deprecated-core-styles;
 @include form-field.core-styles;
+@include checkbox.core-styles;
 
 /* fallback */
 @font-face {
