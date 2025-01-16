@@ -1,23 +1,14 @@
 cabal-version:      3.0
 name:               haskell-halogen-core
-version:            0.5.1
-synopsis:
-
--- A longer description of the package.
--- description:
-homepage:
-
--- A URL where users can report bugs.
--- bug-reports:
-license:            MIT
+version:            0.6.0
+synopsis:           Haskell port of purescript-halogen library
+homepage:           https://github.com/Swordlash/haskell-halogen
+license:            Apache-2.0
 license-file:       LICENSE
 author:             Mateusz Goślinowski
 maintainer:         mateusz.goslinowski@gmail.com
-
--- A copyright notice.
--- copyright:
 category:           Web
-extra-source-files: CHANGELOG.md
+extra-source-files: CHANGELOG.md, NOTICE
 
 flag trace-dom
   description: Enable tracing of DOM operations
@@ -116,6 +107,10 @@ library
       Halogen.Component
       Halogen.Component.Debounced
       Halogen.Subscription
+
+      Halogen.Svg.Attributes
+      Halogen.Svg.Elements
+      Halogen.Svg.Indexed
 
       Web.Clipboard
       Web.Clipboard.ClipboardEvent

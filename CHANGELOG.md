@@ -1,5 +1,10 @@
 # Revision history for haskell-halogen
 
+## 0.6.0 -- 2025-01-16
+
+- Add `Halogen.Svg` modules
+- Use `RequiredTypeArguments` for slot proxies
+
 ## 0.5.1 -- 2025-01-15
 
 Fix `for` HTML property.
