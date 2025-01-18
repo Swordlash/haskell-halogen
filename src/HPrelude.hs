@@ -152,6 +152,7 @@ module HPrelude
   , mapUnliftIO
   , MonadUnliftIO (..)
   , module Coercible
+  , loopM
   )
 where
 
@@ -980,3 +981,10 @@ atomicModifyIORef'_ ref f = atomicModifyIORef' ref ((,()) . f)
 
 mapUnliftIO :: (forall a. m a -> n a) -> UnliftIO n -> UnliftIO m
 mapUnliftIO nt (UnliftIO f) = UnliftIO $ f . nt
+
+loopM :: (Monad m) => (a -> m (Either a b)) -> a -> m b
+loopM act x = do
+  res <- act x
+  case res of
+    Left x' -> loopM act x'
+    Right v -> pure v

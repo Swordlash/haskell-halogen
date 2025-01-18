@@ -6,7 +6,6 @@ module Halogen.IO.Driver
 where
 
 import Control.Exception.Safe
-import Control.Monad.Extra
 import Control.Monad.Fork
 import Control.Monad.Parallel
 import Control.Monad.UUID

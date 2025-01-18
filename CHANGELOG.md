@@ -1,5 +1,9 @@
 # Revision history for haskell-halogen
 
+## 0.7.0 -- 2025-01-18
+
+Remove dependency on `clock` which doesn't build on darwin
+
 ## 0.6.1 -- 2025-01-16
 
 Fix `foreignToBool`

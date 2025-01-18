@@ -1,11 +1,13 @@
 module Main (main) where
 
-import Prelude
 import Control.Exception
 import Data.Foreign
---import Test.Hspec
+import Prelude
+
+-- import Test.Hspec
 
 foreign import javascript unsafe "(() => { return true; })" js_true :: Foreign Bool
+
 foreign import javascript unsafe "(() => { return false; })" js_false :: Foreign Bool
 
 assertWith :: String -> Bool -> IO ()

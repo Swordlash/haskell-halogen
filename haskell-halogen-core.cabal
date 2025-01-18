@@ -1,6 +1,6 @@
 cabal-version:      3.0
 name:               haskell-halogen-core
-version:            0.6.1
+version:            0.7.0
 synopsis:           Haskell port of purescript-halogen library
 homepage:           https://github.com/Swordlash/haskell-halogen
 license:            Apache-2.0
@@ -17,7 +17,7 @@ flag trace-dom
 
 common commons
   build-depends:    
-      base, free, transformers, mtl, text, protolude, extra, random, time, bytestring, stm, deepseq, unordered-containers, async,
+      base, free, transformers, mtl, text, protolude, random, time, bytestring, stm, deepseq, unordered-containers, async,
       row-types, hashable, containers, kan-extensions, uuid-types, unliftio, safe-exceptions, clay
   
   default-language: GHC2021
