@@ -1,0 +1,84 @@
+name: Build & deploy
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
+# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+env:
+  EM_VERSION: 3.1.74
+  EM_CACHE_FOLDER: 'emsdk-cache'
+
+jobs:
+  build-deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v2
+      with:
+        node-version: '20'
+
+    - name: Setup cache
+      id: cache-system-libraries
+      uses: actions/cache@v2
+      with:
+        path: ${{env.EM_CACHE_FOLDER}}
+        key: emsdk-${{env.EM_VERSION}}-${{ runner.os }}
+
+    - name: Setup EMSDK
+      uses: mymindstorm/setup-emsdk@v14
+      with:
+        version: ${{env.EM_VERSION}}
+        actions-cache-folder: ${{env.EM_CACHE_FOLDER}}
+
+    - name: Install dependencies
+      run: |
+        npm install
+        npx ghc-installer install cabal 3.14.1.1
+        npx ghc-installer install ghc 9.12.1
+        mkdir -p /home/runner/.cabal/store
+
+    - name: Builtin cabal update & freeze
+      run: |
+        npx ghc-installer run cabal update
+        npx ghc-installer run cabal freeze
+
+    - name: Cache cabal dependencies
+      uses: actions/cache@v3
+      with:
+        path: /home/runner/.cabal/store
+        key: ${{ runner.os }}-cabal-store
+        restore-keys: |
+          ${{ runner.os }}-cabal-store
+
+    - name: Build
+      run: npm run build-ci
+
+    - name: Upload dist to GH Pages artifact
+      id: deployment
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: ./dist
+
+    - name: Setup Pages
+      uses: actions/configure-pages@v5
+
+    - name: Deploy to GitHub Pages
+      uses: actions/deploy-pages@v4
