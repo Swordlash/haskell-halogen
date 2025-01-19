@@ -25,8 +25,8 @@
     "webpack-cli": "^6.0.1"
   },
   "scripts": {
-    "build": "npx webpack-cli --mode production --config webpack.config.js",
-    "build-dev": "npx webpack-cli --mode development --config webpack.config.js",
+    "build": "npx webpack-cli --config webpack.config.js",
+    "build-dev": "npx webpack-cli --config webpack.config-dev.js",
     "format": "./run_fourmolu.sh",
     "clean": "rm -rf dist/*",
     "serve-dist": "http-server dist"

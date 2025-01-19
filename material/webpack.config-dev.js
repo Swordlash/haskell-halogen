@@ -13,7 +13,7 @@ module.exports = {
     filename: 'main.js',
     path: path.resolve(__dirname, 'dist'),
   },
-  mode: "production",
+  mode: "development",
   resolve: {
     fallback: {
       os: false,
@@ -26,10 +26,7 @@ module.exports = {
     rules: [
       {
         test: /\.(cabal|project)$/,
-        use: [
-          {
-            loader: "swc-loader"
-          },
+        use:
           {
             loader: "@haskell-org/haskell-loader",
             options: {
@@ -37,18 +34,10 @@ module.exports = {
               "executable": "halogen-material-app"
             }
           }
-        ]
       },
       {
         test: /\.s[ac]ss$/i,
         use: [ "style-loader", "css-loader", "sass-loader"],
-      },
-      {
-        test: /\.m?js$/,
-        exclude: /(node_modules)/,
-        use: {
-          loader: "swc-loader"
-        }
       }
     ],
   },
@@ -56,19 +45,6 @@ module.exports = {
     [ new HtmlWebpackPlugin({
         title: 'Halogen Material Components'
     })
-    , new CompressionPlugin({
-        filename: "[path][base].br",
-        algorithm: "brotliCompress",
-        test: /\.(js|css|html|svg)$/,
-        compressionOptions: {
-          params: {
-            [zlib.constants.BROTLI_PARAM_QUALITY]: 11,
-          },
-        },
-        threshold: 10240,
-        minRatio: 0.8,
-        deleteOriginalAssets: false,
-      }),
     , new webpack.ProgressPlugin()
     ]
 };
