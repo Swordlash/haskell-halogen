@@ -27,7 +27,7 @@
   },
   "scripts": {
     "build": "npx webpack-cli --config webpack.config.js",
-    "build-ci": "npx webpack-cli --config webpack.config-noghc.js",
+    "build-ci": "npx webpack-cli --config webpack.config-ci.js",
     "build-dev": "npx webpack-cli --config webpack.config-dev.js",
     "format": "./run_fourmolu.sh",
     "clean": "rm -rf dist/*",
