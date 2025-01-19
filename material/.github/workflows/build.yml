@@ -106,6 +106,7 @@ jobs:
       run: npm run build-ci
 
     - name: Upload dist to GH Pages artifact
+      id: deployment
       uses: actions/upload-pages-artifact@v3
       with:
         path: ./dist
