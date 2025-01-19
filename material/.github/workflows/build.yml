@@ -1,4 +1,4 @@
-name: Docker CI
+name: CI Build
 
 on:
   push:
@@ -8,30 +8,99 @@ on:
     branches:
       - main
 
+env:
+  EM_VERSION: 3.1.74
+  EM_CACHE_FOLDER: 'emsdk-cache'
+
 jobs:
-  docker-ci:
+  build:
     runs-on: ubuntu-latest
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v2
+    - uses: haskell-actions/setup@v2
+      id: setup
+      with:
+        ghc-version: '9.10.1'
+        cabal-version: '3.14.1.1'
+        cabal-update: true
 
-    - name: Build Docker Image
-      run: docker build -t haskell-halogen-image:latest .
-
-    - name: Run Build (JS)
+    - name: Configure the build
       run: |
-        docker run --rm \
-          -v $GITHUB_WORKSPACE:/workspace \
-          haskell-halogen-image \
-          bash -c "cd /workspace && ./.github/workflows/run_build_js.sh"
-    
-    - name: Run Build (native)
+        cabal configure --enable-tests --enable-benchmarks --disable-documentation
+        cabal build all --dry-run
+
+    - name: Restore cached dependencies
+      uses: actions/cache/restore@v4
+      id: cache
+      env:
+        key: ${{ runner.os }}-ghc-${{ steps.setup.outputs.ghc-version }}-cabal-${{ steps.setup.outputs.cabal-version }}
+      with:
+        path: ${{ steps.setup.outputs.cabal-store }}
+        key: ${{ env.key }}-plan-${{ hashFiles('**/plan.json') }}
+        restore-keys: ${{ env.key }}-
+
+    - name: Install dependencies
+      if: steps.cache.outputs.cache-hit != 'true'
+      run: cabal build all --only-dependencies
+
+    - name: Save cached dependencies
+      uses: actions/cache/save@v4
+      if: steps.cache.outputs.cache-hit != 'true'
+      with:
+        path: ${{ steps.setup.outputs.cabal-store }}
+        key: ${{ steps.cache.outputs.cache-primary-key }}
+
+    - name: Build
+      run: cabal build all
+
+
+  build-js:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v2
+      with:
+        node-version: '20'
+
+    - name: Setup cache
+      id: cache-system-libraries
+      uses: actions/cache@v2
+      with:
+        path: ${{env.EM_CACHE_FOLDER}}
+        key: emsdk-${{env.EM_VERSION}}-${{ runner.os }}
+
+    - name: Setup EMSDK
+      uses: mymindstorm/setup-emsdk@v14
+      with:
+        version: ${{env.EM_VERSION}}
+        actions-cache-folder: ${{env.EM_CACHE_FOLDER}}
+
+    - name: Install dependencies
       run: |
-        docker run --rm \
-          -v $GITHUB_WORKSPACE:/workspace \
-          haskell-halogen-image \
-          bash -c "cd /workspace && ./.github/workflows/run_build.sh"
+        npm install
+        npx ghc-installer install cabal 3.14.1.1
+        npx ghc-installer install ghc 9.12.1
+        mkdir -p /home/runner/.cabal/store
+
+    - name: Builtin cabal update & freeze
+      run: |
+        npx ghc-installer run cabal update
+        npx ghc-installer run cabal freeze
+
+    - name: Cache cabal dependencies
+      uses: actions/cache@v3
+      with:
+        path: /home/runner/.cabal/store
+        key: ${{ runner.os }}-cabal-store
+        restore-keys: |
+          ${{ runner.os }}-cabal-store
+
+    - name: Build
+      run: npm run build-ci

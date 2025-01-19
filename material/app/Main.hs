@@ -59,7 +59,7 @@ component =
   where
     render :: () -> H.ComponentHTML Void (Slots m) m
     render _ =
-      HH.slot_ "tab" () HMT.tabsComponent $ HMT.emptyTabsSpec {HMT.tabs = tabs, HMT.extraStyle = C.width (C.pct 50)}
+      HH.slot_ "tab" () HMT.tabsComponent $ HMT.emptyTabsSpec {HMT.tabs = tabs}
       where
         tabs =
           fromJust $
