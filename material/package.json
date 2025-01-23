@@ -29,6 +29,7 @@
     "build": "npx webpack-cli --config webpack.config.js",
     "build-ci": "npx webpack-cli --config webpack.config-ci.js",
     "build-dev": "npx webpack-cli --config webpack.config-dev.js",
+    "build-serve": "npm run build-dev && npm run serve-dist",
     "format": "./run_fourmolu.sh",
     "clean": "rm -rf dist/*",
     "serve-dist": "http-server dist"

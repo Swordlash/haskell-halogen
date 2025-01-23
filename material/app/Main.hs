@@ -36,17 +36,17 @@ main = void attachComponent
 
 type All m = List m .+ Radios .+ TextFields .+ Checkboxes
 
-type Slots m = ("tab" .== H.Slot (HMT.TabsQuery (All m) VoidF) (HMT.TabsSpec (All m) Void m) (HMT.TabsOutput Void) ())
+type Slots m = ("tab" .== H.Slot (HMT.TabsQuery (All m) VoidF) (HMT.TabsOutput Void) ())
 
-type List m = ("list" .== H.Slot (HML.ListQuery Buttons VoidF) (HML.ListSpec (Int, (Text, HMB.ButtonSpec)) Buttons Void m) (HML.ListOutput Void) ())
+type List m = ("list" .== H.Slot (HML.ListQuery Buttons VoidF) (HML.ListOutput Void) ())
 
-type Buttons = ("button" .== H.Slot VoidF HMB.ButtonSpec HMB.ButtonClicked Text)
+type Buttons = ("button" .== H.Slot VoidF HMB.ButtonClicked Text)
 
-type TextFields = ("textField" .== H.Slot HMTF.TextFieldQuery HMTF.TextFieldSpec HMTF.TextFieldOutput Int)
+type TextFields = ("textField" .== H.Slot HMTF.TextFieldQuery HMTF.TextFieldOutput Int)
 
-type Radios = ("radio" .== H.Slot VoidF HMR.RadioButtonSpec HMR.RadioClicked Int)
+type Radios = ("radio" .== H.Slot VoidF HMR.RadioClicked Int)
 
-type Checkboxes = ("checkbox" .== H.Slot HMC.CheckboxQuery HMC.CheckboxSpec HMC.CheckboxChange Int)
+type Checkboxes = ("checkbox" .== H.Slot HMC.CheckboxQuery HMC.CheckboxChange Int)
 
 component :: forall q i o m. (MonadMaterial m, MonadUUID m) => H.Component q i o m
 component =

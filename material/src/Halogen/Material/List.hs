@@ -69,8 +69,8 @@ data ListAction i
   | ChildAction i
 
 data ListQuery slots q a
-  = forall label input' output' slot.
-    (HasType label (H.Slot q input' output' slot) slots, KnownSymbol label, Ord slot) =>
+  = forall label output' slot.
+    (HasType label (H.Slot q output' slot) slots, KnownSymbol label, Ord slot) =>
     ParentQuery (Proxy label) slot (q a)
 
 data ListOutput i
