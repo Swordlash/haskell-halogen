@@ -39,7 +39,7 @@ data State query input output m = State
 portal
   :: forall label
     ->forall query action input output slots slot m
-   . ( HasType label (H.Slot query (Input query input output m) output slot) slots
+   . ( HasType label (H.Slot query output slot) slots
      , MonadUnliftIO m
      , MonadDOM m
      , MonadKill m
@@ -100,7 +100,7 @@ wrapper =
     handleQuery
       :: forall action a
        . Query input query a
-      -> H.HalogenM (State query input output m) action ("content" .== H.Slot _ _ _ _) output m (Maybe a)
+      -> H.HalogenM (State query input output m) action ("content" .== H.Slot _ _ _) output m (Maybe a)
     handleQuery = \case
       SetInput input a -> do
         modify $ \s -> s {input} :: State query input output m

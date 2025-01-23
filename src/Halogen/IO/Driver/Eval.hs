@@ -10,7 +10,7 @@ module Halogen.IO.Driver.Eval
 where
 
 import Control.Applicative.Free.Fast
-import Control.Exception.Safe (MonadMask, finally)
+import Control.Exception.Safe (finally)
 import Control.Monad.Fork
 import Control.Monad.Free.Church (foldF)
 import Control.Monad.Parallel

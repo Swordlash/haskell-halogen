@@ -21,6 +21,7 @@ import Halogen.Query.HalogenQ qualified as HQ
 import Halogen.Query.Input
 import Halogen.Query.Input qualified as Input
 import Halogen.Subscription qualified as HS
+import Unsafe.Coerce (unsafeCoerce)
 
 data HalogenSocket query output m = HalogenSocket
   { query :: forall a. query a -> m (Maybe a)
@@ -78,7 +79,7 @@ runUI RenderSpec {..} c i = do
       -> (o' -> m ())
       -> i'
       -> Component f' i' o' m
-      -> m (DriverStateRef m r f' i' o')
+      -> m (DriverStateRef m r f' o')
     runComponent lchs handler j (Component cs) = do
       lchs' <- newLifecycleHandlers
       st <- initDriverState cs j handler lchs'
@@ -154,8 +155,8 @@ runUI RenderSpec {..} c i = do
           atomicWriteIORef childrenInRef childrenIn'
           DriverStateX st <- readDriverStateRef existing
           atomicWriteIORef st.handlerRef $ maybe pass handler . output
-          -- forgive me gods but it just doesnt typecheck with input
-          void $ Eval.evalM render' st.selfRef (runNT st.component.eval (HQ.Receive input ()))
+          -- FIXME
+          void $ Eval.evalM render' st.selfRef (runNT (unsafeCoerce st.component.eval) (HQ.Receive input ()))
           pure existing
         Nothing ->
           runComponent lchs (maybe pass handler . output) input component
@@ -168,10 +169,10 @@ runUI RenderSpec {..} c i = do
         Just r -> pure (renderChild r)
 
     squashChildInitializers
-      :: forall f' i' o'
+      :: forall f' o'
        . IORef (LifecycleHandlers m)
       -> [m ()]
-      -> DriverStateX m r f' i' o'
+      -> DriverStateX m r f' o'
       -> m ()
     squashChildInitializers lchs preInits (DriverStateX st) = do
       let parentInitializer = Eval.evalM render' st.selfRef (runNT st.component.eval (HQ.Initialize ()))
@@ -189,9 +190,9 @@ runUI RenderSpec {..} c i = do
           }
 
     finalize
-      :: forall f' i' o'
+      :: forall f' o'
        . IORef (LifecycleHandlers m)
-      -> DriverStateX m r f' i' o'
+      -> DriverStateX m r f' o'
       -> m ()
     finalize lchs (DriverStateX DriverState {selfRef}) = do
       st <- readIORef selfRef
@@ -207,10 +208,10 @@ runUI RenderSpec {..} c i = do
         finalize lchs ds
 
     dispose'
-      :: forall f' i' o'
+      :: forall f' o'
        . IORef Bool
       -> IORef (LifecycleHandlers m)
-      -> DriverStateX m r f' i' o'
+      -> DriverStateX m r f' o'
       -> m ()
     dispose' disposed lchs dsx@(DriverStateX DriverState {selfRef}) = Eval.handleLifecycle lchs $ do
       readIORef disposed >>= \case

@@ -61,7 +61,7 @@ fromPlainHTML = bimap absurd absurd
 slot
   :: forall label
     ->forall query action input output slots m slot
-   . (HasType label (Slot query input output slot) slots, KnownSymbol label, Ord slot)
+   . (HasType label (Slot query output slot) slots, KnownSymbol label, Ord slot)
   => slot
   -> Component query input output m
   -> input
@@ -84,7 +84,7 @@ slot label' p' component _input outputQuery =
 slot_
   :: forall label
     ->forall query action input output slots m slot
-   . (HasType label (Slot query input output slot) slots, KnownSymbol label, Ord slot)
+   . (HasType label (Slot query output slot) slots, KnownSymbol label, Ord slot)
   => slot
   -> Component query input output m
   -> input

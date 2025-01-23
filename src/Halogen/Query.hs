@@ -57,8 +57,8 @@ mkTell act = act ()
 
 tell
   :: forall label
-    ->forall state action output m slots query input' output' slot
-   . (HasType label (Slot query input' output' slot) slots, Functor m)
+    ->forall state action output m slots query output' slot
+   . (HasType label (Slot query output' slot) slots, Functor m)
   => (KnownSymbol label)
   => (Ord slot)
   => slot
@@ -68,8 +68,8 @@ tell label slot req = void $ query label slot (req ())
 
 tellAll
   :: forall label
-    ->forall state action output m slots query input' output' slot
-   . (HasType label (Slot query input' output' slot) slots, Functor m)
+    ->forall state action output m slots query output' slot
+   . (HasType label (Slot query output' slot) slots, Functor m)
   => (KnownSymbol label)
   => (Ord slot)
   => Tell query
@@ -103,8 +103,8 @@ mkRequest req = req identity
 
 request
   :: forall label
-    ->forall state action output m slots query input' output' slot a
-   . (HasType label (Slot query input' output' slot) slots, Functor m)
+    ->forall state action output m slots query output' slot a
+   . (HasType label (Slot query output' slot) slots, Functor m)
   => (KnownSymbol label)
   => (Ord slot)
   => slot
@@ -114,8 +114,8 @@ request slot label req = query slot label (req identity)
 
 requestAll
   :: forall label
-    ->forall state action output m slots query input' output' slot a
-   . (HasType label (Slot query input' output' slot) slots, Functor m)
+    ->forall state action output m slots query output' slot a
+   . (HasType label (Slot query output' slot) slots, Functor m)
   => (KnownSymbol label)
   => (Ord slot)
   => Request query a
