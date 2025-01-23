@@ -365,6 +365,13 @@ import Control.Exception as Exception
   , ioError
   , mapException
   )
+-- , Handler(Handler)
+
+-- , addMVarFinalizer
+
+-- Read instances hiding unsafe builtins (read)
+
+import Control.Exception.Safe (MonadMask (..))
 import Control.Monad.Except as Except
   ( Except
   , ExceptT (ExceptT)
@@ -397,8 +404,6 @@ import Control.Monad.ST as ST
   , fixST
   , runST
   )
--- , Handler(Handler)
-
 import Control.Monad.STM as STM
   ( STM
   , atomically
@@ -668,8 +673,6 @@ import Data.Word as Bits
   , byteSwap32
   , byteSwap64
   )
--- , addMVarFinalizer
-
 import Foreign.Ptr as Foreign (IntPtr, WordPtr)
 import Foreign.StablePtr as Foreign (StablePtr)
 import Foreign.Storable as Foreign (Storable)
@@ -715,8 +718,6 @@ import System.IO as System
   , stdout
   , withFile
   )
--- Read instances hiding unsafe builtins (read)
-
 import Text.Read as Read
   ( Read
   , reads
@@ -853,7 +854,6 @@ import UnliftIO.QSemN as Concurrency
   , signalQSemN
   , waitQSemN
   )
-import Control.Exception.Safe (MonadMask (..))
 
 -- Type synonymss for lazy texts
 type LText = Data.Text.Lazy.Text

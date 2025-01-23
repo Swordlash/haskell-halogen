@@ -7,6 +7,9 @@
 -- | z-indexing or overflow: hidden set.
 module Halogen.Portal where
 
+import Control.Monad.Fork
+import Control.Monad.Parallel
+import Control.Monad.UUID
 import Data.Functor.Coyoneda (Coyoneda (..), hoistCoyoneda)
 import Data.NT
 import Data.Row
@@ -19,9 +22,6 @@ import Halogen.Subscription qualified as HS
 import Halogen.VDom.DOM.Monad
 import Halogen.VDom.Driver as VDom
 import Web.DOM.Internal.Types
-import Control.Monad.Fork
-import Control.Monad.Parallel
-import Control.Monad.UUID
 
 data Input query input output m = Input
   { input :: input
@@ -131,7 +131,7 @@ component =
         -- document body. Either way, we'll run the sub-tree at the target and
         -- save the resulting interface.
         target <- maybe (lift awaitBody) pure state.targetElement
-        socket@H.HalogenSocket{messages = HS.Emitter k} <- lift $ VDom.runUI wrapper state target
+        socket@H.HalogenSocket {messages = HS.Emitter k} <- lift $ VDom.runUI wrapper state target
         -- Subscribe to the child component's messages
         void $ H.subscribe $ HS.Emitter $ \emit' ->
           fmap (HS.hoistSubscription (NT f)) $ f $ k $ liftIO . emit'

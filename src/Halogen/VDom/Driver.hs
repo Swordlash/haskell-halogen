@@ -70,13 +70,13 @@ mkSpec handler renderChildRef document =
 
     buildWidget
       :: V.VDomSpec
-          m
-          [Prop (Input action)]
-          (ComponentSlot slots m action)
+           m
+           [Prop (Input action)]
+           (ComponentSlot slots m action)
       -> V.Machine
-          m
-          (ComponentSlot slots m action)
-          DOM.Node
+           m
+           (ComponentSlot slots m action)
+           DOM.Node
     buildWidget spec = render
       where
         render :: V.Machine m (ComponentSlot slots m action) DOM.Node
