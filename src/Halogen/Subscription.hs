@@ -31,6 +31,10 @@ create = do
 newtype Emitter m a = Emitter {registerHandler :: (a -> m ()) -> m (Subscription m)}
   deriving (Functor)
 
+hoistEmitter :: (MonadUnliftIO m) => Emitter IO a -> Emitter m a
+hoistEmitter (Emitter g) = Emitter $ \k -> withRunInIO $ \runInIO ->
+  fmap (hoistSubscription $ NT liftIO) $ g $ runInIO . k
+
 instance (MonadIO m) => Applicative (Emitter m) where
   pure a = Emitter $ \k -> do
     k a
@@ -72,8 +76,8 @@ instance Contravariant (Listener m) where
 
 newtype Subscription m = Subscription {unsubscribe :: m ()}
 
-transSubscription :: (m ~> n) -> Subscription m -> Subscription n
-transSubscription (NT f) (Subscription unsub) = Subscription (f unsub)
+hoistSubscription :: (m ~> n) -> Subscription m -> Subscription n
+hoistSubscription (NT f) (Subscription unsub) = Subscription (f unsub)
 
 subscribe
   :: (Functor m)

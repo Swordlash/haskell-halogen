@@ -153,6 +153,7 @@ module HPrelude
   , MonadUnliftIO (..)
   , module Coercible
   , loopM
+  , MonadMask
   )
 where
 
@@ -852,6 +853,7 @@ import UnliftIO.QSemN as Concurrency
   , signalQSemN
   , waitQSemN
   )
+import Control.Exception.Safe (MonadMask (..))
 
 -- Type synonymss for lazy texts
 type LText = Data.Text.Lazy.Text

@@ -87,7 +87,7 @@ evalM render initRef (HalogenM hm) = foldF (go initRef) hm
                 pure a
       Subscribe fes k -> do
         sid <- fresh SubscriptionId ref
-        finalize <- fmap (HS.transSubscription (NT liftIO)) $ withRunInIO $ \runInIO -> HS.subscribe (fes sid) $ \act ->
+        finalize <- fmap (HS.hoistSubscription (NT liftIO)) $ withRunInIO $ \runInIO -> HS.subscribe (fes sid) $ \act ->
           runInIO $ evalF render ref (Input.Action act)
         DriverState {subscriptions} <- readIORef ref
         atomicModifyIORef'_ subscriptions (map (M.insert sid finalize))

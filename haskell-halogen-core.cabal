@@ -53,6 +53,7 @@ common commons
       CPP
       StrictData
       RequiredTypeArguments
+      ExplicitNamespaces
 
 library
     import: commons
@@ -107,6 +108,8 @@ library
       Halogen.Component
       Halogen.Component.Debounced
       Halogen.Subscription
+
+      Halogen.Portal
 
       Halogen.Svg.Attributes
       Halogen.Svg.Elements

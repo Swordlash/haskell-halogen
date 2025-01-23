@@ -13,6 +13,7 @@ It also includes code from the following peer libraries:
 - https://github.com/purescript-web/purescript-web-uievents
 - https://github.com/purescript-web/purescript-web-html
 - https://github.com/JordanMartinez/purescript-halogen-svg-elems
+- https://github.com/thomashoneyman/purescript-halogen-portal
 
 The modules are named mostly in the same way as in the original projects.
 
