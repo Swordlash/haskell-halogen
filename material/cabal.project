@@ -14,4 +14,4 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/Swordlash/haskell-halogen.git
-  tag: c7431c9de8b130455444757761e77ce38ae5b9be
+  tag: 0.8.0
