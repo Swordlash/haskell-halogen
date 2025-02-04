@@ -686,6 +686,7 @@ import GHC.Generics as Generics
   , FixityI (..)
   , Generic (..)
   , Generic1
+  , Generically (..)
   , K1 (..)
   , M1 (..)
   , Meta (..)

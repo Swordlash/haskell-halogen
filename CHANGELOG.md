@@ -1,5 +1,11 @@
 # Revision history for haskell-halogen
 
+## 0.8.0 - 2025-02-04
+
+- Add `Halogen.Portal` for teleporting children across DOM elements (i.e. to body)
+- Revert adding input to `Slot` type
+- Add Java Swing - inspired CSS layout managers 
+
 ## 0.7.0 -- 2025-01-18
 
 Remove dependency on `clock` which doesn't build on darwin
