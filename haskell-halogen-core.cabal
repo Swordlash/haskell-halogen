@@ -1,6 +1,6 @@
 cabal-version:      3.0
 name:               haskell-halogen-core
-version:            0.8.0
+version:            0.9.0
 synopsis:           Haskell port of purescript-halogen library
 homepage:           https://github.com/Swordlash/haskell-halogen
 license:            Apache-2.0
@@ -17,8 +17,28 @@ flag trace-dom
 
 common commons
   build-depends:    
-      base, free, transformers, mtl, text, protolude, random, time, bytestring, stm, deepseq, unordered-containers, async,
-      row-types, hashable, containers, kan-extensions, uuid-types, unliftio, safe-exceptions, clay, data-default
+      base >= 4.20, 
+      free, 
+      transformers, 
+      mtl, 
+      text, 
+      protolude, 
+      random, 
+      time, 
+      bytestring, 
+      stm, 
+      deepseq, 
+      unordered-containers, 
+      async,
+      row-types, 
+      hashable, 
+      containers, 
+      kan-extensions, 
+      uuid-types, 
+      unliftio, 
+      safe-exceptions, 
+      clay >= 0.16.0, 
+      data-default
   
   default-language: GHC2021
   ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture
@@ -160,8 +180,8 @@ library
 
       ghc-options: -fexpose-all-unfoldings
       
-      if flag(trace-dom)
-        js-options: -optJSP-DHALOGEN_TRACE_DOM
+--      if flag(trace-dom)
+--        jspp-options: -DHALOGEN_TRACE_DOM
 
 executable halogen-core-prototype
   import: commons

@@ -56,8 +56,8 @@ instance Layout GridBagLayout where
       $ \(GridBagLayoutConstraints {..}, html) ->
         HH.div
           [ HP.style $ do
-              C.gridRow $ gridx C.// C.span_ gridwidth
-              C.gridColumn $ gridy C.// C.span_ gridheight
+              C.gridRow $ toInteger gridx C.// C.span_ (toInteger gridwidth)
+              C.gridColumn $ toInteger gridy C.// C.span_ (toInteger gridheight)
           ]
           [html]
 

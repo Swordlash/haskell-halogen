@@ -1,5 +1,11 @@
 # Revision history for haskell-halogen
 
+## 0.9.0 - 2025-05-30
+
+- Update `clay`
+- Insert `base` and `clay` version bounds
+- Release version
+
 ## 0.8.0 - 2025-02-04
 
 - Add `Halogen.Portal` for teleporting children across DOM elements (i.e. to body)
