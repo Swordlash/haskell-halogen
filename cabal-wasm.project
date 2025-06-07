@@ -1,0 +1,7 @@
+packages: .
+
+package *
+  ghc-options: -O2 -fexpose-all-unfoldings -fspecialise-aggressively
+
+with-compiler: wasm32-wasi-ghc-9.12
+with-hc-pkg: wasm32-wasi-ghc-pkg-9.12

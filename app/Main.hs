@@ -22,20 +22,20 @@ import Halogen.VDom.DOM.Monad
 import Protolude hiding (log)
 import UnliftIO (MonadUnliftIO)
 
-#if defined(javascript_HOST_ARCH)
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 import Halogen.IO.Util as HA
 import Halogen.VDom.Driver (runUI)
 #endif
 
 attachComponent :: IO (HalogenSocket Query Int IO)
-logStr :: Text -> IO ()
+logStr          :: Text -> IO ()
 
-#if defined(javascript_HOST_ARCH)
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 attachComponent =
   HA.awaitBody >>= runUI component ()
 logStr = log
 #else
-attachComponent = panic "This module can only be run on JavaScript"
+attachComponent = panic "This module can only be run on JavaScript or WASM"
 logStr = putStrLn
 #endif
 

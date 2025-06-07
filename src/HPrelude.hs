@@ -154,6 +154,8 @@ module HPrelude
   , module Coercible
   , loopM
   , MonadMask
+
+  , unsafeCoerce
   )
 where
 
@@ -855,6 +857,8 @@ import UnliftIO.QSemN as Concurrency
   , signalQSemN
   , waitQSemN
   )
+
+import Unsafe.Coerce
 
 -- Type synonymss for lazy texts
 type LText = Data.Text.Lazy.Text
