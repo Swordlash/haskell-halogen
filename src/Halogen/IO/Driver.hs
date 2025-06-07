@@ -21,7 +21,6 @@ import Halogen.Query.HalogenQ qualified as HQ
 import Halogen.Query.Input
 import Halogen.Query.Input qualified as Input
 import Halogen.Subscription qualified as HS
-import Unsafe.Coerce (unsafeCoerce)
 
 data HalogenSocket query output m = HalogenSocket
   { query :: forall a. query a -> m (Maybe a)

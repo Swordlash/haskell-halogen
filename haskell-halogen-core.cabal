@@ -78,6 +78,15 @@ common commons
 library
     import: commons
 
+    other-modules:
+      Data.Foreign.JS
+      Data.Foreign.WASM
+      Data.Foreign.Stub
+
+      Halogen.VDom.DOM.Monad.Common
+      Halogen.VDom.DOM.Monad.JS
+      Halogen.VDom.DOM.Monad.WASM
+
     exposed-modules:
       Clay.Extra.Grid
 
@@ -174,7 +183,10 @@ library
     
     hs-source-dirs:   src
 
-    if arch(javascript)
+    if arch(wasm32)
+      build-depends: ghc-experimental
+
+    if arch(javascript) || arch(wasm32)
       js-sources:
         jsbits/monad_dom.js
 
@@ -188,6 +200,9 @@ executable halogen-core-prototype
   main-is:          Main.hs
   build-depends:    haskell-halogen-core
   hs-source-dirs:   app
+
+  if arch(wasm32)
+    ghc-options: -no-hs-main -optl-mexec-model=reactor -optl-Wl,--export=start
 
 test-suite Halogen-core-test
     import: commons

@@ -1,8 +1,5 @@
 packages: .
 
-allow-newer:
-  *:base, *:template-haskell, protolude:ghc-prim
-
 package *
   ghc-options: -O2 -fexpose-all-unfoldings -fspecialise-aggressively
 

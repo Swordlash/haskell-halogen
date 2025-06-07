@@ -4,7 +4,6 @@ module Web.DOM.Internal.Types where
 
 import Data.Foreign (Foreign)
 import HPrelude
-import Unsafe.Coerce (unsafeCoerce)
 
 #if defined(javascript_HOST_ARCH)
 import GHC.JS.Prim

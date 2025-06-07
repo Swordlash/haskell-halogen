@@ -7,7 +7,6 @@ import Data.Foreign
 import HPrelude hiding (state)
 import Halogen.VDom qualified as V
 import Halogen.VDom.DOM.Monad
-import Unsafe.Coerce
 import Web.DOM.Internal.Types
 
 newtype ThunkId = ThunkId (Foreign ThunkId)
