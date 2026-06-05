@@ -97,48 +97,72 @@ runUI RenderSpec {..} c i = do
     render' lchs var =
       readIORef var >>= \ds -> do
         shouldProcessHandlers <- isNothing <$> readIORef ds.pendingHandlers
-        when shouldProcessHandlers $ atomicWriteIORef ds.pendingHandlers (Just [])
-        atomicWriteIORef ds.childrenOut Slot.empty
-        atomicWriteIORef ds.childrenIn ds.children
+        if not shouldProcessHandlers
+          then
+            -- WARN: This implementation diverges from PureScript's.
+            -- Re-entrancy guard. A render is already in progress on THIS
+            -- DriverState (pendingHandlers is non-empty). Under the GHC-JS
+            -- cooperative scheduler the in-progress render yields at the reuse
+            -- path's `evalM (Receive)` below, letting a state-change- or
+            -- fork-triggered re-render re-enter here. Running the render body
+            -- now would walk the VDom against a half-consumed slot set and
+            -- re-mint still-live children (re-creating their DOM + restarting
+            -- their timers). Instead just flag the in-progress render to run
+            -- another pass: it re-reads the latest state, so the requested
+            -- render is never lost. PureScript's Aff driver never preempts
+            -- mid-render and so needs no such guard; the GHC-JS scheduler does.
+            atomicWriteIORef ds.renderDirty True
+          else do
+            -- Render passes repeat until no re-entrant render was requested.
+            -- Each pass holds the pendingHandlers lock (Just …) across the
+            -- whole walk + handler drain, so any re-entrant render observes the
+            -- lock and only sets renderDirty rather than corrupting this walk.
+            let renderPass = do
+                  atomicWriteIORef ds.pendingHandlers (Just [])
+                  atomicWriteIORef ds.renderDirty False
+                  -- Re-read for the latest state / children / rendering each pass.
+                  cur <- readIORef var
+                  -- Per-render scratch storage, local to this pass; never shared
+                  -- DriverState fields (a re-entrant pass would clobber them).
+                  childrenInRef <- newIORef cur.children
+                  childrenOutRef <- newIORef Slot.empty
 
-        let -- The following 3 defs are working around a capture bug, see #586
-            -- pendingHandlers = identity ds.pendingHandlers
-            -- pendingQueries = identity ds.pendingQueries
-            -- selfRef = identity ds.selfRef
+                  let handler :: Input act -> m ()
+                      handler = Eval.queueOrRun ds.pendingHandlers . void . Eval.evalF render' ds.selfRef
 
-            handler :: Input act -> m ()
-            handler = Eval.queueOrRun ds.pendingHandlers . void . Eval.evalF render' ds.selfRef
+                      childHandler :: act -> m ()
+                      childHandler = Eval.queueOrRun ds.pendingQueries . handler . Input.Action
 
-            childHandler :: act -> m ()
-            childHandler = Eval.queueOrRun ds.pendingQueries . handler . Input.Action
+                  rendering <-
+                    render
+                      handler
+                      (renderChild' lchs childHandler childrenInRef childrenOutRef)
+                      (cur.component.render cur.state)
+                      cur.rendering
 
-        rendering <-
-          render
-            handler
-            (renderChild' lchs childHandler ds.childrenIn ds.childrenOut)
-            (ds.component.render ds.state)
-            ds.rendering
+                  children <- readIORef childrenOutRef
+                  childrenIn <- readIORef childrenInRef
 
-        children <- readIORef ds.childrenOut
-        childrenIn <- readIORef ds.childrenIn
+                  Slot.foreachSlot childrenIn $ \(DriverStateRef childVar) -> do
+                    childDS <- DriverStateX <$> readIORef childVar
+                    renderStateX_ removeChild childDS
+                    finalize lchs childDS
 
-        Slot.foreachSlot childrenIn $ \(DriverStateRef childVar) -> do
-          childDS <- DriverStateX <$> readIORef childVar
-          renderStateX_ removeChild childDS
-          finalize lchs childDS
+                  atomicModifyIORef'_ ds.selfRef $ \ds' ->
+                    ds' {rendering = Just rendering, children = children}
 
-        atomicModifyIORef'_ ds.selfRef $ \ds' ->
-          ds' {rendering = Just rendering, children = children}
+                  flip loopM () $ \_ -> do
+                    handlers <- readIORef ds.pendingHandlers
+                    atomicWriteIORef ds.pendingHandlers (Just [])
+                    traverse_ (traverse_ fork . reverse) handlers
+                    mmore <- readIORef ds.pendingHandlers
+                    if maybe False null mmore
+                      then atomicWriteIORef ds.pendingHandlers Nothing $> Right ()
+                      else pure $ Left ()
 
-        when shouldProcessHandlers $ do
-          flip loopM () $ \_ -> do
-            handlers <- readIORef ds.pendingHandlers
-            atomicWriteIORef ds.pendingHandlers (Just [])
-            traverse_ (traverse_ fork . reverse) handlers
-            mmore <- readIORef ds.pendingHandlers
-            if maybe False null mmore
-              then atomicWriteIORef ds.pendingHandlers Nothing $> Right ()
-              else pure $ Left ()
+                  dirty <- readIORef ds.renderDirty
+                  when dirty renderPass
+            renderPass
 
     renderChild'
       :: forall ps act
