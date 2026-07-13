@@ -3,7 +3,8 @@ module Halogen.Svg.Attributes
   , Color
   , FontSize
   , Transformation
-  ) where
+  )
+where
 
 import Clay hiding (Baseline, attr, map, max, transform)
 import Data.Coerce
@@ -86,18 +87,26 @@ l pos x_ y_ =
 -- | @Q@ \/ @q@ (quadratic Bézier with control point @cx@, @cy@).
 q
   :: CommandPositionReference
-  -> Double  -- ^ control point x
-  -> Double  -- ^ control point y
-  -> Double  -- ^ end point x
-  -> Double  -- ^ end point y
+  -> Double
+  -- ^ control point x
+  -> Double
+  -- ^ control point y
+  -> Double
+  -- ^ end point x
+  -> Double
+  -- ^ end point y
   -> PathCommand
 q pos cx_ cy_ x_ y_ =
   PathCommand
     ( posCase pos "Q"
-        <> " " <> show cx_
-        <> " " <> show cy_
-        <> " " <> show x_
-        <> " " <> show y_
+        <> " "
+        <> show cx_
+        <> " "
+        <> show cy_
+        <> " "
+        <> show x_
+        <> " "
+        <> show y_
     )
 
 -- | @Z@ (close-path). No relative form — SVG treats @z@ and @Z@
@@ -457,18 +466,18 @@ textAnchor = attr (H.AttrName "text-anchor") . printTextAnchor
 -- consumers can't build their own values, and Clay's @rotate@ doesn't
 -- take a centre-of-rotation pair the way SVG's @rotate(angle x y)@ does.
 data Transform
-  = Rotate Double Double Double
-    -- ^ @rotate(angle x y)@ — angle in degrees, rotation centre @(x, y)@
-  | Translate Double Double
-    -- ^ @translate(tx ty)@
-  | Scale Double Double
-    -- ^ @scale(sx sy)@
-  | SkewX Double
-    -- ^ @skewX(angle)@ — angle in degrees
-  | SkewY Double
-    -- ^ @skewY(angle)@ — angle in degrees
-  | Matrix Double Double Double Double Double Double
-    -- ^ @matrix(a b c d e f)@
+  = -- | @rotate(angle x y)@ — angle in degrees, rotation centre @(x, y)@
+    Rotate Double Double Double
+  | -- | @translate(tx ty)@
+    Translate Double Double
+  | -- | @scale(sx sy)@
+    Scale Double Double
+  | -- | @skewX(angle)@ — angle in degrees
+    SkewX Double
+  | -- | @skewY(angle)@ — angle in degrees
+    SkewY Double
+  | -- | @matrix(a b c d e f)@
+    Matrix Double Double Double Double Double Double
   deriving (Eq, Show)
 
 printTransform :: Transform -> Text

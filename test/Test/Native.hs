@@ -28,8 +28,8 @@ module Test.Native (nativeSpec) where
 
 import Data.Row (type (.==))
 import Data.Text (Text)
-import qualified Halogen.HTML.Core as HC
 import Halogen.HTML.Core (AttrName (..))
+import Halogen.HTML.Core qualified as HC
 import Halogen.HTML.Properties (IProp (..))
 import Halogen.Svg.Attributes
   ( Color
@@ -40,8 +40,8 @@ import Halogen.Svg.Attributes
   , Transformation
   , printTransform
   )
-import qualified Halogen.Svg.Attributes as SA
-import qualified Halogen.Svg.Elements as SE
+import Halogen.Svg.Attributes qualified as SA
+import Halogen.Svg.Elements qualified as SE
 import Halogen.VDom.DOM.Prop (Prop (..))
 import Test.Hspec (Spec, describe, it, shouldBe)
 import Prelude
