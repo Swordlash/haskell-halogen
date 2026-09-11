@@ -15,31 +15,7 @@ flag trace-dom
   default: False
   manual: True
 
-common commons
-  build-depends:    
-      base >= 4.20, 
-      free, 
-      transformers, 
-      mtl, 
-      text, 
-      protolude, 
-      random, 
-      time, 
-      bytestring, 
-      stm, 
-      deepseq, 
-      unordered-containers, 
-      async,
-      row-types, 
-      hashable, 
-      containers, 
-      kan-extensions, 
-      uuid-types, 
-      unliftio, 
-      safe-exceptions, 
-      clay >= 0.16.0, 
-      data-default
-  
+common defaults
   default-language: GHC2021
   ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture
 
@@ -74,6 +50,32 @@ common commons
       StrictData
       RequiredTypeArguments
       ExplicitNamespaces
+
+common commons
+  import: defaults
+  build-depends:
+      base >= 4.20,
+      free,
+      transformers,
+      mtl,
+      text,
+      protolude,
+      random,
+      time,
+      bytestring,
+      stm,
+      deepseq,
+      unordered-containers,
+      async,
+      row-types,
+      hashable,
+      containers,
+      kan-extensions,
+      uuid-types,
+      unliftio,
+      safe-exceptions,
+      clay >= 0.16.0,
+      data-default
 
 library
     import: commons
@@ -190,8 +192,18 @@ executable halogen-core-prototype
   hs-source-dirs:   app
 
 test-suite Halogen-core-test
-    import: commons
+    import: defaults
     type:             exitcode-stdio-1.0
     hs-source-dirs:   test
     main-is:          Test.hs
-    build-depends:    protolude, haskell-halogen-core, hspec
+    build-depends:    base >= 4.20,
+                      haskell-halogen-core,
+                      mtl,
+                      row-types,
+                      transformers
+
+    if arch(javascript)
+      other-modules:  Test.DriverReentrancy
+                      Test.GHCJS
+    else
+      other-modules:  Test.DriverReentrancy

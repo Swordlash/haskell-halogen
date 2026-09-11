@@ -209,7 +209,7 @@ function js_crypto_random_uuid() {
 #ifdef HALOGEN_TRACE_DOM
   console.log("Generating random UUID");
 #endif
-  return window.crypto.randomUUID();
+  return globalThis.crypto.randomUUID();
 }
 
 function js_unsafe_ref_eq(a, b) {

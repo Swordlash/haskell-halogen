@@ -10,7 +10,7 @@ module Halogen.IO.Driver.Eval
 where
 
 import Control.Applicative.Free.Fast
-import Control.Exception.Safe (finally)
+import Control.Exception.Safe qualified as Safe
 import Control.Monad.Fork
 import Control.Monad.Free.Church (foldF)
 import Control.Monad.Parallel
@@ -112,7 +112,7 @@ evalM render initRef (HalogenM hm) = foldF (go initRef) hm
         doneRef <- newIORef False
         fiber <-
           fork
-            $ finally
+            $ Safe.finally
               ( do
                   atomicModifyIORef'_ forks (M.delete fid)
                   atomicWriteIORef doneRef True
@@ -158,13 +158,26 @@ unsubscribe sid ref = do
   traverse_ HS.unsubscribe (M.lookup sid =<< subs)
 
 {-# SPECIALIZE handleLifecycle :: IORef (LifecycleHandlers IO) -> IO a -> IO a #-}
-handleLifecycle :: (MonadIO m, MonadParallel m, MonadFork m) => IORef (LifecycleHandlers m) -> m a -> m a
-handleLifecycle lchs f = do
-  atomicWriteIORef lchs $ LifecycleHandlers {initializers = [], finalizers = []}
-  result <- f
-  LifecycleHandlers {initializers, finalizers} <- readIORef lchs
-  traverse_ fork finalizers
-  parSequence_ initializers
+handleLifecycle :: (MonadIO m, MonadParallel m, MonadFork m, MonadMask m) => IORef (LifecycleHandlers m) -> m a -> m a
+handleLifecycle lchs f = Safe.mask $ \restore -> do
+  atomicModifyIORef'_ lchs $ \handlers ->
+    if handlers.nesting == 0
+      then LifecycleHandlers {initializers = [], finalizers = [], nesting = 1}
+      else handlers {nesting = handlers.nesting + 1}
+
+  let leave keepHandlers = atomicModifyIORef' lchs $ \handlers ->
+        if handlers.nesting == 1
+          then
+            ( LifecycleHandlers {initializers = [], finalizers = [], nesting = 0}
+            , if keepHandlers then Just handlers else Nothing
+            )
+          else (handlers {nesting = handlers.nesting - 1}, Nothing)
+
+  result <- restore f `Safe.onException` void (leave False)
+  ready <- leave True
+  restore $ for_ ready $ \LifecycleHandlers {initializers, finalizers} -> do
+    traverse_ fork finalizers
+    parSequence_ initializers
   pure result
 
 {-# SPECIALIZE fresh :: (Int -> a) -> IORef (DriverState IO r s f act ps i o) -> IO a #-}
