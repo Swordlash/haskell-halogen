@@ -1,34 +1,23 @@
-{-# LANGUAGE CPP #-}
+-- | Minimal JavaScript-backend test runner. Keep this module and its Cabal
+-- component free of test-framework dependencies so their JavaScript stubs are
+-- not required at runtime.
+module Test.GHCJS (test) where
 
--- | JavaScript-backend-only tests. On any other architecture the spec is a
--- single pending item so the suite still builds and runs natively.
-module Test.GHCJS (spec) where
-
-import Prelude
-
-import Test.Hspec
-
-#if defined(javascript_HOST_ARCH)
-
+import Control.Exception (AssertionFailed (..), throwIO)
 import Data.Foreign (Foreign, foreignToBool)
+import Prelude
 
 foreign import javascript unsafe "(() => { return true; })" js_true :: Foreign Bool
 
 foreign import javascript unsafe "(() => { return false; })" js_false :: Foreign Bool
 
-spec :: Spec
-spec = describe "Data.Foreign (GHC-JS)" $ do
-  it "converts true to true" $
-    foreignToBool js_true `shouldBe` True
-  it "converts false to false" $
-    foreignToBool js_false `shouldBe` False
+assertWith :: String -> Bool -> IO ()
+assertWith message condition =
+  if condition
+    then pure ()
+    else throwIO (AssertionFailed message)
 
-#else
-
-spec :: Spec
-spec =
-  describe "GHC-JS" $
-    it "JavaScript-backend tests" $
-      pendingWith "requires the JavaScript backend (arch javascript)"
-
-#endif
+test :: IO ()
+test = do
+  assertWith "foreignToBool should convert true to True" (foreignToBool js_true)
+  assertWith "foreignToBool should convert false to False" (not (foreignToBool js_false))

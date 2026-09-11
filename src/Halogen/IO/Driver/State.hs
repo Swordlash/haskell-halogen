@@ -26,6 +26,7 @@ import Web.DOM.Element (Element)
 data LifecycleHandlers m = LifecycleHandlers
   { initializers :: [m ()]
   , finalizers :: [m ()]
+  , nesting :: Int
   }
 
 data DriverState m r s f act ps i o = DriverState
@@ -33,11 +34,11 @@ data DriverState m r s f act ps i o = DriverState
   , state :: s
   , refs :: Map Text Element
   , children :: SlotStorage ps (DriverStateRef m r)
-  , -- | Set when a re-render is requested while one is already in flight on
-    -- this DriverState; the in-flight render re-runs its body once it finishes.
-    -- Guards against mid-render re-entrancy under a cooperative scheduler
-    -- (see 'render'' in "Halogen.IO.Driver").
-    renderDirty :: IORef Bool
+  , renderDirty :: IORef Bool
+  -- ^ Set when a re-render is requested while one is already in flight on
+  -- this DriverState; the in-flight render re-runs its body once it finishes.
+  -- Guards against mid-render re-entrancy under a cooperative scheduler
+  -- (see 'render'' in "Halogen.IO.Driver").
   , selfRef :: IORef (DriverState m r s f act ps i o)
   , handlerRef :: IORef (o -> m ())
   , pendingQueries :: IORef (Maybe [m ()])

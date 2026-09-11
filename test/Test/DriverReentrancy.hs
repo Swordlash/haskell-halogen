@@ -11,13 +11,15 @@
 -- @renderChild@ per slot, and uses an MVar handshake inside a child's @Receive@
 -- to park the outer render exactly while a second render is forced to run.
 --
--- Correct behaviour: both live children are reused on every re-render, so each
--- child is mounted exactly once and never finalized. The buggy driver mints a
--- fresh second child (initCount == 3).
-module Test.Native (spec) where
+-- Correct behaviour: existing children are reused, a newly added child is
+-- initialized exactly once, and no live child is finalized. The buggy driver
+-- re-mints a live child; a re-entrancy guard that does not protect lifecycle
+-- batching loses the new child's initializer instead.
+module Test.DriverReentrancy (test) where
 
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
+import Control.Exception (AssertionFailed (..), throwIO)
 import Control.Monad (void, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.State.Class (modify)
@@ -26,8 +28,6 @@ import Data.IORef
 import Data.Kind (Type)
 import Data.Row (Empty, Row, type (.==))
 import Data.Void (Void)
-import Prelude
-
 import Halogen as H
 import Halogen.Component (ComponentSlot (..))
 import Halogen.HTML qualified as HH
@@ -37,8 +37,7 @@ import Halogen.IO.Driver.State (RenderStateX (..))
 import Halogen.Query.Input (Input)
 import Halogen.Subscription qualified as HS
 import Halogen.VDom.Types (VDom (..), runGraft)
-
-import Test.Hspec
+import Prelude
 
 ----------------------------------------------------------------------
 -- Headless RenderSpec: no DOM, just walks the VDom and renders slots.
@@ -145,10 +144,11 @@ parentComponent env emitter =
   where
     renderParent :: Int -> H.ComponentHTML ParentAction PSlots IO
     renderParent tick =
-      HH.div_
-        [ HH.slot_ "child" (0 :: Int) (mkChild env 0) tick
-        , HH.slot_ "child" (1 :: Int) (mkChild env 1) tick
-        ]
+      HH.div_ $
+        (if tick > 0 then [HH.slot_ "child" (2 :: Int) (mkChild env 2) tick] else [])
+          <> [ HH.slot_ "child" (0 :: Int) (mkChild env 0) tick
+             , HH.slot_ "child" (1 :: Int) (mkChild env 1) tick
+             ]
 
     handleParent = \case
       PInit -> void $ H.subscribe emitter
@@ -159,41 +159,49 @@ parentComponent env emitter =
 -- Spec.
 ----------------------------------------------------------------------
 
-spec :: Spec
-spec = describe "Halogen.IO.Driver render' re-entrancy" $
-  it "reuses live children when render' is re-entered mid-render (no slot accumulation / timer restart)" $ do
-    initCount <- newIORef (0 :: Int)
-    finalizeCount <- newIORef (0 :: Int)
-    armed <- newIORef True
-    inReceive <- newEmptyMVar
-    gate <- newEmptyMVar
-    ctrl <- HS.create :: IO (HS.Subscribe IO ParentAction)
+assertEqual :: (Eq a, Show a) => String -> a -> a -> IO ()
+assertEqual message expected actual =
+  when (actual /= expected)
+    $ throwIO
+    $ AssertionFailed
+    $ message <> ": expected " <> show expected <> ", got " <> show actual
 
-    -- The first child's first Receive parks the in-flight render here.
-    let hook cid =
-          when (cid == 0) $ do
-            go <- atomicModifyIORef' armed (False,)
-            when go $ do
-              putMVar inReceive ()
-              takeMVar gate
-        env = ChildEnv initCount finalizeCount hook
+test :: IO ()
+test = do
+  initCount <- newIORef (0 :: Int)
+  finalizeCount <- newIORef (0 :: Int)
+  armed <- newIORef True
+  inReceive <- newEmptyMVar
+  gate <- newEmptyMVar
+  ctrl <- HS.create :: IO (HS.Subscribe IO ParentAction)
 
-    socket <- AD.runUI testRenderSpec (parentComponent env ctrl.emitter) ()
+  -- The first child's first Receive parks the in-flight render here.
+  let hook cid =
+        when (cid == 0) $ do
+          go <- atomicModifyIORef' armed (False,)
+          when go $ do
+            putMVar inReceive ()
+            takeMVar gate
+      env = ChildEnv initCount finalizeCount hook
 
-    -- Initial render mounts both children exactly once.
-    readIORef initCount `shouldReturn` 2
+  socket <- AD.runUI testRenderSpec (parentComponent env ctrl.emitter) ()
 
-    -- While the bump-render is parked in child 0's Receive, re-enter render'
-    -- on the parent from another thread (a fork/subscription-driven re-render).
-    _ <- forkIO $ do
-      takeMVar inReceive
-      HS.notify ctrl.listener Reenter
-      putMVar gate ()
+  -- Initial render mounts both children exactly once.
+  assertEqual "initial child count" 2 =<< readIORef initCount
 
-    -- Trigger the re-render that walks the reuse path; blocks until released.
-    HS.notify ctrl.listener Bump
+  -- While the bump-render is parked in child 0's Receive, re-enter render'
+  -- on the parent from another thread (a fork/subscription-driven re-render).
+  _ <- forkIO $ do
+    takeMVar inReceive
+    HS.notify ctrl.listener Reenter
+    putMVar gate ()
 
-    readIORef initCount `shouldReturn` 2 -- no child was re-minted
-    readIORef finalizeCount `shouldReturn` 0 -- no live child was finalized
+  -- Trigger the re-render that walks the reuse path; blocks until released.
+  HS.notify ctrl.listener Bump
 
-    socket.dispose
+  -- The Bump render mounts child 2 before blocking in child 0's Receive.
+  -- Its initializer must survive the nested handleLifecycle/render call.
+  assertEqual "child count after re-entrant render" 3 =<< readIORef initCount
+  assertEqual "finalized live child count" 0 =<< readIORef finalizeCount
+
+  socket.dispose

@@ -83,10 +83,10 @@ runUI RenderSpec {..} c i = do
     runComponent lchs handler j (Component cs) = do
       lchs' <- newLifecycleHandlers
       st <- initDriverState cs j handler lchs'
-      pre <- readIORef lchs
-      atomicWriteIORef lchs $ LifecycleHandlers {initializers = [], finalizers = pre.finalizers}
+      preInits <- atomicModifyIORef' lchs $ \handlers ->
+        (handlers {initializers = []}, handlers.initializers)
       render' lchs st.selfRef
-      squashChildInitializers lchs pre.initializers (DriverStateX st)
+      squashChildInitializers lchs preInits (DriverStateX st)
       pure $ DriverStateRef st.selfRef
 
     render'
@@ -248,7 +248,7 @@ runUI RenderSpec {..} c i = do
 
 {-# INLINE newLifecycleHandlers #-}
 newLifecycleHandlers :: (MonadIO m) => m (IORef (LifecycleHandlers m))
-newLifecycleHandlers = newIORef $ LifecycleHandlers {initializers = [], finalizers = []}
+newLifecycleHandlers = newIORef $ LifecycleHandlers {initializers = [], finalizers = [], nesting = 0}
 
 {-# SPECIALIZE handlePending :: IORef (Maybe [IO ()]) -> IO () #-}
 handlePending :: (MonadIO m, MonadFork m) => IORef (Maybe [m ()]) -> m ()

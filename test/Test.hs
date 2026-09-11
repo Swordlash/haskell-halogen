@@ -1,13 +1,17 @@
+{-# LANGUAGE CPP #-}
+
 module Main (main) where
 
 import Prelude
 
-import Test.Hspec
-
+#if defined(javascript_HOST_ARCH)
 import Test.GHCJS qualified as GHCJS
-import Test.Native qualified as Native
+#endif
+import Test.DriverReentrancy qualified as DriverReentrancy
 
 main :: IO ()
-main = hspec $ do
-  Native.spec
-  GHCJS.spec
+main = do
+#if defined(javascript_HOST_ARCH)
+  GHCJS.test
+#endif
+  DriverReentrancy.test
