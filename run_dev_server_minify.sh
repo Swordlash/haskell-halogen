@@ -5,8 +5,9 @@ set -ex
 sh run_fourmolu.sh
 
 cabal build -fforce-recomp --project-file=cabal-ghcjs.project all
-export EXE=$(cabal exec -v0 --project-file=cabal-ghcjs.project -- which halogen-core-prototype)".jsexe"
-export IN1=$EXE"/all.js"
+export IN1="$(find dist-newstyle/build/javascript-ghcjs/ghc-9.12.2 -type f -path '*/halogen-core-prototype.jsexe/all.js' -print -quit)"
+test -n "$IN1"
+export EXE="${IN1%/all.js}"
 export IN2=$EXE"/all.externs.js"
 export OUT1=$EXE"/all.min.js"
 
