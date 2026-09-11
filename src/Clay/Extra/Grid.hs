@@ -5,7 +5,6 @@
 
 module Clay.Extra.Grid
   ( module Clay.Grid
-
     -- $gridIntro
   , gridTemplateAreas
   , gridTemplateRows

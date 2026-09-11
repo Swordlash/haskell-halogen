@@ -35,10 +35,10 @@ newtype SlotStorage slots slot = SlotStorage (Set (SlotElem slots slot))
 
 lookup
   :: forall symb
-    ->( HasType symb (Slot query output s) slots'
-      , KnownSymbol symb
-      , Ord s
-      )
+  ->( HasType symb (Slot query output s) slots'
+    , KnownSymbol symb
+    , Ord s
+    )
   => s
   -> SlotStorage slots' slot
   -> Maybe (slot query output)
@@ -53,10 +53,10 @@ empty = SlotStorage S.empty
 
 pop
   :: forall symb
-    ->( HasType symb (Slot query output s) slots'
-      , KnownSymbol symb
-      , Ord s
-      )
+  ->( HasType symb (Slot query output s) slots'
+    , KnownSymbol symb
+    , Ord s
+    )
   => s
   -> SlotStorage slots' slot
   -> Maybe (slot query output, SlotStorage slots' slot)
@@ -66,10 +66,10 @@ pop symb key stor@(SlotStorage s) = do
 
 insert
   :: forall symb
-    ->( HasType symb (Slot query output s) slots'
-      , KnownSymbol symb
-      , Ord s
-      )
+  ->( HasType symb (Slot query output s) slots'
+    , KnownSymbol symb
+    , Ord s
+    )
   => s
   -> slot query output
   -> SlotStorage slots' slot
@@ -78,10 +78,10 @@ insert symb key slot = coerce (S.insert (SlotElem (Proxy @symb) key slot))
 
 slots
   :: forall symb
-    ->( HasType symb (Slot query output s) slots'
-      , KnownSymbol symb
-      , Ord s
-      )
+  ->( HasType symb (Slot query output s) slots'
+    , KnownSymbol symb
+    , Ord s
+    )
   => SlotStorage slots' slot
   -> Map s (slot query output)
 slots symb (SlotStorage s) =

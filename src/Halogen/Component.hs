@@ -59,7 +59,7 @@ mkComponent = Component
 -- | - a function mapping outputs from the component to a query in the parent
 componentSlot
   :: forall label
-    ->forall query input output slots m action slot
+  ->forall query input output slots m action slot
    . (HasType label (Slot query output slot) slots)
   => (KnownSymbol label)
   => (Ord slot)

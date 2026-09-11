@@ -38,7 +38,7 @@ data State query input output m = State
 
 portal
   :: forall label
-    ->forall query action input output slots slot m
+  ->forall query action input output slots slot m
    . ( HasType label (H.Slot query output slot) slots
      , MonadUnliftIO m
      , MonadDOM m
