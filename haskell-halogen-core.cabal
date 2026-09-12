@@ -200,10 +200,15 @@ test-suite Halogen-core-test
                       haskell-halogen-core,
                       mtl,
                       row-types,
+                      text,
                       transformers
 
     if arch(javascript)
       other-modules:  Test.DriverReentrancy
                       Test.GHCJS
+                      Test.SvgAttributes
+                      Test.Utils
     else
       other-modules:  Test.DriverReentrancy
+                      Test.SvgAttributes
+                      Test.Utils
