@@ -19,7 +19,6 @@ module Test.DriverReentrancy (test) where
 
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
-import Control.Exception (AssertionFailed (..), throwIO)
 import Control.Monad (void, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.State.Class (modify)
@@ -38,6 +37,7 @@ import Halogen.Query.Input (Input)
 import Halogen.Subscription qualified as HS
 import Halogen.VDom.Types (VDom (..), runGraft)
 import Prelude
+import Test.Utils (assertEqual)
 
 ----------------------------------------------------------------------
 -- Headless RenderSpec: no DOM, just walks the VDom and renders slots.
@@ -158,13 +158,6 @@ parentComponent env emitter =
 ----------------------------------------------------------------------
 -- Spec.
 ----------------------------------------------------------------------
-
-assertEqual :: (Eq a, Show a) => String -> a -> a -> IO ()
-assertEqual message expected actual =
-  when (actual /= expected)
-    $ throwIO
-    $ AssertionFailed
-    $ message <> ": expected " <> show expected <> ", got " <> show actual
 
 test :: IO ()
 test = do

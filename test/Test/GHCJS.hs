@@ -3,19 +3,13 @@
 -- not required at runtime.
 module Test.GHCJS (test) where
 
-import Control.Exception (AssertionFailed (..), throwIO)
 import Data.Foreign (Foreign, foreignToBool)
 import Prelude
+import Test.Utils (assertWith)
 
 foreign import javascript unsafe "(() => { return true; })" js_true :: Foreign Bool
 
 foreign import javascript unsafe "(() => { return false; })" js_false :: Foreign Bool
-
-assertWith :: String -> Bool -> IO ()
-assertWith message condition =
-  if condition
-    then pure ()
-    else throwIO (AssertionFailed message)
 
 test :: IO ()
 test = do

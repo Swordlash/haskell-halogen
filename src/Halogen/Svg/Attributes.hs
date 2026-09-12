@@ -1,6 +1,12 @@
-module Halogen.Svg.Attributes (module Halogen.Svg.Attributes) where
+module Halogen.Svg.Attributes
+  ( module Halogen.Svg.Attributes
+  , Color
+  , FontSize
+  , Transformation
+  )
+where
 
-import Clay hiding (Baseline, attr, map, max)
+import Clay hiding (Baseline, attr, map, max, transform)
 import Data.Coerce
 import Data.Row
 import Data.Text qualified as T
@@ -56,6 +62,153 @@ newtype PathCommand = PathCommand Text
 
 instance Show PathCommand where
   show (PathCommand txt) = toS txt
+
+data CommandPositionReference = Abs | Rel
+  deriving (Eq, Show)
+
+-- | @Arc0@ selects the small arc; @Arc1@ selects the large arc.
+data CommandArcChoice = Arc0 | Arc1
+  deriving (Eq, Show)
+
+-- | @Sweep0@ draws counter-clockwise; @Sweep1@ draws clockwise.
+data CommandSweepChoice = Sweep0 | Sweep1
+  deriving (Eq, Show)
+
+toArrayString :: [PathCommand] -> [Text]
+toArrayString = coerce
+
+renderCommand :: CommandPositionReference -> Text -> Text
+renderCommand Rel commandName = commandName
+renderCommand Abs commandName = T.toUpper commandName
+
+renderCommand1Arg :: Text -> CommandPositionReference -> Double -> PathCommand
+renderCommand1Arg commandName reference a_ =
+  PathCommand $ renderCommand reference commandName <> show a_
+
+renderCommand2Args :: Text -> CommandPositionReference -> Double -> Double -> PathCommand
+renderCommand2Args commandName reference a_ b_ =
+  PathCommand $ renderCommand reference commandName <> show a_ <> ", " <> show b_
+
+renderCommand4Args
+  :: Text
+  -> CommandPositionReference
+  -> Double
+  -> Double
+  -> Double
+  -> Double
+  -> PathCommand
+renderCommand4Args commandName reference a_ b_ c_ d_ =
+  PathCommand $
+    renderCommand reference commandName
+      <> show a_
+      <> ", "
+      <> show b_
+      <> ", "
+      <> show c_
+      <> ", "
+      <> show d_
+
+m :: CommandPositionReference -> Double -> Double -> PathCommand
+m = renderCommand2Args "m"
+
+l :: CommandPositionReference -> Double -> Double -> PathCommand
+l = renderCommand2Args "l"
+
+h :: CommandPositionReference -> Double -> PathCommand
+h = renderCommand1Arg "h"
+
+v :: CommandPositionReference -> Double -> PathCommand
+v = renderCommand1Arg "v"
+
+c
+  :: CommandPositionReference
+  -> Double
+  -> Double
+  -> Double
+  -> Double
+  -> Double
+  -> Double
+  -> PathCommand
+c reference x1_ y1_ x2_ y2_ x_ y_ =
+  PathCommand $
+    renderCommand reference "c"
+      <> show x1_
+      <> ","
+      <> show y1_
+      <> " "
+      <> show x2_
+      <> ","
+      <> show y2_
+      <> " "
+      <> show x_
+      <> ","
+      <> show y_
+
+s :: CommandPositionReference -> Double -> Double -> Double -> Double -> PathCommand
+s = renderCommand4Args "s"
+
+q :: CommandPositionReference -> Double -> Double -> Double -> Double -> PathCommand
+q = renderCommand4Args "q"
+
+t :: CommandPositionReference -> Double -> Double -> PathCommand
+t = renderCommand2Args "t"
+
+a
+  :: CommandPositionReference
+  -> Double
+  -> Double
+  -> Double
+  -> CommandArcChoice
+  -> CommandSweepChoice
+  -> Double
+  -> Double
+  -> PathCommand
+a reference rx_ ry_ rotation arc sweep x_ y_ =
+  PathCommand $
+    renderCommand reference "a"
+      <> show rx_
+      <> ", "
+      <> show ry_
+      <> ", "
+      <> show rotation
+      <> " "
+      <> printArcChoice arc
+      <> " "
+      <> printSweepChoice sweep
+      <> " "
+      <> show x_
+      <> " "
+      <> show y_
+  where
+    printArcChoice Arc0 = "0"
+    printArcChoice Arc1 = "1"
+    printSweepChoice Sweep0 = "0"
+    printSweepChoice Sweep1 = "1"
+
+z :: PathCommand
+z = PathCommand "z"
+
+--------------------------------------------------------------------------------
+
+data Transform
+  = Matrix Double Double Double Double Double Double
+  | Translate Double Double
+  | Scale Double Double
+  | Rotate Double Double Double
+  | SkewX Double
+  | SkewY Double
+  deriving (Eq, Show)
+
+printTransform :: Transform -> Text
+printTransform = \case
+  Matrix a_ b_ c_ d_ e_ f_ -> function "matrix" [a_, b_, c_, d_, e_, f_]
+  Translate x_ y_ -> function "translate" [x_, y_]
+  Scale x_ y_ -> function "scale" [x_, y_]
+  Rotate angle x_ y_ -> function "rotate" [angle, x_, y_]
+  SkewX angle -> function "skewX" [angle]
+  SkewY angle -> function "skewY" [angle]
+  where
+    function functionName values = functionName <> "(" <> T.unwords (map show values) <> ")"
 
 --------------------------------------------------------------------------------
 
@@ -267,7 +420,7 @@ fontFamily = attr (H.AttrName "font-family")
 fontSize :: forall r i. (HasType "fontSize" Text r) => FontSize -> IProp r i
 fontSize = attr (H.AttrName "font-size") . renderValue
 
-fontSizeAdjust :: forall r i. (HasType "fontSizeAdjust" Text r) => Double -> IProp r i
+fontSizeAdjust :: forall r i. (HasType "fontSizeAdjust" Double r) => Double -> IProp r i
 fontSizeAdjust = attr (H.AttrName "font-size-adjust") . show
 
 fontStretch :: forall r i. (HasType "fontStretch" Text r) => FontStretch -> IProp r i
@@ -330,14 +483,14 @@ path = attr (H.AttrName "path") . T.intercalate " " . coerce
 points :: forall r i. (HasType "points" Text r) => [(Double, Double)] -> IProp r i
 points = attr (H.AttrName "points") . T.intercalate " " . map (\(x_, y_) -> show x_ <> "," <> show y_)
 
-pathLength :: forall r i. (HasType "pathLength" Text r) => Double -> IProp r i
+pathLength :: forall r i. (HasType "pathLength" Double r) => Double -> IProp r i
 pathLength = attr (H.AttrName "pathLength") . show
 
 patternContentUnits :: forall r i. (HasType "patternContentUnits" Text r) => Text -> IProp r i
 patternContentUnits = attr (H.AttrName "patternContentUnits")
 
-patternTransformation :: forall r i. (HasType "patternTransformation" Text r) => [Transformation] -> IProp r i
-patternTransformation = attr (H.AttrName "patternTransformation") . T.unwords . map renderValue
+patternTransform :: forall r i. (HasType "patternTransform" Text r) => [Transform] -> IProp r i
+patternTransform = attr (H.AttrName "patternTransform") . T.unwords . map printTransform
 
 patternUnits :: forall r i. (HasType "patternUnits" Text r) => Text -> IProp r i
 patternUnits = attr (H.AttrName "patternUnits")
@@ -357,22 +510,22 @@ preserveAspectRatio align slice =
       Nothing -> "none"
       Just (x_, y_) -> T.intercalate "" $ ["x", show x_, "Y", show y_]
 
-r :: forall r i. (HasType "r" Text r) => Double -> IProp r i
+r :: forall r i. (HasType "r" Double r) => Double -> IProp r i
 r = attr (H.AttrName "r") . show
 
-refX :: forall r i. (HasType "refX" Text r) => Double -> IProp r i
+refX :: forall r i. (HasType "refX" Double r) => Double -> IProp r i
 refX = attr (H.AttrName "refX") . show
 
-refY :: forall r i. (HasType "refY" Text r) => Double -> IProp r i
+refY :: forall r i. (HasType "refY" Double r) => Double -> IProp r i
 refY = attr (H.AttrName "refY") . show
 
 repeatCount :: forall r i. (HasType "repeatCount" Text r) => Text -> IProp r i
 repeatCount = attr (H.AttrName "repeatCount")
 
-rx :: forall r i. (HasType "rx" Text r) => Double -> IProp r i
+rx :: forall r i. (HasType "rx" Double r) => Double -> IProp r i
 rx = attr (H.AttrName "rx") . show
 
-ry :: forall r i. (HasType "ry" Text r) => Double -> IProp r i
+ry :: forall r i. (HasType "ry" Double r) => Double -> IProp r i
 ry = attr (H.AttrName "ry") . show
 
 stroke :: forall r i. (HasType "stroke" Text r) => Color -> IProp r i
@@ -381,7 +534,7 @@ stroke = attr (H.AttrName "stroke") . renderValue
 strokeDashArray :: forall r i. (HasType "strokeDashArray" Text r) => Text -> IProp r i
 strokeDashArray = attr (H.AttrName "stroke-dasharray")
 
-strokeDashOffset :: forall r i. (HasType "strokeDashOffset" Text r) => Double -> IProp r i
+strokeDashOffset :: forall r i. (HasType "strokeDashOffset" Double r) => Double -> IProp r i
 strokeDashOffset = attr (H.AttrName "stroke-dashoffset") . show
 
 strokeLineCap :: forall r i. (HasType "strokeLineCap" Text r) => StrokeLineCap -> IProp r i
@@ -395,17 +548,17 @@ strokeLineJoin = attr (H.AttrName "stroke-linejoin") . printStrokeLineJoin
 strokeMiterLimit :: forall r i. (HasType "strokeMiterLimit" Text r) => Double -> IProp r i
 strokeMiterLimit = attr (H.AttrName "stroke-miterlimit") . show . max 1.0
 
-strokeOpacity :: forall r i. (HasType "strokeOpacity" Text r) => Double -> IProp r i
+strokeOpacity :: forall r i. (HasType "strokeOpacity" Double r) => Double -> IProp r i
 strokeOpacity = attr (H.AttrName "stroke-opacity") . show
 
-strokeWidth :: forall r i. (HasType "strokeWidth" Text r) => Double -> IProp r i
+strokeWidth :: forall r i. (HasType "strokeWidth" Double r) => Double -> IProp r i
 strokeWidth = attr (H.AttrName "stroke-width") . show
 
 textAnchor :: forall r i. (HasType "textAnchor" Text r) => TextAnchor -> IProp r i
 textAnchor = attr (H.AttrName "text-anchor") . printTextAnchor
 
-transformation :: forall r i. (HasType "Transformation" Text r) => [Transformation] -> IProp r i
-transformation = attr (H.AttrName "Transformation") . T.unwords . map renderValue
+transform :: forall r i. (HasType "transform" Text r) => [Transform] -> IProp r i
+transform = attr (H.AttrName "transform") . T.unwords . map printTransform
 
 viewBox
   :: forall r i
@@ -418,28 +571,28 @@ viewBox
 viewBox x_ y_ w h_ =
   attr (H.AttrName "viewBox") (T.unwords $ map show [x_, y_, w, h_])
 
-width :: forall r i. (HasType "width" Text r) => Double -> IProp r i
+width :: forall r i. (HasType "width" Double r) => Double -> IProp r i
 width = attr (H.AttrName "width") . show
 
-height :: forall r i. (HasType "height" Text r) => Double -> IProp r i
+height :: forall r i. (HasType "height" Double r) => Double -> IProp r i
 height = attr (H.AttrName "height") . show
 
-x :: forall r i. (HasType "x" Text r) => Double -> IProp r i
+x :: forall r i. (HasType "x" Double r) => Double -> IProp r i
 x = attr (H.AttrName "x") . show
 
-y :: forall r i. (HasType "y" Text r) => Double -> IProp r i
+y :: forall r i. (HasType "y" Double r) => Double -> IProp r i
 y = attr (H.AttrName "y") . show
 
-x1 :: forall r i. (HasType "x1" Text r) => Double -> IProp r i
+x1 :: forall r i. (HasType "x1" Double r) => Double -> IProp r i
 x1 = attr (H.AttrName "x1") . show
 
-y1 :: forall r i. (HasType "y1" Text r) => Double -> IProp r i
+y1 :: forall r i. (HasType "y1" Double r) => Double -> IProp r i
 y1 = attr (H.AttrName "y1") . show
 
-x2 :: forall r i. (HasType "x2" Text r) => Double -> IProp r i
+x2 :: forall r i. (HasType "x2" Double r) => Double -> IProp r i
 x2 = attr (H.AttrName "x2") . show
 
-y2 :: forall r i. (HasType "y2" Text r) => Double -> IProp r i
+y2 :: forall r i. (HasType "y2" Double r) => Double -> IProp r i
 y2 = attr (H.AttrName "y2") . show
 
 href :: forall r i. (HasType "href" Text r) => Text -> IProp r i
