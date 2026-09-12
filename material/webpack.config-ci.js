@@ -31,8 +31,12 @@ module.exports = {
             loader: "swc-loader"
           },
           {
-            loader: "@haskell-org/haskell-loader",
+            loader: path.resolve(__dirname, "toolchain/haskell-loader.mjs"),
             options: {
+              "build-directory": "dist-newstyle/javascript",
+              "with-compiler": "javascript-unknown-ghcjs-ghc-9.12.1",
+              "with-hc-pkg": "javascript-unknown-ghcjs-ghc-pkg-9.12.1",
+              "with-hsc2hs": "javascript-unknown-ghcjs-hsc2hs-9.12.1",
               "system-tools": false,
               "install-ghc": "9.12.1",
               "install-cabal": "3.14.1.1",

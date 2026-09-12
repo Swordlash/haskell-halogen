@@ -1,13 +1,9 @@
 packages: .
 
-allow-newer:
-  *:*
+allow-newer: *:*
 
-with-compiler: javascript-unknown-ghcjs-ghc-9.12.2
-with-hc-pkg: javascript-unknown-ghcjs-ghc-pkg-9.12.2
-
-package *
-  ghc-options: -O2 -fexpose-all-unfoldings -fspecialise-aggressively -ddisable-js-c-sources
+with-compiler: wasm32-wasi-ghc-9.14.1.20260731
+with-hc-pkg: wasm32-wasi-ghc-pkg-9.14.1.20260731
 
 source-repository-package
   type: git

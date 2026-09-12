@@ -14,10 +14,6 @@ concurrency:
   group: "pages"
   cancel-in-progress: false
 
-env:
-  EM_VERSION: 3.1.74
-  EM_CACHE_FOLDER: 'emsdk-cache'
-
 jobs:
   build-deploy:
     environment:
@@ -31,51 +27,32 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Setup Node.js
-      uses: actions/setup-node@v2
+      uses: actions/setup-node@v4
       with:
-        node-version: '20'
+        node-version: '24'
 
-    - name: Setup cache
-      id: cache-system-libraries
-      uses: actions/cache@v2
-      with:
-        path: ${{env.EM_CACHE_FOLDER}}
-        key: emsdk-${{env.EM_VERSION}}-${{ runner.os }}
-
-    - name: Setup EMSDK
-      uses: mymindstorm/setup-emsdk@v14
-      with:
-        version: ${{env.EM_VERSION}}
-        actions-cache-folder: ${{env.EM_CACHE_FOLDER}}
-
-    - name: Install dependencies
+    - name: Install GHC WebAssembly toolchain
       run: |
-        npm install
-        npx ghc-installer install cabal 3.14.1.1
-        npx ghc-installer install ghc 9.12.1
-        mkdir -p /home/runner/.cabal/store
+        mkdir -p "$RUNNER_TEMP/ghc-wasm-meta"
+        curl --fail --location --retry 5 https://gitlab.haskell.org/haskell-wasm/ghc-wasm-meta/-/archive/358ea50b8496a69da6ce375c0c58bc049dbcb92d/ghc-wasm-meta-358ea50b8496a69da6ce375c0c58bc049dbcb92d.tar.gz | tar xz --strip-components=1 --directory "$RUNNER_TEMP/ghc-wasm-meta"
+        SKIP_GHC=1 FLAVOUR=9.14 "$RUNNER_TEMP/ghc-wasm-meta/setup.sh"
+        . ~/.ghc-wasm/env
+        ghcup install cabal 3.14.1.1 --set
+        ghcup -s "file://$RUNNER_TEMP/ghc-wasm-meta/ghcup-wasm-0.0.9.yaml" install ghc wasm32-wasi-9.14.1.20260731 --set -- $CONFIGURE_ARGS
+        cabal update
+        ~/.ghc-wasm/add_to_github_path.sh
 
-    - name: Builtin cabal update & freeze
-      run: |
-        npx ghc-installer run cabal update
-        npx ghc-installer run cabal freeze
-
-    - name: Cache cabal dependencies
-      uses: actions/cache@v3
-      with:
-        path: /home/runner/.cabal/store
-        key: ${{ runner.os }}-cabal-store
-        restore-keys: |
-          ${{ runner.os }}-cabal-store
+    - name: Install JavaScript dependencies
+      run: npm install
 
     - name: Build
-      run: npm run build-ci
+      run: npm run build
 
     - name: Upload dist to GH Pages artifact
       id: deployment
       uses: actions/upload-pages-artifact@v3
       with:
-        path: ./dist
+        path: ./dist-newstyle/wasm/public
 
     - name: Setup Pages
       uses: actions/configure-pages@v5

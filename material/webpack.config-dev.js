@@ -28,8 +28,10 @@ module.exports = {
         test: /\.(cabal|project)$/,
         use:
           {
-            loader: "@haskell-org/haskell-loader",
+            loader: path.resolve(__dirname, "toolchain/haskell-loader.mjs"),
             options: {
+              "build-directory": "dist-newstyle/javascript",
+              "with-hsc2hs": "javascript-unknown-ghcjs-hsc2hs-9.12.2",
               "system-tools": true,
               "executable": "halogen-material-app"
             }

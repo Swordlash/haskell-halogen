@@ -18,21 +18,36 @@ import Halogen.Material.TextField qualified as HMTF
 import Protolude hiding (All)
 import Protolude.Partial (fromJust, (!!))
 
-#if defined(javascript_HOST_ARCH)
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 import Halogen.IO.Util as HA
 import Halogen.VDom.Driver (runUI)
 #endif
 
 attachComponent :: IO (HalogenSocket VoidF () IO)
-#if defined(javascript_HOST_ARCH)
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 attachComponent =
   HA.awaitBody >>= runUI component ()
 #else
-attachComponent = panic "This module can only be run on JavaScript"
+attachComponent = panic "This module can only be run in a browser"
 #endif
 
 main :: IO ()
-main = void attachComponent
+main = do
+#if defined(INTERACTIVE)
+  clearHotReloadTarget
+#endif
+  void attachComponent
+
+#if defined(WASM)
+foreign export javascript "hs_start" start :: IO ()
+
+start :: IO ()
+start = main
+#endif
+
+#if defined(INTERACTIVE)
+foreign import javascript unsafe "document.querySelectorAll('body > :not(script)').forEach((node) => node.remove())" clearHotReloadTarget :: IO ()
+#endif
 
 type All m = List m .+ Radios .+ TextFields .+ Checkboxes
 

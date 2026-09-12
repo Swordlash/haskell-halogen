@@ -67,3 +67,21 @@ function halogen_destroy_material_checkbox(mdcFormField) {
   mdcFormField.input.destroy();
   mdcFormField.destroy();
 }
+
+// The GHC JavaScript backend resolves these names from this js-sources module,
+// while the WebAssembly JSFFI resolves them through the browser global object.
+Object.assign(globalThis, {
+  halogen_init_material_ripple,
+  halogen_destroy_material_ripple,
+  halogen_init_material_list,
+  halogen_init_material_list_items,
+  halogen_destroy_material_list,
+  halogen_init_material_tab_bar,
+  halogen_destroy_material_tab_bar,
+  halogen_init_material_text_field,
+  halogen_destroy_material_text_field,
+  halogen_init_material_radio_button,
+  halogen_destroy_material_radio_button,
+  halogen_init_material_checkbox,
+  halogen_destroy_material_checkbox,
+});
