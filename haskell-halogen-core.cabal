@@ -198,17 +198,16 @@ test-suite Halogen-core-test
     main-is:          Test.hs
     build-depends:    base >= 4.20,
                       haskell-halogen-core,
+                      hspec,
                       mtl,
                       row-types,
                       text,
                       transformers
+    
+    other-modules:  Test.DriverReentrancy
+                    Test.GHCJS
+                    Test.SvgAttributes
+                    Test.Utils
 
     if arch(javascript)
-      other-modules:  Test.DriverReentrancy
-                      Test.GHCJS
-                      Test.SvgAttributes
-                      Test.Utils
-    else
-      other-modules:  Test.DriverReentrancy
-                      Test.SvgAttributes
-                      Test.Utils
+      js-sources:     jsbits/ghcjs_test_compat.js

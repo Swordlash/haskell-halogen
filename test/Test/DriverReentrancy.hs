@@ -15,7 +15,7 @@
 -- initialized exactly once, and no live child is finalized. The buggy driver
 -- re-mints a live child; a re-entrancy guard that does not protect lifecycle
 -- batching loses the new child's initializer instead.
-module Test.DriverReentrancy (test) where
+module Test.DriverReentrancy (spec) where
 
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
@@ -37,6 +37,7 @@ import Halogen.Query.Input (Input)
 import Halogen.Subscription qualified as HS
 import Halogen.VDom.Types (VDom (..), runGraft)
 import Prelude
+import Test.Hspec (Spec, describe, it)
 import Test.Utils (assertEqual)
 
 ----------------------------------------------------------------------
@@ -198,3 +199,10 @@ test = do
   assertEqual "finalized live child count" 0 =<< readIORef finalizeCount
 
   socket.dispose
+
+spec :: Spec
+spec =
+  describe "driver re-entrancy" $
+    it
+      "preserves child lifecycle during a re-entrant render"
+      test

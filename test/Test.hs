@@ -8,21 +8,13 @@ import Prelude
 import Test.GHCJS qualified as GHCJS
 #endif
 import Test.DriverReentrancy qualified as DriverReentrancy
+import Test.Hspec (hspec)
 import Test.SvgAttributes qualified as SvgAttributes
-import Test.Utils (runTests)
 
 main :: IO ()
-main = runTests $ ghcjsTests <> commonTests
-
-ghcjsTests :: [(String, IO ())]
+main = hspec $ do
 #if defined(javascript_HOST_ARCH)
-ghcjsTests = [("GHCJS FFI", GHCJS.test)]
-#else
-ghcjsTests = []
+  GHCJS.spec
 #endif
-
-commonTests :: [(String, IO ())]
-commonTests =
-  [ ("driver re-entrancy", DriverReentrancy.test)
-  , ("SVG attributes", SvgAttributes.test)
-  ]
+  DriverReentrancy.spec
+  SvgAttributes.spec
