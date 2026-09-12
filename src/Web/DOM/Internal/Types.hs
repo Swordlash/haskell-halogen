@@ -23,6 +23,8 @@ newtype HTMLCollection = HTMLCollection (Foreign HTMLCollection)
 
 #if defined(javascript_HOST_ARCH)
 newtype EventListener = EventListener (Callback (JSVal -> IO ()))
+#elif defined(wasm32_HOST_ARCH)
+newtype EventListener = EventListener (Foreign EventListener)
 #else
 newtype EventListener = EventListener (Foreign EventListener)
 #endif

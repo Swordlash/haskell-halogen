@@ -27,7 +27,7 @@ import Web.DOM.Internal.Types
 import Web.DOM.Internal.Types qualified as DOM
 import Web.DOM.ParentNode (ParentNode, toParentNode)
 
-#if defined(javascript_HOST_ARCH)
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 {-# SPECIALISE substInParent :: DOM.Node -> Maybe DOM.Node -> Maybe ParentNode -> IO () #-}
 {-# SPECIALISE removeChild :: forall state action slots output. RenderState IO state action slots output -> IO () #-}
 {-# SPECIALISE renderSpec :: DOM.Document -> DOM.HTMLElement -> AD.RenderSpec IO (RenderState IO) #-}

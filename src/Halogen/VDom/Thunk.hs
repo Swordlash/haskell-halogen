@@ -4,13 +4,14 @@
 module Halogen.VDom.Thunk where
 
 import Data.Foreign
+import GHC.Exts qualified as GHC
 import HPrelude hiding (state)
 import Halogen.VDom qualified as V
 import Halogen.VDom.DOM.Monad
 import Unsafe.Coerce
 import Web.DOM.Internal.Types
 
-newtype ThunkId = ThunkId (Foreign ThunkId)
+newtype ThunkId = ThunkId GHC.Any
 
 unsafeThunkId :: a -> ThunkId
 unsafeThunkId = unsafeCoerce
@@ -39,7 +40,7 @@ mapThunk k (Thunk a b c d) = Thunk a b (k . c) d
 runThunk :: forall f i. Thunk f i -> f i
 runThunk (Thunk _ _ render arg) = render arg
 
-#if defined(javascript_HOST_ARCH)
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 {-# SPECIALISE buildThunk :: (f i -> V.VDom a w) -> V.VDomSpec IO a w -> V.Machine IO (Thunk f i) Node #-}
 #endif
 buildThunk

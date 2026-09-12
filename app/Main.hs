@@ -11,7 +11,7 @@ import Data.NT
 import Data.Row
 import Halogen as H
 import Halogen.Component.Debounced
-import Halogen.HTML as HH
+import Halogen.HTML qualified as HH
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Layout as L
 import Halogen.HTML.Layout.BoxLayout
@@ -22,7 +22,7 @@ import Halogen.VDom.DOM.Monad
 import Protolude hiding (log)
 import UnliftIO (MonadUnliftIO)
 
-#if defined(javascript_HOST_ARCH)
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 import Halogen.IO.Util as HA
 import Halogen.VDom.Driver (runUI)
 #endif
@@ -30,7 +30,7 @@ import Halogen.VDom.Driver (runUI)
 attachComponent :: IO (HalogenSocket Query Int IO)
 logStr :: Text -> IO ()
 
-#if defined(javascript_HOST_ARCH)
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 attachComponent =
   HA.awaitBody >>= runUI component ()
 logStr = log
@@ -45,6 +45,13 @@ main = do
 
   void $ HS.subscribe messages $ \st ->
     logStr $ "State changed: " <> show st
+
+#if defined(wasm32_HOST_ARCH)
+foreign export javascript "hs_start" start :: IO ()
+
+start :: IO ()
+start = main
+#endif
 
 {-
 forever $ do
@@ -80,7 +87,7 @@ component =
           HH.div_ [HH.text $ show state]
           HH.button [HE.onClick $ const $ Increment 1] [HH.text "+"]
           L.if_ (state > 5) $ HH.button [HE.onClick $ const $ Increment 2] [HH.text "++"]
-          slot_ "debounced" () debComp ()
+          HH.slot_ "debounced" () debComp ()
           HH.div_ [HH.text "Test sentinel element"]
           L.end
 

@@ -17,7 +17,7 @@ import Web.DOM.Element
 import Web.DOM.Internal.Types
 import Web.DOM.ParentNode
 
-#if defined(javascript_HOST_ARCH)
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 {-# SPECIALISE buildVDom :: VDomSpec IO a w -> VDomMachine IO a w #-}
 {-# SPECIALISE buildText :: VDomSpec IO a w -> VDomMachine IO a w -> Text -> IO (VDomStep IO a w) #-}
 {-# SPECIALISE patchText :: TextState IO a w -> VDom a w -> IO (VDomStep IO a w) #-}

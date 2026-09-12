@@ -50,7 +50,7 @@ propToStrKey = \case
   Handler (DOM.EventType ty) _ -> "handler/" <> ty
   Ref _ -> "ref"
 
-#if defined(javascript_HOST_ARCH)
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 {-# SPECIALISE buildProp :: (a -> IO ()) -> DOM.Element -> V.Machine IO [Prop a] () #-}
 #endif
 buildProp
@@ -144,8 +144,8 @@ buildProp emit el = renderProp
             (True, _) ->
               pure v2
             (_, "value") -> do
-              elVal <- unsafeGetProperty "value" el
-              if elVal `unsafeRefEq` val2
+              isEqual <- propertyEquals "value" val2 el
+              if isEqual
                 then pure v2
                 else do
                   setProperty prop2 val2 el

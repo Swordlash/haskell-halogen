@@ -4,7 +4,7 @@ module Main (main) where
 
 import Prelude
 
-#if defined(javascript_HOST_ARCH)
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 import Test.GHCJS qualified as GHCJS
 #endif
 import Test.DriverReentrancy qualified as DriverReentrancy
@@ -13,7 +13,7 @@ import Test.SvgAttributes qualified as SvgAttributes
 
 main :: IO ()
 main = hspec $ do
-#if defined(javascript_HOST_ARCH)
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
   GHCJS.spec
 #endif
   DriverReentrancy.spec

@@ -3,10 +3,7 @@
 
 module Data.Foreign where
 
--- #if !defined(javascript_HOST_ARCH)
 import GHC.Base (isTrue#, reallyUnsafePtrEquality, reallyUnsafePtrEquality#)
--- #endif
-
 import HPrelude
 import Unsafe.Coerce (unsafeCoerce)
 
@@ -49,6 +46,44 @@ foreignToInt = fromJSInt
 
 foreignToBool :: Foreign tag -> Bool
 foreignToBool x = isTrue# (foreignToBool' x)
+#elif defined(wasm32_HOST_ARCH)
+import GHC.Wasm.Prim
+
+type Foreign tag = JSVal
+
+newtype Nullable tag = Nullable (Foreign tag)
+
+foreign import javascript unsafe "$1 == null"
+  foreignIsNullish :: Foreign tag -> Bool
+
+foreign import javascript unsafe "$1[$2]"
+  unsafeGetProp :: Foreign tag -> JSString -> Foreign tag'
+
+foreign import javascript unsafe "$1"
+  foreignToInt :: Foreign tag -> Int
+
+foreign import javascript unsafe "$1"
+  foreignToBool :: Foreign tag -> Bool
+
+nullableToMaybe :: Nullable tag -> Maybe (Foreign tag)
+nullableToMaybe (Nullable o)
+  | foreignIsNullish o = Nothing
+  | otherwise = Just o
+
+-- These coercions are retained for compatibility with the JavaScript backend
+-- API. They are representation-unsafe on wasm; typed conversion functions
+-- such as 'foreignToString' should be preferred.
+toForeign :: a -> Foreign tag
+toForeign = unsafeCoerce
+
+unsafeFromForeign :: Foreign tag -> a
+unsafeFromForeign = unsafeCoerce
+
+readProp :: Text -> (Foreign tag -> Maybe a) -> Foreign tag' -> Maybe a
+readProp key f o = f $ unsafeGetProp o (toJSString $ toS key)
+
+foreignToString :: Foreign tag -> Text
+foreignToString = toS . fromJSString . JSString
 #else
 
 newtype Foreign tag = Foreign Any
