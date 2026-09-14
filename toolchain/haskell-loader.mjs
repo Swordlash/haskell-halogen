@@ -1,4 +1,3 @@
-import { run, install } from "@haskell-org/ghc-installer";
 import { execa } from "execa";
 import { readFileSync, rmSync } from "node:fs";
 import { basename, dirname, extname, resolve } from "node:path";
@@ -10,8 +9,6 @@ const schema = {
   required: ["executable", "build-directory"],
   properties: {
     "build-directory": { type: "string" },
-    "install-ghc": { type: "string" },
-    "install-cabal": { type: "string" },
     executable: { type: "string" },
     "system-tools": { type: "boolean" },
     "with-compiler": { type: "string" },
@@ -50,35 +47,13 @@ export default async function () {
   const resetCompilerCache = () =>
     rmSync(resolve(buildDirectory, "cache/compiler"), { force: true });
 
-  if (options["system-tools"]) {
-    resetCompilerCache();
-    await execa("cabal", ["build", "all", ...cabalArgs], {
-      cwd: projectDirectory,
-      stdio: "inherit",
-    });
-    resetCompilerCache();
-    const { stdout } = await execa(
-      "cabal",
-      ["-v0", ...cabalArgs, "exec", "--", "which", options.executable],
-      { cwd: projectDirectory },
-    );
-    return readFileSync(stdout);
-  }
-
-  if (options["install-ghc"]) {
-    await install("ghc", options["install-ghc"]);
-  }
-  if (options["install-cabal"]) {
-    await install("cabal", options["install-cabal"]);
-    await run("cabal", ["update"], { cwd: projectDirectory });
-  }
-
   resetCompilerCache();
-  await run("cabal", ["build", "all", ...cabalArgs], {
+  await execa("cabal", ["build", "all", ...cabalArgs], {
     cwd: projectDirectory,
+    stdio: "inherit",
   });
   resetCompilerCache();
-  const { stdout } = await run(
+  const { stdout } = await execa(
     "cabal",
     ["-v0", ...cabalArgs, "exec", "--", "which", options.executable],
     { cwd: projectDirectory },
