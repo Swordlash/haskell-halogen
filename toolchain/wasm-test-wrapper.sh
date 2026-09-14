@@ -3,7 +3,7 @@ set -eu
 
 wasm_binary=$1
 shift
-wasm_ghc=$(command -v wasm32-wasi-ghc-9.14.1.20260731)
+wasm_ghc=$(command -v wasm32-wasi-ghc)
 wasm_libdir=$($wasm_ghc --print-libdir)
 temp_dir=$(mktemp -d)
 trap 'rm -rf "$temp_dir"' EXIT HUP INT TERM

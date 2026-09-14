@@ -1,19 +1,21 @@
 #!/bin/bash
-
+# Run the test suites across all three backends.
 set -ex
 
+cd "$(dirname "$0")/.."
+
 echo "Running native"
-cabal test
+cabal test all
 
 echo "Running ghcjs"
-cabal test --project-file=cabal-ghcjs.project
+cabal test all --project-file=cabal-ghcjs.project
 
 echo "Running wasm"
 . "$HOME/.ghc-wasm/env"
 workspace_dir=$(pwd)
-wasm_ghc=$(command -v wasm32-wasi-ghc-9.14.1.20260731)
-wasm_ghc_pkg=$(command -v wasm32-wasi-ghc-pkg-9.14.1.20260731)
-cabal test \
+wasm_ghc=$(command -v wasm32-wasi-ghc)
+wasm_ghc_pkg=$(command -v wasm32-wasi-ghc-pkg)
+cabal test all \
   --project-file=cabal-wasm.project \
   --builddir=dist-newstyle/wasm-test \
   --with-compiler="$wasm_ghc" \

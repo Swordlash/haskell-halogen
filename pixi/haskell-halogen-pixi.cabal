@@ -1,0 +1,80 @@
+cabal-version:      3.0
+name:               haskell-halogen-pixi
+version:            0.1.0.0
+synopsis:           PixiJS rendering backend for haskell-halogen-core
+homepage:           https://github.com/Swordlash/haskell-halogen
+license:            Apache-2.0
+license-file:       LICENSE
+author:             Mateusz Goślinowski
+maintainer:         mateusz.goslinowski@gmail.com
+category:           Web
+extra-source-files: CHANGELOG.md
+
+common defaults
+  default-language: GHC2021
+  ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture
+
+  default-extensions:
+      RankNTypes
+      GeneralizedNewtypeDeriving
+      MultiParamTypeClasses
+      FunctionalDependencies
+      FlexibleContexts
+      FlexibleInstances
+      UndecidableInstances
+      GADTs
+      DeriveFunctor
+      DerivingStrategies
+      NoImplicitPrelude
+      KindSignatures
+      DataKinds
+      OverloadedStrings
+      TypeOperators
+      LambdaCase
+      TypeFamilies
+      OverloadedRecordDot
+      RecordWildCards
+      NamedFieldPuns
+      DuplicateRecordFields
+      PartialTypeSignatures
+      DefaultSignatures
+      StandaloneKindSignatures
+      NoFieldSelectors
+      DerivingVia
+      CPP
+      StrictData
+      RequiredTypeArguments
+      ExplicitNamespaces
+
+library
+    import: defaults
+
+    build-depends:
+        base >= 4.20,
+        protolude,
+        haskell-halogen-core
+
+    if arch(wasm32)
+      build-depends: ghc-experimental
+
+    exposed-modules:
+      Halogen.Canvas.Pixi
+
+    other-modules:
+      Halogen.Canvas.Pixi.FFI
+
+    hs-source-dirs:   src
+
+    if arch(javascript)
+      js-sources:
+        jsbits/pixi.js
+
+      ghc-options: -fexpose-all-unfoldings
+
+    if arch(wasm32)
+      ghc-options: -fexpose-all-unfoldings
+
+source-repository head
+  type:     git
+  location: https://github.com/Swordlash/haskell-halogen.git
+  subdir:   pixi

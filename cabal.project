@@ -1,3 +1,6 @@
-packages: .
+packages:
+  core
+  pixi
+  examples/*
 
 allow-newer: protolude:*

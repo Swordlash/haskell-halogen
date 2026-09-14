@@ -8,7 +8,7 @@ license-file:       LICENSE
 author:             Mateusz Goślinowski
 maintainer:         mateusz.goslinowski@gmail.com
 category:           Web
-extra-source-files: CHANGELOG.md, NOTICE, dev/wasm.js
+extra-source-files: CHANGELOG.md, NOTICE
 
 flag trace-dom
   description: Enable tracing of DOM operations
@@ -141,7 +141,6 @@ library
       Halogen.Component
       Halogen.Component.Debounced
       Halogen.Canvas
-      Halogen.Canvas.Pixi
       Halogen.Subscription
 
       Halogen.Portal
@@ -178,14 +177,12 @@ library
       
     other-modules:
       HPrelude
-      Halogen.Canvas.Pixi.FFI
     
     hs-source-dirs:   src
 
     if arch(javascript)
       js-sources:
         jsbits/monad_dom.js
-        jsbits/pixi.js
 
       ghc-options: -fexpose-all-unfoldings
 
@@ -194,30 +191,6 @@ library
       
 --      if flag(trace-dom)
 --        jspp-options: -DHALOGEN_TRACE_DOM
-
-executable halogen-core-prototype
-  import: commons
-  main-is:          Main.hs
-  build-depends:    haskell-halogen-core
-  hs-source-dirs:   app
-
-  if arch(wasm32)
-    ghc-options:
-      -no-hs-main
-      -optl-mexec-model=reactor
-      "-optl-Wl,--export=hs_start"
-
-executable halogen-pixi-example
-  import: commons
-  main-is:          CanvasExample.hs
-  build-depends:    haskell-halogen-core
-  hs-source-dirs:   app
-
-  if arch(wasm32)
-    ghc-options:
-      -no-hs-main
-      -optl-mexec-model=reactor
-      "-optl-Wl,--export=hs_start"
 
 test-suite Halogen-core-test
     import: defaults
@@ -239,3 +212,8 @@ test-suite Halogen-core-test
 
     if arch(javascript)
       js-sources:     jsbits/ghcjs_test_compat.js
+
+source-repository head
+  type:     git
+  location: https://github.com/Swordlash/haskell-halogen.git
+  subdir:   core

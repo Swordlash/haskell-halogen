@@ -1,0 +1,61 @@
+cabal-version:      3.0
+name:               halogen-example-pixi
+version:            0.1.0.0
+synopsis:           haskell-halogen-pixi canvas example app
+license:            Apache-2.0
+author:             Mateusz Goślinowski
+maintainer:         mateusz.goslinowski@gmail.com
+category:           Web
+
+executable halogen-example-pixi
+  default-language: GHC2021
+  ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture
+
+  default-extensions:
+      RankNTypes
+      GeneralizedNewtypeDeriving
+      MultiParamTypeClasses
+      FunctionalDependencies
+      FlexibleContexts
+      FlexibleInstances
+      UndecidableInstances
+      GADTs
+      DeriveFunctor
+      DerivingStrategies
+      NoImplicitPrelude
+      KindSignatures
+      DataKinds
+      OverloadedStrings
+      TypeOperators
+      LambdaCase
+      TypeFamilies
+      OverloadedRecordDot
+      RecordWildCards
+      NamedFieldPuns
+      DuplicateRecordFields
+      PartialTypeSignatures
+      DefaultSignatures
+      StandaloneKindSignatures
+      NoFieldSelectors
+      DerivingVia
+      CPP
+      StrictData
+      RequiredTypeArguments
+      ExplicitNamespaces
+
+  main-is:          Main.hs
+  hs-source-dirs:   .
+
+  build-depends:
+      base >= 4.20,
+      protolude,
+      row-types,
+      haskell-halogen-core,
+      haskell-halogen-pixi
+
+  if arch(wasm32)
+    build-depends: ghc-experimental
+    ghc-options:
+      -no-hs-main
+      -optl-mexec-model=reactor
+      "-optl-Wl,--export=hs_start"

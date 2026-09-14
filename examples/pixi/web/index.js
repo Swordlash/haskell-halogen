@@ -8,7 +8,7 @@ const wasi = new WASI([], [], [
 ]);
 const exports = {};
 const { instance } = await WebAssembly.instantiateStreaming(
-  fetch(new URL("./halogen-pixi-example.wasm", import.meta.url)),
+  fetch(new URL("./app.wasm", import.meta.url)),
   {
     wasi_snapshot_preview1: wasi.wasiImport,
     ghc_wasm_jsffi: ghcWasmImports(exports),

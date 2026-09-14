@@ -1,4 +1,4 @@
-packages: .
+import: cabal.project
 
 allow-newer:
   *:base, *:template-haskell, protolude:ghc-prim
@@ -11,4 +11,3 @@ package haskell-halogen-core
 
 with-compiler: javascript-unknown-ghcjs-ghc-9.12.2
 with-hc-pkg: javascript-unknown-ghcjs-ghc-pkg-9.12.2
--- with-hsc2hs: javascript-unknown-ghcjs-hsc2hs-9.12.1
