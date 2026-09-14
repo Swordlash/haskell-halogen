@@ -12,9 +12,6 @@ env:
   GHC_WASM_META_REV: '358ea50b8496a69da6ce375c0c58bc049dbcb92d'
   CABAL_VERSION: '3.16.1.0'
   CABAL_DIR: /home/runner/.cabal
-  # Install the cross-compiler somewhere the runner user owns so it can be
-  # cached. The image's own ghcup lives in a root-owned /usr/local/.ghcup.
-  GHCUP_INSTALL_BASE_PREFIX: /home/runner
 
 permissions:
   contents: read
@@ -46,32 +43,42 @@ jobs:
         cache: npm
 
     # Shares its key with the build-wasm job in build.yml, so whichever runs
-    # first populates the cache for the other.
-    - name: Cache GHC WebAssembly toolchain
-      id: cache-wasm
+    # first populates it for the other. Only ~/.ghc-wasm is cacheable: ghcup
+    # installs the cross GHC under its own base directory, which lives outside
+    # $HOME on the runner image and is not ours to archive.
+    - name: Cache wasm sysroot
       uses: actions/cache@v5
       with:
-        path: |
-          ~/.ghc-wasm
-          ~/.ghcup
-        key: ${{ runner.os }}-wasm-toolchain-${{ env.GHC_WASM_META_REV }}-ghc-${{ env.WASM_GHC_VERSION }}-cabal-${{ env.CABAL_VERSION }}
+        path: ~/.ghc-wasm
+        key: ${{ runner.os }}-ghc-wasm-sysroot-${{ env.GHC_WASM_META_REV }}
 
+    # Each half checks for itself rather than trusting cache-hit, so a cache
+    # that turns out not to carry a toolchain repairs itself instead of
+    # failing the build several steps later.
     - name: Install GHC WebAssembly toolchain
-      if: steps.cache-wasm.outputs.cache-hit != 'true'
       run: |
         mkdir -p "$RUNNER_TEMP/ghc-wasm-meta"
         curl --fail --location --retry 5 "https://gitlab.haskell.org/haskell-wasm/ghc-wasm-meta/-/archive/$GHC_WASM_META_REV/ghc-wasm-meta-$GHC_WASM_META_REV.tar.gz" | tar xz --strip-components=1 --directory "$RUNNER_TEMP/ghc-wasm-meta"
-        SKIP_GHC=1 FLAVOUR=9.14 "$RUNNER_TEMP/ghc-wasm-meta/setup.sh"
+        if [ ! -x "$HOME/.ghc-wasm/add_to_github_path.sh" ]; then
+          SKIP_GHC=1 FLAVOUR=9.14 "$RUNNER_TEMP/ghc-wasm-meta/setup.sh"
+        fi
         # shellcheck source=/dev/null
         . ~/.ghc-wasm/env
-        ghcup install cabal "$CABAL_VERSION" --set
-        ghcup -s "file://$RUNNER_TEMP/ghc-wasm-meta/ghcup-wasm-0.0.9.yaml" install ghc "wasm32-wasi-$WASM_GHC_VERSION" --set -- $CONFIGURE_ARGS
+        if ! ghcup whereis cabal "$CABAL_VERSION" >/dev/null 2>&1; then
+          ghcup install cabal "$CABAL_VERSION"
+        fi
+        ghcup set cabal "$CABAL_VERSION"
+        if ! ghcup whereis ghc "wasm32-wasi-$WASM_GHC_VERSION" >/dev/null 2>&1; then
+          ghcup -s "file://$RUNNER_TEMP/ghc-wasm-meta/ghcup-wasm-0.0.9.yaml" install ghc "wasm32-wasi-$WASM_GHC_VERSION" --set -- $CONFIGURE_ARGS
+        fi
+        ghcup set ghc "wasm32-wasi-$WASM_GHC_VERSION"
 
-    # Runs on a cache hit too: this is what puts the wasm tools on PATH and
-    # exports CC/AR/LD and friends for every later step.
+    # Puts the wasm tools on PATH and exports CC/AR/LD and friends for every
+    # later step, so it has to run whether or not anything was installed above.
     - name: Activate toolchain
       run: |
-        echo "$HOME/.ghcup/bin" >> "$GITHUB_PATH"
+        echo "ghcup basedir: $(ghcup whereis basedir)"
+        echo "$(ghcup whereis basedir)/bin" >> "$GITHUB_PATH"
         ~/.ghc-wasm/add_to_github_path.sh
 
     - name: Install JavaScript dependencies
