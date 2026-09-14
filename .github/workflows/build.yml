@@ -90,7 +90,7 @@ jobs:
       run: |
         npm install
         npx ghc-installer install cabal 3.14.1.1
-        npx ghc-installer install ghc 9.12.1
+        npx ghc-installer install ghc 9.12.2
         mkdir -p /home/runner/.cabal/store
 
     - name: Update Cabal package index
