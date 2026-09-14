@@ -22,6 +22,10 @@ module.exports = {
       fs: false,
       child_process: false,
       path: false,
+      // The GHC JS RTS require()s this Node-only profiling shim behind an
+      // h$isNode() guard in a try/catch. It is never reached in a browser,
+      // but webpack still resolves the call site statically.
+      "ghcjs-profiling": false,
     }
   },
   module: {
@@ -72,7 +76,7 @@ module.exports = {
         threshold: 10240,
         minRatio: 0.8,
         deleteOriginalAssets: false,
-      }),
+      })
     , new webpack.ProgressPlugin()
     ]
 };

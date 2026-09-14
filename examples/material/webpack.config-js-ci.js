@@ -1,7 +1,5 @@
 const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
-const zlib = require("zlib");
-const CompressionPlugin = require("compression-webpack-plugin");
 const webpack = require('webpack');
 
 module.exports = {
@@ -22,6 +20,10 @@ module.exports = {
       fs: false,
       child_process: false,
       path: false,
+      // The GHC JS RTS require()s this Node-only profiling shim behind an
+      // h$isNode() guard in a try/catch. It is never reached in a browser,
+      // but webpack still resolves the call site statically.
+      "ghcjs-profiling": false,
     }
   },
   module: {
