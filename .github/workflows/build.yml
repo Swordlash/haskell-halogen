@@ -97,6 +97,16 @@ jobs:
         version: ${{env.EM_VERSION}}
         actions-cache-folder: ${{env.EM_CACHE_FOLDER}}
 
+    # ghcup reports its base directory as /usr/local/.ghcup on this image, and
+    # GHCUP_INSTALL_BASE_PREFIX does not move it. Cache just the one cross
+    # compiler under it rather than the whole directory, which also holds the
+    # image's preinstalled native GHC, cabal, stack and HLS.
+    - name: Cache GHC JavaScript cross-compiler
+      uses: actions/cache@v5
+      with:
+        path: /usr/local/.ghcup/ghc/javascript-unknown-ghcjs-${{ env.GHCJS_VERSION }}
+        key: ${{ runner.os }}-ghcup-ghcjs-${{ env.GHCJS_VERSION }}-em-${{ env.EM_VERSION }}
+
     # Uses the ghcup the runner image already ships, the way the build-wasm job
     # installs its own cross-compiler. Do not bootstrap ghcup here: the image
     # puts it in a root-owned /usr/local/.ghcup, so get-ghcup.haskell.org fails
@@ -139,6 +149,9 @@ jobs:
     - name: Build
       run: npm run build-js
 
+    - name: Test
+      run: npm run test-ghcjs
+
   build-wasm:
     runs-on: ubuntu-latest
 
@@ -160,6 +173,14 @@ jobs:
       with:
         path: ~/.ghc-wasm
         key: ${{ runner.os }}-ghc-wasm-sysroot-${{ env.GHC_WASM_META_REV }}
+
+    # See the note in build-js: ghcup's base directory is /usr/local/.ghcup, so
+    # cache only this cross compiler out of it.
+    - name: Cache wasm cross-compiler
+      uses: actions/cache@v5
+      with:
+        path: /usr/local/.ghcup/ghc/wasm32-wasi-${{ env.WASM_GHC_VERSION }}
+        key: ${{ runner.os }}-ghcup-wasm32-wasi-${{ env.WASM_GHC_VERSION }}
 
     # Each half checks for itself rather than trusting cache-hit, so a cache
     # that turns out not to carry a toolchain repairs itself instead of
@@ -206,3 +227,6 @@ jobs:
 
     - name: Build every example
       run: npm run build-wasm-all
+
+    - name: Test
+      run: npm run test-wasm

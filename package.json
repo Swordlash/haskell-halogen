@@ -29,6 +29,8 @@
   "scripts": {
     "build-native": "cabal build all --builddir=dist-newstyle/native",
     "test-native": "cabal test all --builddir=dist-newstyle/native",
+    "test-ghcjs": "sh toolchain/test-ghcjs.sh",
+    "test-wasm": "sh toolchain/test-wasm.sh",
     "build": "npm run build-wasm-all",
     "build-wasm": "sh toolchain/build-wasm.sh",
     "build-wasm-all": "sh toolchain/build-wasm-all.sh",
