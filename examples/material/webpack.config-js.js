@@ -15,17 +15,12 @@ const zlib = require('zlib');
 const CompressionPlugin = require('compression-webpack-plugin');
 const webpack = require('webpack');
 
-// Keep in step with with-compiler in cabal-ghcjs.project, and with
-// GHCJS_VERSION in .github/workflows/build.yml.
-const GHC_VERSION = '9.12.2';
-
 const isDevelopment = process.env.NODE_ENV === 'development';
 
 const haskellLoader = {
   loader: path.resolve(__dirname, '../../toolchain/haskell-loader.mjs'),
   options: {
     'build-directory': 'dist-newstyle/javascript',
-    'with-hsc2hs': `javascript-unknown-ghcjs-hsc2hs-${GHC_VERSION}`,
     'system-tools': true,
     'executable': 'halogen-example-material',
   },

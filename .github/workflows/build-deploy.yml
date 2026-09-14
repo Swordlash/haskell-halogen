@@ -52,6 +52,12 @@ jobs:
         path: ~/.ghc-wasm
         key: ${{ runner.os }}-ghc-wasm-sysroot-${{ env.GHC_WASM_META_REV }}
 
+    - name: Cache wasm cross-compiler
+      uses: actions/cache@v5
+      with:
+        path: /usr/local/.ghcup/ghc/wasm32-wasi-${{ env.WASM_GHC_VERSION }}
+        key: ${{ runner.os }}-ghcup-wasm32-wasi-${{ env.WASM_GHC_VERSION }}
+
     # Each half checks for itself rather than trusting cache-hit, so a cache
     # that turns out not to carry a toolchain repairs itself instead of
     # failing the build several steps later.
@@ -77,7 +83,7 @@ jobs:
     # later step, so it has to run whether or not anything was installed above.
     - name: Activate toolchain
       run: |
-        echo "ghcup basedir: $(ghcup whereis basedir)"
+        echo "$(ghcup whereis basedir)/ghc/wasm32-wasi-$WASM_GHC_VERSION/bin" >> "$GITHUB_PATH"
         echo "$(ghcup whereis basedir)/bin" >> "$GITHUB_PATH"
         ~/.ghc-wasm/add_to_github_path.sh
 

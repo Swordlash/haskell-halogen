@@ -127,9 +127,12 @@ jobs:
         fi
         ghcup set ghc "javascript-unknown-ghcjs-$GHCJS_VERSION"
 
+    # The cross compiler's own bin directory, not ghcup's top-level bin: the
+    # versioned symlinks there are created at install time, so they are absent
+    # when the compiler comes back from the cache instead.
     - name: Activate toolchain
       run: |
-        echo "ghcup basedir: $(ghcup whereis basedir)"
+        echo "$(ghcup whereis basedir)/ghc/javascript-unknown-ghcjs-$GHCJS_VERSION/bin" >> "$GITHUB_PATH"
         echo "$(ghcup whereis basedir)/bin" >> "$GITHUB_PATH"
 
     - name: Install JavaScript dependencies
@@ -207,7 +210,7 @@ jobs:
     # later step, so it has to run whether or not anything was installed above.
     - name: Activate toolchain
       run: |
-        echo "ghcup basedir: $(ghcup whereis basedir)"
+        echo "$(ghcup whereis basedir)/ghc/wasm32-wasi-$WASM_GHC_VERSION/bin" >> "$GITHUB_PATH"
         echo "$(ghcup whereis basedir)/bin" >> "$GITHUB_PATH"
         ~/.ghc-wasm/add_to_github_path.sh
 
