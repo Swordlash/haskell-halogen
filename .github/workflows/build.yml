@@ -14,6 +14,8 @@ env:
   # Keep GHCJS_VERSION in step with with-compiler in cabal-ghcjs.project and
   # GHC_VERSION in examples/material/webpack.config-js.js.
   GHCJS_VERSION: '9.12.2'
+  # The native GHC the runner image already ships, so setup is a no-op download.
+  GHC_VERSION: '9.14.1'
   CABAL_VERSION: '3.14.1.1'
   # Pin the cabal layout so the store path is the same one the cache step keys on
   # (cabal 3.14 otherwise picks XDG directories).
@@ -30,8 +32,8 @@ jobs:
     - uses: haskell-actions/setup@v2
       id: setup
       with:
-        ghc-version: '9.12.2'
-        cabal-version: '3.14.1.1'
+        ghc-version: ${{ env.GHC_VERSION }}
+        cabal-version: ${{ env.CABAL_VERSION }}
         cabal-update: true
 
     - name: Configure the build

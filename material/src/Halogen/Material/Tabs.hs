@@ -1,4 +1,3 @@
-{-# OPTIONS_GHC -Wno-deprecated-type-abstractions #-}
 
 module Halogen.Material.Tabs
   ( tabsComponent

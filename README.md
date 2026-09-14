@@ -24,8 +24,8 @@ The examples are deployed [here](https://swordlash.github.io/haskell-halogen/).
 
 ## Building
 
-The library itself compiles under any GHC from 9.6 to 9.12. The browser targets need a
-cross-compiler.
+The library itself compiles under any GHC from 9.6 to 9.14; CI builds against 9.14.1, the version
+the GitHub runner image ships. The browser targets need a cross-compiler.
 
 ```sh
 npm install                  # once, for the webpack/sass/material toolchain
@@ -115,5 +115,5 @@ instead.
 
 ## Releases
 
-One repository, one tag namespace: releases are tagged with a package prefix, such as `core-v0.9.0`
-or `material-v0.1.0`. Each package keeps its own `CHANGELOG.md` and uploads to Hackage separately.
+One repository, one tag namespace: releases are tagged with a package prefix, such as `core-v0.10.0`
+or `material-v0.2.0`. Each package keeps its own `CHANGELOG.md` and uploads to Hackage separately.
