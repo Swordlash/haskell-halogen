@@ -16,9 +16,12 @@ env:
   GHCJS_VERSION: '9.12.2'
   # The native GHC the runner image already ships, so setup is a no-op download.
   GHC_VERSION: '9.14.1'
-  CABAL_VERSION: '3.14.1.1'
-  # Pin the cabal layout so the store path is the same one the cache step keys on
-  # (cabal 3.14 otherwise picks XDG directories).
+  # Keep WASM_GHC_VERSION in step with with-compiler in cabal-wasm.project.
+  WASM_GHC_VERSION: '9.14.1.20260731'
+  GHC_WASM_META_REV: '358ea50b8496a69da6ce375c0c58bc049dbcb92d'
+  CABAL_VERSION: '3.16.1.0'
+  # Pin the cabal layout so the store is where the cache steps look for it
+  # (cabal otherwise picks XDG directories).
   CABAL_DIR: /home/runner/.cabal
 
 jobs:
@@ -71,6 +74,11 @@ jobs:
   build-js:
     runs-on: ubuntu-latest
 
+    # Install the cross-compiler somewhere the runner user owns so it can be
+    # cached. The image's own ghcup lives in a root-owned /usr/local/.ghcup.
+    env:
+      GHCUP_INSTALL_BASE_PREFIX: /home/runner
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v5
@@ -79,6 +87,7 @@ jobs:
       uses: actions/setup-node@v5
       with:
         node-version: '24'
+        cache: npm
 
     - name: Setup cache
       id: cache-system-libraries
@@ -93,6 +102,13 @@ jobs:
         version: ${{env.EM_VERSION}}
         actions-cache-folder: ${{env.EM_CACHE_FOLDER}}
 
+    - name: Cache GHC JavaScript toolchain
+      id: cache-ghcjs
+      uses: actions/cache@v5
+      with:
+        path: ~/.ghcup
+        key: ${{ runner.os }}-ghcjs-toolchain-${{ env.GHCJS_VERSION }}-cabal-${{ env.CABAL_VERSION }}-em-${{ env.EM_VERSION }}
+
     # Uses the ghcup the runner image already ships, the way the build-wasm job
     # installs its own cross-compiler. Do not bootstrap ghcup here: the image
     # puts it in a root-owned /usr/local/.ghcup, so get-ghcup.haskell.org fails
@@ -102,13 +118,17 @@ jobs:
     # hardcodes a single entry, 9.12.1, and hard-exits on anything else, which
     # would pin this repository to that GHC indefinitely.
     - name: Install GHC JavaScript toolchain
+      if: steps.cache-ghcjs.outputs.cache-hit != 'true'
       run: |
         ghcup config add-release-channel cross
-        ghcup install cabal ${{ env.CABAL_VERSION }} --set
-        emconfigure ghcup install ghc --set javascript-unknown-ghcjs-${{ env.GHCJS_VERSION }}
+        ghcup install cabal "$CABAL_VERSION" --set
+        emconfigure ghcup install ghc --set "javascript-unknown-ghcjs-$GHCJS_VERSION"
+
+    - name: Activate toolchain
+      run: echo "$HOME/.ghcup/bin" >> "$GITHUB_PATH"
 
     - name: Install JavaScript dependencies
-      run: npm install
+      run: npm ci
 
     - name: Update Cabal package index
       run: cabal update
@@ -127,6 +147,9 @@ jobs:
   build-wasm:
     runs-on: ubuntu-latest
 
+    env:
+      GHCUP_INSTALL_BASE_PREFIX: /home/runner
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v5
@@ -135,20 +158,51 @@ jobs:
       uses: actions/setup-node@v5
       with:
         node-version: '24'
+        cache: npm
+
+    # ~/.ghc-wasm holds wasi-sdk, binaryen and node; ~/.ghcup holds the cross
+    # GHC and cabal. Both are needed, so both are keyed together on the pinned
+    # ghc-wasm-meta revision and compiler versions.
+    - name: Cache GHC WebAssembly toolchain
+      id: cache-wasm
+      uses: actions/cache@v5
+      with:
+        path: |
+          ~/.ghc-wasm
+          ~/.ghcup
+        key: ${{ runner.os }}-wasm-toolchain-${{ env.GHC_WASM_META_REV }}-ghc-${{ env.WASM_GHC_VERSION }}-cabal-${{ env.CABAL_VERSION }}
 
     - name: Install GHC WebAssembly toolchain
+      if: steps.cache-wasm.outputs.cache-hit != 'true'
       run: |
         mkdir -p "$RUNNER_TEMP/ghc-wasm-meta"
-        curl --fail --location --retry 5 https://gitlab.haskell.org/haskell-wasm/ghc-wasm-meta/-/archive/358ea50b8496a69da6ce375c0c58bc049dbcb92d/ghc-wasm-meta-358ea50b8496a69da6ce375c0c58bc049dbcb92d.tar.gz | tar xz --strip-components=1 --directory "$RUNNER_TEMP/ghc-wasm-meta"
+        curl --fail --location --retry 5 "https://gitlab.haskell.org/haskell-wasm/ghc-wasm-meta/-/archive/$GHC_WASM_META_REV/ghc-wasm-meta-$GHC_WASM_META_REV.tar.gz" | tar xz --strip-components=1 --directory "$RUNNER_TEMP/ghc-wasm-meta"
         SKIP_GHC=1 FLAVOUR=9.14 "$RUNNER_TEMP/ghc-wasm-meta/setup.sh"
+        # shellcheck source=/dev/null
         . ~/.ghc-wasm/env
-        ghcup install cabal 3.14.1.1 --set
-        ghcup -s "file://$RUNNER_TEMP/ghc-wasm-meta/ghcup-wasm-0.0.9.yaml" install ghc wasm32-wasi-9.14.1.20260731 --set -- $CONFIGURE_ARGS
-        cabal update
+        ghcup install cabal "$CABAL_VERSION" --set
+        ghcup -s "file://$RUNNER_TEMP/ghc-wasm-meta/ghcup-wasm-0.0.9.yaml" install ghc "wasm32-wasi-$WASM_GHC_VERSION" --set -- $CONFIGURE_ARGS
+
+    # Runs on a cache hit too: this is what puts the wasm tools on PATH and
+    # exports CC/AR/LD and friends for every later step.
+    - name: Activate toolchain
+      run: |
+        echo "$HOME/.ghcup/bin" >> "$GITHUB_PATH"
         ~/.ghc-wasm/add_to_github_path.sh
 
     - name: Install JavaScript dependencies
-      run: npm install
+      run: npm ci
+
+    - name: Update Cabal package index
+      run: cabal update
+
+    - name: Cache cabal dependencies
+      uses: actions/cache@v5
+      with:
+        path: ${{ env.CABAL_DIR }}/store
+        key: ${{ runner.os }}-wasm-${{ env.WASM_GHC_VERSION }}-cabal-store-${{ hashFiles('**/*.cabal', 'cabal*.project') }}
+        restore-keys: |
+          ${{ runner.os }}-wasm-${{ env.WASM_GHC_VERSION }}-cabal-store-
 
     - name: Build every example
       run: npm run build-wasm-all
