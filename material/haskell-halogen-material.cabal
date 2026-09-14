@@ -1,6 +1,6 @@
 cabal-version:      3.4
 name:               haskell-halogen-material
-version:            0.1.0.0
+version:            0.2.0.0
 synopsis:           Google Material Components for haskell-halogen-core
 homepage:           https://github.com/Swordlash/haskell-halogen
 license:            Apache-2.0
