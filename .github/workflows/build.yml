@@ -91,19 +91,19 @@ jobs:
         version: ${{env.EM_VERSION}}
         actions-cache-folder: ${{env.EM_CACHE_FOLDER}}
 
-    # Installed through ghcup directly, the way the build-wasm job installs its
-    # own cross-compiler. @haskell-org/ghc-installer cannot be used here: its
-    # GHC-to-emsdk table hardcodes a single entry, 9.12.1, and hard-exits on
-    # anything else, which would pin this repository to that GHC indefinitely.
+    # Uses the ghcup the runner image already ships, the way the build-wasm job
+    # installs its own cross-compiler. Do not bootstrap ghcup here: the image
+    # puts it in a root-owned /usr/local/.ghcup, so get-ghcup.haskell.org fails
+    # trying to chmod the existing binary.
+    #
+    # @haskell-org/ghc-installer cannot be used either: its GHC-to-emsdk table
+    # hardcodes a single entry, 9.12.1, and hard-exits on anything else, which
+    # would pin this repository to that GHC indefinitely.
     - name: Install GHC JavaScript toolchain
       run: |
-        curl --proto '=https' --tlsv1.2 --fail --location --retry 5 --silent --show-error https://get-ghcup.haskell.org | \
-          BOOTSTRAP_HASKELL_NONINTERACTIVE=1 BOOTSTRAP_HASKELL_MINIMAL=1 sh
-        . ~/.ghcup/env
         ghcup config add-release-channel cross
         ghcup install cabal ${{ env.CABAL_VERSION }} --set
         emconfigure ghcup install ghc --set javascript-unknown-ghcjs-${{ env.GHCJS_VERSION }}
-        echo "$HOME/.ghcup/bin" >> "$GITHUB_PATH"
 
     - name: Install JavaScript dependencies
       run: npm install
