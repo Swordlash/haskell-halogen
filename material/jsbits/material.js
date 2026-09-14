@@ -1,0 +1,87 @@
+import {MDCTabBar} from '@material/tab-bar';
+import {MDCList} from '@material/list';
+import {MDCRipple} from '@material/ripple';
+import {MDCTextField} from '@material/textfield';
+import {MDCFormField} from '@material/form-field';
+import {MDCRadio} from '@material/radio';
+import {MDCCheckbox} from '@material/checkbox';
+
+function halogen_init_material_ripple(element) {
+  return new MDCRipple(element);
+}
+
+function halogen_destroy_material_ripple(mdcRipple) {
+  mdcRipple.destroy();
+}
+
+function halogen_init_material_list(element) {
+  return new MDCList(element);
+}
+
+function halogen_init_material_list_items(mdcList) {
+  return mdcList.listElements.map((listItemEl) => new MDCRipple(listItemEl));
+}
+
+function halogen_destroy_material_list(mdcList) {
+  mdcList.destroy();
+}
+
+function halogen_init_material_tab_bar(element) {
+  return new MDCTabBar(element);
+}
+
+function halogen_destroy_material_tab_bar(mdcTabBar) {
+  mdcTabBar.destroy();
+}
+
+function halogen_init_material_text_field(element) {
+  return new MDCTextField(element);
+}
+
+function halogen_destroy_material_text_field(mdcTextField) {
+  mdcTextField.destroy();
+}
+
+function halogen_init_material_radio_button(element) {
+  const radio = new MDCRadio(element);
+  const formField = new MDCFormField(element.parentElement);
+  formField.input = radio;
+
+  return formField;
+}
+
+function halogen_destroy_material_radio_button(mdcFormField) {
+  mdcFormField.input.destroy();
+  mdcFormField.destroy();
+}
+
+function halogen_init_material_checkbox(element) {
+  const checkbox = new MDCCheckbox(element);
+  const formField = new MDCFormField(element.parentElement);
+  formField.input = checkbox;
+
+  return formField;
+}
+
+function halogen_destroy_material_checkbox(mdcFormField) {
+  mdcFormField.input.destroy();
+  mdcFormField.destroy();
+}
+
+// The GHC JavaScript backend resolves these names from this js-sources module,
+// while the WebAssembly JSFFI resolves them through the browser global object.
+Object.assign(globalThis, {
+  halogen_init_material_ripple,
+  halogen_destroy_material_ripple,
+  halogen_init_material_list,
+  halogen_init_material_list_items,
+  halogen_destroy_material_list,
+  halogen_init_material_tab_bar,
+  halogen_destroy_material_tab_bar,
+  halogen_init_material_text_field,
+  halogen_destroy_material_text_field,
+  halogen_init_material_radio_button,
+  halogen_destroy_material_radio_button,
+  halogen_init_material_checkbox,
+  halogen_destroy_material_checkbox,
+});

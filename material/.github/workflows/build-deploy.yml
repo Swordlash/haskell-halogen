@@ -1,0 +1,61 @@
+name: Build & deploy
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
+# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build-deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '24'
+
+    - name: Install GHC WebAssembly toolchain
+      run: |
+        mkdir -p "$RUNNER_TEMP/ghc-wasm-meta"
+        curl --fail --location --retry 5 https://gitlab.haskell.org/haskell-wasm/ghc-wasm-meta/-/archive/358ea50b8496a69da6ce375c0c58bc049dbcb92d/ghc-wasm-meta-358ea50b8496a69da6ce375c0c58bc049dbcb92d.tar.gz | tar xz --strip-components=1 --directory "$RUNNER_TEMP/ghc-wasm-meta"
+        SKIP_GHC=1 FLAVOUR=9.14 "$RUNNER_TEMP/ghc-wasm-meta/setup.sh"
+        . ~/.ghc-wasm/env
+        ghcup install cabal 3.14.1.1 --set
+        ghcup -s "file://$RUNNER_TEMP/ghc-wasm-meta/ghcup-wasm-0.0.9.yaml" install ghc wasm32-wasi-9.14.1.20260731 --set -- $CONFIGURE_ARGS
+        cabal update
+        ~/.ghc-wasm/add_to_github_path.sh
+
+    - name: Install JavaScript dependencies
+      run: npm install
+
+    - name: Build
+      run: npm run build
+
+    - name: Upload dist to GH Pages artifact
+      id: deployment
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: ./dist-newstyle/wasm/public
+
+    - name: Setup Pages
+      uses: actions/configure-pages@v5
+
+    - name: Deploy to GitHub Pages
+      uses: actions/deploy-pages@v4

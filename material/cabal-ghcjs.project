@@ -1,0 +1,20 @@
+packages: .
+
+allow-newer:
+  *:*
+
+with-compiler: javascript-unknown-ghcjs-ghc-9.12.2
+with-hc-pkg: javascript-unknown-ghcjs-ghc-pkg-9.12.2
+
+package *
+  ghc-options: -O2 -fexpose-all-unfoldings -fspecialise-aggressively -ddisable-js-c-sources
+
+source-repository-package
+  type: git
+  location: https://github.com/tomjaguarpaw/protolude
+  tag: 57ffd726d9685a862df8c9773f3eb09de2b89594
+
+source-repository-package
+  type: git
+  location: https://github.com/Swordlash/haskell-halogen.git
+  tag: ffbd3d4b0b46192b2c5e219034a4c958afd24419

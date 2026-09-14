@@ -1,0 +1,45 @@
+{
+  "name": "haskell-halogen-material",
+  "version": "0.1.0",
+  "dependencies": {
+    "@material/button": "^14.0.0",
+    "@material/checkbox": "^14.0.0",
+    "@material/form-field": "^14.0.0",
+    "@material/list": "^14.0.0",
+    "@material/radio": "^14.0.0",
+    "@material/tab-bar": "^14.0.0",
+    "@material/textfield": "^14.0.0"
+  },
+  "devDependencies": {
+    "@haskell-org/ghc-installer": "^0.1.6",
+    "@swc/core": "^1.10.4",
+    "compression-webpack-plugin": "^11.1.0",
+    "css-loader": "^7.1.2",
+    "execa": "^9.6.1",
+    "html-webpack-plugin": "^5.6.3",
+    "http-server": "^14.1.1",
+    "sass": "^1.83.0",
+    "sass-loader": "^16.0.4",
+    "schema-utils": "^4.4.0",
+    "style-loader": "^4.0.0",
+    "swc-loader": "^0.2.6",
+    "webpack": "^5.97.1",
+    "webpack-cli": "^6.0.1"
+  },
+  "scripts": {
+    "build-native": "cabal build all --builddir=dist-newstyle/native",
+    "build": "npm run build-wasm",
+    "build-js": "npx webpack-cli --config webpack.config.js",
+    "build-js-ci": "npx webpack-cli --config webpack.config-ci.js",
+    "build-js-dev": "npx webpack-cli --config webpack.config-dev.js",
+    "build-serve": "npm run build && npm run serve-wasm",
+    "build-serve-js": "npm run build-js-dev && npm run serve-js",
+    "build-wasm": "NODE_ENV=production ./wasm.sh",
+    "build-serve-wasm": "npm run build-wasm && npm run serve-wasm",
+    "dev-wasm": "./dev-wasm.sh",
+    "format": "./run_fourmolu.sh",
+    "clean": "rm -rf dist/*",
+    "serve-js": "http-server dist",
+    "serve-wasm": "http-server dist-newstyle/wasm/public"
+  }
+}
