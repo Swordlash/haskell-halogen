@@ -140,6 +140,8 @@ library
 
       Halogen.Component
       Halogen.Component.Debounced
+      Halogen.Canvas
+      Halogen.Canvas.Pixi
       Halogen.Subscription
 
       Halogen.Portal
@@ -176,12 +178,14 @@ library
       
     other-modules:
       HPrelude
+      Halogen.Canvas.Pixi.FFI
     
     hs-source-dirs:   src
 
     if arch(javascript)
       js-sources:
         jsbits/monad_dom.js
+        jsbits/pixi.js
 
       ghc-options: -fexpose-all-unfoldings
 
@@ -194,6 +198,18 @@ library
 executable halogen-core-prototype
   import: commons
   main-is:          Main.hs
+  build-depends:    haskell-halogen-core
+  hs-source-dirs:   app
+
+  if arch(wasm32)
+    ghc-options:
+      -no-hs-main
+      -optl-mexec-model=reactor
+      "-optl-Wl,--export=hs_start"
+
+executable halogen-pixi-example
+  import: commons
+  main-is:          CanvasExample.hs
   build-depends:    haskell-halogen-core
   hs-source-dirs:   app
 
