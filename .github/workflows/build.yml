@@ -27,7 +27,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - uses: haskell-actions/setup@v2
       id: setup
@@ -42,7 +42,7 @@ jobs:
         cabal build all --builddir=dist-newstyle/native --dry-run
 
     - name: Restore cached dependencies
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@v5
       id: cache
       env:
         key: ${{ runner.os }}-ghc-${{ steps.setup.outputs.ghc-version }}-cabal-${{ steps.setup.outputs.cabal-version }}
@@ -56,7 +56,7 @@ jobs:
       run: cabal build all --builddir=dist-newstyle/native --only-dependencies
 
     - name: Save cached dependencies
-      uses: actions/cache/save@v4
+      uses: actions/cache/save@v5
       if: steps.cache.outputs.cache-hit != 'true'
       with:
         path: ${{ steps.setup.outputs.cabal-store }}
@@ -73,22 +73,22 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Setup Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v5
       with:
         node-version: '24'
 
     - name: Setup cache
       id: cache-system-libraries
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ${{env.EM_CACHE_FOLDER}}
         key: emsdk-${{env.EM_VERSION}}-${{ runner.os }}
 
     - name: Setup EMSDK
-      uses: mymindstorm/setup-emsdk@v14
+      uses: emscripten-core/setup-emsdk@v16
       with:
         version: ${{env.EM_VERSION}}
         actions-cache-folder: ${{env.EM_CACHE_FOLDER}}
@@ -114,7 +114,7 @@ jobs:
       run: cabal update
 
     - name: Cache cabal dependencies
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ${{ env.CABAL_DIR }}/store
         key: ${{ runner.os }}-ghcjs-${{ env.GHCJS_VERSION }}-cabal-store-${{ hashFiles('**/*.cabal', 'cabal*.project') }}
@@ -129,10 +129,10 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Setup Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v5
       with:
         node-version: '24'
 
