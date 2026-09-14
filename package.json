@@ -1,6 +1,7 @@
 {
-  "name": "haskell-halogen-material",
+  "name": "haskell-halogen",
   "version": "0.1.0",
+  "private": true,
   "dependencies": {
     "@material/button": "^14.0.0",
     "@material/checkbox": "^14.0.0",
@@ -28,18 +29,18 @@
   },
   "scripts": {
     "build-native": "cabal build all --builddir=dist-newstyle/native",
-    "build": "npm run build-wasm",
-    "build-js": "npx webpack-cli --config webpack.config.js",
-    "build-js-ci": "npx webpack-cli --config webpack.config-ci.js",
-    "build-js-dev": "npx webpack-cli --config webpack.config-dev.js",
-    "build-serve": "npm run build && npm run serve-wasm",
-    "build-serve-js": "npm run build-js-dev && npm run serve-js",
-    "build-wasm": "NODE_ENV=production ./wasm.sh",
-    "build-serve-wasm": "npm run build-wasm && npm run serve-wasm",
-    "dev-wasm": "./dev-wasm.sh",
-    "format": "./run_fourmolu.sh",
-    "clean": "rm -rf dist/*",
-    "serve-js": "http-server dist",
-    "serve-wasm": "http-server dist-newstyle/wasm/public"
+    "test-native": "cabal test all --builddir=dist-newstyle/native",
+    "build": "npm run build-wasm-all",
+    "build-wasm": "sh toolchain/build-wasm.sh",
+    "build-wasm-all": "sh toolchain/build-wasm-all.sh",
+    "serve-wasm": "sh toolchain/serve-wasm.sh",
+    "serve-ghcjs": "sh toolchain/serve-ghcjs.sh",
+    "build-js": "npx webpack-cli --config examples/material/webpack.config-js.js",
+    "build-js-ci": "npx webpack-cli --config examples/material/webpack.config-js-ci.js",
+    "build-js-dev": "npx webpack-cli --config examples/material/webpack.config-js-dev.js",
+    "dev-wasm": "sh examples/material/dev-wasm.sh",
+    "format": "sh run_fourmolu.sh",
+    "test": "sh toolchain/run-tests.sh",
+    "clean": "rm -rf dist-newstyle/wasm/public dist-newstyle/ghcjs"
   }
 }

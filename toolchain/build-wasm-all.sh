@@ -6,6 +6,10 @@ set -eu
 cd "$(dirname "$0")/.."
 
 public_dir=dist-newstyle/wasm/public
+
+# Start clean so a renamed or removed example cannot leave stale files behind
+# in what the Pages deploy uploads.
+rm -rf "$public_dir"
 mkdir -p "$public_dir"
 
 examples=$(find examples -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort)

@@ -1,34 +1,19 @@
 cabal-version:      3.4
 name:               haskell-halogen-material
 version:            0.1.0.0
--- synopsis:
--- description:
+synopsis:           Google Material Components for haskell-halogen-core
+homepage:           https://github.com/Swordlash/haskell-halogen
 license:            Apache-2.0
 license-file:       LICENSE
 author:             Mateusz Goślinowski
 maintainer:         mateusz.goslinowski@gmail.com
--- copyright:
 category:           Web
 build-type:         Simple
 extra-doc-files:    CHANGELOG.md
-extra-source-files:
-    cabal-wasm.project
-    dev/index.html
-    dev/wasm-ghci.html
-    dev/wasm.js
-    dev-wasm.sh
-    toolchain/haskell-loader.mjs
-    wasm.sh
-    webpack.config-wasm.js
-
-flag interactive
-    description: Run the example app in browser GHCi
-    default:     False
-    manual:      True
 
 common warnings
     ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists -Wno-ambiguous-fields
-    default-extensions: 
+    default-extensions:
         OverloadedStrings
         CPP
         StrictData
@@ -40,14 +25,14 @@ common warnings
         NoImplicitPrelude
         RequiredTypeArguments
         TypeAbstractions
-    build-depends: 
-        base, 
-        protolude, 
-        unliftio, 
-        text, 
-        containers, 
-        haskell-halogen-core, 
-        clay, 
+    build-depends:
+        base,
+        protolude,
+        unliftio,
+        text,
+        containers,
+        haskell-halogen-core,
+        clay,
         row-types,
         extra,
         uuid-types
@@ -57,7 +42,7 @@ common warnings
 
 library
     import:           warnings
-    exposed-modules:  
+    exposed-modules:
         Halogen.Material.Button
         Halogen.Material.Checkbox
         Halogen.Material.Icons
@@ -72,21 +57,7 @@ library
     if arch(javascript)
         js-sources: jsbits/material.js
 
-executable halogen-material-app
-    import:           warnings
-    main-is:          Main.hs
-    build-depends:
-        haskell-halogen-material
-
-    hs-source-dirs:   app
-    default-language: GHC2024
-
-    if arch(wasm32) && !flag(interactive)
-        ghc-options:
-            -no-hs-main
-            -optl-mexec-model=reactor
-            "-optl-Wl,--export=hs_start"
-        cpp-options: -DWASM
-
-    if flag(interactive)
-        cpp-options: -DINTERACTIVE
+source-repository head
+  type:     git
+  location: https://github.com/Swordlash/haskell-halogen.git
+  subdir:   material

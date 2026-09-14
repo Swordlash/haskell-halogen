@@ -1,84 +1,119 @@
 # haskell-halogen
 
-A port of [purescript-halogen](https://github.com/purescript-halogen/purescript-halogen/) library to GHC Haskell.
+[![CI Build](https://github.com/Swordlash/haskell-halogen/actions/workflows/build.yml/badge.svg)](https://github.com/Swordlash/haskell-halogen/actions/workflows/build.yml)
 
-## Running the project
+A port of [purescript-halogen](https://github.com/purescript-halogen/purescript-halogen/) to GHC
+Haskell, plus the component and rendering libraries built on top of it.
 
-While the library itself compiles under any GHC (tested with 9.6-9.12) to compile the example app you need a `javascript-unknown-ghcjs-ghc-9.12.1`, cross-compiled GHC executable capable of compiling sources to JavaScript (9.10 works as well).
+The examples are deployed [here](https://swordlash.github.io/haskell-halogen/).
 
-The easiest way to get it is to use `ghcup` precompiled binaries from [here](https://www.haskell.org/ghcup/guide/#cross-support), then run
+![image](screenshot.png)
 
-```
-./run_dev_server_minify.sh
-```
+## Packages
 
-to compile the JS sources and serve them on localhost. 
+| Directory | Package | What it is |
+| --- | --- | --- |
+| [core/](core/) | `haskell-halogen-core` | The Halogen port itself: components, VDom, events, SVG, layouts. |
+| [material/](material/) | `haskell-halogen-material` | Google Material Components bindings. |
+| [pixi/](pixi/) | `haskell-halogen-pixi` | A PixiJS v8 canvas rendering backend. |
+| [examples/](examples/) | `halogen-example-*` | One runnable browser app per library. |
 
-You may need to run `npm i -g http-server` if you don't have the `http-server` already installed.
+`core` is dependency-free with respect to the others; `material` and `pixi` each depend only on
+`core`. Every package builds from the one `cabal.project` at the repository root, so a change to
+`core` is type-checked against every dependent and every example in the same build.
 
-## WebAssembly
+## Building
 
-With the GHC wasm toolchain installed (the version is pinned in
-`cabal-wasm.project`), build the browser bundle and serve it with:
+The library itself compiles under any GHC from 9.6 to 9.12. The browser targets need a
+cross-compiler.
 
-```
-./serve-wasm.sh
-```
-
-Then open <http://127.0.0.1:8080>. The browser loader follows the same reactor
-module and JSFFI post-linking setup as `paladyn-game`.
-
-`serve-wasm.sh` rebuilds the bundle before starting `npx http-server`. Use
-`./wasm.sh` directly when only a build is needed.
-
-Run `./run_tests.sh` to exercise the native, JavaScript, and wasm targets.
-
-## Pixi canvas example
-
-The reusable `Halogen.Canvas` component owns the canvas lifecycle and abstracts
-over rendering backends. `Halogen.Canvas.Pixi` supplies a PixiJS backend and a
-declarative `Drawing event` monad with groups, atomic graphics primitives
-(lines, rectangles, circles, ellipses, arcs, and Bézier curves), asset-backed
-textures, and interactive sprites. Higher-level drawings such as grids are
-ordinary Haskell composition rather than renderer primitives. Drawing events
-are raised as typed component outputs; camera changes are reported separately.
-The example loads its repository-owned `dev/pixi-tile.svg` through
-`Texture "./pixi-tile.svg"`, exercising the same Pixi asset-loading path used
-for application textures. It also loads a pinned WOFF2 font from jsDelivr with
-`AssetFont`; the same `source` field accepts a relative application asset such
-as `"./fonts/game.woff2"`. Use `SystemFont` when no loading is required.
-
-Wrap stable scene items in `keyed key drawing`. Subsequent `View` inputs
-reconcile those keys, retain their Pixi display objects and click handlers, and
-only apply changed visual properties; removed keys are destroyed. Unkeyed
-siblings receive automatic position keys at each scene-tree level, which keeps
-duplicates distinct. Explicit keys are only needed when identity must survive
-insertion, removal, or reordering. Camera transforms operate directly on the
-retained scene. Pan changes are reported when the gesture ends, while wheel
-changes are coalesced until the wheel burst has been idle for 120 ms.
-
-Each mounted canvas owns its own Pixi `Application`, renderer, stage, event
-system, and GPU canvas context. Browsers cache evaluation of the dynamically
-imported Pixi module by URL, so multiple canvases reuse the same module and
-Pixi asset cache rather than downloading/evaluating Pixi repeatedly.
-
-The `halogen-pixi-example` executable is intentionally small: it constructs a
-scene with the drawing monad and subscribes to its outputs. All mounting,
-updates, pointer handling, rendering, and cleanup live in the library modules.
-
-With the GHC wasm toolchain installed, build and serve it with:
-
-```
-chmod +x wasm-pixi.sh serve-wasm-pixi.sh
-./serve-wasm-pixi.sh
+```sh
+npm install                  # once, for the webpack/sass/material toolchain
+npm run build-native         # every package, host GHC
+npm run test                 # test suites across native, JavaScript and wasm
 ```
 
-The script opens <http://127.0.0.1:8080> automatically. The default renderer
-loads its pinned PixiJS module from jsDelivr when mounted, so applications do
-not need a Pixi JavaScript shim or global. The example requires network access
-when opened. Use `componentWith (Config { moduleUrl = ... })` to load a
-self-hosted or bundled PixiJS v8 module instead.
+### WebAssembly
 
-The development server scripts open the selected port in the default browser
-automatically. Set `PORT` to choose another port, or `NO_OPEN=1` to suppress
-opening the browser (for example in CI).
+The default browser and deployment target. It requires the
+[ghc-wasm-meta](https://gitlab.haskell.org/haskell-wasm/ghc-wasm-meta) toolchain to be bootstrapped
+first — the build scripts source `~/.ghc-wasm/env` and will fail without it:
+
+```sh
+git clone https://gitlab.haskell.org/haskell-wasm/ghc-wasm-meta.git
+cd ghc-wasm-meta && FLAVOUR=9.14 ./setup.sh
+```
+
+That installs `wasm32-wasi-ghc` and friends under `~/.ghc-wasm`. The exact GHC version this
+repository builds against is pinned in `cabal-wasm.project`, and `.github/workflows/build.yml`
+pins the ghc-wasm-meta revision CI bootstraps from — keep the two in step when bumping either.
+
+With that in place, build and serve any example by name:
+
+```sh
+npm run serve-wasm -- pixi        # or: vanilla, material
+npm run build-wasm-all            # every example plus the index page
+```
+
+`serve-wasm` opens <http://127.0.0.1:8080> automatically. Set `PORT` to choose another port, or
+`NO_OPEN=1` to suppress opening the browser (for example in CI).
+
+For browser hot reload of the material example, install
+[ghciwatch](https://mercurytechnologies.github.io/ghciwatch/) and run `npm run dev-wasm`. This
+starts wasm browser GHCi, opens its Material-enabled page, and reruns `main` after Haskell source
+changes.
+
+### JavaScript backend
+
+Needs a `javascript-unknown-ghcjs-ghc` cross-compiler; the easiest way to get one is the `ghcup`
+precompiled binaries described [here](https://www.haskell.org/ghcup/guide/#cross-support).
+
+```sh
+npm run serve-ghcjs -- vanilla    # cabal build + http-server
+npm run build-js                  # material example, bundled into dist/ via webpack
+```
+
+Build artifacts are kept in `dist-newstyle/native`, `dist-newstyle/javascript`,
+`dist-newstyle/wasm` and `dist-newstyle/wasm-dev` respectively.
+
+## Adding an example
+
+Create `examples/<name>/` with a `halogen-example-<name>.cabal` (executable named
+`halogen-example-<name>`), a `Main.hs`, and a `web/` directory holding `index.html` and an
+`index.js` that fetches `./app.wasm`. The `examples/*` glob in `cabal.project` picks the package up,
+and `toolchain/build-wasm-all.sh` picks up the directory — nothing else needs editing. If the
+example needs bundling, add a `webpack.config.js` beside it and the build script will run it,
+passing the output directory in `WASM_PUBLIC_DIR`.
+
+## Canvas rendering
+
+`Halogen.Canvas` (in `core`) is a component that owns a canvas DOM node and delegates to a
+`Renderer` record, which a backend implements by supplying `mount`, `update` and `destroy`.
+
+`haskell-halogen-pixi` supplies a PixiJS v8 backend behind that interface, with a declarative
+`Drawing` monad: groups, atomic graphics primitives (lines, rectangles, circles, ellipses, arcs and
+Bézier curves), asset-backed textures, and interactive sprites. Higher-level drawings such as grids
+are ordinary Haskell composition rather than renderer primitives. Drawing events are raised as typed
+component outputs; camera changes are reported separately.
+
+Wrap stable scene items in `keyed key drawing`. Subsequent `View` inputs reconcile those keys, retain
+their Pixi display objects and click handlers, and only apply changed visual properties; removed keys
+are destroyed. Unkeyed siblings receive automatic position keys at each scene-tree level, which keeps
+duplicates distinct. Explicit keys are only needed when identity must survive insertion, removal or
+reordering. Camera transforms operate directly on the retained scene. Pan changes are reported when
+the gesture ends, while wheel changes are coalesced until the wheel burst has been idle for 120 ms.
+
+Each mounted canvas owns its own Pixi `Application`, renderer, stage, event system and GPU canvas
+context. Browsers cache evaluation of the dynamically imported Pixi module by URL, so multiple
+canvases reuse the same module and Pixi asset cache rather than downloading and evaluating Pixi
+repeatedly.
+
+The default renderer loads its pinned PixiJS module from jsDelivr when mounted, so applications need
+no Pixi JavaScript shim or global — but the example does need network access when opened. Use
+`componentWith (Config { moduleUrl = ... })` to load a self-hosted or bundled PixiJS v8 module
+instead.
+
+## Releases
+
+One repository, one tag namespace: releases are tagged with a package prefix, such as `core-v0.9.0`
+or `material-v0.1.0`. Each package keeps its own `CHANGELOG.md` and uploads to Hackage separately.

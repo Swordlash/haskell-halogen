@@ -38,11 +38,11 @@ module Halogen.Canvas.Pixi
   )
 where
 
+import Data.IORef
 import Halogen qualified as H
 import Halogen.Canvas qualified as Canvas
 import Halogen.Canvas.Pixi.FFI qualified as FFI
 import Protolude hiding (group)
-import Data.IORef
 
 data Point = Point Double Double
   deriving stock (Eq, Show)
@@ -169,17 +169,22 @@ mapEvents transform View {camera, interaction, nodes} =
   View {camera, interaction, nodes = map (mapNode transform) nodes}
 
 mapNode :: (event -> event') -> Node event -> Node event'
-mapNode transform Node {nodeKey, nodeEvent, content} = Node {nodeKey, nodeEvent = map transform nodeEvent, content = case content of
-  Group groupTransform children -> Group groupTransform $ map (mapNode transform) children
-  Line start end strokeStyle -> Line start end strokeStyle
-  Rectangle position size fillStyle strokeStyle -> Rectangle position size fillStyle strokeStyle
-  Circle position radius fillStyle strokeStyle -> Circle position radius fillStyle strokeStyle
-  Ellipse position radius fillStyle strokeStyle -> Ellipse position radius fillStyle strokeStyle
-  QuadraticBezier start control end strokeStyle -> QuadraticBezier start control end strokeStyle
-  Bezier start control1 control2 end strokeStyle -> Bezier start control1 control2 end strokeStyle
-  Arc position radius startAngle endAngle anticlockwise strokeStyle -> Arc position radius startAngle endAngle anticlockwise strokeStyle
-  Label position value textStyle -> Label position value textStyle
-  Sprite position size texture -> Sprite position size texture}
+mapNode transform Node {nodeKey, nodeEvent, content} =
+  Node
+    { nodeKey
+    , nodeEvent = map transform nodeEvent
+    , content = case content of
+        Group groupTransform children -> Group groupTransform $ map (mapNode transform) children
+        Line start end strokeStyle -> Line start end strokeStyle
+        Rectangle position size fillStyle strokeStyle -> Rectangle position size fillStyle strokeStyle
+        Circle position radius fillStyle strokeStyle -> Circle position radius fillStyle strokeStyle
+        Ellipse position radius fillStyle strokeStyle -> Ellipse position radius fillStyle strokeStyle
+        QuadraticBezier start control end strokeStyle -> QuadraticBezier start control end strokeStyle
+        Bezier start control1 control2 end strokeStyle -> Bezier start control1 control2 end strokeStyle
+        Arc position radius startAngle endAngle anticlockwise strokeStyle -> Arc position radius startAngle endAngle anticlockwise strokeStyle
+        Label position value textStyle -> Label position value textStyle
+        Sprite position size texture -> Sprite position size texture
+    }
 
 emitNode :: Node event -> Drawing event ()
 emitNode node = Drawing ((), [node])
@@ -188,16 +193,24 @@ emitNode node = Drawing ((), [node])
 -- node receives the key directly; a multi-node drawing is retained as a keyed
 -- group.
 keyed :: Text -> Drawing event a -> Drawing event a
-keyed key (Drawing (result, nodes)) = Drawing (result, case nodes of
-  [node] -> [node {nodeKey = Just key}]
-  _ -> [Node {nodeKey = Just key, nodeEvent = Nothing, content = Group defaultTransform nodes}])
+keyed key (Drawing (result, nodes)) =
+  Drawing
+    ( result
+    , case nodes of
+        [node] -> [node {nodeKey = Just key}]
+        _ -> [Node {nodeKey = Just key, nodeEvent = Nothing, content = Group defaultTransform nodes}]
+    )
 
 -- | Raise an event when the drawing is clicked. Like 'keyed', this applies
 -- directly to one node and groups a multi-node drawing when necessary.
 clickable :: event -> Drawing event a -> Drawing event a
-clickable event (Drawing (result, nodes)) = Drawing (result, case nodes of
-  [node] -> [node {nodeEvent = Just event}]
-  _ -> [Node {nodeKey = Nothing, nodeEvent = Just event, content = Group defaultTransform nodes}])
+clickable event (Drawing (result, nodes)) =
+  Drawing
+    ( result
+    , case nodes of
+        [node] -> [node {nodeEvent = Just event}]
+        _ -> [Node {nodeKey = Nothing, nodeEvent = Just event, content = Group defaultTransform nodes}]
+    )
 
 group :: Transform -> Drawing event a -> Drawing event a
 group transform (Drawing (result, nodes)) = Drawing (result, [Node {nodeKey = Nothing, nodeEvent = Nothing, content = Group transform nodes}])
@@ -230,9 +243,10 @@ sprite :: Point -> Point -> Texture -> Drawing event ()
 sprite position size texture = emitNode $ Node Nothing Nothing $ Sprite position size texture
 
 defaultConfig :: Config
-defaultConfig = Config
-  { moduleUrl = "https://cdn.jsdelivr.net/npm/pixi.js@8.20.1/dist/pixi.min.mjs"
-  }
+defaultConfig =
+  Config
+    { moduleUrl = "https://cdn.jsdelivr.net/npm/pixi.js@8.20.1/dist/pixi.min.mjs"
+    }
 
 componentWith :: Config -> H.Component H.VoidF (View event) (CanvasEvent event) IO
 componentWith = Canvas.component . rendererWith
@@ -241,7 +255,6 @@ component :: H.Component H.VoidF (View event) (CanvasEvent event) IO
 component = componentWith defaultConfig
 
 rendererWith :: Config -> Canvas.Renderer (View event) (CanvasEvent event)
-
 renderer :: Canvas.Renderer (View event) (CanvasEvent event)
 renderer = rendererWith defaultConfig
 
@@ -543,11 +556,14 @@ installInteraction :: Runtime event -> FFI.Object -> IO ()
 installInteraction runtime@Runtime {app, canvas, camera, drag} root = do
   FFI.enableStageEvents app
   down <- registerPermanent runtime $ \event -> do
-    readIORef runtime.pending >>= traverse_ (\View {interaction} -> when interaction.pan $ do
-      pointerId <- FFI.pointerId event
-      x <- FFI.globalX event
-      y <- FFI.globalY event
-      writeIORef drag $ Just (pointerId, x, y, False))
+    readIORef runtime.pending
+      >>= traverse_
+        ( \View {interaction} -> when interaction.pan $ do
+            pointerId <- FFI.pointerId event
+            x <- FFI.globalX event
+            y <- FFI.globalY event
+            writeIORef drag $ Just (pointerId, x, y, False)
+        )
   FFI.onPointerDown app down
   move <- registerPermanent runtime $ \event -> do
     currentView <- readIORef runtime.pending
@@ -567,9 +583,12 @@ installInteraction runtime@Runtime {app, canvas, camera, drag} root = do
   FFI.onPointerMove app move
   end <- registerPermanent runtime $ \event -> do
     pointerId <- FFI.pointerId event
-    readIORef drag >>= traverse_ (\(activePointer, _, _, moved) -> when (pointerId == activePointer) $ do
-      writeIORef drag Nothing
-      when moved $ readIORef camera >>= runtime.emit . CameraChanged)
+    readIORef drag
+      >>= traverse_
+        ( \(activePointer, _, _, moved) -> when (pointerId == activePointer) $ do
+            writeIORef drag Nothing
+            when moved $ readIORef camera >>= runtime.emit . CameraChanged
+        )
   FFI.onPointerEnd app end
   wheelSettled <- registerPermanent runtime $ \_ -> do
     writeIORef runtime.cameraTimer Nothing

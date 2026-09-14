@@ -5,13 +5,15 @@ const CompressionPlugin = require("compression-webpack-plugin");
 const webpack = require('webpack');
 
 module.exports = {
+  // Entries are relative to this file, not the repo root we are invoked from.
+  context: __dirname,
   entry: 
-    [ './cabal-ghcjs.project'
-    , './dev/style.scss'
+    [ '../../cabal-ghcjs.project'
+    , './style.scss'
     ],
   output: {
     filename: 'main.js',
-    path: path.resolve(__dirname, 'dist'),
+    path: path.resolve(__dirname, '../../dist'),
   },
   mode: "production",
   resolve: {
@@ -31,7 +33,7 @@ module.exports = {
             loader: "swc-loader"
           },
           {
-            loader: path.resolve(__dirname, "toolchain/haskell-loader.mjs"),
+            loader: path.resolve(__dirname, "../../toolchain/haskell-loader.mjs"),
             options: {
               "build-directory": "dist-newstyle/javascript",
               "with-compiler": "javascript-unknown-ghcjs-ghc-9.12.1",
@@ -40,7 +42,7 @@ module.exports = {
               "system-tools": false,
               "install-ghc": "9.12.1",
               "install-cabal": "3.14.1.1",
-              "executable": "halogen-material-app"
+              "executable": "halogen-example-material"
             }
           }
         ]

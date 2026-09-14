@@ -1,6 +1,7 @@
 packages:
   core
   pixi
+  material
   examples/*
 
 allow-newer: protolude:*

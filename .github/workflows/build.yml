@@ -3,10 +3,10 @@ name: CI Build
 on:
   push:
     branches:
-      - main
+      - master
   pull_request:
     branches:
-      - main
+      - master
 
 env:
   EM_VERSION: 3.1.74
@@ -23,7 +23,7 @@ jobs:
     - uses: haskell-actions/setup@v2
       id: setup
       with:
-        ghc-version: '9.10.1'
+        ghc-version: '9.12.2'
         cabal-version: '3.14.1.1'
         cabal-update: true
 
@@ -39,7 +39,7 @@ jobs:
         key: ${{ runner.os }}-ghc-${{ steps.setup.outputs.ghc-version }}-cabal-${{ steps.setup.outputs.cabal-version }}
       with:
         path: ${{ steps.setup.outputs.cabal-store }}
-        key: ${{ env.key }}-plan-${{ hashFiles('**/plan.json') }}
+        key: ${{ env.key }}-plan-${{ hashFiles('**/plan.json', '**/*.cabal', 'cabal*.project') }}
         restore-keys: ${{ env.key }}-
 
     - name: Install dependencies
@@ -56,6 +56,8 @@ jobs:
     - name: Build
       run: cabal build all --builddir=dist-newstyle/native
 
+    - name: Test
+      run: cabal test all --builddir=dist-newstyle/native
 
   build-js:
     runs-on: ubuntu-latest
@@ -131,5 +133,5 @@ jobs:
     - name: Install JavaScript dependencies
       run: npm install
 
-    - name: Build
-      run: npm run build-wasm
+    - name: Build every example
+      run: npm run build-wasm-all

@@ -1,3 +1,5 @@
+-- Fourmolu rewrites the CPP block inside 'main' below into invalid code.
+{- FOURMOLU_DISABLE -}
 module Main (main, component) where
 
 import Clay qualified as C

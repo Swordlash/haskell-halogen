@@ -1,6 +1,9 @@
 name: Build & deploy
 
 on:
+  push:
+    branches:
+      - master
   workflow_dispatch:
 
 permissions:
@@ -45,11 +48,10 @@ jobs:
     - name: Install JavaScript dependencies
       run: npm install
 
-    - name: Build
-      run: npm run build
+    - name: Build every example
+      run: npm run build-wasm-all
 
-    - name: Upload dist to GH Pages artifact
-      id: deployment
+    - name: Upload examples to GH Pages artifact
       uses: actions/upload-pages-artifact@v3
       with:
         path: ./dist-newstyle/wasm/public
@@ -58,4 +60,5 @@ jobs:
       uses: actions/configure-pages@v5
 
     - name: Deploy to GitHub Pages
+      id: deployment
       uses: actions/deploy-pages@v4

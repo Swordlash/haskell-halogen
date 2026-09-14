@@ -1,18 +1,72 @@
 {-# LANGUAGE CPP #-}
 
 module Halogen.Canvas.Pixi.FFI
-  ( Application, Object, Event, Callback, Canvas, Timer
-  , canvas, newApplication, initializeApplication, applicationCreated, applicationReady
-  , destroyApplication, newContainer, newGraphics, addToStage, addChild, clearContainer
-  , setChildIndex, destroyObject, clearGraphics, moveTo, lineTo, rect, circle, ellipse
-  , quadraticCurveTo, bezierCurveTo, arc, fill, stroke
-  , newText, setSystemText, setAssetText, newSprite, setTexture
-  , centerAnchor, setPosition, setScale, setRotation, setSize, onTap, enableStageEvents
-  , onPointerDown, onPointerMove, onPointerEnd, onWheel, removeWheel, pointerId
-  , globalX, globalY, preventDefault, clientX, clientY, deltaY, canvasLeft, canvasTop
-  , canvasWidth, canvasHeight, screenWidth, screenHeight, mkCallback, freeCallback
-  , scheduleTimeout, cancelTimeout
-  ) where
+  ( Application
+  , Object
+  , Event
+  , Callback
+  , Canvas
+  , Timer
+  , canvas
+  , newApplication
+  , initializeApplication
+  , applicationCreated
+  , applicationReady
+  , destroyApplication
+  , newContainer
+  , newGraphics
+  , addToStage
+  , addChild
+  , clearContainer
+  , setChildIndex
+  , destroyObject
+  , clearGraphics
+  , moveTo
+  , lineTo
+  , rect
+  , circle
+  , ellipse
+  , quadraticCurveTo
+  , bezierCurveTo
+  , arc
+  , fill
+  , stroke
+  , newText
+  , setSystemText
+  , setAssetText
+  , newSprite
+  , setTexture
+  , centerAnchor
+  , setPosition
+  , setScale
+  , setRotation
+  , setSize
+  , onTap
+  , enableStageEvents
+  , onPointerDown
+  , onPointerMove
+  , onPointerEnd
+  , onWheel
+  , removeWheel
+  , pointerId
+  , globalX
+  , globalY
+  , preventDefault
+  , clientX
+  , clientY
+  , deltaY
+  , canvasLeft
+  , canvasTop
+  , canvasWidth
+  , canvasHeight
+  , screenWidth
+  , screenHeight
+  , mkCallback
+  , freeCallback
+  , scheduleTimeout
+  , cancelTimeout
+  )
+where
 
 import Data.Foreign (Foreign)
 import Protolude

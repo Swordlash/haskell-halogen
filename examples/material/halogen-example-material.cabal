@@ -1,0 +1,59 @@
+cabal-version:      3.4
+name:               halogen-example-material
+version:            0.1.0.0
+synopsis:           haskell-halogen-material example app
+license:            Apache-2.0
+author:             Mateusz Goślinowski
+maintainer:         mateusz.goslinowski@gmail.com
+category:           Web
+build-type:         Simple
+
+flag interactive
+    description: Run the example app in browser GHCi
+    default:     False
+    manual:      True
+
+executable halogen-example-material
+    default-language: GHC2024
+    ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists -Wno-ambiguous-fields
+    default-extensions:
+        OverloadedStrings
+        CPP
+        StrictData
+        DuplicateRecordFields
+        NoFieldSelectors
+        OverloadedRecordDot
+        RecordWildCards
+        NamedFieldPuns
+        NoImplicitPrelude
+        RequiredTypeArguments
+        TypeAbstractions
+
+    main-is:          Main.hs
+    hs-source-dirs:   .
+
+    build-depends:
+        base,
+        protolude,
+        unliftio,
+        text,
+        containers,
+        clay,
+        row-types,
+        extra,
+        uuid-types,
+        haskell-halogen-core,
+        haskell-halogen-material
+
+    if arch(wasm32)
+        build-depends: ghc-experimental
+
+    if arch(wasm32) && !flag(interactive)
+        ghc-options:
+            -no-hs-main
+            -optl-mexec-model=reactor
+            "-optl-Wl,--export=hs_start"
+        cpp-options: -DWASM
+
+    if flag(interactive)
+        cpp-options: -DINTERACTIVE
