@@ -1,0 +1,63 @@
+cabal-version:      3.4
+name:               haskell-halogen-material
+version:            0.2.0.0
+synopsis:           Google Material Components for haskell-halogen-core
+homepage:           https://github.com/Swordlash/haskell-halogen
+license:            Apache-2.0
+license-file:       LICENSE
+author:             Mateusz Goślinowski
+maintainer:         mateusz.goslinowski@gmail.com
+category:           Web
+build-type:         Simple
+extra-doc-files:    CHANGELOG.md
+
+common warnings
+    ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists -Wno-ambiguous-fields
+    default-extensions:
+        OverloadedStrings
+        CPP
+        StrictData
+        DuplicateRecordFields
+        NoFieldSelectors
+        OverloadedRecordDot
+        RecordWildCards
+        NamedFieldPuns
+        NoImplicitPrelude
+        RequiredTypeArguments
+        TypeAbstractions
+    build-depends:
+        base,
+        protolude,
+        unliftio,
+        text,
+        containers,
+        haskell-halogen-core,
+        clay,
+        row-types,
+        extra,
+        uuid-types
+
+    if arch(wasm32)
+        build-depends: ghc-experimental
+
+library
+    import:           warnings
+    exposed-modules:
+        Halogen.Material.Button
+        Halogen.Material.Checkbox
+        Halogen.Material.Icons
+        Halogen.Material.List
+        Halogen.Material.Monad
+        Halogen.Material.RadioButton
+        Halogen.Material.Tabs
+        Halogen.Material.TextField
+    hs-source-dirs:   src
+    default-language: GHC2024
+
+    if arch(javascript)
+        js-sources: jsbits/material.js
+
+source-repository head
+  type:     git
+  location: https://github.com/Swordlash/haskell-halogen.git
+  subdir:   material

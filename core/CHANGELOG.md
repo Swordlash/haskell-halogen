@@ -1,4 +1,13 @@
-# Revision history for haskell-halogen
+# Revision history for haskell-halogen-core
+
+## 0.10.0 - 2026-09-14
+
+- Add `Halogen.Canvas`: a renderer-agnostic component that owns a canvas DOM
+  node and delegates mounting, updating and teardown to a `Renderer` record.
+  `haskell-halogen-pixi` implements that interface for PixiJS v8.
+- Move into the `haskell-halogen` monorepo alongside `haskell-halogen-material`
+  and `haskell-halogen-pixi`. The library now lives in `core/`; the example app
+  moved to `examples/vanilla`.
 
 ## 0.9.0 - 2025-05-30
 

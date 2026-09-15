@@ -22,9 +22,5 @@ cabal.project.local~
 .HTF/
 .ghc.environment.*
 
-dev/index.js
 node_modules
 .parcel-cache/
-package.json
-package-lock.json
-webpack.config.js

@@ -1,0 +1,117 @@
+name: Build & deploy
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+env:
+  # Keep in step with .github/workflows/build.yml.
+  WASM_GHC_VERSION: '9.14.1.20260731'
+  GHC_WASM_META_REV: '358ea50b8496a69da6ce375c0c58bc049dbcb92d'
+  CABAL_VERSION: '3.16.1.0'
+  CABAL_DIR: /home/runner/.cabal
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
+# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build-deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v5
+      with:
+        node-version: '24'
+        cache: npm
+
+    # Shares its key with the build-wasm job in build.yml, so whichever runs
+    # first populates it for the other. Only ~/.ghc-wasm is cacheable: ghcup
+    # installs the cross GHC under its own base directory, which lives outside
+    # $HOME on the runner image and is not ours to archive.
+    - name: Cache wasm sysroot
+      uses: actions/cache@v5
+      with:
+        path: ~/.ghc-wasm
+        key: ${{ runner.os }}-ghc-wasm-sysroot-${{ env.GHC_WASM_META_REV }}
+
+    - name: Cache wasm cross-compiler
+      uses: actions/cache@v5
+      with:
+        path: /usr/local/.ghcup/ghc/wasm32-wasi-${{ env.WASM_GHC_VERSION }}
+        key: ${{ runner.os }}-ghcup-wasm32-wasi-${{ env.WASM_GHC_VERSION }}
+
+    # Each half checks for itself rather than trusting cache-hit, so a cache
+    # that turns out not to carry a toolchain repairs itself instead of
+    # failing the build several steps later.
+    - name: Install GHC WebAssembly toolchain
+      run: |
+        mkdir -p "$RUNNER_TEMP/ghc-wasm-meta"
+        curl --fail --location --retry 5 "https://gitlab.haskell.org/haskell-wasm/ghc-wasm-meta/-/archive/$GHC_WASM_META_REV/ghc-wasm-meta-$GHC_WASM_META_REV.tar.gz" | tar xz --strip-components=1 --directory "$RUNNER_TEMP/ghc-wasm-meta"
+        if [ ! -x "$HOME/.ghc-wasm/add_to_github_path.sh" ]; then
+          SKIP_GHC=1 FLAVOUR=9.14 "$RUNNER_TEMP/ghc-wasm-meta/setup.sh"
+        fi
+        # shellcheck source=/dev/null
+        . ~/.ghc-wasm/env
+        if ! ghcup whereis cabal "$CABAL_VERSION" >/dev/null 2>&1; then
+          ghcup install cabal "$CABAL_VERSION"
+        fi
+        ghcup set cabal "$CABAL_VERSION"
+        if ! ghcup whereis ghc "wasm32-wasi-$WASM_GHC_VERSION" >/dev/null 2>&1; then
+          ghcup -s "file://$RUNNER_TEMP/ghc-wasm-meta/ghcup-wasm-0.0.9.yaml" install ghc "wasm32-wasi-$WASM_GHC_VERSION" --set -- $CONFIGURE_ARGS
+        fi
+        ghcup set ghc "wasm32-wasi-$WASM_GHC_VERSION"
+
+    # Puts the wasm tools on PATH and exports CC/AR/LD and friends for every
+    # later step, so it has to run whether or not anything was installed above.
+    - name: Activate toolchain
+      run: |
+        echo "$(ghcup whereis basedir)/ghc/wasm32-wasi-$WASM_GHC_VERSION/bin" >> "$GITHUB_PATH"
+        echo "$(ghcup whereis basedir)/bin" >> "$GITHUB_PATH"
+        ~/.ghc-wasm/add_to_github_path.sh
+
+    - name: Install JavaScript dependencies
+      run: npm ci
+
+    - name: Update Cabal package index
+      run: cabal update
+
+    - name: Cache cabal dependencies
+      uses: actions/cache@v5
+      with:
+        path: ${{ env.CABAL_DIR }}/store
+        key: ${{ runner.os }}-wasm-${{ env.WASM_GHC_VERSION }}-cabal-store-${{ hashFiles('**/*.cabal', 'cabal*.project') }}
+        restore-keys: |
+          ${{ runner.os }}-wasm-${{ env.WASM_GHC_VERSION }}-cabal-store-
+
+    - name: Build every example
+      run: npm run build-wasm-all
+
+    - name: Upload examples to GH Pages artifact
+      uses: actions/upload-pages-artifact@v5
+      with:
+        path: ./dist-newstyle/wasm/public
+
+    - name: Setup Pages
+      uses: actions/configure-pages@v6
+
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v5
