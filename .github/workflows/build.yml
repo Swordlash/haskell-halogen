@@ -43,6 +43,16 @@ jobs:
         cabal configure --builddir=dist-newstyle/native --enable-tests --enable-benchmarks --disable-documentation
         cabal build all --builddir=dist-newstyle/native --dry-run
 
+    # The cabal store is additive and already partitioned by compiler
+    # (store/ghc-<version>-<abi>/<unit-id>), so it wants to be carried forward
+    # run to run, not rebuilt whenever the dependency set changes. Hashing the
+    # cabal files into the primary key fought that twice over: a new dependency
+    # started a fresh entry, and -- worse -- an exact hit meant actions/cache
+    # never wrote the entry back, so a store that needed to grow for any other
+    # reason stayed frozen until someone deleted the cache by hand.
+    #
+    # Instead: a primary key unique to the run, which therefore always saves,
+    # and a restore-keys prefix that picks up the newest earlier store.
     - name: Restore cached dependencies
       uses: actions/cache/restore@v5
       id: cache
@@ -50,16 +60,18 @@ jobs:
         key: ${{ runner.os }}-ghc-${{ steps.setup.outputs.ghc-version }}-cabal-${{ steps.setup.outputs.cabal-version }}
       with:
         path: ${{ steps.setup.outputs.cabal-store }}
-        key: ${{ env.key }}-plan-${{ hashFiles('**/plan.json', '**/*.cabal', 'cabal*.project') }}
+        key: ${{ env.key }}-${{ github.run_id }}-${{ github.run_attempt }}
         restore-keys: ${{ env.key }}-
 
+    # Cheap when the restored store already satisfies the plan, and it keeps
+    # dependency failures distinct from failures in our own packages.
     - name: Install dependencies
-      if: steps.cache.outputs.cache-hit != 'true'
       run: cabal build all --builddir=dist-newstyle/native --only-dependencies
 
+    # Before Build, so a run that fails on our own code still banks whatever
+    # dependencies it compiled.
     - name: Save cached dependencies
       uses: actions/cache/save@v5
-      if: steps.cache.outputs.cache-hit != 'true'
       with:
         path: ${{ steps.setup.outputs.cabal-store }}
         key: ${{ steps.cache.outputs.cache-primary-key }}
@@ -185,11 +197,13 @@ jobs:
     - name: Update Cabal package index
       run: cabal update
 
+    # Unique per run so the store is always written back, restored by prefix
+    # from the newest earlier run. See the note in the build job.
     - name: Cache cabal dependencies
       uses: actions/cache@v5
       with:
         path: ${{ env.CABAL_DIR }}/store
-        key: ${{ runner.os }}-ghcjs-${{ env.GHCJS_VERSION }}-cabal-store-${{ hashFiles('**/*.cabal', 'cabal*.project') }}
+        key: ${{ runner.os }}-ghcjs-${{ env.GHCJS_VERSION }}-cabal-store-${{ github.run_id }}-${{ github.run_attempt }}
         restore-keys: |
           ${{ runner.os }}-ghcjs-${{ env.GHCJS_VERSION }}-cabal-store-
 
@@ -264,11 +278,13 @@ jobs:
     - name: Update Cabal package index
       run: cabal update
 
+    # Unique per run so the store is always written back, restored by prefix
+    # from the newest earlier run. See the note in the build job.
     - name: Cache cabal dependencies
       uses: actions/cache@v5
       with:
         path: ${{ env.CABAL_DIR }}/store
-        key: ${{ runner.os }}-wasm-${{ env.WASM_GHC_VERSION }}-cabal-store-${{ hashFiles('**/*.cabal', 'cabal*.project') }}
+        key: ${{ runner.os }}-wasm-${{ env.WASM_GHC_VERSION }}-cabal-store-${{ github.run_id }}-${{ github.run_attempt }}
         restore-keys: |
           ${{ runner.os }}-wasm-${{ env.WASM_GHC_VERSION }}-cabal-store-
 

@@ -93,11 +93,14 @@ jobs:
     - name: Update Cabal package index
       run: cabal update
 
+    # Shares the prefix with the build-wasm job in build.yml, so whichever runs
+    # first feeds the other. The key is unique per run so the store is always
+    # written back; see the note in that workflow's build job.
     - name: Cache cabal dependencies
       uses: actions/cache@v5
       with:
         path: ${{ env.CABAL_DIR }}/store
-        key: ${{ runner.os }}-wasm-${{ env.WASM_GHC_VERSION }}-cabal-store-${{ hashFiles('**/*.cabal', 'cabal*.project') }}
+        key: ${{ runner.os }}-wasm-${{ env.WASM_GHC_VERSION }}-cabal-store-${{ github.run_id }}-${{ github.run_attempt }}
         restore-keys: |
           ${{ runner.os }}-wasm-${{ env.WASM_GHC_VERSION }}-cabal-store-
 
