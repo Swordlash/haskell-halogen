@@ -17,7 +17,6 @@ module Halogen.Canvas.Pixi
   , defaultInteraction
   , defaultTransform
   , view
-  , mapEvents
   , keyed
   , clickable
   , group
@@ -38,6 +37,8 @@ module Halogen.Canvas.Pixi
   )
 where
 
+import Control.Monad.IO.Unlift (MonadUnliftIO (..))
+import Control.Monad.UUID
 import Data.IORef
 import Halogen qualified as H
 import Halogen.Canvas qualified as Canvas
@@ -121,6 +122,7 @@ data Node event = Node
   , nodeEvent :: Maybe event
   , content :: NodeContent event
   }
+  deriving stock (Functor)
 
 data NodeContent event
   = Group Transform [Node event]
@@ -133,6 +135,7 @@ data NodeContent event
   | Arc Point Double Double Double Bool StrokeStyle
   | Label Point Text TextStyle
   | Sprite Point Point Texture
+  deriving stock (Functor)
 
 newtype Drawing event a = Drawing (a, [Node event])
   deriving stock (Functor)
@@ -151,6 +154,7 @@ data View event = View
   , interaction :: Interaction
   , nodes :: [Node event]
   }
+  deriving stock (Functor)
 
 defaultCamera :: Camera
 defaultCamera = Camera {focus = Point 0 0, zoom = 1}
@@ -163,28 +167,6 @@ defaultTransform = Transform {position = Point 0 0, scale = Point 1 1, rotation 
 
 view :: Camera -> Interaction -> Drawing event () -> View event
 view camera interaction (Drawing (_, nodes)) = View {camera, interaction, nodes}
-
-mapEvents :: (event -> event') -> View event -> View event'
-mapEvents transform View {camera, interaction, nodes} =
-  View {camera, interaction, nodes = map (mapNode transform) nodes}
-
-mapNode :: (event -> event') -> Node event -> Node event'
-mapNode transform Node {nodeKey, nodeEvent, content} =
-  Node
-    { nodeKey
-    , nodeEvent = map transform nodeEvent
-    , content = case content of
-        Group groupTransform children -> Group groupTransform $ map (mapNode transform) children
-        Line start end strokeStyle -> Line start end strokeStyle
-        Rectangle position size fillStyle strokeStyle -> Rectangle position size fillStyle strokeStyle
-        Circle position radius fillStyle strokeStyle -> Circle position radius fillStyle strokeStyle
-        Ellipse position radius fillStyle strokeStyle -> Ellipse position radius fillStyle strokeStyle
-        QuadraticBezier start control end strokeStyle -> QuadraticBezier start control end strokeStyle
-        Bezier start control1 control2 end strokeStyle -> Bezier start control1 control2 end strokeStyle
-        Arc position radius startAngle endAngle anticlockwise strokeStyle -> Arc position radius startAngle endAngle anticlockwise strokeStyle
-        Label position value textStyle -> Label position value textStyle
-        Sprite position size texture -> Sprite position size texture
-    }
 
 emitNode :: Node event -> Drawing event ()
 emitNode node = Drawing ((), [node])
@@ -248,14 +230,13 @@ defaultConfig =
     { moduleUrl = "https://cdn.jsdelivr.net/npm/pixi.js@8.20.1/dist/pixi.min.mjs"
     }
 
-componentWith :: Config -> H.Component H.VoidF (View event) (CanvasEvent event) IO
+componentWith :: (MonadUnliftIO m, MonadUUID m) => Config -> H.Component H.VoidF (View event) (CanvasEvent event) m
 componentWith = Canvas.component . rendererWith
 
-component :: H.Component H.VoidF (View event) (CanvasEvent event) IO
+component :: (MonadUnliftIO m, MonadUUID m) => H.Component H.VoidF (View event) (CanvasEvent event) m
 component = componentWith defaultConfig
 
-rendererWith :: Config -> Canvas.Renderer (View event) (CanvasEvent event)
-renderer :: Canvas.Renderer (View event) (CanvasEvent event)
+renderer :: (MonadUnliftIO m) => Canvas.Renderer (View event) (CanvasEvent event) m
 renderer = rendererWith defaultConfig
 
 data Runtime event = Runtime
@@ -305,9 +286,10 @@ data NodeIdentity
   | PositionKey Int
   deriving stock (Eq)
 
+rendererWith :: (MonadUnliftIO m) => Config -> Canvas.Renderer (View event) (CanvasEvent event) m
 rendererWith Config {moduleUrl} = Canvas.Renderer {mount}
   where
-    mount element emit = do
+    mount element emit = withRunInIO $ \runInIO -> do
       let canvas = FFI.canvas element
       app <- FFI.newApplication
       pending <- newIORef Nothing
@@ -321,7 +303,7 @@ rendererWith Config {moduleUrl} = Canvas.Renderer {mount}
       disposed <- newIORef False
       ready <- newIORef False
       cleaned <- newIORef False
-      let runtime = Runtime {app, canvas, emit, pending, world, mountedNodes, camera, drag, callbacks, wheelCallback, cameraTimer, disposed, ready, cleaned}
+      let runtime = Runtime {app, canvas, emit = runInIO . emit, pending, world, mountedNodes, camera, drag, callbacks, wheelCallback, cameraTimer, disposed, ready, cleaned}
       onReady <- registerPermanent runtime $ \_ -> rendererReady runtime
       FFI.initializeApplication app moduleUrl canvas onReady
       pure
@@ -353,13 +335,13 @@ rendererReady runtime@Runtime {app, disposed, ready, world} = do
           readIORef runtime.pending >>= traverse_ (renderView runtime root)
     else cleanupRuntime runtime
 
-updateRuntime :: Runtime event -> View event -> IO ()
-updateRuntime runtime@Runtime {pending, world} scene = do
+updateRuntime :: (MonadIO m) => Runtime event -> View event -> m ()
+updateRuntime runtime@Runtime {pending, world} scene = liftIO $ do
   writeIORef pending $ Just scene
   readIORef world >>= traverse_ (renderView runtime `flip` scene)
 
-renderView :: Runtime event -> FFI.Object -> View event -> IO ()
-renderView runtime@Runtime {app, camera, mountedNodes} root View {camera = nextCamera, nodes} = do
+renderView :: (MonadIO m) => Runtime event -> FFI.Object -> View event -> m ()
+renderView runtime@Runtime {app, camera, mountedNodes} root View {camera = nextCamera, nodes} = liftIO $ do
   writeIORef camera nextCamera
   applyCamera app root nextCamera
   previous <- readIORef mountedNodes
@@ -625,8 +607,8 @@ zoomAtPointer Runtime {app, canvas, camera, pending, cameraTimer} root settled e
     readIORef cameraTimer >>= traverse_ FFI.cancelTimeout
     FFI.scheduleTimeout settled 120 >>= writeIORef cameraTimer . Just
 
-destroyRuntime :: Runtime event -> IO ()
-destroyRuntime runtime@Runtime {disposed, ready} = do
+destroyRuntime :: (MonadIO m) => Runtime event -> m ()
+destroyRuntime runtime@Runtime {disposed, ready} = liftIO $ do
   writeIORef disposed True
   readIORef ready >>= flip when (cleanupRuntime runtime)
 

@@ -52,6 +52,7 @@ library
     build-depends:
         base >= 4.20,
         protolude,
+        unliftio-core,
         haskell-halogen-core
 
     if arch(wasm32)

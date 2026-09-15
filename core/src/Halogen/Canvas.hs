@@ -5,6 +5,7 @@ module Halogen.Canvas
   )
 where
 
+import Control.Monad.UUID
 import Data.Row (type Empty)
 import Halogen qualified as H
 import Halogen.HTML qualified as HH
@@ -14,20 +15,21 @@ import Protolude
 import Web.DOM.Internal.Types (HTMLElement)
 
 -- | An imperative rendering backend hidden behind a declarative update API.
-data Renderer scene event = Renderer
-  { mount :: HTMLElement -> (event -> IO ()) -> IO (MountedRenderer scene)
+newtype Renderer scene event m = Renderer
+  { mount :: HTMLElement -> (event -> m ()) -> m (MountedRenderer scene m)
   }
 
 -- | A mounted backend. Halogen calls 'update' whenever its input changes and
 -- 'destroy' when the component is finalized.
-data MountedRenderer scene = MountedRenderer
-  { update :: scene -> IO ()
-  , destroy :: IO ()
+data MountedRenderer scene m = MountedRenderer
+  { update :: scene -> m ()
+  , destroy :: m ()
   }
 
-data CanvasState scene = CanvasState
+data CanvasState scene m = CanvasState
   { scene :: scene
-  , mounted :: Maybe (MountedRenderer scene)
+  , mounted :: Maybe (MountedRenderer scene m)
+  , canvasRef :: H.RefLabel
   }
 
 data Action scene event
@@ -36,16 +38,19 @@ data Action scene event
   | Emit event
   | Unmount
 
-canvasRef :: H.RefLabel
-canvasRef = H.RefLabel "halogen-canvas"
-
 -- | A reusable Halogen component that owns a canvas DOM node while delegating
 -- rendering to a backend.
-component :: forall scene event. Renderer scene event -> H.Component H.VoidF scene event IO
+component
+  :: forall scene event m
+   . (MonadIO m, MonadUUID m)
+  => Renderer scene event m
+  -> H.Component H.VoidF scene event m
 component renderer =
   H.mkComponent $
     H.ComponentSpec
-      { initialState = \scene -> pure CanvasState {scene, mounted = Nothing}
+      { initialState = \scene -> do
+          uuid <- show <$> generateV4
+          pure CanvasState {scene, mounted = Nothing, canvasRef = H.RefLabel $ "canvas-" <> uuid}
       , render
       , eval =
           H.mkEval $
@@ -57,8 +62,8 @@ component renderer =
               }
       }
   where
-    render :: CanvasState scene -> H.ComponentHTML (Action scene event) Empty IO
-    render _ =
+    render :: CanvasState scene m -> H.ComponentHTML (Action scene event) Empty m
+    render CanvasState {canvasRef} =
       HH.canvas
         [ HP.ref canvasRef
         , HP.styleText "display:block;width:100%;height:100%;touch-action:none"
@@ -66,16 +71,17 @@ component renderer =
 
     handleAction = \case
       Mount -> do
+        CanvasState {canvasRef} <- get
         canvas <- H.getHTMLElementRef canvasRef
         for_ canvas $ \element -> do
           events <- liftIO HS.create
           void $ H.subscribe $ Emit <$> events.emitter
-          mounted <- liftIO $ renderer.mount element (HS.notify events.listener)
+          mounted <- lift $ renderer.mount element (liftIO . HS.notify events.listener)
           current <- gets (.scene)
-          liftIO $ mounted.update current
+          lift $ mounted.update current
           modify $ \currentState -> currentState {mounted = Just mounted}
       Receive scene -> do
         modify $ \currentState -> currentState {scene}
-        gets (.mounted) >>= traverse_ (\mounted -> liftIO $ mounted.update scene)
+        gets (.mounted) >>= traverse_ (\mounted -> lift $ mounted.update scene)
       Emit event -> H.raise event
-      Unmount -> gets (.mounted) >>= traverse_ (liftIO . (.destroy))
+      Unmount -> gets (.mounted) >>= traverse_ (lift . (.destroy))

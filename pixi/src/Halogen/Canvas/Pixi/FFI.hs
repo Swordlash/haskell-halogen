@@ -71,34 +71,24 @@ where
 import Data.Foreign (Foreign)
 import Protolude
 import Web.DOM.Internal.Types (HTMLElement (..))
+import Web.Event.Internal.Types (Event (..))
 
 #if defined(javascript_HOST_ARCH)
 import GHC.JS.Foreign.Callback qualified as JS
 import GHC.JS.Prim (JSVal, toJSString)
 #elif defined(wasm32_HOST_ARCH)
 import GHC.Wasm.Prim (JSString (..), JSVal, freeJSVal, toJSString)
-#endif
-
-#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
-data ApplicationTag
-data ObjectTag
-
-type Application = Foreign ApplicationTag
-type Object = Foreign ObjectTag
-type Event = JSVal
-type Canvas = Foreign HTMLElement
-type Timer = Foreign TimerTag
 #else
-data Application = Application
-data Object = Object
-data Event = Event
-data Timer = Timer
-type Canvas = Foreign HTMLElement
+import Data.Foreign (toForeign)
 #endif
 
-#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
-data TimerTag
-#endif
+newtype Application = Application (Foreign Application)
+
+newtype Object = Object (Foreign Object)
+
+newtype Timer = Timer (Foreign Timer)
+
+newtype Canvas = Canvas (Foreign HTMLElement)
 
 #if defined(javascript_HOST_ARCH)
 type Callback = JS.Callback (JSVal -> IO ())
@@ -110,7 +100,7 @@ newtype Callback = Callback (Event -> IO ())
 #endif
 
 canvas :: HTMLElement -> Canvas
-canvas (HTMLElement value) = value
+canvas (HTMLElement value) = Canvas value
 
 #if defined(javascript_HOST_ARCH)
 foreign import javascript unsafe "halogen_pixi_new_application" newApplication :: IO Application
@@ -178,7 +168,7 @@ setAssetText application object value x y family source size color align = setAs
 setTexture :: Application -> Object -> Text -> IO ()
 setTexture application object asset = setTextureRaw application object (toJSString $ toS asset)
 mkCallback :: (Event -> IO ()) -> IO Callback
-mkCallback = JS.asyncCallback1
+mkCallback handler = JS.asyncCallback1 (handler . Event)
 freeCallback :: Callback -> IO ()
 freeCallback = JS.releaseCallback
 
@@ -250,25 +240,29 @@ setAssetText application object value x y family source size color align = setAs
 setTexture :: Application -> Object -> Text -> IO ()
 setTexture application object asset = setTextureRaw application object (textValue asset)
 mkCallback :: (Event -> IO ()) -> IO Callback
-mkCallback = wasmMkCallback
+mkCallback handler = wasmMkCallback (handler . Event)
 freeCallback :: Callback -> IO ()
 freeCallback = freeJSVal
 
 #else
+-- The native backend is an inert stub: there is no JS engine to talk to, so
+-- every operation ignores its arguments. The handle types are therefore filled
+-- with opaque 'toForeign ()' placeholders that are only ever passed around,
+-- never read back -- do not 'unsafeFromForeign' them.
 initializeApplication :: Application -> Text -> Canvas -> Callback -> IO ()
-initializeApplication _ _ _ (Callback done) = done Event
+initializeApplication _ _ _ (Callback done) = done (Event (toForeign ()))
 newApplication :: IO Application
-newApplication = pure Application
+newApplication = pure (Application (toForeign ()))
 applicationCreated, applicationReady :: Application -> IO Bool
 applicationCreated _ = pure False
 applicationReady _ = pure False
 destroyApplication :: Application -> IO ()
 destroyApplication _ = pure ()
 newContainer, newGraphics :: Application -> IO Object
-newContainer _ = pure Object
-newGraphics _ = pure Object
+newContainer _ = pure (Object (toForeign ()))
+newGraphics _ = pure (Object (toForeign ()))
 newText :: Application -> IO Object
-newText _ = pure Object
+newText _ = pure (Object (toForeign ()))
 addToStage :: Application -> Object -> IO ()
 addToStage _ _ = pure ()
 addChild :: Object -> Object -> IO ()
@@ -303,7 +297,7 @@ setSystemText _ _ _ _ _ _ _ _ = pure ()
 setAssetText :: Application -> Object -> Text -> Double -> Double -> Text -> Text -> Double -> Int -> Text -> IO ()
 setAssetText _ _ _ _ _ _ _ _ _ _ = pure ()
 newSprite :: Application -> IO Object
-newSprite _ = pure Object
+newSprite _ = pure (Object (toForeign ()))
 setTexture :: Application -> Object -> Text -> IO ()
 setTexture _ _ _ = pure ()
 centerAnchor :: Object -> IO ()
@@ -349,7 +343,7 @@ mkCallback = pure . Callback
 freeCallback :: Callback -> IO ()
 freeCallback _ = pure ()
 scheduleTimeout :: Callback -> Int -> IO Timer
-scheduleTimeout _ _ = pure Timer
+scheduleTimeout _ _ = pure (Timer (toForeign ()))
 cancelTimeout :: Timer -> IO ()
 cancelTimeout _ = pure ()
 #endif

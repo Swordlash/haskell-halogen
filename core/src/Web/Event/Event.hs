@@ -6,7 +6,10 @@ module Web.Event.Event
   )
 where
 
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 import Data.Foreign
+#endif
+
 import HPrelude
 import Web.Event.Internal.Types
 
