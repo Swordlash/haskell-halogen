@@ -93,11 +93,18 @@ jobs:
     - name: Update Cabal package index
       run: cabal update
 
-    # Shares the prefix with the build-wasm job in build.yml, so whichever runs
-    # first feeds the other. The key is unique per run so the store is always
-    # written back; see the note in that workflow's build job.
-    - name: Cache cabal dependencies
-      uses: actions/cache@v5
+    # Restore, never save. This job shares the wasm store with the build-wasm
+    # job in build.yml but builds a strict subset of it: the examples, and not
+    # the test suites. Saving from here can only ever hand the next run a store
+    # with the test dependencies missing.
+    #
+    # Both workflows run on a push to master, so whichever finished last
+    # decided what the next run restored -- and before the store was keyed per
+    # run they shared one key outright, so this job, having no Test step to
+    # wait for, won every race. That is why build-wasm rebuilt the whole hspec
+    # stack on every run while build-js and the native job did not.
+    - name: Restore cached cabal dependencies
+      uses: actions/cache/restore@v5
       with:
         path: ${{ env.CABAL_DIR }}/store
         key: ${{ runner.os }}-wasm-${{ env.WASM_GHC_VERSION }}-cabal-store-${{ github.run_id }}-${{ github.run_attempt }}
