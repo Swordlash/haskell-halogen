@@ -10,7 +10,6 @@ on:
 
 env:
   EM_VERSION: 3.1.74
-  EM_CACHE_FOLDER: 'emsdk-cache'
   # Keep GHCJS_VERSION in step with with-compiler in cabal-ghcjs.project and
   # GHC_VERSION in examples/material/webpack.config-js.js.
   GHCJS_VERSION: '9.12.2'
@@ -84,28 +83,73 @@ jobs:
         node-version: '24'
         cache: npm
 
-    - name: Setup cache
-      id: cache-system-libraries
+    # emsdk is installed by hand, at a path that is the same in every run.
+    #
+    # `ghcup install ghc` records the absolute path of emcc in the cross
+    # compiler's settings file, so a compiler restored from cache only works if
+    # emcc is still where it was when that compiler was built.
+    # emscripten-core/setup-emsdk cannot give us that: it unpacks into its
+    # actions-cache-folder when that cache hits and into $RUNNER_TEMP/<uuid>
+    # when it misses. A run that misses on emsdk but hits on the compiler cache
+    # therefore gets a compiler pointing at a temp directory from some earlier
+    # run, and fails at cabal's configure step with "could not execute emcc".
+    - name: Cache emsdk
       uses: actions/cache@v5
       with:
-        path: ${{env.EM_CACHE_FOLDER}}
-        key: emsdk-${{env.EM_VERSION}}-${{ runner.os }}
+        path: ~/emsdk
+        key: ${{ runner.os }}-emsdk-${{ env.EM_VERSION }}
 
-    - name: Setup EMSDK
-      uses: emscripten-core/setup-emsdk@v16
-      with:
-        version: ${{env.EM_VERSION}}
-        actions-cache-folder: ${{env.EM_CACHE_FOLDER}}
+    - name: Install emsdk
+      run: |
+        if [ ! -d "$HOME/emsdk/.git" ]; then
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$HOME/emsdk"
+        fi
+        cd "$HOME/emsdk"
+        ./emsdk install "$EM_VERSION"
+        ./emsdk activate "$EM_VERSION"
+
+    - name: Activate emsdk
+      run: |
+        # shellcheck source=/dev/null
+        . "$HOME/emsdk/emsdk_env.sh" >/dev/null 2>&1
+        echo "EMSDK=$EMSDK" >> "$GITHUB_ENV"
+        # Forward EM_CONFIG only when it has a value. emsdk_env.sh does not
+        # always export it, and an empty EM_CONFIG is worse than none: emcc
+        # takes it as the config path instead of falling back to its own
+        # lookup, then reports a missing BINARYEN_ROOT.
+        if [ -n "${EM_CONFIG:-}" ]; then
+          echo "EM_CONFIG=$EM_CONFIG" >> "$GITHUB_ENV"
+        elif [ -f "$EMSDK/.emscripten" ]; then
+          echo "EM_CONFIG=$EMSDK/.emscripten" >> "$GITHUB_ENV"
+        fi
+        {
+          echo "$EMSDK"
+          echo "$EMSDK/upstream/emscripten"
+        } >> "$GITHUB_PATH"
+        for bindir in "$EMSDK"/node/*/bin; do
+          if [ -d "$bindir" ]; then
+            echo "$bindir" >> "$GITHUB_PATH"
+          fi
+        done
+
+    # Fails here, with emcc's own diagnosis, rather than several steps later
+    # inside the ghcup install.
+    - name: Verify emsdk
+      run: |
+        command -v emcc emconfigure
+        emcc --check
 
     # ghcup reports its base directory as /usr/local/.ghcup on this image, and
     # GHCUP_INSTALL_BASE_PREFIX does not move it. Cache just the one cross
     # compiler under it rather than the whole directory, which also holds the
     # image's preinstalled native GHC, cabal, stack and HLS.
+    # The compiler embeds the emcc path, so this cache is only valid for one
+    # emsdk location: bump the trailing suffix if that location ever moves.
     - name: Cache GHC JavaScript cross-compiler
       uses: actions/cache@v5
       with:
         path: /usr/local/.ghcup/ghc/javascript-unknown-ghcjs-${{ env.GHCJS_VERSION }}
-        key: ${{ runner.os }}-ghcup-ghcjs-${{ env.GHCJS_VERSION }}-em-${{ env.EM_VERSION }}
+        key: ${{ runner.os }}-ghcup-ghcjs-${{ env.GHCJS_VERSION }}-em-${{ env.EM_VERSION }}-emsdk-home
 
     # Uses the ghcup the runner image already ships, the way the build-wasm job
     # installs its own cross-compiler. Do not bootstrap ghcup here: the image
