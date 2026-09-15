@@ -9,6 +9,7 @@ import Test.GHCJS qualified as GHCJS
 #endif
 import Test.DriverReentrancy qualified as DriverReentrancy
 import Test.Hspec (hspec)
+import Test.NativeDom qualified as NativeDom
 import Test.SvgAttributes qualified as SvgAttributes
 
 main :: IO ()
@@ -17,4 +18,5 @@ main = hspec $ do
   GHCJS.spec
 #endif
   DriverReentrancy.spec
+  NativeDom.spec
   SvgAttributes.spec
