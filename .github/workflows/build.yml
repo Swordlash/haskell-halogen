@@ -112,17 +112,32 @@ jobs:
       run: |
         # shellcheck source=/dev/null
         . "$HOME/emsdk/emsdk_env.sh" >/dev/null 2>&1
-        {
-          echo "EMSDK=$EMSDK"
-          echo "EM_CONFIG=$EM_CONFIG"
-        } >> "$GITHUB_ENV"
+        echo "EMSDK=$EMSDK" >> "$GITHUB_ENV"
+        # Forward EM_CONFIG only when it has a value. emsdk_env.sh does not
+        # always export it, and an empty EM_CONFIG is worse than none: emcc
+        # takes it as the config path instead of falling back to its own
+        # lookup, then reports a missing BINARYEN_ROOT.
+        if [ -n "${EM_CONFIG:-}" ]; then
+          echo "EM_CONFIG=$EM_CONFIG" >> "$GITHUB_ENV"
+        elif [ -f "$EMSDK/.emscripten" ]; then
+          echo "EM_CONFIG=$EMSDK/.emscripten" >> "$GITHUB_ENV"
+        fi
         {
           echo "$EMSDK"
           echo "$EMSDK/upstream/emscripten"
         } >> "$GITHUB_PATH"
         for bindir in "$EMSDK"/node/*/bin; do
-          [ -d "$bindir" ] && echo "$bindir" >> "$GITHUB_PATH"
+          if [ -d "$bindir" ]; then
+            echo "$bindir" >> "$GITHUB_PATH"
+          fi
         done
+
+    # Fails here, with emcc's own diagnosis, rather than several steps later
+    # inside the ghcup install.
+    - name: Verify emsdk
+      run: |
+        command -v emcc emconfigure
+        emcc --check
 
     # ghcup reports its base directory as /usr/local/.ghcup on this image, and
     # GHCUP_INSTALL_BASE_PREFIX does not move it. Cache just the one cross
