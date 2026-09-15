@@ -131,6 +131,7 @@ library
 
       Halogen.VDom.DOM
       Halogen.VDom.DOM.Monad
+      Halogen.VDom.DOM.Monad.Class
       Halogen.VDom.DOM.Prop
       Halogen.VDom.Driver
       Halogen.VDom.Machine
@@ -180,14 +181,24 @@ library
     
     hs-source-dirs:   src
 
+    -- Exactly one MonadDOM backend is compiled in, selected by architecture.
+    -- Halogen.VDom.DOM.Monad makes the same choice with CPP and re-exports it;
+    -- keep the two in step.
     if arch(javascript)
+      exposed-modules: Halogen.VDom.DOM.Monad.JS
+
       js-sources:
         jsbits/monad_dom.js
 
       ghc-options: -fexpose-all-unfoldings
 
-    if arch(wasm32)
+    elif arch(wasm32)
+      exposed-modules: Halogen.VDom.DOM.Monad.WASM
+
       ghc-options: -fexpose-all-unfoldings
+
+    else
+      exposed-modules: Halogen.VDom.DOM.Monad.Native
       
 --      if flag(trace-dom)
 --        jspp-options: -DHALOGEN_TRACE_DOM
