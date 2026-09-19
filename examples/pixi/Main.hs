@@ -2,6 +2,7 @@
 
 module Main where
 
+import Clay qualified as C
 import Data.Row (type (.==))
 import Halogen qualified as H
 import Halogen.Canvas.Elements qualified as CE
@@ -158,7 +159,7 @@ hoverProps :: Target -> Maybe Target -> [Pixi.PixiProp GameEvent]
 hoverProps target hovered =
   [ CP.onPointerOver (const $ Just $ Entered target)
   , CP.onPointerOut (const $ Just $ Exited target)
-  , CP.cursor "pointer"
+  , CP.cursor Pixi.CursorPointer
   ]
     <> [ CP.outline Pixi.StrokeStyle {strokeColor = 0xffffff, strokeWidth = 1, strokeAlpha = 1} 1
        | hovered == Just target
@@ -178,10 +179,23 @@ parent =
     render :: State -> H.ComponentHTML Action Slots IO
     render state =
       HH.div
-        [HP.styleText "position:fixed;inset:0;overflow:hidden;background:#111827"]
+        [ HP.style $ do
+            C.position C.fixed
+            traverse_ ($ C.px 0) [C.top, C.right, C.bottom, C.left]
+            C.overflow C.hidden
+            C.backgroundColor (C.rgb 0x11 0x18 0x27)
+        ]
         [ HH.slot "canvas" () Pixi.component (scene state) CanvasOutput
         , HH.div
-            [HP.styleText "position:absolute;left:20px;top:16px;color:#f8fafc;pointer-events:none;font:16px system-ui"]
+            [ HP.style $ do
+                C.position C.absolute
+                C.left (C.px 20)
+                C.top (C.px 16)
+                C.color (C.rgb 0xf8 0xfa 0xfc)
+                C.pointerEvents C.none
+                C.fontSize (C.px 16)
+                C.fontFamily ["system-ui"] [C.sansSerif]
+            ]
             [HH.text "Drag to pan · wheel to zoom · click a tile"]
         ]
 

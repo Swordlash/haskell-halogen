@@ -2,8 +2,12 @@
 -- everything about how it is built can be checked without a backend.
 module Test.Canvas (spec) where
 
+import Clay qualified as C
+import Clay.Extra.Pointer qualified as CP
+import Clay.Render qualified as CR
 import Data.List (nub, sort)
 import Data.Text (Text)
+import Data.Text.Lazy (toStrict)
 import Data.Void (Void)
 import Halogen.Canvas.Core
 import Halogen.Canvas.Elements qualified as CE
@@ -34,7 +38,7 @@ everyProp =
   , Src (Texture "tile.png") (Point 1 1)
   , Outline stroke 1
   , Interactive EventsStatic
-  , Cursor "pointer"
+  , Cursor CursorPointer
   , Hit (CircleHit (Point 0 0) 1)
   ]
 
@@ -76,7 +80,7 @@ spec = describe "canvas scenes" $ do
         _ -> error "expected an element"
 
     it "keeps the styling props a caller passes alongside the geometry" $ do
-      case unwrap (CE.circle (Point 0 0) 1 Nothing (Just stroke) [CP.cursor "grab"] :: CanvasNode () Action) of
+      case unwrap (CE.circle (Point 0 0) 1 Nothing (Just stroke) [CP.cursor CursorGrab] :: CanvasNode () Action) of
         Elem _ _ props _ -> assertEqual "both props" ["draw", "cursor"] (map propKey props)
         _ -> error "expected an element"
 
@@ -100,7 +104,7 @@ spec = describe "canvas scenes" $ do
   describe "keys" $ do
     it "turns an element constructor into its keyed form" $ do
       let child = ("a", CE.circle_ (Point 0 0) 1 Nothing (Just stroke))
-      case unwrap (CE.withKeys CE.group [CP.cursor "grab"] [child] :: CanvasNode () Action) of
+      case unwrap (CE.withKeys CE.group [CP.cursor CursorGrab] [child] :: CanvasNode () Action) of
         Keyed _ (ElemName name) props children -> do
           assertEqual "same element" "container" name
           assertEqual "props survive" ["cursor"] (map propKey props)
@@ -115,12 +119,76 @@ spec = describe "canvas scenes" $ do
           assertEqual "the handler now yields the new action" [Just Hovered] (fired props)
         _ -> error "expected an element"
 
+  describe "cursors" $ do
+    it "gives each cursor a name of its own" $ do
+      let names = map cursorName everyCursor
+      assertEqual "distinct names" (sort names) (sort (nub names))
+
+    it "spells the families out in full" $ do
+      assertEqual "resize" "nwse-resize" (cursorName (CursorResize ResizeNWSE))
+      assertEqual "two words" "not-allowed" (cursorName CursorNotAllowed)
+      -- CSS needs a keyword to fall back on when the image will not load.
+      assertEqual "url" "url(cur.png), auto" (cursorName (CursorUrl "cur.png"))
+
+  describe "touch-action" $ do
+    it "renders the property Clay itself does not have" $
+      assertEqual "inline css" "touch-action:none" (inlineCss (CP.touchAction C.none))
+
   describe "paths" $ do
     it "renders commands as an SVG d attribute" $
       assertEqual
         "d"
         ("M0.0, 0.0 L10.0, 0.0 z" :: Text)
         (pathData [SA.m SA.Abs 0 0, SA.l SA.Abs 10 0, SA.z])
+
+-- | Every cursor, so that a name repeated by a copy-and-paste slip in the
+-- table shows up as a collision.
+everyCursor :: [Cursor]
+everyCursor =
+  [ CursorAuto
+  , CursorDefault
+  , CursorNone
+  , CursorContextMenu
+  , CursorHelp
+  , CursorPointer
+  , CursorProgress
+  , CursorWait
+  , CursorCell
+  , CursorCrosshair
+  , CursorText
+  , CursorVerticalText
+  , CursorAlias
+  , CursorCopy
+  , CursorMove
+  , CursorNoDrop
+  , CursorNotAllowed
+  , CursorGrab
+  , CursorGrabbing
+  , CursorAllScroll
+  , CursorZoomIn
+  , CursorZoomOut
+  , CursorUrl "cur.png"
+  ]
+    <> map
+      CursorResize
+      [ ResizeN
+      , ResizeE
+      , ResizeS
+      , ResizeW
+      , ResizeNE
+      , ResizeNW
+      , ResizeSE
+      , ResizeSW
+      , ResizeEW
+      , ResizeNS
+      , ResizeNESW
+      , ResizeNWSE
+      , ResizeCol
+      , ResizeRow
+      ]
+
+inlineCss :: C.Css -> Text
+inlineCss = toStrict . CR.renderWith CR.htmlInline []
 
 keysOf :: CanvasNode () Action -> [Text]
 keysOf node = case unwrap node of

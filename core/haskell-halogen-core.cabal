@@ -86,6 +86,7 @@ library
 
     exposed-modules:
       Clay.Extra.Grid
+      Clay.Extra.Pointer
 
       Control.Monad.Fork
       Control.Monad.Parallel
@@ -216,6 +217,7 @@ test-suite Halogen-core-test
     hs-source-dirs:   test
     main-is:          Test.hs
     build-depends:    base >= 4.20,
+                      clay >= 0.16.0,
                       haskell-halogen-core,
                       hspec,
                       mtl,

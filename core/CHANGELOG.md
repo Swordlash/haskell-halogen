@@ -25,6 +25,11 @@
   declarative scene language in the shape of `Halogen.HTML`, backend-neutral,
   and reconciled by `Halogen.VDom.DOM.buildVDom` like any other `VDom`. Shapes
   include an SVG `Path`, sharing the path commands in `Halogen.Svg.Attributes`.
+  The cursor is an enumeration of the CSS keywords rather than free text: a
+  misspelled keyword is silently ignored by the browser, which is the worst
+  way to find out.
+- Add `Clay.Extra.Pointer` with `touch-action`, which Clay does not cover.
+  `Halogen.Canvas` styles its host element with Clay rather than a CSS string.
 - Add `Halogen.Canvas`: a renderer-agnostic component that owns a canvas DOM
   node and delegates mounting, updating and teardown to a `Renderer` record.
   `haskell-halogen-pixi` implements that interface for PixiJS v8.
