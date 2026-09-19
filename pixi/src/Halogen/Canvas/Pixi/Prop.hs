@@ -171,7 +171,7 @@ buildCanvasProp runDom toDom emit application object = render
 
     paint :: CanvasProp FFI.Event i -> PixiDOM ()
     paint = \case
-      Draw shape -> liftIO $ drawShape object shape
+      Draw shape -> liftIO $ drawShape application object shape
       Place t -> liftIO $ applyTransform object t
       Label value TextStyle {font, fontSize, textColor, textAlign} -> liftIO $ case font of
         SystemFont family ->
@@ -187,8 +187,10 @@ buildCanvasProp runDom toDom emit application object = render
         liftIO $ FFI.setOutline application object strokeColor strokeWidth strokeAlpha padding
       Cursor value -> liftIO $ FFI.setCursor object value
       Hit area -> liftIO $ case area of
+        -- Pixi's Rectangle is a corner and a size; the canvas language is
+        -- centred throughout, so convert rather than leak the difference.
         RectHit (Point x y) (Point width height) ->
-          FFI.setRectHitArea application object x y width height
+          FFI.setRectHitArea application object (x - width / 2) (y - height / 2) width height
         CircleHit (Point x y) radius ->
           FFI.setCircleHitArea application object x y radius
       Handler _ _ -> pass
@@ -202,8 +204,8 @@ applyTransform object Transform {position = Point x y, scale = Point scaleX scal
   FFI.setScale object scaleX scaleY
   FFI.setRotation object rotation
 
-drawShape :: FFI.Object -> Shape -> IO ()
-drawShape object shape = do
+drawShape :: FFI.Application -> FFI.Object -> Shape -> IO ()
+drawShape application object shape = do
   FFI.clearGraphics object
   case shape of
     Line (Point startX startY) (Point endX endY) stroke -> do
@@ -233,6 +235,9 @@ drawShape object shape = do
     Arc (Point x y) radius startAngle endAngle anticlockwise stroke -> do
       FFI.arc object x y radius startAngle endAngle anticlockwise
       applyStroke object stroke
+    Path commands fill stroke -> do
+      FFI.svgPath application object (pathData commands)
+      applyPaint object fill stroke
 
 applyPaint :: FFI.Object -> Maybe FillStyle -> Maybe StrokeStyle -> IO ()
 applyPaint object fill stroke = do

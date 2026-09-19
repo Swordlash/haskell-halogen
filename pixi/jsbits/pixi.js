@@ -29,6 +29,7 @@ function halogen_pixi_ellipse(object, x, y, radiusX, radiusY) { object.ellipse(x
 function halogen_pixi_quadratic_curve_to(object, controlX, controlY, endX, endY) { object.quadraticCurveTo(controlX, controlY, endX, endY); }
 function halogen_pixi_bezier_curve_to(object, control1X, control1Y, control2X, control2Y, endX, endY) { object.bezierCurveTo(control1X, control1Y, control2X, control2Y, endX, endY); }
 function halogen_pixi_arc(object, x, y, radius, startAngle, endAngle, anticlockwise) { object.arc(x, y, radius, startAngle, endAngle, anticlockwise); }
+function halogen_pixi_svg_path(holder, object, commands) { object.path(new holder.pixi.GraphicsPath(commands)); }
 function halogen_pixi_fill(object, color, alpha) { object.fill({ color: color, alpha: alpha }); }
 function halogen_pixi_stroke(object, color, width, alpha) { object.stroke({ color: color, width: width, alpha: alpha }); }
 function halogen_pixi_new_text(holder) { return new holder.pixi.Text({ text: "", style: {} }); }

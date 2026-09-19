@@ -30,6 +30,7 @@ module Halogen.Canvas.Pixi.FFI
   , quadraticCurveTo
   , bezierCurveTo
   , arc
+  , svgPath
   , fill
   , stroke
   , newText
@@ -137,6 +138,7 @@ foreign import javascript unsafe "halogen_pixi_ellipse" ellipse :: Object -> Dou
 foreign import javascript unsafe "halogen_pixi_quadratic_curve_to" quadraticCurveTo :: Object -> Double -> Double -> Double -> Double -> IO ()
 foreign import javascript unsafe "halogen_pixi_bezier_curve_to" bezierCurveTo :: Object -> Double -> Double -> Double -> Double -> Double -> Double -> IO ()
 foreign import javascript unsafe "halogen_pixi_arc" arc :: Object -> Double -> Double -> Double -> Double -> Double -> Bool -> IO ()
+foreign import javascript unsafe "halogen_pixi_svg_path" svgPathRaw :: Application -> Object -> JSVal -> IO ()
 foreign import javascript unsafe "halogen_pixi_fill" fill :: Object -> Int -> Double -> IO ()
 foreign import javascript unsafe "halogen_pixi_stroke" stroke :: Object -> Int -> Double -> Double -> IO ()
 foreign import javascript unsafe "halogen_pixi_new_text" newText :: Application -> IO Object
@@ -193,6 +195,8 @@ setAssetText :: Application -> Object -> Text -> Text -> Text -> Double -> Int -
 setAssetText application object value family source size color align = setAssetTextRaw application object (toJSString $ toS value) (toJSString $ toS family) (toJSString $ toS source) size color (toJSString $ toS align)
 setTexture :: Application -> Object -> Text -> IO ()
 setTexture application object asset = setTextureRaw application object (toJSString $ toS asset)
+svgPath :: Application -> Object -> Text -> IO ()
+svgPath application object commands = svgPathRaw application object (toJSString $ toS commands)
 parentOf :: Object -> IO (Maybe Object)
 parentOf object = fmap Object . nullableToMaybe <$> parentOfRaw object
 addListener :: Object -> Text -> Callback -> IO ()
@@ -241,6 +245,7 @@ foreign import javascript unsafe "$1.ellipse($2,$3,$4,$5)" ellipse :: Object -> 
 foreign import javascript unsafe "$1.quadraticCurveTo($2,$3,$4,$5)" quadraticCurveTo :: Object -> Double -> Double -> Double -> Double -> IO ()
 foreign import javascript unsafe "$1.bezierCurveTo($2,$3,$4,$5,$6,$7)" bezierCurveTo :: Object -> Double -> Double -> Double -> Double -> Double -> Double -> IO ()
 foreign import javascript unsafe "$1.arc($2,$3,$4,$5,$6,$7)" arc :: Object -> Double -> Double -> Double -> Double -> Double -> Bool -> IO ()
+foreign import javascript unsafe "$2.path(new $1.pixi.GraphicsPath($3))" svgPathRaw :: Application -> Object -> JSVal -> IO ()
 foreign import javascript unsafe "$1.fill({color:$2,alpha:$3})" fill :: Object -> Int -> Double -> IO ()
 foreign import javascript unsafe "$1.stroke({color:$2,width:$3,alpha:$4})" stroke :: Object -> Int -> Double -> Double -> IO ()
 foreign import javascript unsafe "new $1.pixi.Text({text:'',style:{}})" newText :: Application -> IO Object
@@ -301,6 +306,8 @@ setAssetText :: Application -> Object -> Text -> Text -> Text -> Double -> Int -
 setAssetText application object value family source size color align = setAssetTextRaw application object (textValue value) (textValue family) (textValue source) size color (textValue align)
 setTexture :: Application -> Object -> Text -> IO ()
 setTexture application object asset = setTextureRaw application object (textValue asset)
+svgPath :: Application -> Object -> Text -> IO ()
+svgPath application object commands = svgPathRaw application object (textValue commands)
 parentOf :: Object -> IO (Maybe Object)
 parentOf object = fmap Object . nullableToMaybe <$> parentOfRaw object
 addListener :: Object -> Text -> Callback -> IO ()
@@ -373,6 +380,8 @@ newSprite :: Application -> IO Object
 newSprite _ = pure (Object (toForeign ()))
 setTexture :: Application -> Object -> Text -> IO ()
 setTexture _ _ _ = pure ()
+svgPath :: Application -> Object -> Text -> IO ()
+svgPath _ _ _ = pure ()
 centerAnchor :: Object -> IO ()
 centerAnchor _ = pure ()
 setPosition, setScale :: Object -> Double -> Double -> IO ()

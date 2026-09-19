@@ -18,6 +18,7 @@ module Halogen.Canvas.Types
   , Interaction (..)
   , defaultInteraction
   , Shape (..)
+  , pathData
   , HitArea (..)
   , EventMode (..)
   , eventModeName
@@ -25,7 +26,9 @@ module Halogen.Canvas.Types
   )
 where
 
+import Data.Text qualified as T
 import HPrelude
+import Halogen.Svg.Attributes (PathCommand)
 
 data Point = Point Double Double
   deriving stock (Eq, Show)
@@ -115,15 +118,33 @@ data Shape
   | QuadraticBezier Point Point Point StrokeStyle
   | Bezier Point Point Point Point StrokeStyle
   | Arc Point Double Double Double Bool StrokeStyle
+  | -- | An arbitrary outline, in the same path commands SVG uses.
+    --
+    -- The one primitive the others cannot stand in for: a filled shape that
+    -- is not a rectangle, a circle or an ellipse. The commands are the ones
+    -- in "Halogen.Svg.Attributes", so a path written for an @\<svg\>@ and
+    -- one drawn on a canvas are the same value.
+    --
+    -- Coordinates are absolute, as they are for 'Line' and the curves.
+    Path [PathCommand] (Maybe FillStyle) (Maybe StrokeStyle)
   deriving stock (Eq, Show)
 
--- | An explicit hit region.
+-- | A path's commands as an SVG @d@ attribute, which is what a backend is
+-- given to draw.
+pathData :: [PathCommand] -> Text
+pathData = T.unwords . map show
+
+-- | An explicit hit region, given as a centre and an extent.
 --
--- Worth setting more often than you would expect: a stroke-only shape is hit
--- only on the stroke itself, and a group has no bounds of its own at all.
+-- Worth setting more often than you would expect. A stroke-only shape is hit
+-- only along the stroke itself. A group is hit only where one of its children
+-- is, so a group whose children are not themselves listening - the usual case,
+-- when the handler is on the group - is not hit anywhere at all.
 data HitArea
-  = RectHit Point Point
-  | CircleHit Point Double
+  = -- | Centre and size, as 'Rectangle' takes them.
+    RectHit Point Point
+  | -- | Centre and radius, as 'Circle' takes them.
+    CircleHit Point Double
   deriving stock (Eq, Show)
 
 -- | How an element takes part in hit testing.

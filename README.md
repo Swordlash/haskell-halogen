@@ -92,8 +92,9 @@ passing the output directory in `WASM_PUBLIC_DIR`.
 
 A scene is described in `Halogen.Canvas.Elements` and `Halogen.Canvas.Properties` (both in `core`),
 which read like `Halogen.HTML.Elements` and `Halogen.HTML.Properties`: `group`, `line`, `rectangle`,
-`circle`, `ellipse`, `arc`, the Bézier curves, `text` and `sprite`, each taking a list of props, with
-a `_` variant for the styling-free case. Props carry the transform, the cursor, the hit area and
+`circle`, `ellipse`, `arc`, the Bézier curves, `path`, `text` and `sprite`, each taking a list of
+props, with a `_` variant for the styling-free case. `path` takes the same commands as an `<svg>`
+`d` attribute, from `Halogen.Svg.Attributes`, so one drawing serves both. Props carry the transform, the cursor, the hit area and
 pointer handlers — `onClick`, `onPointerDown`, `onPointerUp`, `onPointerOver`, `onPointerOut` and
 `onPointerMove`. `outline` frames an element with a border the backend measures, which is the only
 way to get one that is right: nothing writing a scene can know a label's extent, or a sprite's

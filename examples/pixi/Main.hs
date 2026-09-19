@@ -9,6 +9,7 @@ import Halogen.Canvas.Pixi qualified as Pixi
 import Halogen.Canvas.Properties qualified as CP
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Properties qualified as HP
+import Halogen.Svg.Attributes qualified as SA
 import Protolude hiding (State, state)
 
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
@@ -63,9 +64,6 @@ titleText = "PIXEL FIELD"
 titleAt :: Pixi.Point
 titleAt = Pixi.Point (-315) (-300)
 
-tileSize :: Pixi.Point
-tileSize = Pixi.Point 88 88
-
 tileAt :: Int -> Pixi.Point
 tileAt index =
   Pixi.Point
@@ -94,11 +92,59 @@ grid = CE.group_ $ foldMap line [-1200, -1100 .. 1200]
 title :: Maybe Target -> Pixi.PixiNode GameEvent
 title hovered = CE.text titleAt titleText titleStyle (hoverProps Title hovered)
 
+-- | One tile, drawn rather than loaded.
+--
+-- The artwork was an SVG asset until the canvas language grew a path
+-- primitive; it is now the same drawing expressed in the path commands from
+-- "Halogen.Svg.Attributes", which is one fewer file to ship and to keep in
+-- step with the code. The two gradients the asset had are flat fills here -
+-- 'Pixi.FillStyle' is a single colour.
+--
+-- The group carries the position and the interaction, so the parts below it
+-- are drawn around an origin of their own and none of them has to know where
+-- the tile ended up.
 tile :: Maybe Target -> Int -> Pixi.PixiNode GameEvent
 tile hovered index =
-  CE.sprite (tileAt index) tileSize (Pixi.Texture "./pixi-tile.svg") $
-    CP.onClick (const $ Just $ TileClicked index)
-      : hoverProps (Tile index) hovered
+  CE.group
+    ( CP.at (tileAt index)
+        : CP.onClick (const $ Just $ TileClicked index)
+        : CP.hitArea (Pixi.RectHit (Pixi.Point 0 0) (Pixi.Point 88 88))
+        : hoverProps (Tile index) hovered
+    )
+    [ CE.rectangle_ (Pixi.Point 0 0) (Pixi.Point 82.5 82.5) (Just plate) (Just plateEdge)
+    , CE.path_ gem (Just gemFill) (Just gemEdge)
+    , CE.path_ facets Nothing (Just facetEdge)
+    , CE.circle_ (art 50 43) (scaled 7) (Just highlight) Nothing
+    ]
+  where
+    plate = Pixi.FillStyle {fillColor = 0x0ea5e9, fillAlpha = 1}
+    plateEdge = Pixi.StrokeStyle {strokeColor = 0x082f49, strokeWidth = scaled 8, strokeAlpha = 1}
+    gemFill = Pixi.FillStyle {fillColor = 0x7dd3fc, fillAlpha = 1}
+    gemEdge = Pixi.StrokeStyle {strokeColor = 0xe0f2fe, strokeWidth = scaled 5, strokeAlpha = 1}
+    facetEdge = Pixi.StrokeStyle {strokeColor = 0x075985, strokeWidth = scaled 4, strokeAlpha = 0.8}
+    highlight = Pixi.FillStyle {fillColor = 0xffffff, fillAlpha = 0.8}
+
+    gem = polyline [(64, 22), (101, 51), (87, 99), (41, 99), (27, 51)] <> [SA.z]
+    facets =
+      polyline [(27, 51), (64, 68), (101, 51)]
+        <> polyline [(64, 22), (64, 68), (41, 99)]
+        <> polyline [(64, 68), (87, 99)]
+
+    polyline = \case
+      [] -> []
+      (startX, startY) : rest ->
+        uncurry (SA.m SA.Abs) (place startX startY)
+          : map (uncurry (SA.l SA.Abs) . uncurry place) rest
+    place x y = let Pixi.Point x' y' = art x y in (x', y')
+
+-- | Artwork coordinates were drawn on the asset's 128 unit square, with the
+-- origin at its top left. The tile is 88 units across and drawn around its
+-- centre, so both axes shift and shrink.
+art :: Double -> Double -> Pixi.Point
+art x y = Pixi.Point (scaled (x - 64)) (scaled (y - 64))
+
+scaled :: Double -> Double
+scaled value = value * 88 / 128
 
 -- | Report the pointer coming and going, and while it is here, frame the
 -- object with a one pixel white border.

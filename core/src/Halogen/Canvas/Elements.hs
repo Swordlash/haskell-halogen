@@ -9,6 +9,7 @@ module Halogen.Canvas.Elements
   ( group
   , group_
   , keyedGroup
+  , withKeys
   , line
   , line_
   , rectangle
@@ -19,6 +20,8 @@ module Halogen.Canvas.Elements
   , arc
   , quadraticBezier
   , bezier
+  , path
+  , path_
   , text
   , text_
   , sprite
@@ -29,6 +32,7 @@ where
 import HPrelude hiding (group)
 import Halogen.Canvas.Core
 import Halogen.Canvas.Types
+import Halogen.Svg.Attributes (PathCommand)
 import Halogen.VDom.Types (ElemName (..))
 
 graphicsName, textName, spriteName, containerName :: ElemName
@@ -79,6 +83,16 @@ quadraticBezier start control end stroke = drawing (QuadraticBezier start contro
 
 bezier :: Point -> Point -> Point -> Point -> StrokeStyle -> CanvasLeaf event i
 bezier start control1 control2 end stroke = drawing (Bezier start control1 control2 end stroke)
+
+-- | An arbitrary outline, in SVG path commands.
+--
+-- Unlike the other primitives this one can be filled as well as stroked, so
+-- both styles are given the way 'rectangle' takes them.
+path :: [PathCommand] -> Maybe FillStyle -> Maybe StrokeStyle -> CanvasLeaf event i
+path commands fill stroke = drawing (Path commands fill stroke)
+
+path_ :: [PathCommand] -> Maybe FillStyle -> Maybe StrokeStyle -> CanvasNode event i
+path_ commands fill stroke = path commands fill stroke []
 
 text :: Point -> Text -> TextStyle -> CanvasLeaf event i
 text position value style props =
