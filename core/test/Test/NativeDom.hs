@@ -28,7 +28,7 @@ import Data.IORef
 import Data.Text (Text)
 import Data.Void (Void, absurd)
 import Halogen.VDom.DOM (VDomSpec (..), buildVDom)
-import Halogen.VDom.DOM.Monad (appendChild, propertyEquals, setProperty)
+import Halogen.VDom.DOM.Monad (MemDOM (..), appendChild, propertyEquals, runMemDOM, setProperty)
 import Halogen.VDom.DOM.Monad.Native qualified as N
 import Halogen.VDom.DOM.Prop (Prop (..), PropValue (..), buildProp)
 import Halogen.VDom.Machine (Step, extract, halt, step)
@@ -47,20 +47,20 @@ type TestStep = Step IO TestVDom Node
 
 -- | A spec over a fresh document, plus the sink that collects whatever the
 -- handlers emit.
-newSpec :: IO (VDomSpec IO IO [Prop Text] Void, IORef [Text])
+newSpec :: IO (VDomSpec MemDOM IO [Prop Text] Void, IORef [Text])
 newSpec = do
   doc <- N.newDocument
   emitted <- newIORef []
   let vspec =
         VDomSpec
-          { runDom = id
+          { runDom = runMemDOM
           , buildWidget = \_ -> absurd
-          , buildAttributes = buildProp @IO id id (\msg -> modifyIORef' emitted (<> [msg]))
+          , buildAttributes = buildProp runMemDOM MemDOM (\msg -> modifyIORef' emitted (<> [msg]))
           , document = N.fromNative doc :: Document
           }
   pure (vspec, emitted)
 
-build :: VDomSpec IO IO [Prop Text] Void -> TestVDom -> IO TestStep
+build :: VDomSpec MemDOM IO [Prop Text] Void -> TestVDom -> IO TestStep
 build vspec = buildVDom vspec
 
 -- | The rendered node of a step, as HTML.
@@ -170,22 +170,22 @@ spec = describe "native VDom" $ do
     -- JSVals by reference here; wasm uses === and so does this backend.
     it "compares properties by value, not by reference" $ do
       element <- N.fromNative <$> N.newElement Nothing (ElemName "input")
-      setProperty "value" (TxtProp "abc") (element :: Element)
+      runMemDOM $ setProperty "value" (TxtProp "abc") (element :: Element)
       assertWith "a distinct but equal value compares equal"
-        =<< propertyEquals "value" (TxtProp ("ab" <> "c")) element
+        =<< runMemDOM (propertyEquals "value" (TxtProp ("ab" <> "c")) element)
       assertWith "a different value compares unequal" . not
-        =<< propertyEquals "value" (TxtProp "abd") element
+        =<< runMemDOM (propertyEquals "value" (TxtProp "abd") element)
 
     -- The browser holds a JS number here, and `1 === "1"` is false. A slot
     -- that compared rendered text would wrongly call these equal and skip the
     -- write.
     it "does not conflate a numeric property with its string spelling" $ do
       element <- N.fromNative <$> N.newElement Nothing (ElemName "input")
-      setProperty "value" (IntProp (1 :: Int)) (element :: Element)
+      runMemDOM $ setProperty "value" (IntProp (1 :: Int)) (element :: Element)
       assertWith "the same number compares equal"
-        =<< propertyEquals "value" (IntProp (1 :: Int)) element
+        =<< runMemDOM (propertyEquals "value" (IntProp (1 :: Int)) element)
       assertWith "the string \"1\" does not" . not
-        =<< propertyEquals "value" (TxtProp "1") element
+        =<< runMemDOM (propertyEquals "value" (TxtProp "1") element)
 
   describe "keyed reconciliation" $ do
     it "retains each child's node across a reorder" $ do
@@ -245,7 +245,7 @@ spec = describe "native VDom" $ do
       (vspec, _) <- newSpec
       s <- build vspec $ el "div" [] [el "span" [] [Text "x"]]
       root <- N.newElement Nothing (ElemName "root")
-      appendChild (extract s) (toParentNode (N.fromNative root))
+      runMemDOM $ appendChild (extract s) (toParentNode (N.fromNative root))
       assertEqual "attached" 1 . length =<< N.childNodes root
       halt s
       assertEqual "detached" 0 . length =<< N.childNodes root

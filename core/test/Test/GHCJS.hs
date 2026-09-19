@@ -61,10 +61,12 @@ spec = describe "GHCJS FFI" $ do
     assertEqual "readProp" (Just 42) (readProp "answer" (Just . foreignToInt) js_object)
   it "recognizes null" $
     assertWith "nullableToMaybe should recognize null" (isNothing $ nullableToMaybe js_nullish)
-  it "does not append a child already in the final position" $
-    (DOM.appendChild (js_fixture_child js_dom_fixture) (js_fixture_parent js_dom_fixture) :: IO ())
-  it "does not insert a child already before the reference node" $
-    (DOM.insertBefore (js_fixture_child js_dom_fixture) (js_fixture_sibling js_dom_fixture) (js_fixture_parent js_dom_fixture) :: IO ())
+  it "does not append a child already in the final position"
+    $ DOM.runBrowserDOM
+    $ DOM.appendChild (js_fixture_child js_dom_fixture) (js_fixture_parent js_dom_fixture)
+  it "does not insert a child already before the reference node"
+    $ DOM.runBrowserDOM
+    $ DOM.insertBefore (js_fixture_child js_dom_fixture) (js_fixture_sibling js_dom_fixture) (js_fixture_parent js_dom_fixture)
 
 #else
 

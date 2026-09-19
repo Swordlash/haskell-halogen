@@ -142,14 +142,26 @@ runUIWith runDom toDom component i element = do
   document <- toDocument <$> runDom (DOM.document =<< DOM.window)
   AD.runUI (renderSpec runDom toDom document element) component i
 
+-- | Run a component against this build's default DOM backend.
+--
+-- Which backend that is follows "Halogen.VDom.DOM.Monad": the browser on the
+-- JavaScript and wasm backends, the in-memory document on native. Use
+-- 'runUIWith' to name a different one.
 runUI
   :: forall m query input output
-   . (DOM.MonadDOM m, MonadUnliftIO m, MonadFork m, MonadKill m, MonadParallel m, MonadMask m, MonadUUID m)
+   . (MonadUnliftIO m, MonadFork m, MonadKill m, MonadParallel m, MonadMask m, MonadUUID m)
   => Component query input output m
   -> input
   -> DOM.HTMLElement
   -> m (HalogenSocket query output m)
-runUI = runUIWith identity identity
+runUI component i element =
+  withRunInIO $ \runInIO ->
+    runInIO
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+      $ runUIWith (liftIO . DOM.runBrowserDOM) (DOM.BrowserDOM . runInIO) component i element
+#else
+      $ runUIWith (liftIO . DOM.runMemDOM) (DOM.MemDOM . runInIO) component i element
+#endif
 
 renderSpec
   :: forall dom m

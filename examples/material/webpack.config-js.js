@@ -14,8 +14,18 @@ const HtmlWebpackPlugin = require('html-webpack-plugin');
 const zlib = require('zlib');
 const CompressionPlugin = require('compression-webpack-plugin');
 const webpack = require('webpack');
+const fs = require('fs');
 
 const isDevelopment = process.env.NODE_ENV === 'development';
+
+// Cabal rejects a ghc-pkg whose minor version differs from the selected
+// compiler, and the one it picks off PATH is the host GHC unless we name the
+// pair explicitly. Read the compiler out of the project file so there is one
+// source of truth; see toolchain/ghcjs-env.sh for the same fix in the shell
+// scripts.
+const ghcjsGhc = fs
+  .readFileSync(path.resolve(__dirname, '../../cabal-ghcjs.project'), 'utf8')
+  .match(/^with-compiler:\s*(\S+)/m)[1];
 
 const haskellLoader = {
   loader: path.resolve(__dirname, '../../toolchain/haskell-loader.mjs'),
@@ -23,6 +33,8 @@ const haskellLoader = {
     'build-directory': 'dist-newstyle/javascript',
     'system-tools': true,
     'executable': 'halogen-example-material',
+    'with-compiler': ghcjsGhc,
+    'with-hc-pkg': ghcjsGhc.replace('-ghc-', '-ghc-pkg-'),
   },
 };
 

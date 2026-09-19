@@ -5,13 +5,18 @@
 set -ex
 
 cd "$(dirname "$0")/.."
+. toolchain/ghcjs-env.sh
 
 example=${1:-vanilla}
 package="halogen-example-$example"
 
 sh run_fourmolu.sh
 
-cabal build -fforce-recomp --project-file=cabal-ghcjs.project "exe:$package"
+cabal build -fforce-recomp \
+  --project-file=cabal-ghcjs.project \
+  --with-compiler="$ghcjs_ghc" \
+  --with-hc-pkg="$ghcjs_ghc_pkg" \
+  "exe:$package"
 
 all_js="$(find dist-newstyle/build/javascript-ghcjs -type f -path "*/$package.jsexe/all.js" -print -quit)"
 test -n "$all_js"

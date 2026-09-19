@@ -131,7 +131,9 @@ library
 
       Halogen.VDom.DOM
       Halogen.VDom.DOM.Monad
+      Halogen.VDom.DOM.Monad.Browser
       Halogen.VDom.DOM.Monad.Class
+      Halogen.VDom.DOM.Monad.Mem
       Halogen.VDom.DOM.Prop
       Halogen.VDom.Driver
       Halogen.VDom.Machine

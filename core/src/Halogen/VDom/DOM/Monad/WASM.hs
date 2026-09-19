@@ -11,6 +11,7 @@ module Halogen.VDom.DOM.Monad.WASM () where
 import Data.Foreign
 import GHC.Wasm.Prim
 import HPrelude
+import Halogen.VDom.DOM.Monad.Browser
 import Halogen.VDom.DOM.Monad.Class
 import Halogen.VDom.Types
 import Web.DOM.Internal.Types
@@ -82,40 +83,40 @@ jsStringVal :: Text -> JSVal
 jsStringVal value = case toJSString (toS value) of
   JSString result -> result
 
-instance MonadDOM IO where
-  type Ref IO = IORef
-  newRef = newIORef
-  readRef = readIORef
-  writeRef = atomicWriteIORef
-  modifyRef' = atomicModifyIORef'_
+instance MonadDOM BrowserDOM where
+  type Ref BrowserDOM = IORef
+  newRef v = liftIO $ newIORef v
+  readRef r = liftIO $ readIORef r
+  writeRef r v = liftIO $ atomicWriteIORef r v
+  modifyRef' r f = liftIO $ atomicModifyIORef'_ r f
 
-  mkEventListener f = EventListener <$> js_mk_event_listener (f . Event)
+  mkEventListener f = liftIO $ EventListener <$> js_mk_event_listener (runBrowserDOM . f . Event)
 
-  window = js_get_window
-  document = js_get_document
-  createTextNode txt doc = js_create_text_node (jsStringVal txt) doc
-  setTextContent txt node = js_set_text_content (jsStringVal txt) node
-  createElement ns (ElemName name) doc = js_create_element (maybe js_null (jsStringVal . unNamespace) ns) (jsStringVal name) doc
-  insertBefore = js_insert_before
-  appendChild = js_append_child
-  replaceChild = js_replace_child
-  insertChildIx = js_insert_child_ix
-  removeChild = js_remove_child
-  parentNode node = fmap ParentNode . nullableToMaybe <$> js_parent_node node
-  nextSibling node = fmap Node . nullableToMaybe <$> js_next_sibling node
-  setAttribute ns (AttrName name) val el = js_set_attribute (maybe js_null (jsStringVal . unNamespace) ns) (jsStringVal name) (jsStringVal val) el
-  setProperty (PropName name) val el = js_set_property (jsStringVal name) (propValueToJSVal val) el
-  propertyEquals (PropName name) val el = js_property_equals (jsStringVal name) (propValueToJSVal val) el
-  removeProperty (PropName name) el = js_remove_property (jsStringVal name) el
-  removeAttribute ns (AttrName name) el = js_remove_attribute (maybe js_null (jsStringVal . unNamespace) ns) (jsStringVal name) el
-  hasAttribute ns (AttrName name) el = js_has_attribute (maybe js_null (jsStringVal . unNamespace) ns) (jsStringVal name) el
-  addEventListener (EventType eventType) listener target = js_add_event_listener (jsStringVal eventType) listener target
-  removeEventListener (EventType eventType) listener@(EventListener callback) target = do
+  window = liftIO $ js_get_window
+  document w = liftIO $ js_get_document w
+  createTextNode txt doc = liftIO $ js_create_text_node (jsStringVal txt) doc
+  setTextContent txt node = liftIO $ js_set_text_content (jsStringVal txt) node
+  createElement ns (ElemName name) doc = liftIO $ js_create_element (maybe js_null (jsStringVal . unNamespace) ns) (jsStringVal name) doc
+  insertBefore a b c = liftIO $ js_insert_before a b c
+  appendChild a b = liftIO $ js_append_child a b
+  replaceChild a b c = liftIO $ js_replace_child a b c
+  insertChildIx a b c = liftIO $ js_insert_child_ix a b c
+  removeChild a b = liftIO $ js_remove_child a b
+  parentNode node = liftIO $ fmap ParentNode . nullableToMaybe <$> js_parent_node node
+  nextSibling node = liftIO $ fmap Node . nullableToMaybe <$> js_next_sibling node
+  setAttribute ns (AttrName name) val el = liftIO $ js_set_attribute (maybe js_null (jsStringVal . unNamespace) ns) (jsStringVal name) (jsStringVal val) el
+  setProperty (PropName name) val el = liftIO $ js_set_property (jsStringVal name) (propValueToJSVal val) el
+  propertyEquals (PropName name) val el = liftIO $ js_property_equals (jsStringVal name) (propValueToJSVal val) el
+  removeProperty (PropName name) el = liftIO $ js_remove_property (jsStringVal name) el
+  removeAttribute ns (AttrName name) el = liftIO $ js_remove_attribute (maybe js_null (jsStringVal . unNamespace) ns) (jsStringVal name) el
+  hasAttribute ns (AttrName name) el = liftIO $ js_has_attribute (maybe js_null (jsStringVal . unNamespace) ns) (jsStringVal name) el
+  addEventListener (EventType eventType) listener target = liftIO $ js_add_event_listener (jsStringVal eventType) listener target
+  removeEventListener (EventType eventType) listener@(EventListener callback) target = liftIO $ do
     js_remove_event_listener (jsStringVal eventType) listener target
     freeJSVal callback
-  querySelector (QuerySelector selector) parent = fmap Element . nullableToMaybe <$> js_query_selector (jsStringVal selector) parent
-  readyState doc = (fromMaybe ReadyState.Loading . ReadyState.parse . foreignToString) <$> js_ready_state doc
-  log = js_log . jsStringVal
+  querySelector (QuerySelector selector) parent = liftIO $ fmap Element . nullableToMaybe <$> js_query_selector (jsStringVal selector) parent
+  readyState doc = liftIO $ (fromMaybe ReadyState.Loading . ReadyState.parse . foreignToString) <$> js_ready_state doc
+  log t = liftIO $ js_log (jsStringVal t)
 
 propValueToJSVal :: PropValue a -> JSVal
 propValueToJSVal (IntProp x) = js_toJSInt $ fromIntegral x
