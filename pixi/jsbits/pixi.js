@@ -18,7 +18,6 @@ function halogen_pixi_add_to_stage(holder, child) { holder.app.stage.addChild(ch
 function halogen_pixi_add_child(parent, child) { parent.addChild(child); }
 function halogen_pixi_remove_child(parent, child) { parent.removeChild(child); }
 function halogen_pixi_parent_of(object) { return object.parent ?? null; }
-function halogen_pixi_clear_container(container) { container.removeChildren().forEach(function (child) { child.destroy({ children: true, texture: false, textureSource: false }); }); }
 function halogen_pixi_set_child_index(parent, child, index) { parent.setChildIndex(child, index); }
 function halogen_pixi_destroy_object(object) { object.destroy({ children: true, texture: false, textureSource: false }); }
 function halogen_pixi_clear_graphics(object) { object.clear(); }
@@ -126,7 +125,6 @@ function halogen_pixi_set_position(object, x, y) { object.position.set(x, y); }
 function halogen_pixi_set_scale(object, x, y) { object.__halogenScale = { x: x, y: y }; halogen_pixi_resize(object); }
 function halogen_pixi_set_rotation(object, rotation) { object.rotation = rotation; }
 function halogen_pixi_set_size(object, width, height) { object.__halogenSize = { width: width, height: height }; halogen_pixi_resize(object); }
-function halogen_pixi_on_tap(object, callback) { object.eventMode = "static"; object.cursor = "pointer"; object.on("pointertap", callback); }
 function halogen_pixi_on(object, eventType, callback) { object.on(eventType, callback); }
 function halogen_pixi_off(object, eventType, callback) { object.off(eventType, callback); }
 function halogen_pixi_set_event_mode(object, mode) { object.eventMode = mode; }
@@ -147,7 +145,6 @@ function halogen_pixi_local_x(object, event) { return event.getLocalPosition(obj
 function halogen_pixi_local_y(object, event) { return event.getLocalPosition(object).y; }
 function halogen_pixi_current_target(event) { return event.currentTarget; }
 function halogen_pixi_event_button(event) { return event.button; }
-function halogen_pixi_stop_propagation(event) { event.stopPropagation(); }
 function halogen_pixi_prevent_default(event) { event.preventDefault(); }
 function halogen_pixi_client_x(event) { return event.clientX; }
 function halogen_pixi_client_y(event) { return event.clientY; }

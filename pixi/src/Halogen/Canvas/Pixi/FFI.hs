@@ -19,7 +19,6 @@ module Halogen.Canvas.Pixi.FFI
   , addChild
   , removeChild
   , parentOf
-  , clearContainer
   , setChildIndex
   , destroyObject
   , clearGraphics
@@ -46,7 +45,6 @@ module Halogen.Canvas.Pixi.FFI
   , setOutline
   , clearOutline
   , refreshOutline
-  , onTap
   , addListener
   , removeListener
   , setEventMode
@@ -67,7 +65,6 @@ module Halogen.Canvas.Pixi.FFI
   , localY
   , eventButton
   , currentTarget
-  , stopPropagation
   , preventDefault
   , clientX
   , clientY
@@ -129,7 +126,6 @@ foreign import javascript unsafe "halogen_pixi_add_to_stage" addToStage :: Appli
 foreign import javascript unsafe "halogen_pixi_add_child" addChild :: Object -> Object -> IO ()
 foreign import javascript unsafe "halogen_pixi_remove_child" removeChild :: Object -> Object -> IO ()
 foreign import javascript unsafe "halogen_pixi_parent_of" parentOfRaw :: Object -> IO (Nullable Object)
-foreign import javascript unsafe "halogen_pixi_clear_container" clearContainer :: Object -> IO ()
 foreign import javascript unsafe "halogen_pixi_set_child_index" setChildIndex :: Object -> Object -> Int -> IO ()
 foreign import javascript unsafe "halogen_pixi_destroy_object" destroyObject :: Object -> IO ()
 foreign import javascript unsafe "halogen_pixi_clear_graphics" clearGraphics :: Object -> IO ()
@@ -156,7 +152,6 @@ foreign import javascript unsafe "halogen_pixi_set_size" setSize :: Object -> Do
 foreign import javascript unsafe "halogen_pixi_set_outline" setOutline :: Application -> Object -> Int -> Double -> Double -> Double -> IO ()
 foreign import javascript unsafe "halogen_pixi_clear_outline" clearOutline :: Object -> IO ()
 foreign import javascript unsafe "halogen_pixi_refresh_outline" refreshOutline :: Object -> IO ()
-foreign import javascript unsafe "halogen_pixi_on_tap" onTap :: Object -> Callback -> IO ()
 foreign import javascript unsafe "halogen_pixi_on" onRaw :: Object -> JSVal -> Callback -> IO ()
 foreign import javascript unsafe "halogen_pixi_off" offRaw :: Object -> JSVal -> Callback -> IO ()
 foreign import javascript unsafe "halogen_pixi_set_event_mode" setEventModeRaw :: Object -> JSVal -> IO ()
@@ -177,7 +172,6 @@ foreign import javascript unsafe "halogen_pixi_local_x" localX :: Object -> Even
 foreign import javascript unsafe "halogen_pixi_local_y" localY :: Object -> Event -> Double
 foreign import javascript unsafe "halogen_pixi_event_button" eventButton :: Event -> Int
 foreign import javascript unsafe "halogen_pixi_current_target" currentTarget :: Event -> Object
-foreign import javascript unsafe "halogen_pixi_stop_propagation" stopPropagation :: Event -> IO ()
 foreign import javascript unsafe "halogen_pixi_prevent_default" preventDefault :: Event -> IO ()
 foreign import javascript unsafe "halogen_pixi_client_x" clientX :: Event -> Double
 foreign import javascript unsafe "halogen_pixi_client_y" clientY :: Event -> Double
@@ -236,7 +230,6 @@ foreign import javascript unsafe "$1.app.stage.addChild($2)" addToStage :: Appli
 foreign import javascript unsafe "$1.addChild($2)" addChild :: Object -> Object -> IO ()
 foreign import javascript unsafe "$1.removeChild($2)" removeChild :: Object -> Object -> IO ()
 foreign import javascript unsafe "$1.parent ?? null" parentOfRaw :: Object -> IO (Nullable Object)
-foreign import javascript unsafe "$1.removeChildren().forEach(child=>child.destroy({children:true,texture:false,textureSource:false}))" clearContainer :: Object -> IO ()
 foreign import javascript unsafe "$1.setChildIndex($2,$3)" setChildIndex :: Object -> Object -> Int -> IO ()
 foreign import javascript unsafe "$1.destroy({children:true,texture:false,textureSource:false})" destroyObject :: Object -> IO ()
 foreign import javascript unsafe "$1.clear()" clearGraphics :: Object -> IO ()
@@ -263,7 +256,6 @@ foreign import javascript unsafe "$1.__halogenSize={width:$2,height:$3};globalTh
 foreign import javascript unsafe "$2.__halogenOutline={holder:$1,color:$3,width:$4,alpha:$5,padding:$6};globalThis.__halogenPixi.outline($2)" setOutline :: Application -> Object -> Int -> Double -> Double -> Double -> IO ()
 foreign import javascript unsafe "$1.__halogenOutline=null;const graphics=$1.__halogenOutlineGraphics;$1.__halogenOutlineGraphics=null;if(graphics)graphics.destroy()" clearOutline :: Object -> IO ()
 foreign import javascript unsafe "globalThis.__halogenPixi.outline($1)" refreshOutline :: Object -> IO ()
-foreign import javascript unsafe "$1.eventMode='static';$1.cursor='pointer';$1.on('pointertap',$2)" onTap :: Object -> Callback -> IO ()
 foreign import javascript unsafe "$1.on($2,$3)" onRaw :: Object -> JSVal -> Callback -> IO ()
 foreign import javascript unsafe "$1.off($2,$3)" offRaw :: Object -> JSVal -> Callback -> IO ()
 foreign import javascript unsafe "$1.eventMode=$2" setEventModeRaw :: Object -> JSVal -> IO ()
@@ -284,7 +276,6 @@ foreign import javascript unsafe "$2.getLocalPosition($1).x" localX :: Object ->
 foreign import javascript unsafe "$2.getLocalPosition($1).y" localY :: Object -> Event -> Double
 foreign import javascript unsafe "$1.button" eventButton :: Event -> Int
 foreign import javascript unsafe "$1.currentTarget" currentTarget :: Event -> Object
-foreign import javascript unsafe "$1.stopPropagation()" stopPropagation :: Event -> IO ()
 foreign import javascript unsafe "$1.preventDefault()" preventDefault :: Event -> IO ()
 foreign import javascript unsafe "$1.clientX" clientX :: Event -> Double
 foreign import javascript unsafe "$1.clientY" clientY :: Event -> Double
@@ -351,8 +342,6 @@ addChild _ _ = pure ()
 removeChild _ _ = pure ()
 parentOf :: Object -> IO (Maybe Object)
 parentOf _ = pure Nothing
-clearContainer :: Object -> IO ()
-clearContainer _ = pure ()
 setChildIndex :: Object -> Object -> Int -> IO ()
 setChildIndex _ _ _ = pure ()
 destroyObject, clearGraphics :: Object -> IO ()
@@ -398,8 +387,6 @@ setOutline _ _ _ _ _ _ = pure ()
 clearOutline, refreshOutline :: Object -> IO ()
 clearOutline _ = pure ()
 refreshOutline _ = pure ()
-onTap :: Object -> Callback -> IO ()
-onTap _ _ = pure ()
 addListener, removeListener :: Object -> Text -> Callback -> IO ()
 addListener _ _ _ = pure ()
 removeListener _ _ _ = pure ()
@@ -436,8 +423,6 @@ eventButton :: Event -> Int
 eventButton _ = 0
 currentTarget :: Event -> Object
 currentTarget _ = Object (toForeign ())
-stopPropagation :: Event -> IO ()
-stopPropagation _ = pure ()
 preventDefault :: Event -> IO ()
 preventDefault _ = pure ()
 canvasLeft, canvasTop, canvasWidth, canvasHeight :: Canvas -> IO Double
