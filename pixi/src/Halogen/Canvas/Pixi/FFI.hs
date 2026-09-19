@@ -17,6 +17,8 @@ module Halogen.Canvas.Pixi.FFI
   , newGraphics
   , addToStage
   , addChild
+  , removeChild
+  , parentOf
   , clearContainer
   , setChildIndex
   , destroyObject
@@ -79,7 +81,7 @@ module Halogen.Canvas.Pixi.FFI
   )
 where
 
-import Data.Foreign (Foreign)
+import Data.Foreign
 import Protolude
 import Web.DOM.Internal.Types (HTMLElement (..))
 import Web.Event.Internal.Types (Event (..))
@@ -89,8 +91,6 @@ import GHC.JS.Foreign.Callback qualified as JS
 import GHC.JS.Prim (JSVal, toJSString)
 #elif defined(wasm32_HOST_ARCH)
 import GHC.Wasm.Prim (JSString (..), JSVal, freeJSVal, toJSString)
-#else
-import Data.Foreign (toForeign)
 #endif
 
 newtype Application = Application (Foreign Application)
@@ -123,6 +123,8 @@ foreign import javascript unsafe "halogen_pixi_new_container" newContainer :: Ap
 foreign import javascript unsafe "halogen_pixi_new_graphics" newGraphics :: Application -> IO Object
 foreign import javascript unsafe "halogen_pixi_add_to_stage" addToStage :: Application -> Object -> IO ()
 foreign import javascript unsafe "halogen_pixi_add_child" addChild :: Object -> Object -> IO ()
+foreign import javascript unsafe "halogen_pixi_remove_child" removeChild :: Object -> Object -> IO ()
+foreign import javascript unsafe "halogen_pixi_parent_of" parentOfRaw :: Object -> IO (Nullable Object)
 foreign import javascript unsafe "halogen_pixi_clear_container" clearContainer :: Object -> IO ()
 foreign import javascript unsafe "halogen_pixi_set_child_index" setChildIndex :: Object -> Object -> Int -> IO ()
 foreign import javascript unsafe "halogen_pixi_destroy_object" destroyObject :: Object -> IO ()
@@ -189,6 +191,8 @@ setAssetText :: Application -> Object -> Text -> Double -> Double -> Text -> Tex
 setAssetText application object value x y family source size color align = setAssetTextRaw application object (toJSString $ toS value) x y (toJSString $ toS family) (toJSString $ toS source) size color (toJSString $ toS align)
 setTexture :: Application -> Object -> Text -> IO ()
 setTexture application object asset = setTextureRaw application object (toJSString $ toS asset)
+parentOf :: Object -> IO (Maybe Object)
+parentOf object = fmap Object . nullableToMaybe <$> parentOfRaw object
 addListener :: Object -> Text -> Callback -> IO ()
 addListener object eventType = onRaw object (toJSString $ toS eventType)
 removeListener :: Object -> Text -> Callback -> IO ()
@@ -212,6 +216,8 @@ foreign import javascript unsafe "new $1.pixi.Container()" newContainer :: Appli
 foreign import javascript unsafe "new $1.pixi.Graphics()" newGraphics :: Application -> IO Object
 foreign import javascript unsafe "$1.app.stage.addChild($2)" addToStage :: Application -> Object -> IO ()
 foreign import javascript unsafe "$1.addChild($2)" addChild :: Object -> Object -> IO ()
+foreign import javascript unsafe "$1.removeChild($2)" removeChild :: Object -> Object -> IO ()
+foreign import javascript unsafe "$1.parent ?? null" parentOfRaw :: Object -> IO (Nullable Object)
 foreign import javascript unsafe "$1.removeChildren().forEach(child=>child.destroy({children:true,texture:false,textureSource:false}))" clearContainer :: Object -> IO ()
 foreign import javascript unsafe "$1.setChildIndex($2,$3)" setChildIndex :: Object -> Object -> Int -> IO ()
 foreign import javascript unsafe "$1.destroy({children:true,texture:false,textureSource:false})" destroyObject :: Object -> IO ()
@@ -280,6 +286,8 @@ setAssetText :: Application -> Object -> Text -> Double -> Double -> Text -> Tex
 setAssetText application object value x y family source size color align = setAssetTextRaw application object (textValue value) x y (textValue family) (textValue source) size color (textValue align)
 setTexture :: Application -> Object -> Text -> IO ()
 setTexture application object asset = setTextureRaw application object (textValue asset)
+parentOf :: Object -> IO (Maybe Object)
+parentOf object = fmap Object . nullableToMaybe <$> parentOfRaw object
 addListener :: Object -> Text -> Callback -> IO ()
 addListener object eventType = onRaw object (textValue eventType)
 removeListener :: Object -> Text -> Callback -> IO ()
@@ -314,8 +322,11 @@ newText :: Application -> IO Object
 newText _ = pure (Object (toForeign ()))
 addToStage :: Application -> Object -> IO ()
 addToStage _ _ = pure ()
-addChild :: Object -> Object -> IO ()
+addChild, removeChild :: Object -> Object -> IO ()
 addChild _ _ = pure ()
+removeChild _ _ = pure ()
+parentOf :: Object -> IO (Maybe Object)
+parentOf _ = pure Nothing
 clearContainer :: Object -> IO ()
 clearContainer _ = pure ()
 setChildIndex :: Object -> Object -> Int -> IO ()

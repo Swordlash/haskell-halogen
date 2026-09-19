@@ -401,24 +401,6 @@ instance MonadDOM MemDOM where
 
   -- The browser backends guard each of these on reference equality; reproduce
   -- the guards so a no-op patch stays a no-op here too.
-  insertBefore inserted sibling parent = liftIO $ do
-    let child = toNative inserted
-        ref = toNative sibling
-    already <- previousSibling ref
-    when (already /= Just child) $ insertNative child (Just ref) (toNative parent)
-
-  appendChild child parent = liftIO $ do
-    let node = toNative child
-        p = toNative parent
-    end <- lastChild p
-    when (end /= Just node) $ insertNative node Nothing p
-
-  replaceChild newChild oldChild parent = liftIO $ do
-    let new = toNative newChild
-        old = toNative oldChild
-    when (new /= old) $ do
-      insertNative new (Just old) (toNative parent)
-      detach old
 
   insertChildIx ix child parent = liftIO $ do
     let node = toNative child
@@ -429,7 +411,6 @@ instance MonadDOM MemDOM where
   removeChild child _ = liftIO $ detach (toNative child)
 
   parentNode node = liftIO $ fmap fromNative <$> readIORef (toNative node).parentRef
-  nextSibling node = liftIO $ fmap fromNative <$> nextSiblingNative (toNative node)
 
   addEventListener (EventType ty) listener target =
     liftIO
@@ -446,6 +427,23 @@ instance MonadDOM MemDOM where
 -- driver and Halogen.IO.Util compile and can be exercised natively. There is
 -- no window here; 'ambientDocument' stands in for one.
 instance MonadBrowserDOM MemDOM where
+  insertBefore inserted sibling parent = liftIO $ do
+    let child = toNative inserted
+        ref = toNative sibling
+    already <- previousSibling ref
+    when (already /= Just child) $ insertNative child (Just ref) (toNative parent)
+  appendChild child parent = liftIO $ do
+    let node = toNative child
+        p = toNative parent
+    end <- lastChild p
+    when (end /= Just node) $ insertNative node Nothing p
+  replaceChild newChild oldChild parent = liftIO $ do
+    let new = toNative newChild
+        old = toNative oldChild
+    when (new /= old) $ do
+      insertNative new (Just old) (toNative parent)
+      detach old
+  nextSibling node = liftIO $ fmap fromNative <$> nextSiblingNative (toNative node)
   windowToEventTarget w = pure (coerce w)
   documentToNode d = pure (coerce d)
   window = liftIO $ pure (fromNative ambientDocument)

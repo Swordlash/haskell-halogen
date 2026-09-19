@@ -55,7 +55,7 @@ type WidgetState m slots action =
 
 mkSpec
   :: forall dom m action slots
-   . (MonadIO m, DOM.MonadAttributes dom, DOM.DomElement dom ~ DOM.Element, DOM.DomNode dom ~ DOM.Node, DOM.DomDocument dom ~ DOM.Document)
+   . (MonadIO m, DOM.MonadBrowserDOM dom)
   => (forall x. dom x -> m x)
   -> (forall x. m x -> dom x)
   -> (Input action -> m ())
@@ -130,7 +130,7 @@ mkSpec runDom toDom handler renderChildRef document =
 -- "Halogen.VDom.DOM.Prop" for why only the listener path needs the second.
 runUIWith
   :: forall dom m query input output
-   . (DOM.MonadBrowserDOM dom, DOM.DomElement dom ~ DOM.Element, DOM.DomNode dom ~ DOM.Node, DOM.DomDocument dom ~ DOM.Document, MonadUnliftIO m, MonadFork m, MonadKill m, MonadParallel m, MonadMask m, MonadUUID m)
+   . (DOM.MonadBrowserDOM dom, MonadUnliftIO m, MonadFork m, MonadKill m, MonadParallel m, MonadMask m, MonadUUID m)
   => (forall x. dom x -> m x)
   -> (forall x. m x -> dom x)
   -> Component query input output m
@@ -164,7 +164,7 @@ runUI component i element =
 
 renderSpec
   :: forall dom m
-   . (DOM.MonadAttributes dom, MonadIO m, DOM.DomElement dom ~ DOM.Element, DOM.DomNode dom ~ DOM.Node, DOM.DomDocument dom ~ DOM.Document)
+   . (DOM.MonadBrowserDOM dom, MonadIO m)
   => (forall x. dom x -> m x)
   -> (forall x. m x -> dom x)
   -> DOM.Document
@@ -207,7 +207,7 @@ renderSpec runDom toDom document container =
 
 removeChild
   :: forall dom m state action slots output
-   . (DOM.MonadDOM dom, DOM.DomNode dom ~ DOM.Node)
+   . (DOM.MonadBrowserDOM dom)
   => (forall x. dom x -> m x)
   -> RenderState m state action slots output
   -> m ()
@@ -215,7 +215,7 @@ removeChild runDom (RenderState {node}) = runDom $ do
   npn <- DOM.parentNode node
   traverse_ (DOM.removeChild node) npn
 
-substInParent :: (DOM.MonadDOM dom, DOM.DomNode dom ~ DOM.Node) => DOM.Node -> Maybe DOM.Node -> Maybe DOM.Node -> dom ()
+substInParent :: (DOM.MonadBrowserDOM dom) => DOM.Node -> Maybe DOM.Node -> Maybe DOM.Node -> dom ()
 substInParent newNode (Just sib) (Just pn) = void $ DOM.insertBefore newNode sib pn
 substInParent newNode Nothing (Just pn) = void $ DOM.appendChild newNode pn
 substInParent _ _ _ = pass

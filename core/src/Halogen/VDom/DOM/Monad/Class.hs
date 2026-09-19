@@ -75,16 +75,14 @@ class (PrimMonad m) => MonadDOM m where
   setTextContent :: Text -> DomNode m -> m ()
   createElement :: Maybe Namespace -> ElemName -> DomDocument m -> m (DomElement m)
 
-  -- The parent of each of these is a node, not a distinct ParentNode: that
-  -- distinction is a browser coercion, and backends that lack it should not
-  -- have to invent one.
-  insertBefore :: DomNode m -> DomNode m -> DomNode m -> m ()
-  appendChild :: DomNode m -> DomNode m -> m ()
-  replaceChild :: DomNode m -> DomNode m -> DomNode m -> m ()
+  -- The parent here is a node, not a distinct ParentNode: that distinction is
+  -- a browser coercion, and backends that lack it should not have to invent
+  -- one.
+  --
+  -- These three are the whole of what the reconciler needs to mutate a tree.
   insertChildIx :: Int -> DomNode m -> DomNode m -> m ()
   removeChild :: DomNode m -> DomNode m -> m ()
   parentNode :: DomNode m -> m (Maybe (DomNode m))
-  nextSibling :: DomNode m -> m (Maybe (DomNode m))
 
   addEventListener :: EventType -> DomEventListener m -> DomEventTarget m -> m ()
   removeEventListener :: EventType -> DomEventListener m -> DomEventTarget m -> m ()
@@ -123,6 +121,15 @@ class
   ) =>
   MonadBrowserDOM m
   where
+  -- Splicing a rendered root into a document that already exists. The
+  -- reconciler never does this - it owns its whole subtree - so these live
+  -- here rather than in 'MonadDOM', where a canvas backend that mounts onto a
+  -- stage would have to invent them.
+  insertBefore :: DomNode m -> DomNode m -> DomNode m -> m ()
+  appendChild :: DomNode m -> DomNode m -> m ()
+  replaceChild :: DomNode m -> DomNode m -> DomNode m -> m ()
+  nextSibling :: DomNode m -> m (Maybe (DomNode m))
+
   window :: m Window
   windowToEventTarget :: Window -> m (DomEventTarget m)
   document :: Window -> m HTMLDocument

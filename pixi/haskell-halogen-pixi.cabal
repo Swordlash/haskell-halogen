@@ -52,6 +52,7 @@ library
     build-depends:
         base >= 4.20,
         protolude,
+        primitive,
         unliftio-core,
         haskell-halogen-core
 
@@ -63,6 +64,7 @@ library
 
     other-modules:
       Halogen.Canvas.Pixi.FFI
+      Halogen.Canvas.Pixi.Monad
 
     hs-source-dirs:   src
 

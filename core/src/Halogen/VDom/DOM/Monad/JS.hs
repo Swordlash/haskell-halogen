@@ -93,13 +93,9 @@ instance MonadDOM BrowserDOM where
   createTextNode txt doc = liftIO $ js_create_text_node (toJSString $ toS txt) doc
   setTextContent txt node = liftIO $ js_set_text_content (toJSString $ toS txt) node
   createElement ns (ElemName name) doc = liftIO $ js_create_element (maybe jsNull (toJSString . toS . unNamespace) ns) (toJSString $ toS name) doc
-  insertBefore newNode sibling parent = liftIO $ js_insert_before newNode sibling (coerce parent)
-  appendChild child parent = liftIO $ js_append_child child (coerce parent)
-  replaceChild newChild oldChild parent = liftIO $ js_replace_child newChild oldChild (coerce parent)
   insertChildIx ix child parent = liftIO $ js_insert_child_ix ix child (coerce parent)
   removeChild child parent = liftIO $ js_remove_child child (coerce parent)
   parentNode node = liftIO $ fmap Node . nullableToMaybe <$> js_parent_node node
-  nextSibling node = liftIO $ fmap Node . nullableToMaybe <$> js_next_sibling node
   addEventListener (EventType et) listener target = liftIO $ js_add_event_listener (toJSString $ toS et) listener target
 
   removeEventListener (EventType et) listener@(EventListener clb) target = liftIO $ do
@@ -107,6 +103,10 @@ instance MonadDOM BrowserDOM where
     releaseCallback clb
 
 instance MonadBrowserDOM BrowserDOM where
+  insertBefore newNode sibling parent = liftIO $ js_insert_before newNode sibling (coerce parent)
+  appendChild child parent = liftIO $ js_append_child child (coerce parent)
+  replaceChild newChild oldChild parent = liftIO $ js_replace_child newChild oldChild (coerce parent)
+  nextSibling node = liftIO $ fmap Node . nullableToMaybe <$> js_next_sibling node
   windowToEventTarget w = pure (coerce w)
   documentToNode d = pure (coerce d)
   window = liftIO $ js_get_window
