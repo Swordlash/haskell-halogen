@@ -13,6 +13,7 @@
 module Halogen.VDom.DOM.Monad.Class
   ( PropValue (..)
   , MonadDOM (..)
+  , MonadAttributes (..)
   , MonadBrowserDOM (..)
   , mouseHandler
   )
@@ -85,15 +86,23 @@ class (PrimMonad m) => MonadDOM m where
   parentNode :: DomNode m -> m (Maybe (DomNode m))
   nextSibling :: DomNode m -> m (Maybe (DomNode m))
 
+  addEventListener :: EventType -> DomEventListener m -> DomEventTarget m -> m ()
+  removeEventListener :: EventType -> DomEventListener m -> DomEventTarget m -> m ()
+
+-- | Elements configured by named attributes and properties.
+--
+-- Split out for the same reason as 'MonadBrowserDOM': the reconciler never
+-- touches these, "Halogen.VDom.DOM.Prop" does. A backend whose elements are
+-- not configured this way should not have to stub six methods to be a tree.
+-- A Pixi @Graphics@ is the case in point — it is configured by replaying a
+-- drawing command sequence, not by setting named string attributes.
+class (MonadDOM m) => MonadAttributes m where
   setAttribute :: Maybe Namespace -> AttrName -> Text -> DomElement m -> m ()
   setProperty :: PropName a -> PropValue a -> DomElement m -> m ()
   propertyEquals :: PropName a -> PropValue a -> DomElement m -> m Bool
   removeProperty :: PropName a -> DomElement m -> m ()
   removeAttribute :: Maybe Namespace -> AttrName -> DomElement m -> m ()
   hasAttribute :: Maybe Namespace -> AttrName -> DomElement m -> m Bool
-
-  addEventListener :: EventType -> DomEventListener m -> DomEventTarget m -> m ()
-  removeEventListener :: EventType -> DomEventListener m -> DomEventTarget m -> m ()
 
 -- | The parts of the DOM that only a browser has.
 --
@@ -106,7 +115,7 @@ class (PrimMonad m) => MonadDOM m where
 -- "Web.DOM.Internal.Types" newtypes, and saying so once here keeps every
 -- caller of 'awaitBody' and friends from having to restate it.
 class
-  ( MonadDOM m
+  ( MonadAttributes m
   , DomNode m ~ Node
   , DomElement m ~ Element
   , DomDocument m ~ Document

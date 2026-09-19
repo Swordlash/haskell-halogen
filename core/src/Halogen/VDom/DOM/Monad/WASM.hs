@@ -105,12 +105,6 @@ instance MonadDOM BrowserDOM where
   removeChild a b = liftIO $ js_remove_child a (coerce b)
   parentNode node = liftIO $ fmap Node . nullableToMaybe <$> js_parent_node node
   nextSibling node = liftIO $ fmap Node . nullableToMaybe <$> js_next_sibling node
-  setAttribute ns (AttrName name) val el = liftIO $ js_set_attribute (maybe js_null (jsStringVal . unNamespace) ns) (jsStringVal name) (jsStringVal val) el
-  setProperty (PropName name) val el = liftIO $ js_set_property (jsStringVal name) (propValueToJSVal val) el
-  propertyEquals (PropName name) val el = liftIO $ js_property_equals (jsStringVal name) (propValueToJSVal val) el
-  removeProperty (PropName name) el = liftIO $ js_remove_property (jsStringVal name) el
-  removeAttribute ns (AttrName name) el = liftIO $ js_remove_attribute (maybe js_null (jsStringVal . unNamespace) ns) (jsStringVal name) el
-  hasAttribute ns (AttrName name) el = liftIO $ js_has_attribute (maybe js_null (jsStringVal . unNamespace) ns) (jsStringVal name) el
   addEventListener (EventType eventType) listener target = liftIO $ js_add_event_listener (jsStringVal eventType) listener target
   removeEventListener (EventType eventType) listener@(EventListener callback) target = liftIO $ do
     js_remove_event_listener (jsStringVal eventType) listener target
@@ -130,3 +124,11 @@ propValueToJSVal (NumProp x) = js_toJSNum x
 propValueToJSVal (BoolProp x) = js_toJSBool x
 propValueToJSVal (TxtProp x) = jsStringVal x
 propValueToJSVal (ViaTxtProp f x) = jsStringVal $ f x
+
+instance MonadAttributes BrowserDOM where
+  setAttribute ns (AttrName name) val el = liftIO $ js_set_attribute (maybe js_null (jsStringVal . unNamespace) ns) (jsStringVal name) (jsStringVal val) el
+  setProperty (PropName name) val el = liftIO $ js_set_property (jsStringVal name) (propValueToJSVal val) el
+  propertyEquals (PropName name) val el = liftIO $ js_property_equals (jsStringVal name) (propValueToJSVal val) el
+  removeProperty (PropName name) el = liftIO $ js_remove_property (jsStringVal name) el
+  removeAttribute ns (AttrName name) el = liftIO $ js_remove_attribute (maybe js_null (jsStringVal . unNamespace) ns) (jsStringVal name) el
+  hasAttribute ns (AttrName name) el = liftIO $ js_has_attribute (maybe js_null (jsStringVal . unNamespace) ns) (jsStringVal name) el

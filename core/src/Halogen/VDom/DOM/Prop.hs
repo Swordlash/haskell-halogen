@@ -70,7 +70,7 @@ propToStrKey = \case
 -- caller; the reconciler itself never needs it.
 buildProp
   :: forall dom m a
-   . (MonadDOM dom, Monad m, DomElement dom ~ DOM.Element)
+   . (MonadAttributes dom, Monad m, DomElement dom ~ DOM.Element)
   => (forall x. dom x -> m x)
   -> (forall x. m x -> dom x)
   -> (a -> m ())

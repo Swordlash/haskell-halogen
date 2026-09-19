@@ -55,7 +55,7 @@ type WidgetState m slots action =
 
 mkSpec
   :: forall dom m action slots
-   . (MonadIO m, DOM.MonadDOM dom, DOM.DomElement dom ~ DOM.Element, DOM.DomNode dom ~ DOM.Node, DOM.DomDocument dom ~ DOM.Document)
+   . (MonadIO m, DOM.MonadAttributes dom, DOM.DomElement dom ~ DOM.Element, DOM.DomNode dom ~ DOM.Node, DOM.DomDocument dom ~ DOM.Document)
   => (forall x. dom x -> m x)
   -> (forall x. m x -> dom x)
   -> (Input action -> m ())
@@ -164,7 +164,7 @@ runUI component i element =
 
 renderSpec
   :: forall dom m
-   . (DOM.MonadDOM dom, MonadIO m, DOM.DomElement dom ~ DOM.Element, DOM.DomNode dom ~ DOM.Node, DOM.DomDocument dom ~ DOM.Document)
+   . (DOM.MonadAttributes dom, MonadIO m, DOM.DomElement dom ~ DOM.Element, DOM.DomNode dom ~ DOM.Node, DOM.DomDocument dom ~ DOM.Document)
   => (forall x. dom x -> m x)
   -> (forall x. m x -> dom x)
   -> DOM.Document

@@ -100,12 +100,6 @@ instance MonadDOM BrowserDOM where
   removeChild child parent = liftIO $ js_remove_child child (coerce parent)
   parentNode node = liftIO $ fmap Node . nullableToMaybe <$> js_parent_node node
   nextSibling node = liftIO $ fmap Node . nullableToMaybe <$> js_next_sibling node
-  setAttribute ns (AttrName name) val el = liftIO $ js_set_attribute (maybe jsNull (toJSString . toS . unNamespace) ns) (toJSString $ toS name) (toJSString $ toS val) el
-  setProperty (PropName name) val el = liftIO $ js_set_property (toJSString $ toS name) (propValueToJSVal val) el
-  propertyEquals (PropName name) val el = liftIO $ unsafeRefEq <$> js_unsafe_get_property (toJSString $ toS name) el <*> pure (propValueToJSVal val)
-  removeProperty (PropName name) el = liftIO $ js_remove_property (toJSString $ toS name) el
-  removeAttribute ns (AttrName name) el = liftIO $ js_remove_attribute (maybe jsNull (toJSString . toS . unNamespace) ns) (toJSString $ toS name) el
-  hasAttribute ns (AttrName name) el = liftIO $ js_has_attribute (maybe jsNull (toJSString . toS . unNamespace) ns) (toJSString $ toS name) el
   addEventListener (EventType et) listener target = liftIO $ js_add_event_listener (toJSString $ toS et) listener target
 
   removeEventListener (EventType et) listener@(EventListener clb) target = liftIO $ do
@@ -119,6 +113,14 @@ instance MonadBrowserDOM BrowserDOM where
   document w = liftIO $ js_get_document w
   querySelector (QuerySelector qs) parent = liftIO $ fmap Element . nullableToMaybe <$> js_query_selector (toJSString $ toS qs) (coerce parent)
   readyState doc = liftIO $ (fromMaybe ReadyState.Loading . ReadyState.parse . toS . fromJSString) <$> js_ready_state doc
+
+instance MonadAttributes BrowserDOM where
+  setAttribute ns (AttrName name) val el = liftIO $ js_set_attribute (maybe jsNull (toJSString . toS . unNamespace) ns) (toJSString $ toS name) (toJSString $ toS val) el
+  setProperty (PropName name) val el = liftIO $ js_set_property (toJSString $ toS name) (propValueToJSVal val) el
+  propertyEquals (PropName name) val el = liftIO $ unsafeRefEq <$> js_unsafe_get_property (toJSString $ toS name) el <*> pure (propValueToJSVal val)
+  removeProperty (PropName name) el = liftIO $ js_remove_property (toJSString $ toS name) el
+  removeAttribute ns (AttrName name) el = liftIO $ js_remove_attribute (maybe jsNull (toJSString . toS . unNamespace) ns) (toJSString $ toS name) el
+  hasAttribute ns (AttrName name) el = liftIO $ js_has_attribute (maybe jsNull (toJSString . toS . unNamespace) ns) (toJSString $ toS name) el
 
 propValueToJSVal :: PropValue a -> JSVal
 propValueToJSVal (IntProp x) = toJSInt $ fromIntegral x

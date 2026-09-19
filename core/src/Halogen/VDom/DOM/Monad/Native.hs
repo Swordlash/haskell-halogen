@@ -431,37 +431,6 @@ instance MonadDOM MemDOM where
   parentNode node = liftIO $ fmap fromNative <$> readIORef (toNative node).parentRef
   nextSibling node = liftIO $ fmap fromNative <$> nextSiblingNative (toNative node)
 
-  setAttribute ns (AttrName name) val el =
-    liftIO
-      $ modifyIORef' (toNative el).attrs
-      $ M.insert (unNamespace <$> ns, name) val
-
-  removeAttribute ns (AttrName name) el =
-    liftIO
-      $ modifyIORef' (toNative el).attrs
-      $ M.delete (unNamespace <$> ns, name)
-
-  hasAttribute ns (AttrName name) el =
-    liftIO
-      $ M.member (unNamespace <$> ns, name)
-      <$> readIORef (toNative el).attrs
-
-  setProperty (PropName name) val el =
-    liftIO
-      $ modifyIORef' (toNative el).props
-      $ M.insert name (propScalar val)
-
-  propertyEquals (PropName name) val el =
-    liftIO
-      $ (== Just (propScalar val))
-      . M.lookup name
-      <$> readIORef (toNative el).props
-
-  removeProperty (PropName name) el =
-    liftIO
-      $ modifyIORef' (toNative el).props
-      $ M.delete name
-
   addEventListener (EventType ty) listener target =
     liftIO
       $ modifyIORef' (toNative target).listeners (<> [(toListener listener) {eventType = ty}])
@@ -486,3 +455,30 @@ instance MonadBrowserDOM MemDOM where
       $ fmap fromNative
       <$> queryNative selector (toNative parent)
   readyState _ = liftIO $ pure ReadyState.Complete
+
+instance MonadAttributes MemDOM where
+  setAttribute ns (AttrName name) val el =
+    liftIO
+      $ modifyIORef' (toNative el).attrs
+      $ M.insert (unNamespace <$> ns, name) val
+  removeAttribute ns (AttrName name) el =
+    liftIO
+      $ modifyIORef' (toNative el).attrs
+      $ M.delete (unNamespace <$> ns, name)
+  hasAttribute ns (AttrName name) el =
+    liftIO
+      $ M.member (unNamespace <$> ns, name)
+      <$> readIORef (toNative el).attrs
+  setProperty (PropName name) val el =
+    liftIO
+      $ modifyIORef' (toNative el).props
+      $ M.insert name (propScalar val)
+  propertyEquals (PropName name) val el =
+    liftIO
+      $ (== Just (propScalar val))
+      . M.lookup name
+      <$> readIORef (toNative el).props
+  removeProperty (PropName name) el =
+    liftIO
+      $ modifyIORef' (toNative el).props
+      $ M.delete name
