@@ -28,7 +28,7 @@ transform = Place
 at :: Point -> CanvasProp event i
 at position = Place defaultTransform {position}
 
-cursor :: Text -> CanvasProp event i
+cursor :: Cursor -> CanvasProp event i
 cursor = Cursor
 
 eventMode :: EventMode -> CanvasProp event i

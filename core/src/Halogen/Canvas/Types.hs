@@ -22,6 +22,9 @@ module Halogen.Canvas.Types
   , HitArea (..)
   , EventMode (..)
   , eventModeName
+  , Cursor (..)
+  , ResizeDirection (..)
+  , cursorName
   , textAlignName
   )
 where
@@ -165,3 +168,105 @@ eventModeName = \case
   EventsPassive -> "passive"
   EventsAuto -> "auto"
   EventsStatic -> "static"
+
+-- | What the pointer looks like over an element.
+--
+-- The CSS cursor keywords, which is the closed set every backend that has a
+-- pointer at all ends up speaking - a canvas is a DOM element, and so is an
+-- SVG. An enumeration rather than a string because a misspelled keyword is
+-- silently ignored by the browser, which is the worst way to find out.
+data Cursor
+  = CursorAuto
+  | CursorDefault
+  | CursorNone
+  | CursorContextMenu
+  | CursorHelp
+  | CursorPointer
+  | CursorProgress
+  | CursorWait
+  | CursorCell
+  | CursorCrosshair
+  | CursorText
+  | CursorVerticalText
+  | CursorAlias
+  | CursorCopy
+  | CursorMove
+  | CursorNoDrop
+  | CursorNotAllowed
+  | CursorGrab
+  | CursorGrabbing
+  | CursorAllScroll
+  | CursorZoomIn
+  | CursorZoomOut
+  | -- | The resize family, which is large enough to be worth naming as one.
+    CursorResize ResizeDirection
+  | -- | A custom image, by URL. The one thing that cannot be enumerated.
+    CursorUrl Text
+  deriving stock (Eq, Show)
+
+-- | Which edge or corner a resize cursor points at.
+data ResizeDirection
+  = ResizeN
+  | ResizeE
+  | ResizeS
+  | ResizeW
+  | ResizeNE
+  | ResizeNW
+  | ResizeSE
+  | ResizeSW
+  | -- | Both horizontal directions, for a vertical edge.
+    ResizeEW
+  | -- | Both vertical directions, for a horizontal edge.
+    ResizeNS
+  | ResizeNESW
+  | ResizeNWSE
+  | -- | A column boundary.
+    ResizeCol
+  | -- | A row boundary.
+    ResizeRow
+  deriving stock (Eq, Show)
+
+cursorName :: Cursor -> Text
+cursorName = \case
+  CursorAuto -> "auto"
+  CursorDefault -> "default"
+  CursorNone -> "none"
+  CursorContextMenu -> "context-menu"
+  CursorHelp -> "help"
+  CursorPointer -> "pointer"
+  CursorProgress -> "progress"
+  CursorWait -> "wait"
+  CursorCell -> "cell"
+  CursorCrosshair -> "crosshair"
+  CursorText -> "text"
+  CursorVerticalText -> "vertical-text"
+  CursorAlias -> "alias"
+  CursorCopy -> "copy"
+  CursorMove -> "move"
+  CursorNoDrop -> "no-drop"
+  CursorNotAllowed -> "not-allowed"
+  CursorGrab -> "grab"
+  CursorGrabbing -> "grabbing"
+  CursorAllScroll -> "all-scroll"
+  CursorZoomIn -> "zoom-in"
+  CursorZoomOut -> "zoom-out"
+  CursorResize direction -> resizeDirectionName direction <> "-resize"
+  -- CSS requires a keyword to fall back on when the image will not load.
+  CursorUrl url -> "url(" <> url <> "), auto"
+
+resizeDirectionName :: ResizeDirection -> Text
+resizeDirectionName = \case
+  ResizeN -> "n"
+  ResizeE -> "e"
+  ResizeS -> "s"
+  ResizeW -> "w"
+  ResizeNE -> "ne"
+  ResizeNW -> "nw"
+  ResizeSE -> "se"
+  ResizeSW -> "sw"
+  ResizeEW -> "ew"
+  ResizeNS -> "ns"
+  ResizeNESW -> "nesw"
+  ResizeNWSE -> "nwse"
+  ResizeCol -> "col"
+  ResizeRow -> "row"

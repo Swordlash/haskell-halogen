@@ -152,7 +152,7 @@ buildCanvasProp runDom toDom emit application object = render
         Draw _ -> liftIO $ FFI.clearGraphics object
         Label _ _ -> liftIO $ FFI.clearText object
         Src _ _ -> liftIO $ FFI.clearTexture application object
-        Cursor _ -> liftIO $ FFI.setCursor object "default"
+        Cursor _ -> liftIO $ FFI.setCursor object (cursorName CursorDefault)
         Hit _ -> liftIO $ FFI.clearHitArea object
         Outline _ _ -> liftIO $ FFI.clearOutline object
         -- Recomputed from the whole map by syncEventMode.
@@ -197,7 +197,7 @@ buildCanvasProp runDom toDom emit application object = render
       Interactive _ -> pass -- handled by syncEventMode
       Outline StrokeStyle {strokeColor, strokeWidth, strokeAlpha} padding ->
         liftIO $ FFI.setOutline application object strokeColor strokeWidth strokeAlpha padding
-      Cursor value -> liftIO $ FFI.setCursor object value
+      Cursor value -> liftIO $ FFI.setCursor object (cursorName value)
       Hit area -> liftIO $ case area of
         -- Pixi's Rectangle is a corner and a size; the canvas language is
         -- centred throughout, so convert rather than leak the difference.

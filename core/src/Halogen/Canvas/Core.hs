@@ -78,7 +78,7 @@ data CanvasProp event i
     Outline StrokeStyle Double
   | Handler PointerEventType (event -> Maybe i)
   | Interactive EventMode
-  | Cursor Text
+  | Cursor Cursor
   | Hit HitArea
   deriving stock (Functor)
 
