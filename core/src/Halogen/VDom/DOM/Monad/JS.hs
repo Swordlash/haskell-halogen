@@ -79,6 +79,12 @@ foreign import javascript unsafe "(($1) => { console.log($1); })"
   js_log :: JSVal -> IO ()
 
 instance MonadDOM IO where
+  type Ref IO = IORef
+  newRef = newIORef
+  readRef = readIORef
+  writeRef = atomicWriteIORef
+  modifyRef' = atomicModifyIORef'_
+
   mkEventListener f = EventListener <$> asyncCallback1 (f . Event)
 
   window = js_get_window

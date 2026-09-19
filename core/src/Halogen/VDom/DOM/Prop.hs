@@ -35,10 +35,10 @@ data ElemRef a
   | Removed a
   deriving (Functor)
 
-type EventMap m a = Map Text (DOM.EventListener, IORef (Event -> Maybe a))
+type EventMap m a = Map Text (DOM.EventListener, Ref m (Event -> Maybe a))
 
 data PropState m a = PropState
-  { events :: IORef (EventMap m a)
+  { events :: Ref m (EventMap m a)
   , props :: Map Text (Prop a)
   }
 
@@ -55,7 +55,7 @@ propToStrKey = \case
 #endif
 buildProp
   :: forall m a
-   . (MonadIO m, MonadDOM m)
+   . (MonadDOM m)
   => (a -> m ())
   -> DOM.Element
   -> V.Machine m [Prop a] ()
@@ -63,7 +63,7 @@ buildProp emit el = renderProp
   where
     renderProp :: V.Machine m [Prop a] ()
     renderProp ps1 = do
-      events <- newIORef mempty
+      events <- newRef mempty
       ps1' <- Util.strMapWithIxE ps1 propToStrKey (applyProp events)
       let state =
             PropState
@@ -74,7 +74,7 @@ buildProp emit el = renderProp
 
     patchProp :: PropState m a -> [Prop a] -> m (V.Step m [Prop a] ())
     patchProp state ps2 = do
-      events <- newIORef mempty
+      events <- newRef mempty
       let PropState {events = prevEvents, props = ps1} = state
           onThese = diffProp prevEvents events
           onThis = removeProp prevEvents
@@ -95,7 +95,7 @@ buildProp emit el = renderProp
 
     mbEmit = traverse_ emit
 
-    applyProp :: IORef (EventMap m a) -> Text -> Int -> Prop a -> m (Prop a)
+    applyProp :: Ref m (EventMap m a) -> Text -> Int -> Prop a -> m (Prop a)
     applyProp events _ _ v =
       case v of
         Attribute ns attr val -> do
@@ -106,17 +106,17 @@ buildProp emit el = renderProp
           pure v
         Handler evty@(DOM.EventType ty) f -> do
           M.lookup ty
-            <$> readIORef events
+            <$> readRef events
             >>= \case
               Just handler -> do
-                atomicWriteIORef (snd handler) f
+                writeRef (snd handler) f
                 pure v
               _ -> do
-                ref <- newIORef f
+                ref <- newRef f
                 listener <- mkEventListener $ \ev -> do
-                  f' <- readIORef ref
+                  f' <- readRef ref
                   mbEmit (f' ev)
-                atomicModifyIORef'_ events (M.insert ty (listener, ref))
+                modifyRef' events (M.insert ty (listener, ref))
                 addEventListener evty listener $ toEventTarget el
                 pure v
         Ref f -> do
@@ -124,8 +124,8 @@ buildProp emit el = renderProp
           pure v
 
     diffProp
-      :: IORef (EventMap m a)
-      -> IORef (EventMap m a)
+      :: Ref m (EventMap m a)
+      -> Ref m (EventMap m a)
       -> Text
       -> Int
       -> Prop a
@@ -154,9 +154,9 @@ buildProp emit el = renderProp
               setProperty prop2 val2 el
               pure v2
         (Handler _ _, Handler (DOM.EventType ty) f) -> do
-          handler <- (M.! ty) <$> readIORef prevEvents
-          atomicWriteIORef (snd handler) f
-          atomicModifyIORef'_ events (M.insert ty handler)
+          handler <- (M.! ty) <$> readRef prevEvents
+          writeRef (snd handler) f
+          modifyRef' events (M.insert ty handler)
           pure v2
         (_, _) ->
           pure v2
@@ -168,6 +168,6 @@ buildProp emit el = renderProp
         Property prop _ ->
           removeProperty prop el
         Handler evty@(DOM.EventType ty) _ -> do
-          handler <- (M.! ty) <$> readIORef prevEvents
+          handler <- (M.! ty) <$> readRef prevEvents
           removeEventListener evty (fst handler) $ toEventTarget el
         Ref _ -> pass

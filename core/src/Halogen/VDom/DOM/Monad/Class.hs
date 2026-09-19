@@ -33,6 +33,21 @@ data PropValue val where
   ViaTxtProp :: (a -> Text) -> a -> PropValue a
 
 class (Monad m) => MonadDOM m where
+  -- | Mutable cells, abstracted so the class can be instantiated at monads
+  -- with no 'IO' underneath.
+  --
+  -- "Halogen.VDom.DOM.Prop" needs one cell per event handler: a listener is
+  -- registered with the DOM once and its target is then swapped on every
+  -- patch, so the cell is what keeps the listener's identity stable. That is
+  -- a real requirement, not an implementation detail, which is why it belongs
+  -- in the class rather than in an @IO@-shaped constraint on the caller.
+  type Ref m :: Type -> Type
+
+  newRef :: a -> m (Ref m a)
+  readRef :: Ref m a -> m a
+  writeRef :: Ref m a -> a -> m ()
+  modifyRef' :: Ref m a -> (a -> a) -> m ()
+
   mkEventListener :: (Event -> m ()) -> m EventListener
 
   createTextNode :: Text -> Document -> m Node

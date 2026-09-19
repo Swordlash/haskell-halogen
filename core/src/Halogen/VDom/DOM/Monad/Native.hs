@@ -371,6 +371,12 @@ scalarText = \case
   ScalarText x -> x
 
 instance MonadDOM IO where
+  type Ref IO = IORef
+  newRef = newIORef
+  readRef = readIORef
+  writeRef = atomicWriteIORef
+  modifyRef' = atomicModifyIORef'_
+
   -- The event type is not known until addEventListener; it is filled in there.
   mkEventListener f = do
     i <- nextIdent

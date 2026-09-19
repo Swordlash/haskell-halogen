@@ -83,6 +83,12 @@ jsStringVal value = case toJSString (toS value) of
   JSString result -> result
 
 instance MonadDOM IO where
+  type Ref IO = IORef
+  newRef = newIORef
+  readRef = readIORef
+  writeRef = atomicWriteIORef
+  modifyRef' = atomicModifyIORef'_
+
   mkEventListener f = EventListener <$> js_mk_event_listener (f . Event)
 
   window = js_get_window
