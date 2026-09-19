@@ -42,6 +42,13 @@ module Halogen.Canvas.Pixi.FFI
   , setRotation
   , setSize
   , onTap
+  , addListener
+  , removeListener
+  , setEventMode
+  , setCursor
+  , setRectHitArea
+  , setCircleHitArea
+  , clearHitArea
   , enableStageEvents
   , onPointerDown
   , onPointerMove
@@ -51,6 +58,10 @@ module Halogen.Canvas.Pixi.FFI
   , pointerId
   , globalX
   , globalY
+  , localX
+  , localY
+  , eventButton
+  , stopPropagation
   , preventDefault
   , clientX
   , clientY
@@ -137,6 +148,13 @@ foreign import javascript unsafe "halogen_pixi_set_scale" setScale :: Object -> 
 foreign import javascript unsafe "halogen_pixi_set_rotation" setRotation :: Object -> Double -> IO ()
 foreign import javascript unsafe "halogen_pixi_set_size" setSize :: Object -> Double -> Double -> IO ()
 foreign import javascript unsafe "halogen_pixi_on_tap" onTap :: Object -> Callback -> IO ()
+foreign import javascript unsafe "halogen_pixi_on" onRaw :: Object -> JSVal -> Callback -> IO ()
+foreign import javascript unsafe "halogen_pixi_off" offRaw :: Object -> JSVal -> Callback -> IO ()
+foreign import javascript unsafe "halogen_pixi_set_event_mode" setEventModeRaw :: Object -> JSVal -> IO ()
+foreign import javascript unsafe "halogen_pixi_set_cursor" setCursorRaw :: Object -> JSVal -> IO ()
+foreign import javascript unsafe "halogen_pixi_set_rect_hit_area" setRectHitArea :: Application -> Object -> Double -> Double -> Double -> Double -> IO ()
+foreign import javascript unsafe "halogen_pixi_set_circle_hit_area" setCircleHitArea :: Application -> Object -> Double -> Double -> Double -> IO ()
+foreign import javascript unsafe "halogen_pixi_clear_hit_area" clearHitArea :: Object -> IO ()
 foreign import javascript unsafe "halogen_pixi_enable_stage_events" enableStageEvents :: Application -> IO ()
 foreign import javascript unsafe "halogen_pixi_on_pointer_down" onPointerDown :: Application -> Callback -> IO ()
 foreign import javascript unsafe "halogen_pixi_on_pointer_move" onPointerMove :: Application -> Callback -> IO ()
@@ -146,6 +164,10 @@ foreign import javascript unsafe "halogen_pixi_remove_wheel" removeWheel :: Canv
 foreign import javascript unsafe "halogen_pixi_pointer_id" pointerId :: Event -> IO Int
 foreign import javascript unsafe "halogen_pixi_global_x" globalX :: Event -> IO Double
 foreign import javascript unsafe "halogen_pixi_global_y" globalY :: Event -> IO Double
+foreign import javascript unsafe "halogen_pixi_local_x" localX :: Object -> Event -> IO Double
+foreign import javascript unsafe "halogen_pixi_local_y" localY :: Object -> Event -> IO Double
+foreign import javascript unsafe "halogen_pixi_event_button" eventButton :: Event -> IO Int
+foreign import javascript unsafe "halogen_pixi_stop_propagation" stopPropagation :: Event -> IO ()
 foreign import javascript unsafe "halogen_pixi_prevent_default" preventDefault :: Event -> IO ()
 foreign import javascript unsafe "halogen_pixi_client_x" clientX :: Event -> IO Double
 foreign import javascript unsafe "halogen_pixi_client_y" clientY :: Event -> IO Double
@@ -167,6 +189,14 @@ setAssetText :: Application -> Object -> Text -> Double -> Double -> Text -> Tex
 setAssetText application object value x y family source size color align = setAssetTextRaw application object (toJSString $ toS value) x y (toJSString $ toS family) (toJSString $ toS source) size color (toJSString $ toS align)
 setTexture :: Application -> Object -> Text -> IO ()
 setTexture application object asset = setTextureRaw application object (toJSString $ toS asset)
+addListener :: Object -> Text -> Callback -> IO ()
+addListener object eventType = onRaw object (toJSString $ toS eventType)
+removeListener :: Object -> Text -> Callback -> IO ()
+removeListener object eventType = offRaw object (toJSString $ toS eventType)
+setEventMode :: Object -> Text -> IO ()
+setEventMode object mode = setEventModeRaw object (toJSString $ toS mode)
+setCursor :: Object -> Text -> IO ()
+setCursor object cursor = setCursorRaw object (toJSString $ toS cursor)
 mkCallback :: (Event -> IO ()) -> IO Callback
 mkCallback handler = JS.asyncCallback1 (handler . Event)
 freeCallback :: Callback -> IO ()
@@ -207,6 +237,13 @@ foreign import javascript unsafe "$1.scale.set($2,$3)" setScale :: Object -> Dou
 foreign import javascript unsafe "$1.rotation=$2" setRotation :: Object -> Double -> IO ()
 foreign import javascript unsafe "$1.width=$2;$1.height=$3" setSize :: Object -> Double -> Double -> IO ()
 foreign import javascript unsafe "$1.eventMode='static';$1.cursor='pointer';$1.on('pointertap',$2)" onTap :: Object -> Callback -> IO ()
+foreign import javascript unsafe "$1.on($2,$3)" onRaw :: Object -> JSVal -> Callback -> IO ()
+foreign import javascript unsafe "$1.off($2,$3)" offRaw :: Object -> JSVal -> Callback -> IO ()
+foreign import javascript unsafe "$1.eventMode=$2" setEventModeRaw :: Object -> JSVal -> IO ()
+foreign import javascript unsafe "$1.cursor=$2" setCursorRaw :: Object -> JSVal -> IO ()
+foreign import javascript unsafe "$2.hitArea=new $1.pixi.Rectangle($3,$4,$5,$6)" setRectHitArea :: Application -> Object -> Double -> Double -> Double -> Double -> IO ()
+foreign import javascript unsafe "$2.hitArea=new $1.pixi.Circle($3,$4,$5)" setCircleHitArea :: Application -> Object -> Double -> Double -> Double -> IO ()
+foreign import javascript unsafe "$1.hitArea=null" clearHitArea :: Object -> IO ()
 foreign import javascript unsafe "$1.app.stage.eventMode='static';$1.app.stage.hitArea=$1.app.screen" enableStageEvents :: Application -> IO ()
 foreign import javascript unsafe "$1.app.stage.on('pointerdown',$2)" onPointerDown :: Application -> Callback -> IO ()
 foreign import javascript unsafe "$1.app.stage.on('globalpointermove',$2)" onPointerMove :: Application -> Callback -> IO ()
@@ -216,6 +253,10 @@ foreign import javascript unsafe "$1.removeEventListener('wheel',$2)" removeWhee
 foreign import javascript unsafe "$1.pointerId" pointerId :: Event -> IO Int
 foreign import javascript unsafe "$1.global.x" globalX :: Event -> IO Double
 foreign import javascript unsafe "$1.global.y" globalY :: Event -> IO Double
+foreign import javascript unsafe "$2.getLocalPosition($1).x" localX :: Object -> Event -> IO Double
+foreign import javascript unsafe "$2.getLocalPosition($1).y" localY :: Object -> Event -> IO Double
+foreign import javascript unsafe "$1.button" eventButton :: Event -> IO Int
+foreign import javascript unsafe "$1.stopPropagation()" stopPropagation :: Event -> IO ()
 foreign import javascript unsafe "$1.preventDefault()" preventDefault :: Event -> IO ()
 foreign import javascript unsafe "$1.clientX" clientX :: Event -> IO Double
 foreign import javascript unsafe "$1.clientY" clientY :: Event -> IO Double
@@ -239,6 +280,14 @@ setAssetText :: Application -> Object -> Text -> Double -> Double -> Text -> Tex
 setAssetText application object value x y family source size color align = setAssetTextRaw application object (textValue value) x y (textValue family) (textValue source) size color (textValue align)
 setTexture :: Application -> Object -> Text -> IO ()
 setTexture application object asset = setTextureRaw application object (textValue asset)
+addListener :: Object -> Text -> Callback -> IO ()
+addListener object eventType = onRaw object (textValue eventType)
+removeListener :: Object -> Text -> Callback -> IO ()
+removeListener object eventType = offRaw object (textValue eventType)
+setEventMode :: Object -> Text -> IO ()
+setEventMode object mode = setEventModeRaw object (textValue mode)
+setCursor :: Object -> Text -> IO ()
+setCursor object cursor = setCursorRaw object (textValue cursor)
 mkCallback :: (Event -> IO ()) -> IO Callback
 mkCallback handler = wasmMkCallback (handler . Event)
 freeCallback :: Callback -> IO ()
@@ -311,6 +360,18 @@ setSize :: Object -> Double -> Double -> IO ()
 setSize _ _ _ = pure ()
 onTap :: Object -> Callback -> IO ()
 onTap _ _ = pure ()
+addListener, removeListener :: Object -> Text -> Callback -> IO ()
+addListener _ _ _ = pure ()
+removeListener _ _ _ = pure ()
+setEventMode, setCursor :: Object -> Text -> IO ()
+setEventMode _ _ = pure ()
+setCursor _ _ = pure ()
+setRectHitArea :: Application -> Object -> Double -> Double -> Double -> Double -> IO ()
+setRectHitArea _ _ _ _ _ _ = pure ()
+setCircleHitArea :: Application -> Object -> Double -> Double -> Double -> IO ()
+setCircleHitArea _ _ _ _ _ = pure ()
+clearHitArea :: Object -> IO ()
+clearHitArea _ = pure ()
 enableStageEvents :: Application -> IO ()
 enableStageEvents _ = pure ()
 onPointerDown, onPointerMove, onPointerEnd :: Application -> Callback -> IO ()
@@ -325,6 +386,13 @@ pointerId _ = pure 0
 globalX, globalY, clientX, clientY, deltaY :: Event -> IO Double
 globalX _ = pure 0
 globalY _ = pure 0
+localX, localY :: Object -> Event -> IO Double
+localX _ _ = pure 0
+localY _ _ = pure 0
+eventButton :: Event -> IO Int
+eventButton _ = pure 0
+stopPropagation :: Event -> IO ()
+stopPropagation _ = pure ()
 preventDefault :: Event -> IO ()
 preventDefault _ = pure ()
 clientX _ = pure 0
