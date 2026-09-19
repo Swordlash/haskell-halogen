@@ -159,7 +159,7 @@ data Drag = Drag
   -- not raise a spurious 'CameraChanged'.
   }
 
-type SceneStep i = V.Step IO (V.VDom [PixiProp i] Void) FFI.Object
+type SceneStep i = V.Step PixiDOM (V.VDom [PixiProp i] Void) FFI.Object
 
 data Runtime i = Runtime
   { app :: FFI.Application
@@ -231,15 +231,14 @@ updateRuntime runtime scene = liftIO $ do
 
 -- | The vdom spec the scene reconciles through.
 --
--- @dom@ is 'PixiDOM' and the component monad is 'IO': a canvas scene has no
--- component slots — its widget type is 'Void' — so there is no user monad for
--- anything below here to run in.
-pixiSpec :: Runtime i -> V.VDomSpec PixiDOM IO [PixiProp i] Void
+-- All of it in 'PixiDOM': a canvas scene has no component slots — its widget
+-- type is 'Void' — so there is nothing below here that needs the monad the
+-- application chose.
+pixiSpec :: Runtime i -> V.VDomSpec PixiDOM [PixiProp i] Void
 pixiSpec runtime =
   V.VDomSpec
-    { runDom = runPixiDOM
-    , buildWidget = \_ -> absurd
-    , buildAttributes = buildCanvasProp runPixiDOM (liftIO . runtime.emit . Fired) runtime.app
+    { buildWidget = \_ -> absurd
+    , buildAttributes = buildCanvasProp (liftIO . runtime.emit . Fired) runtime.app
     , document = runtime.app
     }
 
@@ -250,7 +249,7 @@ renderView runtime View {camera = nextCamera, nodes} = do
   writeIORef runtime.camera nextCamera
   let world = unCanvasNode (group_ nodes)
   existing <- readIORef runtime.scene
-  next <- case existing of
+  next <- runPixiDOM $ case existing of
     Nothing -> V.buildVDom (pixiSpec runtime) world
     Just previous -> V.step previous world
   writeIORef runtime.scene $ Just next
@@ -359,7 +358,7 @@ cleanupRuntime Runtime {app, canvas, scene, callbacks, wheelCallback, cameraTime
   readIORef cameraTimer >>= traverse_ FFI.cancelTimeout
   -- Halting the scene frees every listener the props installed; destroying
   -- the application takes the display objects with it.
-  readIORef scene >>= traverse_ V.halt
+  readIORef scene >>= traverse_ (runPixiDOM . V.halt)
   writeIORef scene Nothing
   FFI.applicationCreated app >>= flip when (FFI.destroyApplication app)
   readIORef callbacks >>= traverse_ FFI.freeCallback

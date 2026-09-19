@@ -32,7 +32,8 @@ import Halogen.VDom.DOM (VDomSpec (..), buildVDom)
 import Halogen.VDom.DOM.Monad (MemDOM (..), appendChild, propertyEquals, runMemDOM, setProperty)
 import Halogen.VDom.DOM.Monad.Native qualified as N
 import Halogen.VDom.DOM.Prop (Prop (..), PropValue (..), buildProp)
-import Halogen.VDom.Machine (Step, extract, halt, step)
+import Halogen.VDom.Machine (Step, extract)
+import Halogen.VDom.Machine qualified as M
 import Halogen.VDom.Types (ElemName (..), VDom (..))
 import Test.Hspec (Spec, describe, it)
 import Test.Utils (assertEqual, assertWith)
@@ -44,25 +45,33 @@ import Web.HTML.Common (AttrName (..))
 -- | The tests never build widgets, so the widget type is uninhabited.
 type TestVDom = VDom [Prop Text] Void
 
-type TestStep = Step IO TestVDom Node
+type TestStep = Step MemDOM TestVDom Node
 
 -- | A spec over a fresh document, plus the sink that collects whatever the
 -- handlers emit.
-newSpec :: IO (VDomSpec MemDOM IO [Prop Text] Void, IORef [Text])
+newSpec :: IO (VDomSpec MemDOM [Prop Text] Void, IORef [Text])
 newSpec = do
   doc <- N.newDocument
   emitted <- newIORef []
   let vspec =
         VDomSpec
-          { runDom = runMemDOM
-          , buildWidget = \_ -> absurd
-          , buildAttributes = buildProp runMemDOM (\msg -> liftIO (modifyIORef' emitted (<> [msg])))
+          { buildWidget = \_ -> absurd
+          , buildAttributes = buildProp (\msg -> liftIO (modifyIORef' emitted (<> [msg])))
           , document = N.fromNative doc :: Document
           }
   pure (vspec, emitted)
 
-build :: VDomSpec MemDOM IO [Prop Text] Void -> TestVDom -> IO TestStep
-build vspec = buildVDom vspec
+-- The machinery runs in MemDOM; the assertions are ordinary IO, so each of
+-- the three machine operations is unwrapped once here rather than at every
+-- call in the spec below.
+build :: VDomSpec MemDOM [Prop Text] Void -> TestVDom -> IO TestStep
+build vspec = runMemDOM . buildVDom vspec
+
+step :: TestStep -> TestVDom -> IO TestStep
+step s = runMemDOM . M.step s
+
+halt :: TestStep -> IO ()
+halt = runMemDOM . M.halt
 
 -- | The rendered node of a step, as HTML.
 snapshot :: TestStep -> IO Text

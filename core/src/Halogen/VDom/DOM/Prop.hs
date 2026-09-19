@@ -37,10 +37,10 @@ data ElemRef a
   | Removed a
   deriving (Functor)
 
-type EventMap dom a = Map Text (DomEventListener dom, MutVar (PrimState dom) (Event -> Maybe a))
+type EventMap m a = Map Text (DomEventListener m, MutVar (PrimState m) (Event -> Maybe a))
 
-data PropState dom a = PropState
-  { events :: MutVar (PrimState dom) (EventMap dom a)
+data PropState m a = PropState
+  { events :: MutVar (PrimState m) (EventMap m a)
   , props :: Map Text (Prop a)
   }
 
@@ -54,31 +54,23 @@ propToStrKey = \case
 
 {-# INLINEABLE buildProp #-}
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
-{-# SPECIALISE buildProp :: (forall x. BrowserDOM x -> IO x) -> (a -> BrowserDOM ()) -> DOM.Element -> V.Machine IO [Prop a] () #-}
+{-# SPECIALISE buildProp :: (a -> BrowserDOM ()) -> DOM.Element -> V.Machine BrowserDOM [Prop a] () #-}
 #else
-{-# SPECIALISE buildProp :: (forall x. MemDOM x -> IO x) -> (a -> MemDOM ()) -> DOM.Element -> V.Machine IO [Prop a] () #-}
+{-# SPECIALISE buildProp :: (a -> MemDOM ()) -> DOM.Element -> V.Machine MemDOM [Prop a] () #-}
 #endif
 
 -- | Apply a property list to an element, and keep applying it across patches.
---
--- @emit@ is in the DOM monad, not the component monad, because a listener is
--- called back /by the DOM/: when it fires there is no component computation
--- in progress to sequence it into. Whoever supplies it has to be able to run
--- component code from inside a callback, which is an unlift — but that is
--- their problem, and it is the only place in the library that has it. The
--- reconciler needs nothing but @runDom@.
 buildProp
-  :: forall dom m a
-   . (MonadAttributes dom, Monad m, DomElement dom ~ DOM.Element)
-  => (forall x. dom x -> m x)
-  -> (a -> dom ())
+  :: forall m a
+   . (MonadAttributes m, DomElement m ~ DOM.Element)
+  => (a -> m ())
   -> DOM.Element
   -> V.Machine m [Prop a] ()
-buildProp runDom emit el = renderProp
+buildProp emit el = renderProp
   where
     renderProp :: V.Machine m [Prop a] ()
     renderProp ps1 = do
-      events <- runDom $ newMutVar mempty
+      events <- newMutVar mempty
       ps1' <- Util.strMapWithIxE ps1 propToStrKey (applyProp events)
       let state =
             PropState
@@ -87,9 +79,9 @@ buildProp runDom emit el = renderProp
               }
       pure $ V.Step () state patchProp haltProp
 
-    patchProp :: PropState dom a -> [Prop a] -> m (V.Step m [Prop a] ())
+    patchProp :: PropState m a -> [Prop a] -> m (V.Step m [Prop a] ())
     patchProp state ps2 = do
-      events <- runDom $ newMutVar mempty
+      events <- newMutVar mempty
       let PropState {events = prevEvents, props = ps1} = state
           onThese = diffProp prevEvents events
           onThis = removeProp prevEvents
@@ -105,29 +97,29 @@ buildProp runDom emit el = renderProp
     haltProp state = do
       case M.lookup "ref" state.props of
         Just (Ref f) ->
-          runDom $ mbEmit (f (Removed el))
+          mbEmit (f (Removed el))
         _ -> pass
 
-    mbEmit :: Maybe a -> dom ()
+    mbEmit :: Maybe a -> m ()
     mbEmit = traverse_ emit
 
-    applyProp :: MutVar (PrimState dom) (EventMap dom a) -> Text -> Int -> Prop a -> m (Prop a)
+    applyProp :: MutVar (PrimState m) (EventMap m a) -> Text -> Int -> Prop a -> m (Prop a)
     applyProp events _ _ v =
       case v of
         Attribute ns attr val -> do
-          runDom $ setAttribute ns attr val el
+          setAttribute ns attr val el
           pure v
         Property prop val -> do
-          runDom $ setProperty prop val el
+          setProperty prop val el
           pure v
         Handler evty@(DOM.EventType ty) f -> do
           M.lookup ty
-            <$> runDom (readMutVar events)
+            <$> readMutVar events
             >>= \case
               Just handler -> do
-                runDom $ writeMutVar (snd handler) f
+                writeMutVar (snd handler) f
                 pure v
-              _ -> runDom $ do
+              _ -> do
                 ref <- newMutVar f
                 listener <- mkEventListener $ \ev -> do
                   f' <- readMutVar ref
@@ -136,12 +128,12 @@ buildProp runDom emit el = renderProp
                 elementToEventTarget el >>= addEventListener evty listener
                 pure v
         Ref f -> do
-          runDom $ mbEmit (f (Created el))
+          mbEmit (f (Created el))
           pure v
 
     diffProp
-      :: MutVar (PrimState dom) (EventMap dom a)
-      -> MutVar (PrimState dom) (EventMap dom a)
+      :: MutVar (PrimState m) (EventMap m a)
+      -> MutVar (PrimState m) (EventMap m a)
       -> Text
       -> Int
       -> Prop a
@@ -153,26 +145,26 @@ buildProp runDom emit el = renderProp
           if val1 == val2
             then pure v2
             else do
-              runDom $ setAttribute ns2 attr2 val2 el
+              setAttribute ns2 attr2 val2 el
               pure v2
         (Property _ val1, Property prop2 val2) ->
           case (val1 `unsafeRefEq'` val2, prop2) of
             (True, _) ->
               pure v2
             (_, "value") -> do
-              isEqual <- runDom $ propertyEquals "value" val2 el
+              isEqual <- propertyEquals "value" val2 el
               if isEqual
                 then pure v2
                 else do
-                  runDom $ setProperty prop2 val2 el
+                  setProperty prop2 val2 el
                   pure v2
             (_, _) -> do
-              runDom $ setProperty prop2 val2 el
+              setProperty prop2 val2 el
               pure v2
         (Handler _ _, Handler (DOM.EventType ty) f) -> do
-          handler <- runDom $ (M.! ty) <$> readMutVar prevEvents
-          runDom $ writeMutVar (snd handler) f
-          runDom $ atomicModifyMutVar'_ events (M.insert ty handler)
+          handler <- (M.! ty) <$> readMutVar prevEvents
+          writeMutVar (snd handler) f
+          atomicModifyMutVar'_ events (M.insert ty handler)
           pure v2
         (_, _) ->
           pure v2
@@ -180,12 +172,12 @@ buildProp runDom emit el = renderProp
     removeProp prevEvents _ v =
       case v of
         Attribute ns attr _ ->
-          runDom $ removeAttribute ns attr el
+          removeAttribute ns attr el
         Property prop _ ->
-          runDom $ removeProperty prop el
+          removeProperty prop el
         Handler evty@(DOM.EventType ty) _ -> do
-          handler <- runDom $ (M.! ty) <$> readMutVar prevEvents
-          runDom $ elementToEventTarget el >>= removeEventListener evty (fst handler)
+          handler <- (M.! ty) <$> readMutVar prevEvents
+          elementToEventTarget el >>= removeEventListener evty (fst handler)
         Ref _ -> pass
 
 -- | 'atomicModifyMutVar'' with the result discarded.

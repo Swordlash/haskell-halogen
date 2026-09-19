@@ -25,8 +25,8 @@ unsafeEqThunk (Thunk a1 b1 _ d1) (Thunk a2 b2 _ d2) =
     && unsafeRefEq' b1 b2
     && b1 d1 (unsafeCoerce d2)
 
-data ThunkState dom m f i a w = ThunkState
-  { vdom :: V.Step m (V.VDom a w) (DomNode dom)
+data ThunkState m f i a w = ThunkState
+  { vdom :: V.Step m (V.VDom a w) (DomNode m)
   , thunk :: Thunk f i
   }
 
@@ -41,24 +41,24 @@ runThunk (Thunk _ _ render arg) = render arg
 
 {-# INLINEABLE buildThunk #-}
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
-{-# SPECIALISE buildThunk :: (f i -> V.VDom a w) -> V.VDomSpec BrowserDOM IO a w -> V.Machine IO (Thunk f i) (DomNode BrowserDOM) #-}
+{-# SPECIALISE buildThunk :: (f i -> V.VDom a w) -> V.VDomSpec BrowserDOM a w -> V.Machine BrowserDOM (Thunk f i) (DomNode BrowserDOM) #-}
 #else
-{-# SPECIALISE buildThunk :: (f i -> V.VDom a w) -> V.VDomSpec MemDOM IO a w -> V.Machine IO (Thunk f i) (DomNode MemDOM) #-}
+{-# SPECIALISE buildThunk :: (f i -> V.VDom a w) -> V.VDomSpec MemDOM a w -> V.Machine MemDOM (Thunk f i) (DomNode MemDOM) #-}
 #endif
 buildThunk
-  :: forall dom m f i a w
-   . (MonadDOM dom, Monad m)
+  :: forall m f i a w
+   . (MonadDOM m)
   => (f i -> V.VDom a w)
-  -> V.VDomSpec dom m a w
-  -> V.Machine m (Thunk f i) (DomNode dom)
+  -> V.VDomSpec m a w
+  -> V.Machine m (Thunk f i) (DomNode m)
 buildThunk toVDom = renderThunk
   where
-    renderThunk :: V.VDomSpec dom m a w -> V.Machine m (Thunk f i) (DomNode dom)
+    renderThunk :: V.VDomSpec m a w -> V.Machine m (Thunk f i) (DomNode m)
     renderThunk spec t = do
       vdom <- V.buildVDom spec (toVDom (runThunk t))
       pure $ V.Step (V.extract vdom) (ThunkState {thunk = t, vdom}) patchThunk haltThunk
 
-    patchThunk :: ThunkState dom m f i a w -> Thunk f i -> m (V.Step m (Thunk f i) (DomNode dom))
+    patchThunk :: ThunkState m f i a w -> Thunk f i -> m (V.Step m (Thunk f i) (DomNode m))
     patchThunk state t2 = do
       let ThunkState {vdom = prev, thunk = t1} = state
       if unsafeEqThunk t1 t2
@@ -67,5 +67,5 @@ buildThunk toVDom = renderThunk
           vdom <- V.step prev (toVDom (runThunk t2))
           pure $ V.Step (V.extract vdom) (ThunkState {vdom, thunk = t2}) patchThunk haltThunk
 
-    haltThunk :: ThunkState dom m f i a w -> m ()
+    haltThunk :: ThunkState m f i a w -> m ()
     haltThunk state = V.halt state.vdom

@@ -15,11 +15,31 @@ module Halogen.VDom.DOM.Monad.Mem
   )
 where
 
+import Control.Exception.Safe (MonadCatch, MonadMask, MonadThrow)
+import Control.Monad.Fork (MonadFork, MonadKill)
+import Control.Monad.Parallel (MonadParallel)
 import Control.Monad.Primitive (PrimMonad (..))
+import Control.Monad.UUID (MonadUUID)
 import HPrelude
 
+-- | Everything the driver asks of a component monad is derived from 'IO',
+-- so a backend can be the component monad directly and an application monad
+-- can be a transformer stack over one.
 newtype MemDOM a = MemDOM (IO a)
-  deriving newtype (Functor, Applicative, Monad, MonadIO, MonadUnliftIO)
+  deriving newtype
+    ( Functor
+    , Applicative
+    , Monad
+    , MonadIO
+    , MonadUnliftIO
+    , MonadThrow
+    , MonadCatch
+    , MonadMask
+    , MonadFork
+    , MonadKill
+    , MonadParallel
+    , MonadUUID
+    )
 
 instance PrimMonad MemDOM where
   type PrimState MemDOM = PrimState IO

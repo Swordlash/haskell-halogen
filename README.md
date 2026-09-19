@@ -22,6 +22,29 @@ The examples are deployed [here](https://swordlash.github.io/haskell-halogen/).
 `core`. Every package builds from the one `cabal.project` at the repository root, so a change to
 `core` is type-checked against every dependent and every example in the same build.
 
+## The monad a component runs in
+
+A component evaluates in the same monad the DOM is spoken in. Each backend is a newtype over `IO` —
+`BrowserDOM`, `MemDOM`, and `PixiDOM` in `haskell-halogen-pixi` — so more than one can exist in a
+single build and each can say, through associated type families, what its tree is made of.
+
+An application with effects of its own stacks them on a backend and derives the classes through:
+
+```haskell
+newtype AppM a = AppM (ReaderT Config BrowserDOM a)
+  deriving newtype (Functor, Applicative, Monad, MonadIO, PrimMonad, MonadDOM, MonadAttributes, MonadBrowserDOM)
+```
+
+The class methods have lifted defaults, so a transformer instance is only as long as its associated
+types plus `mkEventListener`. `ReaderT` and `IdentityT` come with the library; `StateT` and friends
+are deliberately absent, because the DOM calls a listener back and `mkEventListener` has to *run*
+the transformer rather than lift it — a state update made inside a callback has nowhere to go.
+
+The interface is split by what a backend actually has. `MonadDOM` is the mutable tree and its
+listeners, and is all the reconciler uses. `MonadAttributes` adds named attributes and properties,
+which only an HTML backend has. `MonadBrowserDOM` adds document splicing and the window globals,
+and carries the equalities back to the concrete `Node` and `Element` as superclasses.
+
 ## Building
 
 The library itself compiles under any GHC from 9.6 to 9.14; CI builds against 9.14.1, the version

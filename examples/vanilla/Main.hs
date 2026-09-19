@@ -18,32 +18,34 @@ import Halogen.HTML.Layout.BoxLayout
 import Halogen.HTML.Layout.GridBagLayout
 import Halogen.HTML.Properties as HP
 import Halogen.Subscription qualified as HS
+import Halogen.VDom.DOM.Monad (BrowserDOM, runBrowserDOM)
 import Protolude
 import UnliftIO (MonadUnliftIO)
 
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 import Halogen.IO.Util as HA
-import Halogen.VDom.DOM.Monad (runBrowserDOM)
 import Halogen.VDom.Driver (runUI)
 #endif
 
-attachComponent :: IO (HalogenSocket Query Int IO)
+-- | The component monad is the browser backend itself. An application with
+-- effects of its own would stack them on it — @ReaderT Config BrowserDOM@ —
+-- and derive the DOM classes through.
+attachComponent :: BrowserDOM (HalogenSocket Query Int BrowserDOM)
 logStr :: Text -> IO ()
 logStr = putStrLn
 
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
-attachComponent =
-  runBrowserDOM HA.awaitBody >>= runUI component ()
+attachComponent = HA.awaitBody >>= runUI component ()
 #else
 attachComponent = panic "This module can only be run on JavaScript"
 #endif
 
 main :: IO ()
-main = do
+main = runBrowserDOM $ do
   HalogenSocket {messages} <- attachComponent
 
   void $ HS.subscribe messages $ \st ->
-    logStr $ "State changed: " <> show st
+    liftIO $ logStr $ "State changed: " <> show st
 
 #if defined(wasm32_HOST_ARCH)
 foreign export javascript "hs_start" start :: IO ()

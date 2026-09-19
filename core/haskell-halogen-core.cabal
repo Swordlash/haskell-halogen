@@ -221,6 +221,7 @@ test-suite Halogen-core-test
                       haskell-halogen-core,
                       hspec,
                       mtl,
+                      primitive,
                       row-types,
                       text,
                       transformers

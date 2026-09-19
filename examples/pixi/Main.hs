@@ -11,11 +11,12 @@ import Halogen.Canvas.Properties qualified as CP
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Properties qualified as HP
 import Halogen.Svg.Attributes qualified as SA
+import Halogen.VDom.DOM.Monad (BrowserDOM)
 import Protolude hiding (State, state)
 
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 import Halogen.IO.Util qualified as HA
-import Halogen.VDom.DOM.Monad (runBrowserDOM)
+import Halogen.VDom.DOM.Monad qualified as DOM
 import Halogen.VDom.Driver (runUI)
 #endif
 
@@ -167,7 +168,7 @@ hoverProps target hovered =
 
 ----------------------------------------------------------------------
 
-parent :: H.Component H.VoidF () Void IO
+parent :: H.Component H.VoidF () Void BrowserDOM
 parent =
   H.mkComponent $
     H.ComponentSpec
@@ -176,7 +177,7 @@ parent =
       , eval = H.mkEval $ H.defaultEval {H.handleAction = handleAction}
       }
   where
-    render :: State -> H.ComponentHTML Action Slots IO
+    render :: State -> H.ComponentHTML Action Slots BrowserDOM
     render state =
       HH.div
         [ HP.style $ do
@@ -209,7 +210,7 @@ parent =
 main :: IO ()
 
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
-main = void $ runBrowserDOM HA.awaitBody >>= runUI parent ()
+main = DOM.runBrowserDOM $ void $ HA.awaitBody >>= runUI parent ()
 #else
 main = putStrLn ("The Pixi example can only run in a JavaScript or wasm browser target." :: Text)
 #endif

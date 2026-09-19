@@ -1,6 +1,5 @@
 module Halogen.VDom.Driver
   ( runUI
-  , runUIWith
   , module Halogen.IO.Driver
   )
 where
@@ -54,24 +53,22 @@ type WidgetState m slots action =
   Maybe (V.Step m (HTMLThunk m slots action) DOM.Node)
 
 mkSpec
-  :: forall dom m action slots
-   . (MonadIO m, DOM.MonadBrowserDOM dom)
-  => (forall x. dom x -> m x)
-  -> (Input action -> dom ())
+  :: forall m action slots
+   . (DOM.MonadBrowserDOM m, MonadIO m)
+  => (Input action -> m ())
   -> IORef (ChildRenderer m action slots)
   -> DOM.Document
-  -> V.VDomSpec dom m [Prop (Input action)] (ComponentSlot slots m action)
-mkSpec runDom handler renderChildRef document =
-  V.VDomSpec {runDom, buildWidget, buildAttributes, document}
+  -> V.VDomSpec m [Prop (Input action)] (ComponentSlot slots m action)
+mkSpec handler renderChildRef document =
+  V.VDomSpec {buildWidget, buildAttributes, document}
   where
     buildAttributes
       :: DOM.Element
       -> V.Machine m [Prop (Input action)] ()
-    buildAttributes = VP.buildProp runDom handler
+    buildAttributes = VP.buildProp handler
 
     buildWidget
       :: V.VDomSpec
-           dom
            m
            [Prop (Input action)]
            (ComponentSlot slots m action)
@@ -122,57 +119,35 @@ mkSpec runDom handler renderChildRef document =
     getNode :: RenderStateX (RenderState m) -> DOM.Node
     getNode (RenderStateX (RenderState {node})) = node
 
--- | Run a component against a DOM spoken in a monad of its own.
+-- | Run a component against the DOM its own monad speaks.
 --
--- @runDom@ sequences a DOM effect from the component monad, and is the only
--- bridge the caller supplies. The other direction — running component code
--- from inside a DOM event callback — is derived from 'MonadUnliftIO' on the
--- component monad and 'MonadIO' on the DOM one, which is what those two
--- constraints are here for.
-runUIWith
-  :: forall dom m query input output
-   . (DOM.MonadBrowserDOM dom, MonadIO dom, MonadUnliftIO m, MonadFork m, MonadKill m, MonadParallel m, MonadMask m, MonadUUID m)
-  => (forall x. dom x -> m x)
-  -> Component query input output m
-  -> input
-  -> DOM.HTMLElement
-  -> m (HalogenSocket query output m)
-runUIWith runDom component i element = do
-  document <- toDocument <$> runDom (DOM.document =<< DOM.window)
-  AD.runUI (renderSpec runDom document element) component i
-
--- | Run a component against this build's default DOM backend.
---
--- Which backend that is follows "Halogen.VDom.DOM.Monad": the browser on the
--- JavaScript and wasm backends, the in-memory document on native. Use
--- 'runUIWith' to name a different one.
+-- The component monad /is/ the DOM monad. An application with effects of its
+-- own stacks them on a backend — @newtype AppM a = AppM (ReaderT Config
+-- BrowserDOM a)@ deriving the classes through — rather than handing the
+-- driver a pair of natural transformations to get between two of them.
 runUI
   :: forall m query input output
-   . (MonadUnliftIO m, MonadFork m, MonadKill m, MonadParallel m, MonadMask m, MonadUUID m)
+   . (DOM.MonadBrowserDOM m, MonadUnliftIO m, MonadFork m, MonadKill m, MonadParallel m, MonadMask m, MonadUUID m)
   => Component query input output m
   -> input
   -> DOM.HTMLElement
   -> m (HalogenSocket query output m)
-runUI =
-#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
-  runUIWith (liftIO . DOM.runBrowserDOM)
-#else
-  runUIWith (liftIO . DOM.runMemDOM)
-#endif
+runUI component i element = do
+  document <- toDocument <$> (DOM.document =<< DOM.window)
+  AD.runUI (renderSpec document element) component i
 
 renderSpec
-  :: forall dom m
-   . (DOM.MonadBrowserDOM dom, MonadIO dom, MonadUnliftIO m)
-  => (forall x. dom x -> m x)
-  -> DOM.Document
+  :: forall m
+   . (DOM.MonadBrowserDOM m, MonadIO m)
+  => DOM.Document
   -> DOM.HTMLElement
   -> AD.RenderSpec m (RenderState m)
-renderSpec runDom document container =
+renderSpec document container =
   AD.RenderSpec
     { render
     , renderChild = identity
-    , removeChild = removeChild runDom
-    , dispose = removeChild runDom
+    , removeChild
+    , dispose = removeChild
     }
   where
     render
@@ -186,38 +161,31 @@ renderSpec runDom document container =
       \case
         Nothing -> do
           renderChildRef <- newIORef child
-          -- The one unlift in the library. A listener registered below is
-          -- called back by the DOM, with no component computation in progress
-          -- to sequence the handler into, so the handler has to be able to
-          -- run on its own.
-          machine <- withRunInIO $ \runInIO -> runInIO $ do
-            let spec = mkSpec runDom (liftIO . runInIO . handler) renderChildRef document
-            V.buildVDom spec vdom
+          let spec = mkSpec handler renderChildRef document
+          machine <- V.buildVDom spec vdom
           let node = V.extract machine
-          void $ runDom $ DOM.appendChild node $ toNode container
+          void $ DOM.appendChild node $ toNode container
           pure $ RenderState {machine, node, renderChildRef}
         Just (RenderState {machine, node, renderChildRef}) -> do
           atomicWriteIORef renderChildRef child
-          parent <- runDom $ DOM.parentNode node
-          nextSib <- runDom $ DOM.nextSibling node
+          parent <- DOM.parentNode node
+          nextSib <- DOM.nextSibling node
           machine' <- V.step machine vdom
           let newNode = V.extract machine'
           unless (node `unsafeRefEq` newNode)
-            $ runDom
             $ substInParent newNode nextSib parent
           pure $ RenderState {machine = machine', node = newNode, renderChildRef}
 
 removeChild
-  :: forall dom m state action slots output
-   . (DOM.MonadBrowserDOM dom)
-  => (forall x. dom x -> m x)
-  -> RenderState m state action slots output
+  :: forall m state action slots output
+   . (DOM.MonadBrowserDOM m)
+  => RenderState m state action slots output
   -> m ()
-removeChild runDom (RenderState {node}) = runDom $ do
+removeChild (RenderState {node}) = do
   npn <- DOM.parentNode node
   traverse_ (DOM.removeChild node) npn
 
-substInParent :: (DOM.MonadBrowserDOM dom) => DOM.Node -> Maybe DOM.Node -> Maybe DOM.Node -> dom ()
+substInParent :: (DOM.MonadBrowserDOM m) => DOM.Node -> Maybe DOM.Node -> Maybe DOM.Node -> m ()
 substInParent newNode (Just sib) (Just pn) = void $ DOM.insertBefore newNode sib pn
 substInParent newNode Nothing (Just pn) = void $ DOM.appendChild newNode pn
 substInParent _ _ _ = pass

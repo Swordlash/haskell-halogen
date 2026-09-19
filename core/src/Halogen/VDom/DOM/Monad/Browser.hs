@@ -14,11 +14,31 @@ module Halogen.VDom.DOM.Monad.Browser
   )
 where
 
+import Control.Exception.Safe (MonadCatch, MonadMask, MonadThrow)
+import Control.Monad.Fork (MonadFork, MonadKill)
+import Control.Monad.Parallel (MonadParallel)
 import Control.Monad.Primitive (PrimMonad (..))
+import Control.Monad.UUID (MonadUUID)
 import HPrelude
 
+-- | Everything the driver asks of a component monad is derived from 'IO',
+-- so a backend can be the component monad directly and an application monad
+-- can be a transformer stack over one.
 newtype BrowserDOM a = BrowserDOM (IO a)
-  deriving newtype (Functor, Applicative, Monad, MonadIO, MonadUnliftIO)
+  deriving newtype
+    ( Functor
+    , Applicative
+    , Monad
+    , MonadIO
+    , MonadUnliftIO
+    , MonadThrow
+    , MonadCatch
+    , MonadMask
+    , MonadFork
+    , MonadKill
+    , MonadParallel
+    , MonadUUID
+    )
 
 instance PrimMonad BrowserDOM where
   type PrimState BrowserDOM = PrimState IO

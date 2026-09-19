@@ -1,3 +1,4 @@
+{-# LANGUAGE StandaloneDeriving #-}
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
 
 module Halogen.Material.Monad
@@ -10,6 +11,12 @@ module Halogen.Material.Monad
   )
 where
 
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+-- Both constructors have to be in scope for the deriving below: coercing
+-- BrowserDOM to IO means seeing through both newtypes.
+import GHC.IO (IO (..))
+import Halogen.VDom.DOM.Monad (BrowserDOM (..))
+#endif
 import Data.Foreign
 import Protolude
 import Web.DOM.Internal.Types (HTMLElement (..))
@@ -77,6 +84,9 @@ instance MonadMaterial IO where
   initCheckbox = initCheckbox'
   destroyCheckbox = destroyCheckbox'
 
+-- The browser backend is a newtype over IO, so it gets the instance above.
+deriving newtype instance MonadMaterial BrowserDOM
+
 #elif defined(wasm32_HOST_ARCH)
 
 foreign import javascript unsafe "globalThis.halogen_init_material_ripple($1)" initRipple' :: JSVal -> IO JSVal
@@ -114,5 +124,8 @@ instance MonadMaterial IO where
 
 unHTMLElement :: HTMLElement -> JSVal
 unHTMLElement (HTMLElement element) = element
+
+-- The browser backend is a newtype over IO, so it gets the instance above.
+deriving newtype instance MonadMaterial BrowserDOM
 
 #endif

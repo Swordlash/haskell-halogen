@@ -18,12 +18,17 @@
 - **Breaking.** `MonadDOM` has `PrimMonad` as a superclass instead of its own
   mutable-cell operations; a `MutVar (PrimState m)` replaces the previous
   associated `Ref`. `log` was dropped.
-- **Breaking.** `VDomSpec` gained a `dom` parameter and a `runDom` bridge, so
-  the monad a component evaluates in and the monad the DOM is spoken in are no
-  longer the same monad. One bridge, in one direction: `buildProp` takes its
-  `emit` already in the DOM monad, and `runUIWith` derives the unlift a DOM
-  callback needs from `MonadUnliftIO m` and `MonadIO dom` rather than asking
-  the caller for a second rank-2 function.
+- **Breaking.** The component monad is the DOM monad. `MonadDOM`,
+  `MonadAttributes` and `MonadBrowserDOM` lift through transformers — the
+  methods have defaults, and instances for `ReaderT` and `IdentityT` come with
+  them — so an application monad is a stack over a backend and derives them:
+  @newtype AppM a = AppM (ReaderT Config BrowserDOM a) deriving newtype
+  (..., MonadBrowserDOM)@. `StateT` and friends are deliberately absent: a
+  listener is called back by the DOM, so `mkEventListener` has to run the
+  transformer, and a state update made inside a callback has nowhere to go.
+  `runUI` therefore takes no natural transformations, and `runUIWith` is gone.
+  `VDomSpec` lost its `dom` parameter and its `runDom` field; `buildProp`
+  takes only the handler and the element.
 - Add `Halogen.Canvas.Types`, `.Core`, `.Elements` and `.Properties`: a
   declarative scene language in the shape of `Halogen.HTML`, backend-neutral,
   and reconciled by `Halogen.VDom.DOM.buildVDom` like any other `VDom`. Shapes

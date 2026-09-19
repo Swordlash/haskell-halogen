@@ -2,9 +2,6 @@
 -- 'CanvasProp' list to a Pixi display object, and keeps applying it across
 -- patches.
 --
--- @emit@ is in 'PixiDOM' for the reason it is in the DOM monad there too: a
--- listener is called back by Pixi, not by whatever was rendering.
---
 -- The listener discipline is the one 'Halogen.VDom.DOM.Prop.buildProp' uses,
 -- and for the same reason: a listener is registered with Pixi once and its
 -- target is swapped through a cell on every patch, so that a handler
@@ -36,25 +33,23 @@ data PropState i = PropState
   }
 
 buildCanvasProp
-  :: forall m i
-   . (Monad m)
-  => (forall x. PixiDOM x -> m x)
-  -> (i -> PixiDOM ())
+  :: forall i
+   . (i -> PixiDOM ())
   -> FFI.Application
   -> FFI.Object
-  -> V.Machine m [CanvasProp FFI.Event i] ()
-buildCanvasProp runDom emit application object = render
+  -> V.Machine PixiDOM [CanvasProp FFI.Event i] ()
+buildCanvasProp emit application object = render
   where
-    render :: V.Machine m [CanvasProp FFI.Event i] ()
+    render :: V.Machine PixiDOM [CanvasProp FFI.Event i] ()
     render next = do
-      listeners <- runDom $ newMutVar mempty
+      listeners <- newMutVar mempty
       props <- Util.strMapWithIxE next propKey (applyProp listeners)
-      runDom $ syncEventMode props
+      syncEventMode props
       pure $ V.Step () PropState {listeners, props} patch halt
 
-    patch :: PropState i -> [CanvasProp FFI.Event i] -> m (V.Step m [CanvasProp FFI.Event i] ())
+    patch :: PropState i -> [CanvasProp FFI.Event i] -> PixiDOM (V.Step PixiDOM [CanvasProp FFI.Event i] ())
     patch state next = do
-      listeners <- runDom $ newMutVar mempty
+      listeners <- newMutVar mempty
       props <-
         Util.diffWithKeyAndIxE
           state.props
@@ -63,11 +58,11 @@ buildCanvasProp runDom emit application object = render
           (diffProp state.listeners listeners)
           (removeProp state.listeners)
           (applyProp listeners)
-      runDom $ syncEventMode props
+      syncEventMode props
       pure $ V.Step () PropState {listeners, props} patch halt
 
-    halt :: PropState i -> m ()
-    halt state = runDom $ do
+    halt :: PropState i -> PixiDOM ()
+    halt state = do
       registered <- readMutVar state.listeners
       for_ (M.toList registered) $ \(eventName, (callback, _)) -> liftIO $ do
         FFI.removeListener object eventName callback
@@ -95,10 +90,10 @@ buildCanvasProp runDom emit application object = render
       -> Text
       -> Int
       -> CanvasProp FFI.Event i
-      -> m (CanvasProp FFI.Event i)
+      -> PixiDOM (CanvasProp FFI.Event i)
     applyProp listeners _ _ prop = do
       case prop of
-        Handler eventType f -> runDom $ do
+        Handler eventType f -> do
           let eventName = pointerEventName eventType
           target <- newMutVar f
           callback <- liftIO $ FFI.mkCallback $ \event -> runPixiDOM $ do
@@ -106,7 +101,7 @@ buildCanvasProp runDom emit application object = render
             traverse_ emit (current event)
           liftIO $ FFI.addListener object eventName callback
           atomicModifyMutVar'_ listeners (M.insert eventName (callback, target))
-        _ -> runDom $ repaint prop
+        _ -> repaint prop
       pure prop
 
     -- A handler that is still present keeps its registration and its
@@ -118,10 +113,10 @@ buildCanvasProp runDom emit application object = render
       -> Int
       -> CanvasProp FFI.Event i
       -> CanvasProp FFI.Event i
-      -> m (CanvasProp FFI.Event i)
+      -> PixiDOM (CanvasProp FFI.Event i)
     diffProp previous listeners _ _ old new = do
       case (old, new) of
-        (Handler eventType _, Handler _ f) -> runDom $ do
+        (Handler eventType _, Handler _ f) -> do
           let eventName = pointerEventName eventType
           registered <- readMutVar previous
           case M.lookup eventName registered of
@@ -130,7 +125,7 @@ buildCanvasProp runDom emit application object = render
               atomicModifyMutVar'_ listeners (M.insert eventName entry)
             Nothing -> pass
         _ | samePaint old new -> pass
-        _ -> runDom $ repaint new
+        _ -> repaint new
       pure new
 
     -- Every prop has to undo itself. A patch that drops one does not build a
@@ -141,8 +136,8 @@ buildCanvasProp runDom emit application object = render
       :: MutVar (PrimState PixiDOM) (Listeners i)
       -> Text
       -> CanvasProp FFI.Event i
-      -> m ()
-    removeProp previous _ prop = runDom $ do
+      -> PixiDOM ()
+    removeProp previous _ prop = do
       case prop of
         Handler eventType _ -> do
           let eventName = pointerEventName eventType
