@@ -33,24 +33,21 @@ function halogen_pixi_arc(object, x, y, radius, startAngle, endAngle, anticlockw
 function halogen_pixi_fill(object, color, alpha) { object.fill({ color: color, alpha: alpha }); }
 function halogen_pixi_stroke(object, color, width, alpha) { object.stroke({ color: color, width: width, alpha: alpha }); }
 function halogen_pixi_new_text(holder) { return new holder.pixi.Text({ text: "", style: {} }); }
-function halogen_pixi_apply_text(object, value, x, y, family, size, color, align) {
+function halogen_pixi_set_system_text(object, value, family, size, color, align) {
+  object.__halogenFontRequest = null;
   object.text = value;
-  object.position.set(x, y);
   object.style = { fontFamily: family, fontSize: size, fill: color, align: align };
 }
-function halogen_pixi_set_system_text(object, value, x, y, family, size, color, align) {
-  object.__halogenFontRequest = null;
-  halogen_pixi_apply_text(object, value, x, y, family, size, color, align);
-}
-function halogen_pixi_set_asset_text(holder, object, value, x, y, family, source, size, color, align) {
+function halogen_pixi_set_asset_text(holder, object, value, family, source, size, color, align) {
   var request = {};
   object.__halogenFontRequest = request;
-  halogen_pixi_apply_text(object, value, x, y, family, size, color, align);
+  object.text = value;
+  var style = { fontFamily: family, fontSize: size, fill: color, align: align };
+  object.style = style;
   holder.pixi.Assets.load({ src: source, data: { family: family } })
     .then(function () {
-      if (!object.destroyed && object.__halogenFontRequest === request) {
-        halogen_pixi_apply_text(object, value, x, y, family, size, color, align);
-      }
+      // Restyle once the face is in, so the glyphs are not left in the fallback.
+      if (!object.destroyed && object.__halogenFontRequest === request) object.style = style;
     })
     .catch(function (error) { console.error("Could not load PixiJS font", source, error); });
 }
@@ -85,6 +82,7 @@ function halogen_pixi_global_x(event) { return event.global.x; }
 function halogen_pixi_global_y(event) { return event.global.y; }
 function halogen_pixi_local_x(object, event) { return event.getLocalPosition(object).x; }
 function halogen_pixi_local_y(object, event) { return event.getLocalPosition(object).y; }
+function halogen_pixi_current_target(event) { return event.currentTarget; }
 function halogen_pixi_event_button(event) { return event.button; }
 function halogen_pixi_stop_propagation(event) { event.stopPropagation(); }
 function halogen_pixi_prevent_default(event) { event.preventDefault(); }

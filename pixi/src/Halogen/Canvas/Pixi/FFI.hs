@@ -63,6 +63,7 @@ module Halogen.Canvas.Pixi.FFI
   , localX
   , localY
   , eventButton
+  , currentTarget
   , stopPropagation
   , preventDefault
   , clientX
@@ -140,8 +141,8 @@ foreign import javascript unsafe "halogen_pixi_arc" arc :: Object -> Double -> D
 foreign import javascript unsafe "halogen_pixi_fill" fill :: Object -> Int -> Double -> IO ()
 foreign import javascript unsafe "halogen_pixi_stroke" stroke :: Object -> Int -> Double -> Double -> IO ()
 foreign import javascript unsafe "halogen_pixi_new_text" newText :: Application -> IO Object
-foreign import javascript unsafe "halogen_pixi_set_system_text" setSystemTextRaw :: Object -> JSVal -> Double -> Double -> JSVal -> Double -> Int -> JSVal -> IO ()
-foreign import javascript unsafe "halogen_pixi_set_asset_text" setAssetTextRaw :: Application -> Object -> JSVal -> Double -> Double -> JSVal -> JSVal -> Double -> Int -> JSVal -> IO ()
+foreign import javascript unsafe "halogen_pixi_set_system_text" setSystemTextRaw :: Object -> JSVal -> JSVal -> Double -> Int -> JSVal -> IO ()
+foreign import javascript unsafe "halogen_pixi_set_asset_text" setAssetTextRaw :: Application -> Object -> JSVal -> JSVal -> JSVal -> Double -> Int -> JSVal -> IO ()
 foreign import javascript unsafe "halogen_pixi_new_sprite" newSprite :: Application -> IO Object
 foreign import javascript unsafe "halogen_pixi_set_texture" setTextureRaw :: Application -> Object -> JSVal -> IO ()
 foreign import javascript unsafe "halogen_pixi_center_anchor" centerAnchor :: Object -> IO ()
@@ -163,17 +164,18 @@ foreign import javascript unsafe "halogen_pixi_on_pointer_move" onPointerMove ::
 foreign import javascript unsafe "halogen_pixi_on_pointer_end" onPointerEnd :: Application -> Callback -> IO ()
 foreign import javascript unsafe "halogen_pixi_on_wheel" onWheel :: Canvas -> Callback -> IO ()
 foreign import javascript unsafe "halogen_pixi_remove_wheel" removeWheel :: Canvas -> Callback -> IO ()
-foreign import javascript unsafe "halogen_pixi_pointer_id" pointerId :: Event -> IO Int
-foreign import javascript unsafe "halogen_pixi_global_x" globalX :: Event -> IO Double
-foreign import javascript unsafe "halogen_pixi_global_y" globalY :: Event -> IO Double
-foreign import javascript unsafe "halogen_pixi_local_x" localX :: Object -> Event -> IO Double
-foreign import javascript unsafe "halogen_pixi_local_y" localY :: Object -> Event -> IO Double
-foreign import javascript unsafe "halogen_pixi_event_button" eventButton :: Event -> IO Int
+foreign import javascript unsafe "halogen_pixi_pointer_id" pointerId :: Event -> Int
+foreign import javascript unsafe "halogen_pixi_global_x" globalX :: Event -> Double
+foreign import javascript unsafe "halogen_pixi_global_y" globalY :: Event -> Double
+foreign import javascript unsafe "halogen_pixi_local_x" localX :: Object -> Event -> Double
+foreign import javascript unsafe "halogen_pixi_local_y" localY :: Object -> Event -> Double
+foreign import javascript unsafe "halogen_pixi_event_button" eventButton :: Event -> Int
+foreign import javascript unsafe "halogen_pixi_current_target" currentTarget :: Event -> Object
 foreign import javascript unsafe "halogen_pixi_stop_propagation" stopPropagation :: Event -> IO ()
 foreign import javascript unsafe "halogen_pixi_prevent_default" preventDefault :: Event -> IO ()
-foreign import javascript unsafe "halogen_pixi_client_x" clientX :: Event -> IO Double
-foreign import javascript unsafe "halogen_pixi_client_y" clientY :: Event -> IO Double
-foreign import javascript unsafe "halogen_pixi_delta_y" deltaY :: Event -> IO Double
+foreign import javascript unsafe "halogen_pixi_client_x" clientX :: Event -> Double
+foreign import javascript unsafe "halogen_pixi_client_y" clientY :: Event -> Double
+foreign import javascript unsafe "halogen_pixi_delta_y" deltaY :: Event -> Double
 foreign import javascript unsafe "halogen_pixi_canvas_left" canvasLeft :: Canvas -> IO Double
 foreign import javascript unsafe "halogen_pixi_canvas_top" canvasTop :: Canvas -> IO Double
 foreign import javascript unsafe "halogen_pixi_canvas_width" canvasWidth :: Canvas -> IO Double
@@ -185,10 +187,10 @@ foreign import javascript unsafe "halogen_pixi_cancel_timeout" cancelTimeout :: 
 
 initializeApplication :: Application -> Text -> Canvas -> Callback -> IO ()
 initializeApplication application url = initializeApplicationRaw application (toJSString $ toS url)
-setSystemText :: Object -> Text -> Double -> Double -> Text -> Double -> Int -> Text -> IO ()
-setSystemText object value x y family size color align = setSystemTextRaw object (toJSString $ toS value) x y (toJSString $ toS family) size color (toJSString $ toS align)
-setAssetText :: Application -> Object -> Text -> Double -> Double -> Text -> Text -> Double -> Int -> Text -> IO ()
-setAssetText application object value x y family source size color align = setAssetTextRaw application object (toJSString $ toS value) x y (toJSString $ toS family) (toJSString $ toS source) size color (toJSString $ toS align)
+setSystemText :: Object -> Text -> Text -> Double -> Int -> Text -> IO ()
+setSystemText object value family size color align = setSystemTextRaw object (toJSString $ toS value) (toJSString $ toS family) size color (toJSString $ toS align)
+setAssetText :: Application -> Object -> Text -> Text -> Text -> Double -> Int -> Text -> IO ()
+setAssetText application object value family source size color align = setAssetTextRaw application object (toJSString $ toS value) (toJSString $ toS family) (toJSString $ toS source) size color (toJSString $ toS align)
 setTexture :: Application -> Object -> Text -> IO ()
 setTexture application object asset = setTextureRaw application object (toJSString $ toS asset)
 parentOf :: Object -> IO (Maybe Object)
@@ -233,8 +235,8 @@ foreign import javascript unsafe "$1.arc($2,$3,$4,$5,$6,$7)" arc :: Object -> Do
 foreign import javascript unsafe "$1.fill({color:$2,alpha:$3})" fill :: Object -> Int -> Double -> IO ()
 foreign import javascript unsafe "$1.stroke({color:$2,width:$3,alpha:$4})" stroke :: Object -> Int -> Double -> Double -> IO ()
 foreign import javascript unsafe "new $1.pixi.Text({text:'',style:{}})" newText :: Application -> IO Object
-foreign import javascript unsafe "$1.__halogenFontRequest=null;$1.text=$2;$1.position.set($3,$4);$1.style={fontFamily:$5,fontSize:$6,fill:$7,align:$8}" setSystemTextRaw :: Object -> JSVal -> Double -> Double -> JSVal -> Double -> Int -> JSVal -> IO ()
-foreign import javascript unsafe "const request={};$2.__halogenFontRequest=request;$2.text=$3;$2.position.set($4,$5);$2.style={fontFamily:$6,fontSize:$8,fill:$9,align:$10};$1.pixi.Assets.load({src:$7,data:{family:$6}}).then(()=>{if(!$2.destroyed&&$2.__halogenFontRequest===request)$2.style={fontFamily:$6,fontSize:$8,fill:$9,align:$10}}).catch(error=>console.error('Could not load PixiJS font',$7,error))" setAssetTextRaw :: Application -> Object -> JSVal -> Double -> Double -> JSVal -> JSVal -> Double -> Int -> JSVal -> IO ()
+foreign import javascript unsafe "$1.__halogenFontRequest=null;$1.text=$2;$1.style={fontFamily:$3,fontSize:$4,fill:$5,align:$6}" setSystemTextRaw :: Object -> JSVal -> JSVal -> Double -> Int -> JSVal -> IO ()
+foreign import javascript unsafe "const request={};$2.__halogenFontRequest=request;$2.text=$3;$2.style={fontFamily:$4,fontSize:$6,fill:$7,align:$8};$1.pixi.Assets.load({src:$5,data:{family:$4}}).then(()=>{if(!$2.destroyed&&$2.__halogenFontRequest===request)$2.style={fontFamily:$4,fontSize:$6,fill:$7,align:$8}}).catch(error=>console.error('Could not load PixiJS font',$5,error))" setAssetTextRaw :: Application -> Object -> JSVal -> JSVal -> JSVal -> Double -> Int -> JSVal -> IO ()
 foreign import javascript unsafe "new $1.pixi.Sprite($1.pixi.Texture.EMPTY)" newSprite :: Application -> IO Object
 foreign import javascript unsafe "$2.__halogenAsset=$3;$1.pixi.Assets.load($3).then(texture=>{if(!$2.destroyed&&$2.__halogenAsset===$3)$2.texture=texture}).catch(error=>console.error('Could not load PixiJS texture',$3,error))" setTextureRaw :: Application -> Object -> JSVal -> IO ()
 foreign import javascript unsafe "$1.anchor.set(0.5)" centerAnchor :: Object -> IO ()
@@ -256,17 +258,18 @@ foreign import javascript unsafe "$1.app.stage.on('globalpointermove',$2)" onPoi
 foreign import javascript unsafe "$1.app.stage.on('pointerup',$2);$1.app.stage.on('pointerupoutside',$2);$1.app.stage.on('pointercancel',$2)" onPointerEnd :: Application -> Callback -> IO ()
 foreign import javascript unsafe "$1.addEventListener('wheel',$2,{passive:false})" onWheel :: Canvas -> Callback -> IO ()
 foreign import javascript unsafe "$1.removeEventListener('wheel',$2)" removeWheel :: Canvas -> Callback -> IO ()
-foreign import javascript unsafe "$1.pointerId" pointerId :: Event -> IO Int
-foreign import javascript unsafe "$1.global.x" globalX :: Event -> IO Double
-foreign import javascript unsafe "$1.global.y" globalY :: Event -> IO Double
-foreign import javascript unsafe "$2.getLocalPosition($1).x" localX :: Object -> Event -> IO Double
-foreign import javascript unsafe "$2.getLocalPosition($1).y" localY :: Object -> Event -> IO Double
-foreign import javascript unsafe "$1.button" eventButton :: Event -> IO Int
+foreign import javascript unsafe "$1.pointerId" pointerId :: Event -> Int
+foreign import javascript unsafe "$1.global.x" globalX :: Event -> Double
+foreign import javascript unsafe "$1.global.y" globalY :: Event -> Double
+foreign import javascript unsafe "$2.getLocalPosition($1).x" localX :: Object -> Event -> Double
+foreign import javascript unsafe "$2.getLocalPosition($1).y" localY :: Object -> Event -> Double
+foreign import javascript unsafe "$1.button" eventButton :: Event -> Int
+foreign import javascript unsafe "$1.currentTarget" currentTarget :: Event -> Object
 foreign import javascript unsafe "$1.stopPropagation()" stopPropagation :: Event -> IO ()
 foreign import javascript unsafe "$1.preventDefault()" preventDefault :: Event -> IO ()
-foreign import javascript unsafe "$1.clientX" clientX :: Event -> IO Double
-foreign import javascript unsafe "$1.clientY" clientY :: Event -> IO Double
-foreign import javascript unsafe "$1.deltaY" deltaY :: Event -> IO Double
+foreign import javascript unsafe "$1.clientX" clientX :: Event -> Double
+foreign import javascript unsafe "$1.clientY" clientY :: Event -> Double
+foreign import javascript unsafe "$1.deltaY" deltaY :: Event -> Double
 foreign import javascript unsafe "$1.getBoundingClientRect().left" canvasLeft :: Canvas -> IO Double
 foreign import javascript unsafe "$1.getBoundingClientRect().top" canvasTop :: Canvas -> IO Double
 foreign import javascript unsafe "$1.getBoundingClientRect().width" canvasWidth :: Canvas -> IO Double
@@ -280,10 +283,10 @@ initializeApplication :: Application -> Text -> Canvas -> Callback -> IO ()
 initializeApplication application url = initializeApplicationRaw application (case toJSString (toS url) of JSString value -> value)
 textValue :: Text -> JSVal
 textValue value = case toJSString (toS value) of JSString result -> result
-setSystemText :: Object -> Text -> Double -> Double -> Text -> Double -> Int -> Text -> IO ()
-setSystemText object value x y family size color align = setSystemTextRaw object (textValue value) x y (textValue family) size color (textValue align)
-setAssetText :: Application -> Object -> Text -> Double -> Double -> Text -> Text -> Double -> Int -> Text -> IO ()
-setAssetText application object value x y family source size color align = setAssetTextRaw application object (textValue value) x y (textValue family) (textValue source) size color (textValue align)
+setSystemText :: Object -> Text -> Text -> Double -> Int -> Text -> IO ()
+setSystemText object value family size color align = setSystemTextRaw object (textValue value) (textValue family) size color (textValue align)
+setAssetText :: Application -> Object -> Text -> Text -> Text -> Double -> Int -> Text -> IO ()
+setAssetText application object value family source size color align = setAssetTextRaw application object (textValue value) (textValue family) (textValue source) size color (textValue align)
 setTexture :: Application -> Object -> Text -> IO ()
 setTexture application object asset = setTextureRaw application object (textValue asset)
 parentOf :: Object -> IO (Maybe Object)
@@ -352,10 +355,10 @@ fill :: Object -> Int -> Double -> IO ()
 fill _ _ _ = pure ()
 stroke :: Object -> Int -> Double -> Double -> IO ()
 stroke _ _ _ _ = pure ()
-setSystemText :: Object -> Text -> Double -> Double -> Text -> Double -> Int -> Text -> IO ()
-setSystemText _ _ _ _ _ _ _ _ = pure ()
-setAssetText :: Application -> Object -> Text -> Double -> Double -> Text -> Text -> Double -> Int -> Text -> IO ()
-setAssetText _ _ _ _ _ _ _ _ _ _ = pure ()
+setSystemText :: Object -> Text -> Text -> Double -> Int -> Text -> IO ()
+setSystemText _ _ _ _ _ _ = pure ()
+setAssetText :: Application -> Object -> Text -> Text -> Text -> Double -> Int -> Text -> IO ()
+setAssetText _ _ _ _ _ _ _ _ = pure ()
 newSprite :: Application -> IO Object
 newSprite _ = pure (Object (toForeign ()))
 setTexture :: Application -> Object -> Text -> IO ()
@@ -392,23 +395,25 @@ onPointerEnd _ _ = pure ()
 onWheel, removeWheel :: Canvas -> Callback -> IO ()
 onWheel _ _ = pure ()
 removeWheel _ _ = pure ()
-pointerId :: Event -> IO Int
-pointerId _ = pure 0
-globalX, globalY, clientX, clientY, deltaY :: Event -> IO Double
-globalX _ = pure 0
-globalY _ = pure 0
-localX, localY :: Object -> Event -> IO Double
-localX _ _ = pure 0
-localY _ _ = pure 0
-eventButton :: Event -> IO Int
-eventButton _ = pure 0
+pointerId :: Event -> Int
+pointerId _ = 0
+globalX, globalY, clientX, clientY, deltaY :: Event -> Double
+globalX _ = 0
+globalY _ = 0
+clientX _ = 0
+clientY _ = 0
+deltaY _ = 0
+localX, localY :: Object -> Event -> Double
+localX _ _ = 0
+localY _ _ = 0
+eventButton :: Event -> Int
+eventButton _ = 0
+currentTarget :: Event -> Object
+currentTarget _ = Object (toForeign ())
 stopPropagation :: Event -> IO ()
 stopPropagation _ = pure ()
 preventDefault :: Event -> IO ()
 preventDefault _ = pure ()
-clientX _ = pure 0
-clientY _ = pure 0
-deltaY _ = pure 0
 canvasLeft, canvasTop, canvasWidth, canvasHeight :: Canvas -> IO Double
 canvasLeft _ = pure 0
 canvasTop _ = pure 0
