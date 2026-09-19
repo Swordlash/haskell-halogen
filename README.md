@@ -95,7 +95,10 @@ which read like `Halogen.HTML.Elements` and `Halogen.HTML.Properties`: `group`, 
 `circle`, `ellipse`, `arc`, the Bézier curves, `text` and `sprite`, each taking a list of props, with
 a `_` variant for the styling-free case. Props carry the transform, the cursor, the hit area and
 pointer handlers — `onClick`, `onPointerDown`, `onPointerUp`, `onPointerOver`, `onPointerOut` and
-`onPointerMove`. Higher-level drawings such as grids are ordinary Haskell composition rather than
+`onPointerMove`. `outline` frames an element with a border the backend measures, which is the only
+way to get one that is right: nothing writing a scene can know a label's extent, or a sprite's
+before its texture has loaded. It is measured against the same bounds the backend hit-tests, so it
+also shows exactly what is clickable. Higher-level drawings such as grids are ordinary Haskell composition rather than
 renderer primitives. Handler actions are raised as typed component outputs; camera changes are
 reported separately.
 

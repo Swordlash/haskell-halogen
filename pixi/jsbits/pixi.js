@@ -47,22 +47,85 @@ function halogen_pixi_set_asset_text(holder, object, value, family, source, size
   holder.pixi.Assets.load({ src: source, data: { family: family } })
     .then(function () {
       // Restyle once the face is in, so the glyphs are not left in the fallback.
-      if (!object.destroyed && object.__halogenFontRequest === request) object.style = style;
+      if (object.destroyed || object.__halogenFontRequest !== request) return;
+      object.style = style;
+      halogen_pixi_refresh_outline(object);
     })
     .catch(function (error) { console.error("Could not load PixiJS font", source, error); });
 }
 function halogen_pixi_set_texture(holder, object, asset) {
   object.__halogenAsset = asset;
   holder.pixi.Assets.load(asset)
-    .then(function (texture) { if (!object.destroyed && object.__halogenAsset === asset) object.texture = texture; })
+    .then(function (texture) {
+      if (object.destroyed || object.__halogenAsset !== asset) return;
+      object.texture = texture;
+      halogen_pixi_resize(object);
+      halogen_pixi_refresh_outline(object);
+    })
     .catch(function (error) { console.error("Could not load PixiJS texture", asset, error); });
+}
+// A sprite's on-screen size and its transform scale both land on the same
+// Pixi property, and the texture they are relative to arrives asynchronously.
+// Keep both requests on the object and derive the scale from whichever of
+// them is known.
+function halogen_pixi_resize(object) {
+  var size = object.__halogenSize;
+  var scale = object.__halogenScale || { x: 1, y: 1 };
+  var texture = size ? object.texture : null;
+  var naturalWidth = texture ? texture.orig.width : 0;
+  var naturalHeight = texture ? texture.orig.height : 0;
+  object.scale.set(
+    naturalWidth ? (size.width / naturalWidth) * scale.x : scale.x,
+    naturalHeight ? (size.height / naturalHeight) * scale.y : scale.y
+  );
+}
+// Draw a border around what the object actually turned out to be. Nothing in
+// the scene can know that — a label's extent is whatever the font laid out —
+// so the measurement happens here, against the same bounds Pixi hit-tests.
+//
+// The outline is a child, so it is measured with itself detached, and it
+// cancels out the object's own scale so that the stroke stays one unit wide
+// however the object was sized.
+function halogen_pixi_refresh_outline(object) {
+  var spec = object.__halogenOutline;
+  if (!spec) return;
+  var graphics = object.__halogenOutlineGraphics;
+  if (!graphics) {
+    graphics = new spec.holder.pixi.Graphics();
+    graphics.eventMode = "none";
+    object.__halogenOutlineGraphics = graphics;
+  }
+  if (graphics.parent) graphics.parent.removeChild(graphics);
+  var bounds = object.getLocalBounds();
+  var scaleX = object.scale.x || 1;
+  var scaleY = object.scale.y || 1;
+  graphics.clear();
+  graphics.scale.set(1 / scaleX, 1 / scaleY);
+  graphics.rect(
+    bounds.x * scaleX - spec.padding,
+    bounds.y * scaleY - spec.padding,
+    bounds.width * scaleX + spec.padding * 2,
+    bounds.height * scaleY + spec.padding * 2
+  );
+  graphics.stroke({ color: spec.color, width: spec.width, alpha: spec.alpha });
+  object.addChild(graphics);
+}
+function halogen_pixi_set_outline(holder, object, color, width, alpha, padding) {
+  object.__halogenOutline = { holder: holder, color: color, width: width, alpha: alpha, padding: padding };
+  halogen_pixi_refresh_outline(object);
+}
+function halogen_pixi_clear_outline(object) {
+  object.__halogenOutline = null;
+  var graphics = object.__halogenOutlineGraphics;
+  object.__halogenOutlineGraphics = null;
+  if (graphics) graphics.destroy();
 }
 function halogen_pixi_new_sprite(holder) { return new holder.pixi.Sprite(holder.pixi.Texture.EMPTY); }
 function halogen_pixi_center_anchor(object) { object.anchor.set(0.5); }
 function halogen_pixi_set_position(object, x, y) { object.position.set(x, y); }
-function halogen_pixi_set_scale(object, x, y) { object.scale.set(x, y); }
+function halogen_pixi_set_scale(object, x, y) { object.__halogenScale = { x: x, y: y }; halogen_pixi_resize(object); }
 function halogen_pixi_set_rotation(object, rotation) { object.rotation = rotation; }
-function halogen_pixi_set_size(object, width, height) { object.width = width; object.height = height; }
+function halogen_pixi_set_size(object, width, height) { object.__halogenSize = { width: width, height: height }; halogen_pixi_resize(object); }
 function halogen_pixi_on_tap(object, callback) { object.eventMode = "static"; object.cursor = "pointer"; object.on("pointertap", callback); }
 function halogen_pixi_on(object, eventType, callback) { object.on(eventType, callback); }
 function halogen_pixi_off(object, eventType, callback) { object.off(eventType, callback); }

@@ -104,7 +104,7 @@ buildCanvasProp runDom toDom emit application object = render
             toDom $ traverse_ emit (current event)
           liftIO $ FFI.addListener object eventName callback
           atomicModifyMutVar'_ listeners (M.insert eventName (callback, target))
-        _ -> runDom $ paint prop
+        _ -> runDom $ repaint prop
       pure prop
 
     -- A handler that is still present keeps its registration and its
@@ -128,7 +128,7 @@ buildCanvasProp runDom toDom emit application object = render
               atomicModifyMutVar'_ listeners (M.insert eventName entry)
             Nothing -> pass
         _ | samePaint old new -> pass
-        _ -> runDom $ paint new
+        _ -> runDom $ repaint new
       pure new
 
     removeProp
@@ -145,6 +145,7 @@ buildCanvasProp runDom toDom emit application object = render
           FFI.freeCallback callback
       Cursor _ -> liftIO $ FFI.setCursor object "default"
       Hit _ -> liftIO $ FFI.clearHitArea object
+      Outline _ _ -> liftIO $ FFI.clearOutline object
       _ -> pass
 
     -- Repaint only when the description changed. Handlers are never equal by
@@ -158,7 +159,15 @@ buildCanvasProp runDom toDom emit application object = render
       (Interactive x, Interactive y) -> x == y
       (Cursor x, Cursor y) -> x == y
       (Hit x, Hit y) -> x == y
+      (Outline x px, Outline y py) -> x == y && px == py
       _ -> False
+
+    -- An outline is measured, so anything that changes what there is to
+    -- measure invalidates it. Rather than work out which props those are,
+    -- every repaint re-measures; it costs nothing on an object with no
+    -- outline, and it means a new kind of prop cannot forget to.
+    repaint :: CanvasProp FFI.Event i -> PixiDOM ()
+    repaint prop = paint prop *> liftIO (FFI.refreshOutline object)
 
     paint :: CanvasProp FFI.Event i -> PixiDOM ()
     paint = \case
@@ -174,6 +183,8 @@ buildCanvasProp runDom toDom emit application object = render
         FFI.centerAnchor object
         FFI.setSize object width height
       Interactive _ -> pass -- handled by syncEventMode
+      Outline StrokeStyle {strokeColor, strokeWidth, strokeAlpha} padding ->
+        liftIO $ FFI.setOutline application object strokeColor strokeWidth strokeAlpha padding
       Cursor value -> liftIO $ FFI.setCursor object value
       Hit area -> liftIO $ case area of
         RectHit (Point x y) (Point width height) ->

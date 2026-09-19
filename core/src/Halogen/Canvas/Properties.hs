@@ -6,6 +6,7 @@ module Halogen.Canvas.Properties
   , cursor
   , eventMode
   , hitArea
+  , outline
   , onClick
   , onPointerDown
   , onPointerUp
@@ -39,6 +40,16 @@ eventMode = Interactive
 -- along the stroke, and a group has no bounds of its own.
 hitArea :: HitArea -> CanvasProp event i
 hitArea = Hit
+
+-- | Draw a border around the element, the given distance outside its
+-- measured extent.
+--
+-- The extent is whatever the backend laid out and hit-tests against, so
+-- this frames exactly the region that responds to a pointer - which is
+-- something the scene itself has no way to work out for a label, or for a
+-- sprite whose texture has not arrived.
+outline :: StrokeStyle -> Double -> CanvasProp event i
+outline = Outline
 
 -- | Raise an action on an event, ignoring the event itself.
 handler :: PointerEventType -> i -> CanvasProp event i

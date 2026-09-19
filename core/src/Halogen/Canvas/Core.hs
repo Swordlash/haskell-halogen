@@ -67,6 +67,15 @@ data CanvasProp event i
     Label Text TextStyle
   | -- | The texture and size of a @sprite@ element.
     Src Texture Point
+  | -- | A border drawn around whatever the element actually turned out to
+    -- be, at the given distance outside it.
+    --
+    -- Measured by the backend rather than given as a rectangle, because
+    -- nothing that writes a scene can know the extent of a label - that is
+    -- whatever the font laid out - or of a sprite whose texture has not
+    -- loaded yet. It is the same extent the backend hit-tests against, so
+    -- the border shows exactly what is clickable.
+    Outline StrokeStyle Double
   | Handler PointerEventType (event -> Maybe i)
   | Interactive EventMode
   | Cursor Text
@@ -84,6 +93,7 @@ propKey = \case
   Place _ -> "place"
   Label _ _ -> "label"
   Src _ _ -> "src"
+  Outline _ _ -> "outline"
   Handler eventType _ -> "on/" <> pointerEventName eventType
   Interactive _ -> "eventMode"
   Cursor _ -> "cursor"

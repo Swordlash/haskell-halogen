@@ -43,6 +43,9 @@ module Halogen.Canvas.Pixi.FFI
   , setScale
   , setRotation
   , setSize
+  , setOutline
+  , clearOutline
+  , refreshOutline
   , onTap
   , addListener
   , removeListener
@@ -150,6 +153,9 @@ foreign import javascript unsafe "halogen_pixi_set_position" setPosition :: Obje
 foreign import javascript unsafe "halogen_pixi_set_scale" setScale :: Object -> Double -> Double -> IO ()
 foreign import javascript unsafe "halogen_pixi_set_rotation" setRotation :: Object -> Double -> IO ()
 foreign import javascript unsafe "halogen_pixi_set_size" setSize :: Object -> Double -> Double -> IO ()
+foreign import javascript unsafe "halogen_pixi_set_outline" setOutline :: Application -> Object -> Int -> Double -> Double -> Double -> IO ()
+foreign import javascript unsafe "halogen_pixi_clear_outline" clearOutline :: Object -> IO ()
+foreign import javascript unsafe "halogen_pixi_refresh_outline" refreshOutline :: Object -> IO ()
 foreign import javascript unsafe "halogen_pixi_on_tap" onTap :: Object -> Callback -> IO ()
 foreign import javascript unsafe "halogen_pixi_on" onRaw :: Object -> JSVal -> Callback -> IO ()
 foreign import javascript unsafe "halogen_pixi_off" offRaw :: Object -> JSVal -> Callback -> IO ()
@@ -209,7 +215,17 @@ freeCallback :: Callback -> IO ()
 freeCallback = JS.releaseCallback
 
 #elif defined(wasm32_HOST_ARCH)
-foreign import javascript unsafe "({pixi:null,app:null,ready:false})" newApplication :: IO Application
+foreign import javascript unsafe "({pixi:null,app:null,ready:false})" newApplicationRaw :: IO Application
+
+-- | Install the two helpers the inline snippets in this branch call.
+--
+-- The javascript backend has jsbits for these; wasm has no such file, and
+-- neither of them fits in an expression — so they are installed once, on the
+-- first thing any Pixi work has to do.
+--
+-- @||=@ rather than @??=@: the snippet is emitted through a C string, where
+-- @??=@ is a trigraph for @#@.
+foreign import javascript unsafe "globalThis.__halogenPixi ||= {resize:object=>{const size=object.__halogenSize;const scale=object.__halogenScale||{x:1,y:1};const texture=size?object.texture:null;const naturalWidth=texture?texture.orig.width:0;const naturalHeight=texture?texture.orig.height:0;object.scale.set(naturalWidth?(size.width/naturalWidth)*scale.x:scale.x,naturalHeight?(size.height/naturalHeight)*scale.y:scale.y)},outline:object=>{const spec=object.__halogenOutline;if(!spec)return;let graphics=object.__halogenOutlineGraphics;if(!graphics){graphics=new spec.holder.pixi.Graphics();graphics.eventMode='none';object.__halogenOutlineGraphics=graphics}if(graphics.parent)graphics.parent.removeChild(graphics);const bounds=object.getLocalBounds();const scaleX=object.scale.x||1;const scaleY=object.scale.y||1;graphics.clear();graphics.scale.set(1/scaleX,1/scaleY);graphics.rect(bounds.x*scaleX-spec.padding,bounds.y*scaleY-spec.padding,bounds.width*scaleX+spec.padding*2,bounds.height*scaleY+spec.padding*2);graphics.stroke({color:spec.color,width:spec.width,alpha:spec.alpha});object.addChild(graphics)}}" installHelpers :: IO ()
 foreign import javascript unsafe "import($2).then(pixi=>{$1.pixi=pixi;$1.app=new pixi.Application();return $1.app.init({canvas:$3,resizeTo:$3.parentElement,preference:'webgl',antialias:true,autoDensity:true,resolution:Math.min(globalThis.devicePixelRatio || 1,2),backgroundColor:0x111827})}).then(()=>{$1.ready=true;$4(null)}).catch(error=>{console.error('Could not load or initialize PixiJS',error);$4(null)})" initializeApplicationRaw :: Application -> JSVal -> Canvas -> Callback -> IO ()
 foreign import javascript unsafe "$1.app!==null" applicationCreated :: Application -> IO Bool
 foreign import javascript unsafe "$1.ready" applicationReady :: Application -> IO Bool
@@ -236,14 +252,17 @@ foreign import javascript unsafe "$1.fill({color:$2,alpha:$3})" fill :: Object -
 foreign import javascript unsafe "$1.stroke({color:$2,width:$3,alpha:$4})" stroke :: Object -> Int -> Double -> Double -> IO ()
 foreign import javascript unsafe "new $1.pixi.Text({text:'',style:{}})" newText :: Application -> IO Object
 foreign import javascript unsafe "$1.__halogenFontRequest=null;$1.text=$2;$1.style={fontFamily:$3,fontSize:$4,fill:$5,align:$6}" setSystemTextRaw :: Object -> JSVal -> JSVal -> Double -> Int -> JSVal -> IO ()
-foreign import javascript unsafe "const request={};$2.__halogenFontRequest=request;$2.text=$3;$2.style={fontFamily:$4,fontSize:$6,fill:$7,align:$8};$1.pixi.Assets.load({src:$5,data:{family:$4}}).then(()=>{if(!$2.destroyed&&$2.__halogenFontRequest===request)$2.style={fontFamily:$4,fontSize:$6,fill:$7,align:$8}}).catch(error=>console.error('Could not load PixiJS font',$5,error))" setAssetTextRaw :: Application -> Object -> JSVal -> JSVal -> JSVal -> Double -> Int -> JSVal -> IO ()
+foreign import javascript unsafe "const request={};$2.__halogenFontRequest=request;$2.text=$3;$2.style={fontFamily:$4,fontSize:$6,fill:$7,align:$8};$1.pixi.Assets.load({src:$5,data:{family:$4}}).then(()=>{if($2.destroyed||$2.__halogenFontRequest!==request)return;$2.style={fontFamily:$4,fontSize:$6,fill:$7,align:$8};globalThis.__halogenPixi.outline($2)}).catch(error=>console.error('Could not load PixiJS font',$5,error))" setAssetTextRaw :: Application -> Object -> JSVal -> JSVal -> JSVal -> Double -> Int -> JSVal -> IO ()
 foreign import javascript unsafe "new $1.pixi.Sprite($1.pixi.Texture.EMPTY)" newSprite :: Application -> IO Object
-foreign import javascript unsafe "$2.__halogenAsset=$3;$1.pixi.Assets.load($3).then(texture=>{if(!$2.destroyed&&$2.__halogenAsset===$3)$2.texture=texture}).catch(error=>console.error('Could not load PixiJS texture',$3,error))" setTextureRaw :: Application -> Object -> JSVal -> IO ()
+foreign import javascript unsafe "$2.__halogenAsset=$3;$1.pixi.Assets.load($3).then(texture=>{if($2.destroyed||$2.__halogenAsset!==$3)return;$2.texture=texture;globalThis.__halogenPixi.resize($2);globalThis.__halogenPixi.outline($2)}).catch(error=>console.error('Could not load PixiJS texture',$3,error))" setTextureRaw :: Application -> Object -> JSVal -> IO ()
 foreign import javascript unsafe "$1.anchor.set(0.5)" centerAnchor :: Object -> IO ()
 foreign import javascript unsafe "$1.position.set($2,$3)" setPosition :: Object -> Double -> Double -> IO ()
-foreign import javascript unsafe "$1.scale.set($2,$3)" setScale :: Object -> Double -> Double -> IO ()
+foreign import javascript unsafe "$1.__halogenScale={x:$2,y:$3};globalThis.__halogenPixi.resize($1)" setScale :: Object -> Double -> Double -> IO ()
 foreign import javascript unsafe "$1.rotation=$2" setRotation :: Object -> Double -> IO ()
-foreign import javascript unsafe "$1.width=$2;$1.height=$3" setSize :: Object -> Double -> Double -> IO ()
+foreign import javascript unsafe "$1.__halogenSize={width:$2,height:$3};globalThis.__halogenPixi.resize($1)" setSize :: Object -> Double -> Double -> IO ()
+foreign import javascript unsafe "$2.__halogenOutline={holder:$1,color:$3,width:$4,alpha:$5,padding:$6};globalThis.__halogenPixi.outline($2)" setOutline :: Application -> Object -> Int -> Double -> Double -> Double -> IO ()
+foreign import javascript unsafe "$1.__halogenOutline=null;const graphics=$1.__halogenOutlineGraphics;$1.__halogenOutlineGraphics=null;if(graphics)graphics.destroy()" clearOutline :: Object -> IO ()
+foreign import javascript unsafe "globalThis.__halogenPixi.outline($1)" refreshOutline :: Object -> IO ()
 foreign import javascript unsafe "$1.eventMode='static';$1.cursor='pointer';$1.on('pointertap',$2)" onTap :: Object -> Callback -> IO ()
 foreign import javascript unsafe "$1.on($2,$3)" onRaw :: Object -> JSVal -> Callback -> IO ()
 foreign import javascript unsafe "$1.off($2,$3)" offRaw :: Object -> JSVal -> Callback -> IO ()
@@ -279,6 +298,8 @@ foreign import javascript unsafe "$1.app.screen.height" screenHeight :: Applicat
 foreign import javascript unsafe "setTimeout($1,$2)" scheduleTimeout :: Callback -> Int -> IO Timer
 foreign import javascript unsafe "clearTimeout($1)" cancelTimeout :: Timer -> IO ()
 
+newApplication :: IO Application
+newApplication = installHelpers >> newApplicationRaw
 initializeApplication :: Application -> Text -> Canvas -> Callback -> IO ()
 initializeApplication application url = initializeApplicationRaw application (case toJSString (toS url) of JSString value -> value)
 textValue :: Text -> JSVal
@@ -372,6 +393,11 @@ setRotation :: Object -> Double -> IO ()
 setRotation _ _ = pure ()
 setSize :: Object -> Double -> Double -> IO ()
 setSize _ _ _ = pure ()
+setOutline :: Application -> Object -> Int -> Double -> Double -> Double -> IO ()
+setOutline _ _ _ _ _ _ = pure ()
+clearOutline, refreshOutline :: Object -> IO ()
+clearOutline _ = pure ()
+refreshOutline _ = pure ()
 onTap :: Object -> Callback -> IO ()
 onTap _ _ = pure ()
 addListener, removeListener :: Object -> Text -> Callback -> IO ()

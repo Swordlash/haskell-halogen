@@ -3,7 +3,6 @@
 module Main where
 
 import Data.Row (type (.==))
-import Data.Text qualified as T
 import Halogen qualified as H
 import Halogen.Canvas.Elements qualified as CE
 import Halogen.Canvas.Pixi qualified as Pixi
@@ -79,7 +78,7 @@ scene state =
     state.camera
     Pixi.defaultInteraction
     [ grid
-    , CE.group_ [title state.hovered]
+    , title state.hovered
     , CE.keyedGroup [] [(show index, tile state.hovered index) | index <- [0 .. 17]]
     ]
 
@@ -93,46 +92,31 @@ grid = CE.group_ $ foldMap line [-1200, -1100 .. 1200]
       ]
 
 title :: Maybe Target -> Pixi.PixiNode GameEvent
-title hovered =
-  CE.group_ $
-    CE.text titleAt titleText titleStyle (hoverHandlers Title)
-      : [ -- A text object is anchored at its top left, so its centre is half a
-        -- box along each axis from where it was placed.
-        border (Pixi.Point (x + width / 2) (y + height / 2)) box
-        | hovered == Just Title
-        ]
-  where
-    Pixi.Point x y = titleAt
-    box@(Pixi.Point width height) = labelBox titleText titleStyle
+title hovered = CE.text titleAt titleText titleStyle (hoverProps Title hovered)
 
 tile :: Maybe Target -> Int -> Pixi.PixiNode GameEvent
 tile hovered index =
-  CE.group_ $
-    CE.sprite (tileAt index) tileSize (Pixi.Texture "./pixi-tile.svg") handlers
-      : [border (tileAt index) tileSize | hovered == Just (Tile index)]
-  where
-    handlers = CP.onClick (const $ Just $ TileClicked index) : hoverHandlers (Tile index)
+  CE.sprite (tileAt index) tileSize (Pixi.Texture "./pixi-tile.svg") $
+    CP.onClick (const $ Just $ TileClicked index)
+      : hoverProps (Tile index) hovered
 
-hoverHandlers :: Target -> [Pixi.PixiProp GameEvent]
-hoverHandlers target =
+-- | Report the pointer coming and going, and while it is here, frame the
+-- object with a one pixel white border.
+--
+-- The border is a prop rather than a rectangle in the scene because only the
+-- backend can say how big the object is: a label's extent is whatever the
+-- font laid out, and a sprite's is whatever its texture turned out to be. It
+-- is measured against the bounds Pixi hit-tests, so it frames exactly what
+-- is clickable.
+hoverProps :: Target -> Maybe Target -> [Pixi.PixiProp GameEvent]
+hoverProps target hovered =
   [ CP.onPointerOver (const $ Just $ Entered target)
   , CP.onPointerOut (const $ Just $ Exited target)
   , CP.cursor "pointer"
   ]
-
--- | A one pixel white outline, sitting just outside the object it frames.
-border :: Pixi.Point -> Pixi.Point -> Pixi.PixiNode GameEvent
-border position (Pixi.Point width height) =
-  CE.rectangle_ position (Pixi.Point (width + 2) (height + 2)) Nothing $
-    Just Pixi.StrokeStyle {strokeColor = 0xffffff, strokeWidth = 1, strokeAlpha = 1}
-
--- | How much room a label takes up.
---
--- Nothing in the scene knows what Pixi actually laid out, so this is a
--- calculation rather than a measurement — sound here because Press Start 2P
--- is monospaced at one em, which makes the advance exactly the font size.
-labelBox :: Text -> Pixi.TextStyle -> Pixi.Point
-labelBox value style = Pixi.Point (style.fontSize * fromIntegral (T.length value)) (style.fontSize * 1.2)
+    <> [ CP.outline Pixi.StrokeStyle {strokeColor = 0xffffff, strokeWidth = 1, strokeAlpha = 1} 1
+       | hovered == Just target
+       ]
 
 ----------------------------------------------------------------------
 
