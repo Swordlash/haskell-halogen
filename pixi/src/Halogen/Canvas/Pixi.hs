@@ -239,7 +239,7 @@ pixiSpec runtime =
   V.VDomSpec
     { runDom = runPixiDOM
     , buildWidget = \_ -> absurd
-    , buildAttributes = buildCanvasProp runPixiDOM PixiDOM (runtime.emit . Fired) runtime.app
+    , buildAttributes = buildCanvasProp runPixiDOM (liftIO . runtime.emit . Fired) runtime.app
     , document = runtime.app
     }
 

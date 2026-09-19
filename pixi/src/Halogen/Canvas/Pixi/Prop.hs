@@ -2,6 +2,9 @@
 -- 'CanvasProp' list to a Pixi display object, and keeps applying it across
 -- patches.
 --
+-- @emit@ is in 'PixiDOM' for the reason it is in the DOM monad there too: a
+-- listener is called back by Pixi, not by whatever was rendering.
+--
 -- The listener discipline is the one 'Halogen.VDom.DOM.Prop.buildProp' uses,
 -- and for the same reason: a listener is registered with Pixi once and its
 -- target is swapped through a cell on every patch, so that a handler
@@ -36,12 +39,11 @@ buildCanvasProp
   :: forall m i
    . (Monad m)
   => (forall x. PixiDOM x -> m x)
-  -> (forall x. m x -> PixiDOM x)
-  -> (i -> m ())
+  -> (i -> PixiDOM ())
   -> FFI.Application
   -> FFI.Object
   -> V.Machine m [CanvasProp FFI.Event i] ()
-buildCanvasProp runDom toDom emit application object = render
+buildCanvasProp runDom emit application object = render
   where
     render :: V.Machine m [CanvasProp FFI.Event i] ()
     render next = do
@@ -101,7 +103,7 @@ buildCanvasProp runDom toDom emit application object = render
           target <- newMutVar f
           callback <- liftIO $ FFI.mkCallback $ \event -> runPixiDOM $ do
             current <- readMutVar target
-            toDom $ traverse_ emit (current event)
+            traverse_ emit (current event)
           liftIO $ FFI.addListener object eventName callback
           atomicModifyMutVar'_ listeners (M.insert eventName (callback, target))
         _ -> runDom $ repaint prop

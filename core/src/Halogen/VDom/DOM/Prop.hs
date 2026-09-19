@@ -54,29 +54,27 @@ propToStrKey = \case
 
 {-# INLINEABLE buildProp #-}
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
-{-# SPECIALISE buildProp :: (forall x. BrowserDOM x -> IO x) -> (forall x. IO x -> BrowserDOM x) -> (a -> IO ()) -> DOM.Element -> V.Machine IO [Prop a] () #-}
+{-# SPECIALISE buildProp :: (forall x. BrowserDOM x -> IO x) -> (a -> BrowserDOM ()) -> DOM.Element -> V.Machine IO [Prop a] () #-}
 #else
-{-# SPECIALISE buildProp :: (forall x. MemDOM x -> IO x) -> (forall x. IO x -> MemDOM x) -> (a -> IO ()) -> DOM.Element -> V.Machine IO [Prop a] () #-}
+{-# SPECIALISE buildProp :: (forall x. MemDOM x -> IO x) -> (a -> MemDOM ()) -> DOM.Element -> V.Machine IO [Prop a] () #-}
 #endif
 
 -- | Apply a property list to an element, and keep applying it across patches.
 --
--- Both directions between the component monad and the DOM monad are needed
--- here, and only here. @runDom@ is the cheap one: setting an attribute is a
--- DOM effect that the caller sequences. @toDom@ is the expensive one, and it
--- exists because a registered event listener is called back /by the DOM/ —
--- when it fires it has to run component code, so the component monad must be
--- runnable from inside a DOM callback. That is what forces an unlift on the
--- caller; the reconciler itself never needs it.
+-- @emit@ is in the DOM monad, not the component monad, because a listener is
+-- called back /by the DOM/: when it fires there is no component computation
+-- in progress to sequence it into. Whoever supplies it has to be able to run
+-- component code from inside a callback, which is an unlift — but that is
+-- their problem, and it is the only place in the library that has it. The
+-- reconciler needs nothing but @runDom@.
 buildProp
   :: forall dom m a
    . (MonadAttributes dom, Monad m, DomElement dom ~ DOM.Element)
   => (forall x. dom x -> m x)
-  -> (forall x. m x -> dom x)
-  -> (a -> m ())
+  -> (a -> dom ())
   -> DOM.Element
   -> V.Machine m [Prop a] ()
-buildProp runDom toDom emit el = renderProp
+buildProp runDom emit el = renderProp
   where
     renderProp :: V.Machine m [Prop a] ()
     renderProp ps1 = do
@@ -107,9 +105,10 @@ buildProp runDom toDom emit el = renderProp
     haltProp state = do
       case M.lookup "ref" state.props of
         Just (Ref f) ->
-          mbEmit (f (Removed el))
+          runDom $ mbEmit (f (Removed el))
         _ -> pass
 
+    mbEmit :: Maybe a -> dom ()
     mbEmit = traverse_ emit
 
     applyProp :: MutVar (PrimState dom) (EventMap dom a) -> Text -> Int -> Prop a -> m (Prop a)
@@ -132,12 +131,12 @@ buildProp runDom toDom emit el = renderProp
                 ref <- newMutVar f
                 listener <- mkEventListener $ \ev -> do
                   f' <- readMutVar ref
-                  toDom $ mbEmit (f' ev)
+                  mbEmit (f' ev)
                 atomicModifyMutVar'_ events (M.insert ty (listener, ref))
                 elementToEventTarget el >>= addEventListener evty listener
                 pure v
         Ref f -> do
-          mbEmit (f (Created el))
+          runDom $ mbEmit (f (Created el))
           pure v
 
     diffProp

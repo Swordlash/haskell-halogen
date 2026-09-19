@@ -20,7 +20,10 @@
   associated `Ref`. `log` was dropped.
 - **Breaking.** `VDomSpec` gained a `dom` parameter and a `runDom` bridge, so
   the monad a component evaluates in and the monad the DOM is spoken in are no
-  longer the same monad.
+  longer the same monad. One bridge, in one direction: `buildProp` takes its
+  `emit` already in the DOM monad, and `runUIWith` derives the unlift a DOM
+  callback needs from `MonadUnliftIO m` and `MonadIO dom` rather than asking
+  the caller for a second rank-2 function.
 - Add `Halogen.Canvas.Types`, `.Core`, `.Elements` and `.Properties`: a
   declarative scene language in the shape of `Halogen.HTML`, backend-neutral,
   and reconciled by `Halogen.VDom.DOM.buildVDom` like any other `VDom`. Shapes

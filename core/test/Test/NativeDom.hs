@@ -24,6 +24,7 @@ spec = xdescribe "native VDom" $ pure ()
 
 #else
 
+import Control.Monad.IO.Class (liftIO)
 import Data.IORef
 import Data.Text (Text)
 import Data.Void (Void, absurd)
@@ -55,7 +56,7 @@ newSpec = do
         VDomSpec
           { runDom = runMemDOM
           , buildWidget = \_ -> absurd
-          , buildAttributes = buildProp runMemDOM MemDOM (\msg -> modifyIORef' emitted (<> [msg]))
+          , buildAttributes = buildProp runMemDOM (\msg -> liftIO (modifyIORef' emitted (<> [msg])))
           , document = N.fromNative doc :: Document
           }
   pure (vspec, emitted)

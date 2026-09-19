@@ -57,18 +57,17 @@ mkSpec
   :: forall dom m action slots
    . (MonadIO m, DOM.MonadBrowserDOM dom)
   => (forall x. dom x -> m x)
-  -> (forall x. m x -> dom x)
-  -> (Input action -> m ())
+  -> (Input action -> dom ())
   -> IORef (ChildRenderer m action slots)
   -> DOM.Document
   -> V.VDomSpec dom m [Prop (Input action)] (ComponentSlot slots m action)
-mkSpec runDom toDom handler renderChildRef document =
+mkSpec runDom handler renderChildRef document =
   V.VDomSpec {runDom, buildWidget, buildAttributes, document}
   where
     buildAttributes
       :: DOM.Element
       -> V.Machine m [Prop (Input action)] ()
-    buildAttributes = VP.buildProp runDom toDom handler
+    buildAttributes = VP.buildProp runDom handler
 
     buildWidget
       :: V.VDomSpec
@@ -125,21 +124,22 @@ mkSpec runDom toDom handler renderChildRef document =
 
 -- | Run a component against a DOM spoken in a monad of its own.
 --
--- @runDom@ sequences a DOM effect from the component monad; @toDom@ runs
--- component code from inside a DOM event callback. See
--- "Halogen.VDom.DOM.Prop" for why only the listener path needs the second.
+-- @runDom@ sequences a DOM effect from the component monad, and is the only
+-- bridge the caller supplies. The other direction — running component code
+-- from inside a DOM event callback — is derived from 'MonadUnliftIO' on the
+-- component monad and 'MonadIO' on the DOM one, which is what those two
+-- constraints are here for.
 runUIWith
   :: forall dom m query input output
-   . (DOM.MonadBrowserDOM dom, MonadUnliftIO m, MonadFork m, MonadKill m, MonadParallel m, MonadMask m, MonadUUID m)
+   . (DOM.MonadBrowserDOM dom, MonadIO dom, MonadUnliftIO m, MonadFork m, MonadKill m, MonadParallel m, MonadMask m, MonadUUID m)
   => (forall x. dom x -> m x)
-  -> (forall x. m x -> dom x)
   -> Component query input output m
   -> input
   -> DOM.HTMLElement
   -> m (HalogenSocket query output m)
-runUIWith runDom toDom component i element = do
+runUIWith runDom component i element = do
   document <- toDocument <$> runDom (DOM.document =<< DOM.window)
-  AD.runUI (renderSpec runDom toDom document element) component i
+  AD.runUI (renderSpec runDom document element) component i
 
 -- | Run a component against this build's default DOM backend.
 --
@@ -153,24 +153,21 @@ runUI
   -> input
   -> DOM.HTMLElement
   -> m (HalogenSocket query output m)
-runUI component i element =
-  withRunInIO $ \runInIO ->
-    runInIO
+runUI =
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
-      $ runUIWith (liftIO . DOM.runBrowserDOM) (DOM.BrowserDOM . runInIO) component i element
+  runUIWith (liftIO . DOM.runBrowserDOM)
 #else
-      $ runUIWith (liftIO . DOM.runMemDOM) (DOM.MemDOM . runInIO) component i element
+  runUIWith (liftIO . DOM.runMemDOM)
 #endif
 
 renderSpec
   :: forall dom m
-   . (DOM.MonadBrowserDOM dom, MonadIO m)
+   . (DOM.MonadBrowserDOM dom, MonadIO dom, MonadUnliftIO m)
   => (forall x. dom x -> m x)
-  -> (forall x. m x -> dom x)
   -> DOM.Document
   -> DOM.HTMLElement
   -> AD.RenderSpec m (RenderState m)
-renderSpec runDom toDom document container =
+renderSpec runDom document container =
   AD.RenderSpec
     { render
     , renderChild = identity
@@ -189,8 +186,13 @@ renderSpec runDom toDom document container =
       \case
         Nothing -> do
           renderChildRef <- newIORef child
-          let spec = mkSpec runDom toDom handler renderChildRef document
-          machine <- V.buildVDom spec vdom
+          -- The one unlift in the library. A listener registered below is
+          -- called back by the DOM, with no component computation in progress
+          -- to sequence the handler into, so the handler has to be able to
+          -- run on its own.
+          machine <- withRunInIO $ \runInIO -> runInIO $ do
+            let spec = mkSpec runDom (liftIO . runInIO . handler) renderChildRef document
+            V.buildVDom spec vdom
           let node = V.extract machine
           void $ runDom $ DOM.appendChild node $ toNode container
           pure $ RenderState {machine, node, renderChildRef}
