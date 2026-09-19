@@ -15,7 +15,7 @@ module Halogen.Canvas.Pixi
 
     -- * Reading a pointer event
   , pointerId
-  , globalPosition
+  , stagePosition
   , localPosition
   , button
 
@@ -97,11 +97,22 @@ view camera interaction nodes = View {camera, interaction, nodes}
 pointerId :: PixiEvent -> Int
 pointerId = FFI.pointerId
 
--- | Where the pointer is in world coordinates, before the camera.
-globalPosition :: PixiEvent -> Point
-globalPosition event = Point (FFI.globalX event) (FFI.globalY event)
+-- | Where the pointer is on the renderer's surface, in stage coordinates.
+--
+-- Not scene coordinates: the camera is a transform on the container the
+-- scene hangs from, and this is measured outside it, so panning or zooming
+-- changes this value for a pointer that has not moved. Converting needs the
+-- camera and the surface size, neither of which an event carries.
+--
+-- 'localPosition' is what a handler usually wants, and it is unaffected by
+-- the camera.
+stagePosition :: PixiEvent -> Point
+stagePosition event = Point (FFI.globalX event) (FFI.globalY event)
 
 -- | Where the pointer is relative to the element the handler is attached to.
+--
+-- Below the camera, so this is in the element's own coordinates whatever the
+-- view is doing.
 localPosition :: PixiEvent -> Point
 localPosition event =
   let target = FFI.currentTarget event
