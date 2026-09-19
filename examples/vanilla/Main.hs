@@ -18,12 +18,12 @@ import Halogen.HTML.Layout.BoxLayout
 import Halogen.HTML.Layout.GridBagLayout
 import Halogen.HTML.Properties as HP
 import Halogen.Subscription qualified as HS
-import Halogen.VDom.DOM.Monad
 import Protolude
 import UnliftIO (MonadUnliftIO)
 
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 import Halogen.IO.Util as HA
+import Halogen.VDom.DOM.Monad (runBrowserDOM)
 import Halogen.VDom.Driver (runUI)
 #endif
 

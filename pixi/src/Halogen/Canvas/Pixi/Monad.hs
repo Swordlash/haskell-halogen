@@ -68,7 +68,14 @@ instance MonadDOM PixiDOM where
     FFI.addChild parent child
     FFI.setChildIndex parent child ix
 
-  removeChild child parent = liftIO $ FFI.removeChild parent child
+  -- Destroying, not just detaching: a display object that is out of the tree
+  -- still holds its geometry and its GPU buffers, and nothing else will ever
+  -- come back for it. 'destroyObject' takes the subtree with it, which is
+  -- safe because the reconciler halts a child's props after its parent has
+  -- gone, and removing a listener from a destroyed object is a no-op.
+  removeChild child parent = liftIO $ do
+    FFI.removeChild parent child
+    FFI.destroyObject child
   parentNode = liftIO . FFI.parentOf
 
   mkEventListener handler = liftIO $ FFI.mkCallback (runPixiDOM . handler)
