@@ -14,10 +14,15 @@ module Halogen.VDom.DOM.Monad.Browser
   )
 where
 
+import Control.Monad.Primitive (PrimMonad (..))
 import HPrelude
 
 newtype BrowserDOM a = BrowserDOM (IO a)
   deriving newtype (Functor, Applicative, Monad, MonadIO, MonadUnliftIO)
+
+instance PrimMonad BrowserDOM where
+  type PrimState BrowserDOM = PrimState IO
+  primitive = BrowserDOM . primitive
 
 runBrowserDOM :: BrowserDOM a -> IO a
 runBrowserDOM (BrowserDOM io) = io

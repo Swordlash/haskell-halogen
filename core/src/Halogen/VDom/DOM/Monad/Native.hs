@@ -50,7 +50,6 @@ where
 import Control.Exception.Safe (throwString)
 import Data.Map.Strict qualified as M
 import Data.Text qualified as T
-import Data.Text.IO qualified as TIO
 import HPrelude
 import Halogen.VDom.DOM.Monad.Class
 import Halogen.VDom.DOM.Monad.Mem
@@ -58,8 +57,10 @@ import Halogen.VDom.Types
 import System.IO.Unsafe (unsafePerformIO)
 import Unsafe.Coerce (unsafeCoerce)
 import Web.DOM.Internal.Types
+import Web.DOM.Internal.Types qualified as DOMTypes
 import Web.DOM.ParentNode
 import Web.Event.Event
+import Web.Event.Internal.Types qualified as EventTypes
 import Web.HTML.Common
 import Web.HTML.HTMLDocument.ReadyState as ReadyState
 
@@ -180,10 +181,13 @@ fromNative = unsafeCoerce
 
 -- | @EventListener@ is the one DOM newtype that does not hold a node, so it
 -- gets its own pair. Same reasoning: it is @Any@ underneath.
-toListener :: EventListener -> Listener
+toListener :: DOMTypes.EventListener -> Listener
 toListener = unsafeCoerce
 
-fromListener :: Listener -> EventListener
+toForeignTarget :: a -> EventTypes.EventTarget
+toForeignTarget = unsafeCoerce
+
+fromListener :: Listener -> DOMTypes.EventListener
 fromListener = unsafeCoerce
 
 --------------------------------------------------------------------------------
@@ -372,19 +376,19 @@ scalarText = \case
   ScalarText x -> x
 
 instance MonadDOM MemDOM where
-  type Ref MemDOM = IORef
-  newRef v = liftIO $ newIORef v
-  readRef r = liftIO $ readIORef r
-  writeRef r v = liftIO $ atomicWriteIORef r v
-  modifyRef' r f = liftIO $ atomicModifyIORef'_ r f
+  type DomNode MemDOM = DOMTypes.Node
+  type DomElement MemDOM = DOMTypes.Element
+  type DomDocument MemDOM = DOMTypes.Document
+  type DomEventListener MemDOM = DOMTypes.EventListener
+  type DomEventTarget MemDOM = EventTypes.EventTarget
+
+  elementToNode el = pure (coerce el)
+  elementToEventTarget el = pure (toForeignTarget el)
 
   -- The event type is not known until addEventListener; it is filled in there.
   mkEventListener f = liftIO $ do
     i <- nextIdent
     pure $ fromListener $ Listener {ident = i, eventType = "", fire = f}
-
-  window = liftIO $ pure (fromNative ambientDocument)
-  document _ = liftIO $ pure (fromNative ambientDocument)
 
   createTextNode txt _ = liftIO $ do
     node <- newNode TextNode
@@ -467,12 +471,18 @@ instance MonadDOM MemDOM where
     modifyIORef' (toNative target).listeners
       $ filter (\l -> not (l.ident == gone.ident && l.eventType == ty))
 
+-- Nothing to wait for: the tree is built synchronously.
+
+-- | The in-memory tree answers the browser-shaped queries too, so that the
+-- driver and Halogen.IO.Util compile and can be exercised natively. There is
+-- no window here; 'ambientDocument' stands in for one.
+instance MonadBrowserDOM MemDOM where
+  windowToEventTarget w = pure (coerce w)
+  documentToNode d = pure (coerce d)
+  window = liftIO $ pure (fromNative ambientDocument)
+  document _ = liftIO $ pure (fromNative ambientDocument)
   querySelector (QuerySelector selector) parent =
     liftIO
       $ fmap fromNative
       <$> queryNative selector (toNative parent)
-
-  -- Nothing to wait for: the tree is built synchronously.
   readyState _ = liftIO $ pure ReadyState.Complete
-
-  log t = liftIO $ TIO.hPutStrLn stderr t

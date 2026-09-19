@@ -26,7 +26,6 @@ import Halogen.VDom.Thunk (Thunk)
 import Halogen.VDom.Thunk qualified as Thunk
 import Web.DOM.Internal.Types
 import Web.DOM.Internal.Types qualified as DOM
-import Web.DOM.ParentNode (ParentNode, toParentNode)
 
 -- Specialisations live with each backend now that the class is no longer
 -- pinned to IO; the unfoldings have to be exported for them to fire.
@@ -56,7 +55,7 @@ type WidgetState m slots action =
 
 mkSpec
   :: forall dom m action slots
-   . (MonadIO m, DOM.MonadDOM dom)
+   . (MonadIO m, DOM.MonadDOM dom, DOM.DomElement dom ~ DOM.Element, DOM.DomNode dom ~ DOM.Node, DOM.DomDocument dom ~ DOM.Document)
   => (forall x. dom x -> m x)
   -> (forall x. m x -> dom x)
   -> (Input action -> m ())
@@ -131,7 +130,7 @@ mkSpec runDom toDom handler renderChildRef document =
 -- "Halogen.VDom.DOM.Prop" for why only the listener path needs the second.
 runUIWith
   :: forall dom m query input output
-   . (DOM.MonadDOM dom, MonadUnliftIO m, MonadFork m, MonadKill m, MonadParallel m, MonadMask m, MonadUUID m)
+   . (DOM.MonadBrowserDOM dom, DOM.DomElement dom ~ DOM.Element, DOM.DomNode dom ~ DOM.Node, DOM.DomDocument dom ~ DOM.Document, MonadUnliftIO m, MonadFork m, MonadKill m, MonadParallel m, MonadMask m, MonadUUID m)
   => (forall x. dom x -> m x)
   -> (forall x. m x -> dom x)
   -> Component query input output m
@@ -165,7 +164,7 @@ runUI component i element =
 
 renderSpec
   :: forall dom m
-   . (DOM.MonadDOM dom, MonadIO m)
+   . (DOM.MonadDOM dom, MonadIO m, DOM.DomElement dom ~ DOM.Element, DOM.DomNode dom ~ DOM.Node, DOM.DomDocument dom ~ DOM.Document)
   => (forall x. dom x -> m x)
   -> (forall x. m x -> dom x)
   -> DOM.Document
@@ -193,7 +192,7 @@ renderSpec runDom toDom document container =
           let spec = mkSpec runDom toDom handler renderChildRef document
           machine <- V.buildVDom spec vdom
           let node = V.extract machine
-          void $ runDom $ DOM.appendChild node $ toParentNode $ toNode container
+          void $ runDom $ DOM.appendChild node $ toNode container
           pure $ RenderState {machine, node, renderChildRef}
         Just (RenderState {machine, node, renderChildRef}) -> do
           atomicWriteIORef renderChildRef child
@@ -208,7 +207,7 @@ renderSpec runDom toDom document container =
 
 removeChild
   :: forall dom m state action slots output
-   . (DOM.MonadDOM dom)
+   . (DOM.MonadDOM dom, DOM.DomNode dom ~ DOM.Node)
   => (forall x. dom x -> m x)
   -> RenderState m state action slots output
   -> m ()
@@ -216,7 +215,7 @@ removeChild runDom (RenderState {node}) = runDom $ do
   npn <- DOM.parentNode node
   traverse_ (DOM.removeChild node) npn
 
-substInParent :: (DOM.MonadDOM m) => DOM.Node -> Maybe DOM.Node -> Maybe ParentNode -> m ()
+substInParent :: (DOM.MonadDOM dom, DOM.DomNode dom ~ DOM.Node) => DOM.Node -> Maybe DOM.Node -> Maybe DOM.Node -> dom ()
 substInParent newNode (Just sib) (Just pn) = void $ DOM.insertBefore newNode sib pn
 substInParent newNode Nothing (Just pn) = void $ DOM.appendChild newNode pn
 substInParent _ _ _ = pass

@@ -19,7 +19,7 @@ import Halogen.HTML.Layout.GridBagLayout
 import Halogen.HTML.Properties as HP
 import Halogen.Subscription qualified as HS
 import Halogen.VDom.DOM.Monad
-import Protolude hiding (log)
+import Protolude
 import UnliftIO (MonadUnliftIO)
 
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
@@ -29,14 +29,13 @@ import Halogen.VDom.Driver (runUI)
 
 attachComponent :: IO (HalogenSocket Query Int IO)
 logStr :: Text -> IO ()
+logStr = putStrLn
 
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 attachComponent =
-  HA.awaitBody >>= runUI component ()
-logStr = log
+  runBrowserDOM HA.awaitBody >>= runUI component ()
 #else
 attachComponent = panic "This module can only be run on JavaScript"
-logStr = putStrLn
 #endif
 
 main :: IO ()
@@ -67,7 +66,7 @@ type Slots = ("debounced" .== H.Slot VoidF () ())
 
 data Query a = IncrementQ a | DecrementQ a
 
-component :: forall m. (MonadDOM m, MonadUnliftIO m) => H.Component Query () Int m
+component :: forall m. (MonadUnliftIO m) => H.Component Query () Int m
 component =
   H.mkComponent $
     H.ComponentSpec
@@ -108,7 +107,7 @@ component =
 
     handleAction = \case
       Init ->
-        lift $ log "Initialized"
+        liftIO $ putStrLn @Text "Initialized"
       Increment n -> do
         modify (+ n)
         get >>= H.raise
@@ -120,7 +119,7 @@ component =
 
 newtype DebChanged = DebChanged Text
 
-debComp :: (MonadDOM m, MonadUnliftIO m) => Component VoidF () () m
+debComp :: (MonadUnliftIO m) => Component VoidF () () m
 debComp = unsafeMkDebouncedComponent 0.5 $ ComponentSpec {initialState, render, eval}
   where
     initialState _ = pure ""

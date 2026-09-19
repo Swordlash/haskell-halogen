@@ -44,8 +44,8 @@ js_fixture_child = Node . js_fixture_child_foreign
 js_fixture_sibling :: Foreign DOMFixture -> Node
 js_fixture_sibling = Node . js_fixture_sibling_foreign
 
-js_fixture_parent :: Foreign DOMFixture -> ParentNode
-js_fixture_parent = ParentNode . js_fixture_parent_foreign
+js_fixture_parent :: Foreign DOMFixture -> Node
+js_fixture_parent = Node . js_fixture_parent_foreign
 
 spec :: Spec
 spec = describe "GHCJS FFI" $ do

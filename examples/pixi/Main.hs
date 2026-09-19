@@ -11,6 +11,7 @@ import Protolude
 
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 import Halogen.IO.Util qualified as HA
+import Halogen.VDom.DOM.Monad (runBrowserDOM)
 import Halogen.VDom.Driver (runUI)
 #endif
 
@@ -72,7 +73,7 @@ parent =
 main :: IO ()
 
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
-main = void $ HA.awaitBody >>= runUI parent ()
+main = void $ runBrowserDOM HA.awaitBody >>= runUI parent ()
 #else
 main = putStrLn ("The Pixi example can only run in a JavaScript or wasm browser target." :: Text)
 #endif

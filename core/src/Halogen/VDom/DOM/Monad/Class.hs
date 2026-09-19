@@ -1,26 +1,30 @@
 -- | The DOM interface the VDom machinery is written against.
 --
--- This module holds only the class and the arch-independent helpers. The
--- @instance MonadDOM IO@ lives in one of "Halogen.VDom.DOM.Monad.JS",
--- "Halogen.VDom.DOM.Monad.WASM" or "Halogen.VDom.DOM.Monad.Native", exactly one
--- of which is compiled into the package (see the @if arch@ blocks in the cabal
--- file). Import "Halogen.VDom.DOM.Monad" to get the class together with
--- whichever backend this build selected.
+-- The node and element types are associated rather than fixed to
+-- "Web.DOM.Internal.Types", so a backend can say what its own tree is made
+-- of. That is only possible because each backend has its own monad — while
+-- the sole instance was at 'IO' there was nothing for the association to
+-- range over.
+--
+-- The browser-shaped operations live in 'MonadBrowserDOM'. The reconciler
+-- uses none of them, and they have no meaning for an in-memory tree or a
+-- canvas scene graph, so making them a separate class keeps a backend from
+-- having to stub them.
 module Halogen.VDom.DOM.Monad.Class
   ( PropValue (..)
   , MonadDOM (..)
+  , MonadBrowserDOM (..)
   , mouseHandler
-  , elementToNode
-  , toEventTarget
   )
 where
 
+import Control.Monad.Primitive (PrimMonad)
 import HPrelude
 import Halogen.VDom.Types
-import Unsafe.Coerce (unsafeCoerce)
-import Web.DOM.Internal.Types
-import Web.DOM.ParentNode
-import Web.Event.Event
+import Web.DOM.Internal.Types (Document, Element, HTMLDocument, Node, Window)
+import Web.DOM.ParentNode (QuerySelector)
+import Web.Event.Event (Event, EventType)
+import Web.Event.Internal.Types (EventTarget)
 import Web.HTML.Common
 import Web.HTML.HTMLDocument.ReadyState as ReadyState
 import Web.UIEvent.MouseEvent
@@ -32,56 +36,90 @@ data PropValue val where
   TxtProp :: Text -> PropValue Text
   ViaTxtProp :: (a -> Text) -> a -> PropValue a
 
-class (Monad m) => MonadDOM m where
-  -- | Mutable cells, abstracted so the class can be instantiated at monads
-  -- with no 'IO' underneath.
+-- | 'PrimMonad' is a superclass because "Halogen.VDom.DOM.Prop" needs one
+-- mutable cell per event handler: a listener is registered with the DOM once
+-- and its target is then swapped on every patch, so the cell is what keeps
+-- the listener's identity stable across a patch.
+--
+-- Spelling that as 'MonadIO' would rule out a backend with no 'IO'
+-- underneath; 'PrimMonad' asks for exactly what is needed and is satisfied by
+-- both 'IO' and @ST s@.
+class (PrimMonad m) => MonadDOM m where
+  -- | What this backend's tree is made of.
   --
-  -- "Halogen.VDom.DOM.Prop" needs one cell per event handler: a listener is
-  -- registered with the DOM once and its target is then swapped on every
-  -- patch, so the cell is what keeps the listener's identity stable. That is
-  -- a real requirement, not an implementation detail, which is why it belongs
-  -- in the class rather than in an @IO@-shaped constraint on the caller.
-  type Ref m :: Type -> Type
+  -- The browser backends set these to the "Web.DOM.Internal.Types" newtypes;
+  -- an in-memory backend can use ordinary Haskell data, and a canvas backend
+  -- its own display objects.
+  type DomNode m
 
-  newRef :: a -> m (Ref m a)
-  readRef :: Ref m a -> m a
-  writeRef :: Ref m a -> a -> m ()
-  modifyRef' :: Ref m a -> (a -> a) -> m ()
+  type DomElement m
+  type DomDocument m
+  type DomEventListener m
+  type DomEventTarget m
 
-  mkEventListener :: (Event -> m ()) -> m EventListener
+  mkEventListener :: (Event -> m ()) -> m (DomEventListener m)
 
-  createTextNode :: Text -> Document -> m Node
-  setTextContent :: Text -> Node -> m ()
-  createElement :: Maybe Namespace -> ElemName -> Document -> m Element
-  insertBefore :: Node -> Node -> ParentNode -> m ()
-  appendChild :: Node -> ParentNode -> m ()
-  replaceChild :: Node -> Node -> ParentNode -> m ()
-  insertChildIx :: Int -> Node -> ParentNode -> m ()
-  removeChild :: Node -> ParentNode -> m ()
-  parentNode :: Node -> m (Maybe ParentNode)
-  nextSibling :: Node -> m (Maybe Node)
-  setAttribute :: Maybe Namespace -> AttrName -> Text -> Element -> m ()
-  setProperty :: PropName a -> PropValue a -> Element -> m ()
-  propertyEquals :: PropName a -> PropValue a -> Element -> m Bool
-  removeProperty :: PropName a -> Element -> m ()
-  removeAttribute :: Maybe Namespace -> AttrName -> Element -> m ()
-  hasAttribute :: Maybe Namespace -> AttrName -> Element -> m Bool
+  -- | Every element is a node. A free 'coerce' for the browser backends, but
+  -- not something the class can assume of a backend in general.
+  --
+  -- In the monad rather than pure only so that @m@ is determined: 'Element'
+  -- and 'Node' are non-injective, so a pure @DomElement m -> DomNode m@ could never
+  -- be resolved at a call site.
+  elementToNode :: DomElement m -> m (DomNode m)
 
-  addEventListener :: EventType -> EventListener -> EventTarget -> m ()
-  removeEventListener :: EventType -> EventListener -> EventTarget -> m ()
+  -- | Likewise for event targets. Also monadic, and for the same reason.
+  elementToEventTarget :: DomElement m -> m (DomEventTarget m)
 
+  createTextNode :: Text -> DomDocument m -> m (DomNode m)
+  setTextContent :: Text -> DomNode m -> m ()
+  createElement :: Maybe Namespace -> ElemName -> DomDocument m -> m (DomElement m)
+
+  -- The parent of each of these is a node, not a distinct ParentNode: that
+  -- distinction is a browser coercion, and backends that lack it should not
+  -- have to invent one.
+  insertBefore :: DomNode m -> DomNode m -> DomNode m -> m ()
+  appendChild :: DomNode m -> DomNode m -> m ()
+  replaceChild :: DomNode m -> DomNode m -> DomNode m -> m ()
+  insertChildIx :: Int -> DomNode m -> DomNode m -> m ()
+  removeChild :: DomNode m -> DomNode m -> m ()
+  parentNode :: DomNode m -> m (Maybe (DomNode m))
+  nextSibling :: DomNode m -> m (Maybe (DomNode m))
+
+  setAttribute :: Maybe Namespace -> AttrName -> Text -> DomElement m -> m ()
+  setProperty :: PropName a -> PropValue a -> DomElement m -> m ()
+  propertyEquals :: PropName a -> PropValue a -> DomElement m -> m Bool
+  removeProperty :: PropName a -> DomElement m -> m ()
+  removeAttribute :: Maybe Namespace -> AttrName -> DomElement m -> m ()
+  hasAttribute :: Maybe Namespace -> AttrName -> DomElement m -> m Bool
+
+  addEventListener :: EventType -> DomEventListener m -> DomEventTarget m -> m ()
+  removeEventListener :: EventType -> DomEventListener m -> DomEventTarget m -> m ()
+
+-- | The parts of the DOM that only a browser has.
+--
+-- Split out of 'MonadDOM' because the reconciler uses none of them: it is
+-- 'Halogen.VDom.Driver' that needs a document to build against and a ready
+-- state to wait for. An in-memory or canvas backend can implement 'MonadDOM'
+-- and stop there.
+-- The equalities are superclasses rather than constraints repeated at each
+-- use site: a browser backend is by definition one whose tree is made of the
+-- "Web.DOM.Internal.Types" newtypes, and saying so once here keeps every
+-- caller of 'awaitBody' and friends from having to restate it.
+class
+  ( MonadDOM m
+  , DomNode m ~ Node
+  , DomElement m ~ Element
+  , DomDocument m ~ Document
+  , DomEventTarget m ~ EventTarget
+  ) =>
+  MonadBrowserDOM m
+  where
   window :: m Window
+  windowToEventTarget :: Window -> m (DomEventTarget m)
   document :: Window -> m HTMLDocument
-
-  querySelector :: QuerySelector -> ParentNode -> m (Maybe Element)
+  documentToNode :: HTMLDocument -> m (DomNode m)
+  querySelector :: QuerySelector -> DomNode m -> m (Maybe (DomElement m))
   readyState :: HTMLDocument -> m ReadyState
-  log :: Text -> m ()
 
 mouseHandler :: (MouseEvent -> a) -> Event -> a
 mouseHandler = coerce
-
-elementToNode :: Element -> Node
-elementToNode = coerce
-
-toEventTarget :: a -> EventTarget
-toEventTarget = unsafeCoerce

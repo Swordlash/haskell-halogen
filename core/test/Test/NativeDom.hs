@@ -245,7 +245,7 @@ spec = describe "native VDom" $ do
       (vspec, _) <- newSpec
       s <- build vspec $ el "div" [] [el "span" [] [Text "x"]]
       root <- N.newElement Nothing (ElemName "root")
-      runMemDOM $ appendChild (extract s) (toParentNode (N.fromNative root))
+      runMemDOM $ appendChild (extract s) (N.fromNative root)
       assertEqual "attached" 1 . length =<< N.childNodes root
       halt s
       assertEqual "detached" 0 . length =<< N.childNodes root

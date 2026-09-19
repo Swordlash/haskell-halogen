@@ -657,6 +657,7 @@ import Data.Type.Equality as Typelevel
   , trans
   , (:~:) (..)
   , type (==)
+  , type (~)
   )
 import Data.Void as Typelevel
   ( Void

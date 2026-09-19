@@ -9,7 +9,6 @@ import HPrelude hiding (state)
 import Halogen.VDom qualified as V
 import Halogen.VDom.DOM.Monad
 import Unsafe.Coerce
-import Web.DOM.Internal.Types
 
 newtype ThunkId = ThunkId GHC.Any
 
@@ -26,8 +25,8 @@ unsafeEqThunk (Thunk a1 b1 _ d1) (Thunk a2 b2 _ d2) =
     && unsafeRefEq' b1 b2
     && b1 d1 (unsafeCoerce d2)
 
-data ThunkState m f i a w = ThunkState
-  { vdom :: V.Step m (V.VDom a w) Node
+data ThunkState dom m f i a w = ThunkState
+  { vdom :: V.Step m (V.VDom a w) (DomNode dom)
   , thunk :: Thunk f i
   }
 
@@ -46,15 +45,15 @@ buildThunk
    . (MonadDOM dom, Monad m)
   => (f i -> V.VDom a w)
   -> V.VDomSpec dom m a w
-  -> V.Machine m (Thunk f i) Node
+  -> V.Machine m (Thunk f i) (DomNode dom)
 buildThunk toVDom = renderThunk
   where
-    renderThunk :: V.VDomSpec dom m a w -> V.Machine m (Thunk f i) Node
+    renderThunk :: V.VDomSpec dom m a w -> V.Machine m (Thunk f i) (DomNode dom)
     renderThunk spec t = do
       vdom <- V.buildVDom spec (toVDom (runThunk t))
       pure $ V.Step (V.extract vdom) (ThunkState {thunk = t, vdom}) patchThunk haltThunk
 
-    patchThunk :: ThunkState m f i a w -> Thunk f i -> m (V.Step m (Thunk f i) Node)
+    patchThunk :: ThunkState dom m f i a w -> Thunk f i -> m (V.Step m (Thunk f i) (DomNode dom))
     patchThunk state t2 = do
       let ThunkState {vdom = prev, thunk = t1} = state
       if unsafeEqThunk t1 t2
@@ -63,5 +62,5 @@ buildThunk toVDom = renderThunk
           vdom <- V.step prev (toVDom (runThunk t2))
           pure $ V.Step (V.extract vdom) (ThunkState {vdom, thunk = t2}) patchThunk haltThunk
 
-    haltThunk :: ThunkState m f i a w -> m ()
+    haltThunk :: ThunkState dom m f i a w -> m ()
     haltThunk state = V.halt state.vdom

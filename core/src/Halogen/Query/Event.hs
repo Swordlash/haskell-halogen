@@ -3,12 +3,12 @@ module Halogen.Query.Event where
 import HPrelude
 import Halogen.Subscription
 import Halogen.VDom.DOM.Monad
-import Web.Event.Event
+import Web.Event.Event (Event, EventType)
 
 eventListener
   :: (MonadDOM m)
   => EventType
-  -> EventTarget
+  -> DomEventTarget m
   -> (Event -> Maybe a)
   -> Emitter m a
 eventListener eventType target f =

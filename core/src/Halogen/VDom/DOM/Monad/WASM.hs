@@ -15,8 +15,10 @@ import Halogen.VDom.DOM.Monad.Browser
 import Halogen.VDom.DOM.Monad.Class
 import Halogen.VDom.Types
 import Web.DOM.Internal.Types
+import Web.DOM.Internal.Types qualified as DOMTypes
 import Web.DOM.ParentNode
 import Web.Event.Event
+import Web.Event.Internal.Types qualified as EventTypes
 import Web.HTML.Common
 import Web.HTML.HTMLDocument.ReadyState as ReadyState
 
@@ -75,8 +77,6 @@ foreign import javascript unsafe "$1" js_toJSBool :: Bool -> JSVal
 
 foreign import javascript unsafe "$1" js_toJSNum :: Double -> JSVal
 
-foreign import javascript unsafe "console.log($1)" js_log :: JSVal -> IO ()
-
 foreign import javascript "wrapper" js_mk_event_listener :: (JSVal -> IO ()) -> IO JSVal
 
 jsStringVal :: Text -> JSVal
@@ -84,25 +84,26 @@ jsStringVal value = case toJSString (toS value) of
   JSString result -> result
 
 instance MonadDOM BrowserDOM where
-  type Ref BrowserDOM = IORef
-  newRef v = liftIO $ newIORef v
-  readRef r = liftIO $ readIORef r
-  writeRef r v = liftIO $ atomicWriteIORef r v
-  modifyRef' r f = liftIO $ atomicModifyIORef'_ r f
+  type DomNode BrowserDOM = DOMTypes.Node
+  type DomElement BrowserDOM = DOMTypes.Element
+  type DomDocument BrowserDOM = DOMTypes.Document
+  type DomEventListener BrowserDOM = DOMTypes.EventListener
+  type DomEventTarget BrowserDOM = EventTypes.EventTarget
+
+  elementToNode el = pure (coerce el)
+  elementToEventTarget el = pure (coerce el)
 
   mkEventListener f = liftIO $ EventListener <$> js_mk_event_listener (runBrowserDOM . f . Event)
 
-  window = liftIO $ js_get_window
-  document w = liftIO $ js_get_document w
   createTextNode txt doc = liftIO $ js_create_text_node (jsStringVal txt) doc
   setTextContent txt node = liftIO $ js_set_text_content (jsStringVal txt) node
   createElement ns (ElemName name) doc = liftIO $ js_create_element (maybe js_null (jsStringVal . unNamespace) ns) (jsStringVal name) doc
-  insertBefore a b c = liftIO $ js_insert_before a b c
-  appendChild a b = liftIO $ js_append_child a b
-  replaceChild a b c = liftIO $ js_replace_child a b c
-  insertChildIx a b c = liftIO $ js_insert_child_ix a b c
-  removeChild a b = liftIO $ js_remove_child a b
-  parentNode node = liftIO $ fmap ParentNode . nullableToMaybe <$> js_parent_node node
+  insertBefore a b c = liftIO $ js_insert_before a b (coerce c)
+  appendChild a b = liftIO $ js_append_child a (coerce b)
+  replaceChild a b c = liftIO $ js_replace_child a b (coerce c)
+  insertChildIx a b c = liftIO $ js_insert_child_ix a b (coerce c)
+  removeChild a b = liftIO $ js_remove_child a (coerce b)
+  parentNode node = liftIO $ fmap Node . nullableToMaybe <$> js_parent_node node
   nextSibling node = liftIO $ fmap Node . nullableToMaybe <$> js_next_sibling node
   setAttribute ns (AttrName name) val el = liftIO $ js_set_attribute (maybe js_null (jsStringVal . unNamespace) ns) (jsStringVal name) (jsStringVal val) el
   setProperty (PropName name) val el = liftIO $ js_set_property (jsStringVal name) (propValueToJSVal val) el
@@ -114,9 +115,14 @@ instance MonadDOM BrowserDOM where
   removeEventListener (EventType eventType) listener@(EventListener callback) target = liftIO $ do
     js_remove_event_listener (jsStringVal eventType) listener target
     freeJSVal callback
-  querySelector (QuerySelector selector) parent = liftIO $ fmap Element . nullableToMaybe <$> js_query_selector (jsStringVal selector) parent
+
+instance MonadBrowserDOM BrowserDOM where
+  windowToEventTarget w = pure (coerce w)
+  documentToNode d = pure (coerce d)
+  window = liftIO $ js_get_window
+  document w = liftIO $ js_get_document w
+  querySelector (QuerySelector selector) parent = liftIO $ fmap Element . nullableToMaybe <$> js_query_selector (jsStringVal selector) (coerce parent)
   readyState doc = liftIO $ (fromMaybe ReadyState.Loading . ReadyState.parse . foreignToString) <$> js_ready_state doc
-  log t = liftIO $ js_log (jsStringVal t)
 
 propValueToJSVal :: PropValue a -> JSVal
 propValueToJSVal (IntProp x) = js_toJSInt $ fromIntegral x

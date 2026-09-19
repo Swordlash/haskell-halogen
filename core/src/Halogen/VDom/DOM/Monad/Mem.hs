@@ -13,10 +13,15 @@ module Halogen.VDom.DOM.Monad.Mem
   )
 where
 
+import Control.Monad.Primitive (PrimMonad (..))
 import HPrelude
 
 newtype MemDOM a = MemDOM (IO a)
   deriving newtype (Functor, Applicative, Monad, MonadIO, MonadUnliftIO)
+
+instance PrimMonad MemDOM where
+  type PrimState MemDOM = PrimState IO
+  primitive = MemDOM . primitive
 
 runMemDOM :: MemDOM a -> IO a
 runMemDOM (MemDOM io) = io

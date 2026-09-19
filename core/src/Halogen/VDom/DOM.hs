@@ -15,9 +15,6 @@ import Halogen.VDom.DOM.Monad
 import Halogen.VDom.Machine
 import Halogen.VDom.Types
 import Halogen.VDom.Utils
-import Web.DOM.Element
-import Web.DOM.Internal.Types
-import Web.DOM.ParentNode
 
 {-# INLINEABLE buildVDom #-}
 
@@ -29,9 +26,9 @@ import Web.DOM.ParentNode
 
 {-# INLINEABLE buildWidget #-}
 
-type VDomMachine m a w = Machine m (VDom a w) Node
+type VDomMachine dom m a w = Machine m (VDom a w) (DomNode dom)
 
-type VDomStep m a w = Step m (VDom a w) Node
+type VDomStep dom m a w = Step m (VDom a w) (DomNode dom)
 
 -- | How to render a 'VDom' tree.
 --
@@ -43,12 +40,12 @@ type VDomStep m a w = Step m (VDom a w) Node
 -- other one, and why it has to pay for an unlift to get it.
 data VDomSpec dom m a w = VDomSpec
   { runDom :: forall x. dom x -> m x
-  , buildWidget :: VDomSpec dom m a w -> Machine m w Node
-  , buildAttributes :: Element -> Machine m a ()
-  , document :: Document
+  , buildWidget :: VDomSpec dom m a w -> Machine m w (DomNode dom)
+  , buildAttributes :: DomElement dom -> Machine m a ()
+  , document :: DomDocument dom
   }
 
-buildVDom :: (MonadDOM dom, Monad m) => VDomSpec dom m a w -> VDomMachine m a w
+buildVDom :: (MonadDOM dom, Monad m) => VDomSpec dom m a w -> VDomMachine dom m a w
 buildVDom spec = build
   where
     build = \case
@@ -62,18 +59,18 @@ buildVDom spec = build
 
 data TextState dom m a w = TextState
   { runDom :: forall x. dom x -> m x
-  , build :: VDomMachine m a w
-  , node :: Node
+  , build :: VDomMachine dom m a w
+  , node :: DomNode dom
   , value :: Text
   }
 
-buildText :: (MonadDOM dom, Monad m) => VDomSpec dom m a w -> VDomMachine m a w -> Text -> m (VDomStep m a w)
-buildText VDomSpec {runDom, document} build value = do
-  node <- runDom $ createTextNode value document
+buildText :: (MonadDOM dom, Monad m) => VDomSpec dom m a w -> VDomMachine dom m a w -> Text -> m (VDomStep dom m a w)
+buildText VDomSpec {runDom, document = doc} build value = do
+  node <- runDom $ createTextNode value doc
   let state = TextState {runDom, build, node, value}
   pure $ Step node state patchText haltText
 
-patchText :: (MonadDOM dom, Monad m) => TextState dom m a w -> VDom a w -> m (VDomStep m a w)
+patchText :: (MonadDOM dom, Monad m) => TextState dom m a w -> VDom a w -> m (VDomStep dom m a w)
 patchText state@TextState {runDom, build, node, value = value1} vdom =
   case vdom of
     Text value2
@@ -95,22 +92,22 @@ haltText TextState {runDom, node} =
 
 data KeyedState dom m a w = KeyedState
   { runDom :: forall x. dom x -> m x
-  , build :: VDomMachine m a w
-  , node :: Node
+  , build :: VDomMachine dom m a w
+  , node :: DomNode dom
   , attrs :: Step m a ()
   , ns :: Maybe Namespace
   , name :: ElemName
-  , children :: Map Text (VDomStep m a w)
+  , children :: Map Text (VDomStep dom m a w)
   , length :: Int
   }
 
-buildKeyed :: (MonadDOM dom, Monad m) => VDomSpec dom m a w -> VDomMachine m a w -> Maybe Namespace -> ElemName -> a -> [(Text, VDom a w)] -> m (VDomStep m a w)
-buildKeyed spec@VDomSpec {runDom, document} build ns1 name1 as1 ch1 = do
-  el <- runDom $ createElement ns1 name1 document
-  let node = elementToNode el
-      onChild _ ix (_, vdom) = do
+buildKeyed :: (MonadDOM dom, Monad m) => VDomSpec dom m a w -> VDomMachine dom m a w -> Maybe Namespace -> ElemName -> a -> [(Text, VDom a w)] -> m (VDomStep dom m a w)
+buildKeyed spec@VDomSpec {runDom, document = doc} build ns1 name1 as1 ch1 = do
+  el <- runDom $ createElement ns1 name1 doc
+  node <- runDom $ elementToNode el
+  let onChild _ ix (_, vdom) = do
         res <- build vdom
-        runDom $ insertChildIx ix (extract res) $ toParentNode node
+        runDom $ insertChildIx ix (extract res) node
         pure res
   children <- strMapWithIxE ch1 fst onChild
   attrs <- spec.buildAttributes el as1
@@ -127,7 +124,7 @@ buildKeyed spec@VDomSpec {runDom, document} build ns1 name1 as1 ch1 = do
           }
   pure $ Step node state patchKeyed haltKeyed
 
-patchKeyed :: (MonadDOM dom, Monad m) => KeyedState dom m a w -> VDom a w -> m (VDomStep m a w)
+patchKeyed :: (MonadDOM dom, Monad m) => KeyedState dom m a w -> VDom a w -> m (VDomStep dom m a w)
 patchKeyed state@KeyedState {runDom, build, node, attrs, ns = ns1, name = name1, children = ch1, length = len1} vdom =
   case vdom of
     Grafted g ->
@@ -151,12 +148,12 @@ patchKeyed state@KeyedState {runDom, build, node, attrs, ns = ns1, name = name1,
         (_, len2) -> do
           let onThese _ ix' s (_, v) = do
                 res <- step s v
-                runDom $ insertChildIx ix' (extract res) $ toParentNode node
+                runDom $ insertChildIx ix' (extract res) node
                 pure res
               onThis _ = halt
               onThat _ ix (_, v) = do
                 res <- build v
-                runDom $ insertChildIx ix (extract res) $ toParentNode node
+                runDom $ insertChildIx ix (extract res) node
                 pure res
           children2 <- diffWithKeyAndIxE ch1 ch2 fst onThese onThis onThat
           attrs2 <- step attrs as2
@@ -187,29 +184,29 @@ haltKeyed (KeyedState {runDom, node, attrs, children}) = do
 
 data ElemState dom m a w = ElemState
   { runDom :: forall x. dom x -> m x
-  , build :: VDomMachine m a w
-  , node :: Node
+  , build :: VDomMachine dom m a w
+  , node :: DomNode dom
   , attrs :: Step m a ()
   , ns :: Maybe Namespace
   , name :: ElemName
-  , children :: [VDomStep m a w]
+  , children :: [VDomStep dom m a w]
   }
 
 buildElem
   :: (MonadDOM dom, Monad m)
   => VDomSpec dom m a w
-  -> VDomMachine m a w
+  -> VDomMachine dom m a w
   -> Maybe Namespace
   -> ElemName
   -> a
   -> [VDom a w]
-  -> m (VDomStep m a w)
-buildElem spec@VDomSpec {runDom, document} build ns1 name1 as1 ch1 = do
-  el <- runDom $ createElement ns1 name1 document
-  let node = elementToNode el
-      onChild ix child = do
+  -> m (VDomStep dom m a w)
+buildElem spec@VDomSpec {runDom, document = doc} build ns1 name1 as1 ch1 = do
+  el <- runDom $ createElement ns1 name1 doc
+  node <- runDom $ elementToNode el
+  let onChild ix child = do
         res <- build child
-        runDom $ insertChildIx ix (extract res) $ toParentNode node
+        runDom $ insertChildIx ix (extract res) node
         pure res
 
   children <- for (zip [0 ..] ch1) (uncurry onChild)
@@ -217,7 +214,7 @@ buildElem spec@VDomSpec {runDom, document} build ns1 name1 as1 ch1 = do
   let state = ElemState {runDom, build, node, attrs, ns = ns1, name = name1, children}
   pure $ Step node state patchElem haltElem
 
-patchElem :: (MonadDOM dom, Monad m) => ElemState dom m a w -> VDom a w -> m (VDomStep m a w)
+patchElem :: (MonadDOM dom, Monad m) => ElemState dom m a w -> VDom a w -> m (VDomStep dom m a w)
 patchElem state@ElemState {runDom, build, node, attrs, ns = ns1, name = name1, children = ch1} vdom =
   case vdom of
     Grafted g ->
@@ -231,12 +228,12 @@ patchElem state@ElemState {runDom, build, node, attrs, ns = ns1, name = name1, c
         _ -> do
           let onThese ix s v = do
                 res <- step s v
-                runDom $ insertChildIx ix (extract res) $ toParentNode node
+                runDom $ insertChildIx ix (extract res) node
                 pure $ Just res
               onThis _ s = halt s $> Nothing
               onThat ix v = do
                 res <- build v
-                runDom $ insertChildIx ix (extract res) $ toParentNode node
+                runDom $ insertChildIx ix (extract res) node
                 pure $ Just res
           children2 <- diffWithIxE ch1 ch2 onThese onThis onThat
           attrs2 <- step attrs as2
@@ -254,27 +251,31 @@ haltElem ElemState {runDom, node, attrs, children} = do
 
 ----------------------------------------------------------------------
 
-data WidgetState m a w = WidgetState
-  { build :: VDomMachine m a w
-  , widget :: Step m w Node
+-- The runDom field is not used here; it is what pins @dom@. Every other
+-- occurrence is under DomNode, which is a non-injective family, so without it
+-- GHC cannot tell two WidgetStates apart.
+data WidgetState dom m a w = WidgetState
+  { runDom :: forall x. dom x -> m x
+  , build :: VDomMachine dom m a w
+  , widget :: Step m w (DomNode dom)
   }
 
-buildWidget :: (Monad m) => VDomSpec dom m a w -> VDomMachine m a w -> w -> m (VDomStep m a w)
-buildWidget spec build w = do
+buildWidget :: (Monad m) => VDomSpec dom m a w -> VDomMachine dom m a w -> w -> m (VDomStep dom m a w)
+buildWidget spec@VDomSpec {runDom} build w = do
   res@(Step node _ _ _) <- spec.buildWidget spec w
-  pure $ Step node (WidgetState {build, widget = res}) patchWidget haltWidget
+  pure $ Step node (WidgetState {runDom, build, widget = res}) patchWidget haltWidget
 
-patchWidget :: (Monad m) => WidgetState m a w -> VDom a w -> m (VDomStep m a w)
-patchWidget state@WidgetState {build, widget} vdom =
+patchWidget :: (Monad m) => WidgetState dom m a w -> VDom a w -> m (VDomStep dom m a w)
+patchWidget state@WidgetState {runDom, build, widget} vdom =
   case vdom of
     Grafted g -> patchWidget state (runGraft g)
     Widget w -> do
       res@(Step n _ _ _) <- step widget w
 
-      pure $ Step n (WidgetState {build, widget = res}) patchWidget haltWidget
+      pure $ Step n (WidgetState {runDom, build, widget = res}) patchWidget haltWidget
     _ -> do
       haltWidget state
       build vdom
 
-haltWidget :: WidgetState m a w -> m ()
+haltWidget :: WidgetState dom m a w -> m ()
 haltWidget WidgetState {widget} = halt widget

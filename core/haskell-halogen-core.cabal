@@ -70,6 +70,7 @@ common commons
       row-types,
       hashable,
       containers,
+      primitive,
       kan-extensions,
       uuid-types,
       unliftio,

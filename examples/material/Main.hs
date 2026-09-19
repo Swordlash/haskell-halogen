@@ -22,13 +22,14 @@ import Protolude.Partial (fromJust, (!!))
 
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 import Halogen.IO.Util as HA
+import Halogen.VDom.DOM.Monad (runBrowserDOM)
 import Halogen.VDom.Driver (runUI)
 #endif
 
 attachComponent :: IO (HalogenSocket VoidF () IO)
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 attachComponent =
-  HA.awaitBody >>= runUI component ()
+  runBrowserDOM HA.awaitBody >>= runUI component ()
 #else
 attachComponent = panic "This module can only be run in a browser"
 #endif
