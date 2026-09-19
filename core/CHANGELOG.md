@@ -28,6 +28,13 @@
 - Add `Halogen.Canvas`: a renderer-agnostic component that owns a canvas DOM
   node and delegates mounting, updating and teardown to a `Renderer` record.
   `haskell-halogen-pixi` implements that interface for PixiJS v8.
+- Fix duplicate keys in `Halogen.VDom.Utils`. Two props with the same key, or
+  two keyed children under the same key, each applied their effect while only
+  one was recorded — and the build path recorded the first while the patch
+  path recorded the last, so the second patch compared against the wrong one
+  and settled on the losing value. Shadowed entries are now dropped before any
+  effect runs, so the last one wins throughout. This affects HTML as much as
+  the canvas.
 - Re-export `~` from `HPrelude` via `Data.Type.Equality`.
 - Move into the `haskell-halogen` monorepo alongside `haskell-halogen-material`
   and `haskell-halogen-pixi`. The library now lives in `core/`; the example app

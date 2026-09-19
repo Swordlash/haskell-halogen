@@ -44,7 +44,7 @@ diffWithKeyAndIxE
   -> (Text -> Int -> b -> m c)
   -> m (Map Text c)
 diffWithKeyAndIxE o1 as fk f1 f2 f3 = do
-  o2 <- foldM go M.empty (zip [0 ..] as)
+  o2 <- foldM go M.empty (effective fk as)
   traverse_ (uncurry f2) (M.toAscList (M.difference o1 o2))
   pure o2
   where
@@ -62,11 +62,30 @@ diffWithKeyAndIxE o1 as fk f1 f2 f3 = do
   -> IO (Map Text b)
   #-}
 strMapWithIxE :: (Monad m) => [a] -> (a -> Text) -> (Text -> Int -> a -> m b) -> m (Map Text b)
-strMapWithIxE = strMapWithIxE' . zip [0 ..]
+strMapWithIxE as f g = foldM go M.empty (effective f as)
   where
-    strMapWithIxE' :: (Monad m) => [(Int, a)] -> (a -> Text) -> (Text -> Int -> a -> m b) -> m (Map Text b)
-    strMapWithIxE' [] _ _ = pure mempty
-    strMapWithIxE' ((i, x) : xs) f g = do
-      val <- g (f x) i x
-      m <- strMapWithIxE' xs f g
-      pure $ M.insert (f x) val m
+    go acc (i, a) = do
+      let k = f a
+      val <- g k i a
+      pure $ M.insert k val acc
+
+-- | The entries that actually take effect: at most one per key, the last of
+-- any duplicates, renumbered over the survivors.
+--
+-- Both functions above apply an effect per entry but record one value per
+-- key, so a duplicate key would apply two effects and remember one - and not
+-- the one whose effect ran last, which is how a duplicate could survive a
+-- build and a patch looking right and then settle on the wrong value on the
+-- patch after that. Dropping the shadowed entries before anything runs is
+-- what makes "the last one wins" true of the effects and not just of the
+-- map.
+--
+-- The renumbering matters for children, where the index is the position to
+-- insert at: two children under one key are one child, and the ones after
+-- them have to close up.
+effective :: (a -> Text) -> [a] -> [(Int, a)]
+effective f as = zip [0 ..] [a | (i, a) <- indexed, M.lookup (f a) lastIndex == Just i]
+  where
+    indexed = zip [0 :: Int ..] as
+    -- fromList keeps the last binding for a repeated key.
+    lastIndex = M.fromList [(f a, i) | (i, a) <- indexed]

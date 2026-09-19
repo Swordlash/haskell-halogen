@@ -36,8 +36,10 @@ module Halogen.Canvas.Pixi.FFI
   , newText
   , setSystemText
   , setAssetText
+  , clearText
   , newSprite
   , setTexture
+  , clearTexture
   , centerAnchor
   , setPosition
   , setScale
@@ -146,6 +148,8 @@ foreign import javascript unsafe "halogen_pixi_set_system_text" setSystemTextRaw
 foreign import javascript unsafe "halogen_pixi_set_asset_text" setAssetTextRaw :: Application -> Object -> JSVal -> JSVal -> JSVal -> Double -> Int -> JSVal -> IO ()
 foreign import javascript unsafe "halogen_pixi_new_sprite" newSprite :: Application -> IO Object
 foreign import javascript unsafe "halogen_pixi_set_texture" setTextureRaw :: Application -> Object -> JSVal -> IO ()
+foreign import javascript unsafe "halogen_pixi_clear_text" clearText :: Object -> IO ()
+foreign import javascript unsafe "halogen_pixi_clear_texture" clearTexture :: Application -> Object -> IO ()
 foreign import javascript unsafe "halogen_pixi_center_anchor" centerAnchor :: Object -> IO ()
 foreign import javascript unsafe "halogen_pixi_set_position" setPosition :: Object -> Double -> Double -> IO ()
 foreign import javascript unsafe "halogen_pixi_set_scale" setScale :: Object -> Double -> Double -> IO ()
@@ -252,6 +256,8 @@ foreign import javascript unsafe "new $1.pixi.Text({text:'',style:{}})" newText 
 foreign import javascript unsafe "$1.__halogenFontRequest=null;$1.text=$2;$1.style={fontFamily:$3,fontSize:$4,fill:$5,align:$6}" setSystemTextRaw :: Object -> JSVal -> JSVal -> Double -> Int -> JSVal -> IO ()
 foreign import javascript unsafe "const request={};$2.__halogenFontRequest=request;$2.text=$3;$2.style={fontFamily:$4,fontSize:$6,fill:$7,align:$8};$1.pixi.Assets.load({src:$5,data:{family:$4}}).then(()=>{if($2.destroyed||$2.__halogenFontRequest!==request)return;$2.style={fontFamily:$4,fontSize:$6,fill:$7,align:$8};globalThis.__halogenPixi.outline($2)}).catch(error=>console.error('Could not load PixiJS font',$5,error))" setAssetTextRaw :: Application -> Object -> JSVal -> JSVal -> JSVal -> Double -> Int -> JSVal -> IO ()
 foreign import javascript unsafe "new $1.pixi.Sprite($1.pixi.Texture.EMPTY)" newSprite :: Application -> IO Object
+foreign import javascript unsafe "$1.__halogenFontRequest=null;$1.text=''" clearText :: Object -> IO ()
+foreign import javascript unsafe "$2.__halogenAsset=null;$2.__halogenSize=null;$2.texture=$1.pixi.Texture.EMPTY;globalThis.__halogenPixi.resize($2)" clearTexture :: Application -> Object -> IO ()
 foreign import javascript unsafe "$2.__halogenAsset=$3;$1.pixi.Assets.load($3).then(texture=>{if($2.destroyed||$2.__halogenAsset!==$3)return;$2.texture=texture;globalThis.__halogenPixi.resize($2);globalThis.__halogenPixi.outline($2)}).catch(error=>console.error('Could not load PixiJS texture',$3,error))" setTextureRaw :: Application -> Object -> JSVal -> IO ()
 foreign import javascript unsafe "$1.anchor.set(0.5)" centerAnchor :: Object -> IO ()
 foreign import javascript unsafe "$1.position.set($2,$3)" setPosition :: Object -> Double -> Double -> IO ()
@@ -382,6 +388,10 @@ setTexture :: Application -> Object -> Text -> IO ()
 setTexture _ _ _ = pure ()
 svgPath :: Application -> Object -> Text -> IO ()
 svgPath _ _ _ = pure ()
+clearText :: Object -> IO ()
+clearText _ = pure ()
+clearTexture :: Application -> Object -> IO ()
+clearTexture _ _ = pure ()
 centerAnchor :: Object -> IO ()
 centerAnchor _ = pure ()
 setPosition, setScale :: Object -> Double -> Double -> IO ()

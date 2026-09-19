@@ -94,19 +94,39 @@ path commands fill stroke = drawing (Path commands fill stroke)
 path_ :: [PathCommand] -> Maybe FillStyle -> Maybe StrokeStyle -> CanvasNode event i
 path_ commands fill stroke = path commands fill stroke []
 
+-- | A label, positioned at its top left.
+--
+-- The position is a default: it is here because a label has no geometry of
+-- its own to carry one, and an explicit 'Halogen.Canvas.Properties.transform'
+-- or 'Halogen.Canvas.Properties.at' in the props replaces it outright rather
+-- than combining with it.
 text :: Point -> Text -> TextStyle -> CanvasLeaf event i
 text position value style props =
-  element textName (Label value style : Place (at position) : props) []
+  element textName (Label value style : placing position props) []
 
 text_ :: Point -> Text -> TextStyle -> CanvasNode event i
 text_ position value style = text position value style []
 
+-- | A textured rectangle, centred on its position.
+--
+-- The position is a default, exactly as it is for 'text'.
 sprite :: Point -> Point -> Texture -> CanvasLeaf event i
 sprite position size texture props =
-  element spriteName (Src texture size : Place (at position) : props) []
+  element spriteName (Src texture size : placing position props) []
 
 sprite_ :: Point -> Point -> Texture -> CanvasNode event i
 sprite_ position size texture = sprite position size texture []
 
-at :: Point -> Transform
-at position = defaultTransform {position}
+-- | Supply a position, unless the caller already did.
+--
+-- Emitting both would leave two props under one key. The reconciler resolves
+-- that - the last one wins - but a prop the caller cannot see is a poor thing
+-- to make them reason about, so the duplicate is never built.
+placing :: Point -> [CanvasProp event i] -> [CanvasProp event i]
+placing position props
+  | any placed props = props
+  | otherwise = Place defaultTransform {position} : props
+  where
+    placed = \case
+      Place _ -> True
+      _ -> False

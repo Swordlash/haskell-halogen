@@ -80,6 +80,23 @@ spec = describe "canvas scenes" $ do
         Elem _ _ props _ -> assertEqual "both props" ["draw", "cursor"] (map propKey props)
         _ -> error "expected an element"
 
+  describe "positioning" $ do
+    it "positions a label and a sprite, which have no geometry to carry it" $ do
+      assertEqual "text" ["label", "place"] (keysOf (CE.text_ (Point 1 2) "hi" style))
+      assertEqual "sprite" ["src", "place"] (keysOf (CE.sprite_ (Point 1 2) (Point 3 4) (Texture "t.png")))
+
+    it "never emits two props under the place key" $ do
+      let explicit = CP.at (Point 9 9)
+      assertEqual "text" ["label", "place"] (keysOf (CE.text (Point 1 2) "hi" style [explicit]))
+      assertEqual
+        "sprite"
+        ["src", "place"]
+        (keysOf (CE.sprite (Point 1 2) (Point 3 4) (Texture "t.png") [explicit]))
+
+    it "lets the caller's transform replace the default rather than shadow it" $ do
+      let moved = CE.text (Point 1 2) "hi" style [CP.at (Point 9 9)] :: CanvasNode () Action
+      assertEqual "the caller's position" [Point 9 9] (placements moved)
+
   describe "keys" $ do
     it "turns an element constructor into its keyed form" $ do
       let child = ("a", CE.circle_ (Point 0 0) 1 Nothing (Just stroke))
@@ -104,6 +121,16 @@ spec = describe "canvas scenes" $ do
         "d"
         ("M0.0, 0.0 L10.0, 0.0 z" :: Text)
         (pathData [SA.m SA.Abs 0 0, SA.l SA.Abs 10 0, SA.z])
+
+keysOf :: CanvasNode () Action -> [Text]
+keysOf node = case unwrap node of
+  Elem _ _ props _ -> map propKey props
+  _ -> error "expected an element"
+
+placements :: CanvasNode () Action -> [Point]
+placements node = case unwrap node of
+  Elem _ _ props _ -> [p | Place Transform {position = p} <- props]
+  _ -> error "expected an element"
 
 fired :: [CanvasProp () Action] -> [Maybe Action]
 fired props = [f () | Handler _ f <- props]

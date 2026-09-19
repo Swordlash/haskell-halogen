@@ -227,6 +227,25 @@ spec = describe "native VDom" $ do
       assertEqual "node is reused" before =<< childIdents s1
       assertEqual "markup" "<ul><li>A prime</li></ul>" =<< snapshot s1
 
+  describe "duplicate props" $ do
+    it "settles on the last of two props with the same key, and stays there" $ do
+      (vspec, _) <- newSpec
+      let vdom = el "div" [attr "class" "a", attr "class" "b"] []
+      s0 <- build vspec vdom
+      assertEqual "build" "<div class=\"b\"></div>" =<< snapshot s0
+      s1 <- step s0 vdom
+      assertEqual "first patch" "<div class=\"b\"></div>" =<< snapshot s1
+      s2 <- step s1 vdom
+      assertEqual "second patch" "<div class=\"b\"></div>" =<< snapshot s2
+
+    it "treats two children under one key as one child" $ do
+      (vspec, _) <- newSpec
+      let vdom = keyed "ul" [("a", item "first"), ("a", item "second"), ("b", item "other")]
+      s0 <- build vspec vdom
+      assertEqual "build" "<ul><li>second</li><li>other</li></ul>" =<< snapshot s0
+      s1 <- step s0 vdom
+      assertEqual "patch" "<ul><li>second</li><li>other</li></ul>" =<< snapshot s1
+
   describe "event handlers" $ do
     it "registers a listener for each handler prop" $ do
       (vspec, _) <- newSpec

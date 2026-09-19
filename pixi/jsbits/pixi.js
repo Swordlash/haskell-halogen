@@ -53,6 +53,13 @@ function halogen_pixi_set_asset_text(holder, object, value, family, source, size
     })
     .catch(function (error) { console.error("Could not load PixiJS font", source, error); });
 }
+function halogen_pixi_clear_text(object) { object.__halogenFontRequest = null; object.text = ""; }
+function halogen_pixi_clear_texture(holder, object) {
+  object.__halogenAsset = null;
+  object.__halogenSize = null;
+  object.texture = holder.pixi.Texture.EMPTY;
+  halogen_pixi_resize(object);
+}
 function halogen_pixi_set_texture(holder, object, asset) {
   object.__halogenAsset = asset;
   holder.pixi.Assets.load(asset)

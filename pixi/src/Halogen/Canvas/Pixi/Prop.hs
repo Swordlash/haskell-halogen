@@ -131,22 +131,34 @@ buildCanvasProp runDom toDom emit application object = render
         _ -> runDom $ repaint new
       pure new
 
+    -- Every prop has to undo itself. A patch that drops one does not build a
+    -- new object - the display object is retained - so whatever the prop did
+    -- to it is still there, and the reconciler would otherwise be reporting a
+    -- scene the screen does not show.
     removeProp
       :: MutVar (PrimState PixiDOM) (Listeners i)
       -> Text
       -> CanvasProp FFI.Event i
       -> m ()
-    removeProp previous _ prop = runDom $ case prop of
-      Handler eventType _ -> do
-        let eventName = pointerEventName eventType
-        registered <- readMutVar previous
-        for_ (M.lookup eventName registered) $ \(callback, _) -> liftIO $ do
-          FFI.removeListener object eventName callback
-          FFI.freeCallback callback
-      Cursor _ -> liftIO $ FFI.setCursor object "default"
-      Hit _ -> liftIO $ FFI.clearHitArea object
-      Outline _ _ -> liftIO $ FFI.clearOutline object
-      _ -> pass
+    removeProp previous _ prop = runDom $ do
+      case prop of
+        Handler eventType _ -> do
+          let eventName = pointerEventName eventType
+          registered <- readMutVar previous
+          for_ (M.lookup eventName registered) $ \(callback, _) -> liftIO $ do
+            FFI.removeListener object eventName callback
+            FFI.freeCallback callback
+        Place _ -> liftIO $ applyTransform object defaultTransform
+        Draw _ -> liftIO $ FFI.clearGraphics object
+        Label _ _ -> liftIO $ FFI.clearText object
+        Src _ _ -> liftIO $ FFI.clearTexture application object
+        Cursor _ -> liftIO $ FFI.setCursor object "default"
+        Hit _ -> liftIO $ FFI.clearHitArea object
+        Outline _ _ -> liftIO $ FFI.clearOutline object
+        -- Recomputed from the whole map by syncEventMode.
+        Interactive _ -> pass
+      -- Anything undone here changed what there is to measure.
+      liftIO $ FFI.refreshOutline object
 
     -- Repaint only when the description changed. Handlers are never equal by
     -- this test and never reach it.
