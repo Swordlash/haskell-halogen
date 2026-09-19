@@ -40,6 +40,11 @@ runThunk :: forall f i. Thunk f i -> f i
 runThunk (Thunk _ _ render arg) = render arg
 
 {-# INLINEABLE buildThunk #-}
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+{-# SPECIALISE buildThunk :: (f i -> V.VDom a w) -> V.VDomSpec BrowserDOM IO a w -> V.Machine IO (Thunk f i) (DomNode BrowserDOM) #-}
+#else
+{-# SPECIALISE buildThunk :: (f i -> V.VDom a w) -> V.VDomSpec MemDOM IO a w -> V.Machine IO (Thunk f i) (DomNode MemDOM) #-}
+#endif
 buildThunk
   :: forall dom m f i a w
    . (MonadDOM dom, Monad m)

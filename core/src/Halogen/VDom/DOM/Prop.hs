@@ -52,9 +52,12 @@ propToStrKey = \case
   Handler (DOM.EventType ty) _ -> "handler/" <> ty
   Ref _ -> "ref"
 
--- Specialisations live with each backend now that the class is no longer
--- pinned to IO; the unfolding has to be exported for them to fire.
 {-# INLINEABLE buildProp #-}
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+{-# SPECIALISE buildProp :: (forall x. BrowserDOM x -> IO x) -> (forall x. IO x -> BrowserDOM x) -> (a -> IO ()) -> DOM.Element -> V.Machine IO [Prop a] () #-}
+#else
+{-# SPECIALISE buildProp :: (forall x. MemDOM x -> IO x) -> (forall x. IO x -> MemDOM x) -> (a -> IO ()) -> DOM.Element -> V.Machine IO [Prop a] () #-}
+#endif
 
 -- | Apply a property list to an element, and keep applying it across patches.
 --
