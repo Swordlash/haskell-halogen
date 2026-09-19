@@ -145,6 +145,10 @@ library
       Halogen.Component
       Halogen.Component.Debounced
       Halogen.Canvas
+      Halogen.Canvas.Core
+      Halogen.Canvas.Elements
+      Halogen.Canvas.Properties
+      Halogen.Canvas.Types
       Halogen.Subscription
 
       Halogen.Portal
