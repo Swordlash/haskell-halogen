@@ -40,18 +40,16 @@ mapThunk k (Thunk a b c d) = Thunk a b (k . c) d
 runThunk :: forall f i. Thunk f i -> f i
 runThunk (Thunk _ _ render arg) = render arg
 
-#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
-{-# SPECIALISE buildThunk :: (f i -> V.VDom a w) -> V.VDomSpec IO a w -> V.Machine IO (Thunk f i) Node #-}
-#endif
+{-# INLINEABLE buildThunk #-}
 buildThunk
-  :: forall m f i a w
-   . (MonadDOM m)
+  :: forall dom m f i a w
+   . (MonadDOM dom, Monad m)
   => (f i -> V.VDom a w)
-  -> V.VDomSpec m a w
+  -> V.VDomSpec dom m a w
   -> V.Machine m (Thunk f i) Node
 buildThunk toVDom = renderThunk
   where
-    renderThunk :: V.VDomSpec m a w -> V.Machine m (Thunk f i) Node
+    renderThunk :: V.VDomSpec dom m a w -> V.Machine m (Thunk f i) Node
     renderThunk spec t = do
       vdom <- V.buildVDom spec (toVDom (runThunk t))
       pure $ V.Step (V.extract vdom) (ThunkState {thunk = t, vdom}) patchThunk haltThunk

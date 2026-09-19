@@ -35,10 +35,10 @@ data ElemRef a
   | Removed a
   deriving (Functor)
 
-type EventMap m a = Map Text (DOM.EventListener, Ref m (Event -> Maybe a))
+type EventMap dom a = Map Text (DOM.EventListener, Ref dom (Event -> Maybe a))
 
-data PropState m a = PropState
-  { events :: Ref m (EventMap m a)
+data PropState dom a = PropState
+  { events :: Ref dom (EventMap dom a)
   , props :: Map Text (Prop a)
   }
 
@@ -50,20 +50,32 @@ propToStrKey = \case
   Handler (DOM.EventType ty) _ -> "handler/" <> ty
   Ref _ -> "ref"
 
-#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
-{-# SPECIALISE buildProp :: (a -> IO ()) -> DOM.Element -> V.Machine IO [Prop a] () #-}
-#endif
+-- Specialisations live with each backend now that the class is no longer
+-- pinned to IO; the unfolding has to be exported for them to fire.
+{-# INLINEABLE buildProp #-}
+
+-- | Apply a property list to an element, and keep applying it across patches.
+--
+-- Both directions between the component monad and the DOM monad are needed
+-- here, and only here. @runDom@ is the cheap one: setting an attribute is a
+-- DOM effect that the caller sequences. @toDom@ is the expensive one, and it
+-- exists because a registered event listener is called back /by the DOM/ —
+-- when it fires it has to run component code, so the component monad must be
+-- runnable from inside a DOM callback. That is what forces an unlift on the
+-- caller; the reconciler itself never needs it.
 buildProp
-  :: forall m a
-   . (MonadDOM m)
-  => (a -> m ())
+  :: forall dom m a
+   . (MonadDOM dom, Monad m)
+  => (forall x. dom x -> m x)
+  -> (forall x. m x -> dom x)
+  -> (a -> m ())
   -> DOM.Element
   -> V.Machine m [Prop a] ()
-buildProp emit el = renderProp
+buildProp runDom toDom emit el = renderProp
   where
     renderProp :: V.Machine m [Prop a] ()
     renderProp ps1 = do
-      events <- newRef mempty
+      events <- runDom $ newRef mempty
       ps1' <- Util.strMapWithIxE ps1 propToStrKey (applyProp events)
       let state =
             PropState
@@ -72,9 +84,9 @@ buildProp emit el = renderProp
               }
       pure $ V.Step () state patchProp haltProp
 
-    patchProp :: PropState m a -> [Prop a] -> m (V.Step m [Prop a] ())
+    patchProp :: PropState dom a -> [Prop a] -> m (V.Step m [Prop a] ())
     patchProp state ps2 = do
-      events <- newRef mempty
+      events <- runDom $ newRef mempty
       let PropState {events = prevEvents, props = ps1} = state
           onThese = diffProp prevEvents events
           onThis = removeProp prevEvents
@@ -95,27 +107,27 @@ buildProp emit el = renderProp
 
     mbEmit = traverse_ emit
 
-    applyProp :: Ref m (EventMap m a) -> Text -> Int -> Prop a -> m (Prop a)
+    applyProp :: Ref dom (EventMap dom a) -> Text -> Int -> Prop a -> m (Prop a)
     applyProp events _ _ v =
       case v of
         Attribute ns attr val -> do
-          setAttribute ns attr val el
+          runDom $ setAttribute ns attr val el
           pure v
         Property prop val -> do
-          setProperty prop val el
+          runDom $ setProperty prop val el
           pure v
         Handler evty@(DOM.EventType ty) f -> do
           M.lookup ty
-            <$> readRef events
+            <$> runDom (readRef events)
             >>= \case
               Just handler -> do
-                writeRef (snd handler) f
+                runDom $ writeRef (snd handler) f
                 pure v
-              _ -> do
+              _ -> runDom $ do
                 ref <- newRef f
                 listener <- mkEventListener $ \ev -> do
                   f' <- readRef ref
-                  mbEmit (f' ev)
+                  toDom $ mbEmit (f' ev)
                 modifyRef' events (M.insert ty (listener, ref))
                 addEventListener evty listener $ toEventTarget el
                 pure v
@@ -124,8 +136,8 @@ buildProp emit el = renderProp
           pure v
 
     diffProp
-      :: Ref m (EventMap m a)
-      -> Ref m (EventMap m a)
+      :: Ref dom (EventMap dom a)
+      -> Ref dom (EventMap dom a)
       -> Text
       -> Int
       -> Prop a
@@ -137,26 +149,26 @@ buildProp emit el = renderProp
           if val1 == val2
             then pure v2
             else do
-              setAttribute ns2 attr2 val2 el
+              runDom $ setAttribute ns2 attr2 val2 el
               pure v2
         (Property _ val1, Property prop2 val2) ->
           case (val1 `unsafeRefEq'` val2, prop2) of
             (True, _) ->
               pure v2
             (_, "value") -> do
-              isEqual <- propertyEquals "value" val2 el
+              isEqual <- runDom $ propertyEquals "value" val2 el
               if isEqual
                 then pure v2
                 else do
-                  setProperty prop2 val2 el
+                  runDom $ setProperty prop2 val2 el
                   pure v2
             (_, _) -> do
-              setProperty prop2 val2 el
+              runDom $ setProperty prop2 val2 el
               pure v2
         (Handler _ _, Handler (DOM.EventType ty) f) -> do
-          handler <- (M.! ty) <$> readRef prevEvents
-          writeRef (snd handler) f
-          modifyRef' events (M.insert ty handler)
+          handler <- runDom $ (M.! ty) <$> readRef prevEvents
+          runDom $ writeRef (snd handler) f
+          runDom $ modifyRef' events (M.insert ty handler)
           pure v2
         (_, _) ->
           pure v2
@@ -164,10 +176,10 @@ buildProp emit el = renderProp
     removeProp prevEvents _ v =
       case v of
         Attribute ns attr _ ->
-          removeAttribute ns attr el
+          runDom $ removeAttribute ns attr el
         Property prop _ ->
-          removeProperty prop el
+          runDom $ removeProperty prop el
         Handler evty@(DOM.EventType ty) _ -> do
-          handler <- (M.! ty) <$> readRef prevEvents
-          removeEventListener evty (fst handler) $ toEventTarget el
+          handler <- runDom $ (M.! ty) <$> readRef prevEvents
+          runDom $ removeEventListener evty (fst handler) $ toEventTarget el
         Ref _ -> pass

@@ -47,19 +47,20 @@ type TestStep = Step IO TestVDom Node
 
 -- | A spec over a fresh document, plus the sink that collects whatever the
 -- handlers emit.
-newSpec :: IO (VDomSpec IO [Prop Text] Void, IORef [Text])
+newSpec :: IO (VDomSpec IO IO [Prop Text] Void, IORef [Text])
 newSpec = do
   doc <- N.newDocument
   emitted <- newIORef []
   let vspec =
         VDomSpec
-          { buildWidget = \_ -> absurd
-          , buildAttributes = buildProp (\msg -> modifyIORef' emitted (<> [msg]))
+          { runDom = id
+          , buildWidget = \_ -> absurd
+          , buildAttributes = buildProp @IO id id (\msg -> modifyIORef' emitted (<> [msg]))
           , document = N.fromNative doc :: Document
           }
   pure (vspec, emitted)
 
-build :: VDomSpec IO [Prop Text] Void -> TestVDom -> IO TestStep
+build :: VDomSpec IO IO [Prop Text] Void -> TestVDom -> IO TestStep
 build vspec = buildVDom vspec
 
 -- | The rendered node of a step, as HTML.

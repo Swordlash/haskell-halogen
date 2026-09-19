@@ -1,5 +1,6 @@
 module Halogen.VDom.Driver
   ( runUI
+  , runUIWith
   , module Halogen.IO.Driver
   )
 where
@@ -27,13 +28,13 @@ import Web.DOM.Internal.Types
 import Web.DOM.Internal.Types qualified as DOM
 import Web.DOM.ParentNode (ParentNode, toParentNode)
 
-#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
-{-# SPECIALISE substInParent :: DOM.Node -> Maybe DOM.Node -> Maybe ParentNode -> IO () #-}
-{-# SPECIALISE removeChild :: forall state action slots output. RenderState IO state action slots output -> IO () #-}
-{-# SPECIALISE renderSpec :: DOM.Document -> DOM.HTMLElement -> AD.RenderSpec IO (RenderState IO) #-}
-{-# SPECIALISE runUI :: forall query input output. Component query input output IO -> input -> DOM.HTMLElement -> IO (HalogenSocket query output IO) #-}
-{-# SPECIALISE mkSpec :: forall action slots. (Input action -> IO ()) -> IORef (ChildRenderer IO action slots) -> DOM.Document -> V.VDomSpec IO [Prop (Input action)] (ComponentSlot slots IO action) #-}
-#endif
+-- Specialisations live with each backend now that the class is no longer
+-- pinned to IO; the unfoldings have to be exported for them to fire.
+{-# INLINEABLE runUI #-}
+
+{-# INLINEABLE renderSpec #-}
+
+{-# INLINEABLE mkSpec #-}
 
 type VHTML m action slots =
   V.VDom [Prop (Input action)] (ComponentSlot slots m action)
@@ -54,22 +55,25 @@ type WidgetState m slots action =
   Maybe (V.Step m (HTMLThunk m slots action) DOM.Node)
 
 mkSpec
-  :: forall m action slots
-   . (MonadIO m, DOM.MonadDOM m)
-  => (Input action -> m ())
+  :: forall dom m action slots
+   . (MonadIO m, DOM.MonadDOM dom)
+  => (forall x. dom x -> m x)
+  -> (forall x. m x -> dom x)
+  -> (Input action -> m ())
   -> IORef (ChildRenderer m action slots)
   -> DOM.Document
-  -> V.VDomSpec m [Prop (Input action)] (ComponentSlot slots m action)
-mkSpec handler renderChildRef document =
-  V.VDomSpec {buildWidget, buildAttributes, document}
+  -> V.VDomSpec dom m [Prop (Input action)] (ComponentSlot slots m action)
+mkSpec runDom toDom handler renderChildRef document =
+  V.VDomSpec {runDom, buildWidget, buildAttributes, document}
   where
     buildAttributes
       :: DOM.Element
       -> V.Machine m [Prop (Input action)] ()
-    buildAttributes = VP.buildProp handler
+    buildAttributes = VP.buildProp runDom toDom handler
 
     buildWidget
       :: V.VDomSpec
+           dom
            m
            [Prop (Input action)]
            (ComponentSlot slots m action)
@@ -120,6 +124,24 @@ mkSpec handler renderChildRef document =
     getNode :: RenderStateX (RenderState m) -> DOM.Node
     getNode (RenderStateX (RenderState {node})) = node
 
+-- | Run a component against a DOM spoken in a monad of its own.
+--
+-- @runDom@ sequences a DOM effect from the component monad; @toDom@ runs
+-- component code from inside a DOM event callback. See
+-- "Halogen.VDom.DOM.Prop" for why only the listener path needs the second.
+runUIWith
+  :: forall dom m query input output
+   . (DOM.MonadDOM dom, MonadUnliftIO m, MonadFork m, MonadKill m, MonadParallel m, MonadMask m, MonadUUID m)
+  => (forall x. dom x -> m x)
+  -> (forall x. m x -> dom x)
+  -> Component query input output m
+  -> input
+  -> DOM.HTMLElement
+  -> m (HalogenSocket query output m)
+runUIWith runDom toDom component i element = do
+  document <- toDocument <$> runDom (DOM.document =<< DOM.window)
+  AD.runUI (renderSpec runDom toDom document element) component i
+
 runUI
   :: forall m query input output
    . (DOM.MonadDOM m, MonadUnliftIO m, MonadFork m, MonadKill m, MonadParallel m, MonadMask m, MonadUUID m)
@@ -127,22 +149,22 @@ runUI
   -> input
   -> DOM.HTMLElement
   -> m (HalogenSocket query output m)
-runUI component i element = do
-  document <- toDocument <$> (DOM.document =<< DOM.window)
-  AD.runUI (renderSpec document element) component i
+runUI = runUIWith identity identity
 
 renderSpec
-  :: forall m
-   . (DOM.MonadDOM m, MonadIO m)
-  => DOM.Document
+  :: forall dom m
+   . (DOM.MonadDOM dom, MonadIO m)
+  => (forall x. dom x -> m x)
+  -> (forall x. m x -> dom x)
+  -> DOM.Document
   -> DOM.HTMLElement
   -> AD.RenderSpec m (RenderState m)
-renderSpec document container =
+renderSpec runDom toDom document container =
   AD.RenderSpec
     { render
     , renderChild = identity
-    , removeChild
-    , dispose = removeChild
+    , removeChild = removeChild runDom
+    , dispose = removeChild runDom
     }
   where
     render
@@ -156,23 +178,29 @@ renderSpec document container =
       \case
         Nothing -> do
           renderChildRef <- newIORef child
-          let spec = mkSpec handler renderChildRef document
+          let spec = mkSpec runDom toDom handler renderChildRef document
           machine <- V.buildVDom spec vdom
           let node = V.extract machine
-          void $ DOM.appendChild node $ toParentNode $ toNode container
+          void $ runDom $ DOM.appendChild node $ toParentNode $ toNode container
           pure $ RenderState {machine, node, renderChildRef}
         Just (RenderState {machine, node, renderChildRef}) -> do
           atomicWriteIORef renderChildRef child
-          parent <- DOM.parentNode node
-          nextSib <- DOM.nextSibling node
+          parent <- runDom $ DOM.parentNode node
+          nextSib <- runDom $ DOM.nextSibling node
           machine' <- V.step machine vdom
           let newNode = V.extract machine'
           unless (node `unsafeRefEq` newNode)
+            $ runDom
             $ substInParent newNode nextSib parent
           pure $ RenderState {machine = machine', node = newNode, renderChildRef}
 
-removeChild :: forall m state action slots output. (DOM.MonadDOM m) => RenderState m state action slots output -> m ()
-removeChild (RenderState {node}) = do
+removeChild
+  :: forall dom m state action slots output
+   . (DOM.MonadDOM dom)
+  => (forall x. dom x -> m x)
+  -> RenderState m state action slots output
+  -> m ()
+removeChild runDom (RenderState {node}) = runDom $ do
   npn <- DOM.parentNode node
   traverse_ (DOM.removeChild node) npn
 
