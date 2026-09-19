@@ -2,9 +2,33 @@
 
 ## 0.10.0 - 2026-09-14
 
+- **Breaking.** `MonadDOM` no longer has an instance at `IO`. Each backend is
+  its own newtype over `IO` — `BrowserDOM` for the browser, `MemDOM` for the
+  in-memory document, `PixiDOM` in `haskell-halogen-pixi` — so more than one
+  can exist in a single build, and a backend can say what its tree is made of.
+  Applications that ran the driver directly should wrap the call:
+  `runBrowserDOM HA.awaitBody >>= runUI component ()`.
+- **Breaking.** The node types are associated type families on `MonadDOM`
+  (`DomNode`, `DomElement`, `DomDocument`, `DomEventListener`,
+  `DomEventTarget`), which is what lets a non-browser tree be a `MonadDOM` at
+  all. The browser-specific operations — document splicing and the window
+  globals — moved to `MonadBrowserDOM`, which carries the equalities back to
+  the concrete `Node`, `Element` and friends as superclasses. Named attributes
+  and properties are `MonadAttributes`, which only an HTML backend implements.
+- **Breaking.** `MonadDOM` has `PrimMonad` as a superclass instead of its own
+  mutable-cell operations; a `MutVar (PrimState m)` replaces the previous
+  associated `Ref`. `log` was dropped.
+- **Breaking.** `VDomSpec` gained a `dom` parameter and a `runDom` bridge, so
+  the monad a component evaluates in and the monad the DOM is spoken in are no
+  longer the same monad.
+- Add `Halogen.Canvas.Types`, `.Core`, `.Elements` and `.Properties`: a
+  declarative scene language in the shape of `Halogen.HTML`, backend-neutral,
+  and reconciled by `Halogen.VDom.DOM.buildVDom` like any other `VDom`. Shapes
+  include an SVG `Path`, sharing the path commands in `Halogen.Svg.Attributes`.
 - Add `Halogen.Canvas`: a renderer-agnostic component that owns a canvas DOM
   node and delegates mounting, updating and teardown to a `Renderer` record.
   `haskell-halogen-pixi` implements that interface for PixiJS v8.
+- Re-export `~` from `HPrelude` via `Data.Type.Equality`.
 - Move into the `haskell-halogen` monorepo alongside `haskell-halogen-material`
   and `haskell-halogen-pixi`. The library now lives in `core/`; the example app
   moved to `examples/vanilla`.
