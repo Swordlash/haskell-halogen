@@ -2,20 +2,24 @@
 
 -- | The 'MonadDOM' class together with the backend this build selected.
 --
--- All the interesting code lives elsewhere: the class in
--- "Halogen.VDom.DOM.Monad.Class", the @instance MonadDOM IO@ in one of the
--- three backend modules. This module only picks the backend, which is also why
--- it still needs CPP — an instance is only visible through the import graph, so
--- something has to import the chosen one.
+-- The class no longer has an instance at 'IO'; each backend is its own
+-- newtype, so more than one can exist in a single build. Both newtypes are
+-- always in scope — they are only wrappers — but an instance is visible only
+-- through the import graph, so this module still imports one, and that is
+-- what 'Halogen.VDom.Driver.runUI' renders through by default.
 --
 -- The cabal file makes the same choice for @exposed-modules@; keep the two in
 -- step when adding a backend.
 module Halogen.VDom.DOM.Monad
   ( module Halogen.VDom.DOM.Monad.Class
+  , module Halogen.VDom.DOM.Monad.Browser
+  , module Halogen.VDom.DOM.Monad.Mem
   )
 where
 
+import Halogen.VDom.DOM.Monad.Browser
 import Halogen.VDom.DOM.Monad.Class
+import Halogen.VDom.DOM.Monad.Mem
 
 #if defined(javascript_HOST_ARCH)
 import Halogen.VDom.DOM.Monad.JS ()

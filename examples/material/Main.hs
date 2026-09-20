@@ -20,15 +20,16 @@ import Halogen.Material.TextField qualified as HMTF
 import Protolude hiding (All)
 import Protolude.Partial (fromJust, (!!))
 
+import Halogen.VDom.DOM.Monad (BrowserDOM, runBrowserDOM)
+
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 import Halogen.IO.Util as HA
 import Halogen.VDom.Driver (runUI)
 #endif
 
-attachComponent :: IO (HalogenSocket VoidF () IO)
+attachComponent :: BrowserDOM (HalogenSocket VoidF () BrowserDOM)
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
-attachComponent =
-  HA.awaitBody >>= runUI component ()
+attachComponent = HA.awaitBody >>= runUI component ()
 #else
 attachComponent = panic "This module can only be run in a browser"
 #endif
@@ -38,7 +39,7 @@ main = do
 #if defined(INTERACTIVE)
   clearHotReloadTarget
 #endif
-  void attachComponent
+  runBrowserDOM $ void attachComponent
 
 #if defined(WASM)
 foreign export javascript "hs_start" start :: IO ()

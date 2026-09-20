@@ -7,8 +7,16 @@
 set -eu
 
 cd "$(dirname "$0")/.."
+. toolchain/ghcjs-env.sh
+
+build_dir=dist-newstyle/javascript
+
+# Cabal may reuse the host ghc-pkg from this cache when switching toolchains.
+rm -f "$build_dir/cache/compiler"
 
 exec cabal test all \
   --project-file=cabal-ghcjs.project \
-  --builddir=dist-newstyle/javascript \
+  --builddir="$build_dir" \
+  --with-compiler="$ghcjs_ghc" \
+  --with-hc-pkg="$ghcjs_ghc_pkg" \
   "$@"

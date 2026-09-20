@@ -22,6 +22,29 @@ The examples are deployed [here](https://swordlash.github.io/haskell-halogen/).
 `core`. Every package builds from the one `cabal.project` at the repository root, so a change to
 `core` is type-checked against every dependent and every example in the same build.
 
+## The monad a component runs in
+
+A component evaluates in the same monad the DOM is spoken in. Each backend is a newtype over `IO` —
+`BrowserDOM`, `MemDOM`, and `PixiDOM` in `haskell-halogen-pixi` — so more than one can exist in a
+single build and each can say, through associated type families, what its tree is made of.
+
+An application with effects of its own stacks them on a backend and derives the classes through:
+
+```haskell
+newtype AppM a = AppM (ReaderT Config BrowserDOM a)
+  deriving newtype (Functor, Applicative, Monad, MonadIO, PrimMonad, MonadDOM, MonadAttributes, MonadBrowserDOM)
+```
+
+The class methods have lifted defaults, so a transformer instance is only as long as its associated
+types plus `mkEventListener`. `ReaderT` and `IdentityT` come with the library; `StateT` and friends
+are deliberately absent, because the DOM calls a listener back and `mkEventListener` has to *run*
+the transformer rather than lift it — a state update made inside a callback has nowhere to go.
+
+The interface is split by what a backend actually has. `MonadDOM` is the mutable tree and its
+listeners, and is all the reconciler uses. `MonadAttributes` adds named attributes and properties,
+which only an HTML backend has. `MonadBrowserDOM` adds document splicing and the window globals,
+and carries the equalities back to the concrete `Node` and `Element` as superclasses.
+
 ## Building
 
 The library itself compiles under any GHC from 9.6 to 9.14; CI builds against 9.14.1, the version
@@ -90,18 +113,30 @@ passing the output directory in `WASM_PUBLIC_DIR`.
 `Halogen.Canvas` (in `core`) is a component that owns a canvas DOM node and delegates to a
 `Renderer` record, which a backend implements by supplying `mount`, `update` and `destroy`.
 
-`haskell-halogen-pixi` supplies a PixiJS v8 backend behind that interface, with a declarative
-`Drawing` monad: groups, atomic graphics primitives (lines, rectangles, circles, ellipses, arcs and
-Bézier curves), asset-backed textures, and interactive sprites. Higher-level drawings such as grids
-are ordinary Haskell composition rather than renderer primitives. Drawing events are raised as typed
-component outputs; camera changes are reported separately.
+A scene is described in `Halogen.Canvas.Elements` and `Halogen.Canvas.Properties` (both in `core`),
+which read like `Halogen.HTML.Elements` and `Halogen.HTML.Properties`: `group`, `line`, `rectangle`,
+`circle`, `ellipse`, `arc`, the Bézier curves, `path`, `text` and `sprite`, each taking a list of
+props, with a `_` variant for the styling-free case. `path` takes the same commands as an `<svg>`
+`d` attribute, from `Halogen.Svg.Attributes`, so one drawing serves both. Props carry the transform, the cursor, the hit area and
+pointer handlers — `onClick`, `onPointerDown`, `onPointerUp`, `onPointerOver`, `onPointerOut` and
+`onPointerMove`. `outline` frames an element with a border the backend measures, which is the only
+way to get one that is right: nothing writing a scene can know a label's extent, or a sprite's
+before its texture has loaded. It is measured against the same bounds the backend hit-tests, so it
+also shows exactly what is clickable. Higher-level drawings such as grids are ordinary Haskell composition rather than
+renderer primitives. Handler actions are raised as typed component outputs; camera changes are
+reported separately.
 
-Wrap stable scene items in `keyed key drawing`. Subsequent `View` inputs reconcile those keys, retain
-their Pixi display objects and click handlers, and only apply changed visual properties; removed keys
-are destroyed. Unkeyed siblings receive automatic position keys at each scene-tree level, which keeps
-duplicates distinct. Explicit keys are only needed when identity must survive insertion, removal or
-reordering. Camera transforms operate directly on the retained scene. Pan changes are reported when
-the gesture ends, while wheel changes are coalesced until the wheel burst has been idle for 120 ms.
+The vocabulary the scene is written in (`Halogen.Canvas.Types`) is backend-neutral, and a scene is an
+ordinary `VDom`, so it reconciles through `Halogen.VDom.DOM.buildVDom` — the same machinery that
+reconciles HTML. `haskell-halogen-pixi` supplies a PixiJS v8 interpretation of it: a `MonadDOM`
+instance whose nodes are Pixi display objects, plus a prop applicator that paints them.
+
+Give stable scene items keys with `keyedGroup` or `withKeys`. Subsequent `View` inputs reconcile
+those keys, retain their display objects and listeners, and only repaint what changed; removed keys
+are destroyed. Unkeyed siblings are matched by position, so explicit keys are only needed when
+identity must survive insertion, removal or reordering. Camera transforms operate directly on the
+retained scene. Pan changes are reported when the gesture ends, while wheel changes are coalesced
+until the wheel burst has been idle for 120 ms.
 
 Each mounted canvas owns its own Pixi `Application`, renderer, stage, event system and GPU canvas
 context. Browsers cache evaluation of the dynamically imported Pixi module by URL, so multiple

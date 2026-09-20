@@ -2,9 +2,53 @@
 
 ## 0.10.0 - 2026-09-14
 
+- **Breaking.** `MonadDOM` no longer has an instance at `IO`. Each backend is
+  its own newtype over `IO` — `BrowserDOM` for the browser, `MemDOM` for the
+  in-memory document, `PixiDOM` in `haskell-halogen-pixi` — so more than one
+  can exist in a single build, and a backend can say what its tree is made of.
+  Applications that ran the driver directly should wrap the call:
+  `runBrowserDOM HA.awaitBody >>= runUI component ()`.
+- **Breaking.** The node types are associated type families on `MonadDOM`
+  (`DomNode`, `DomElement`, `DomDocument`, `DomEventListener`,
+  `DomEventTarget`), which is what lets a non-browser tree be a `MonadDOM` at
+  all. The browser-specific operations — document splicing and the window
+  globals — moved to `MonadBrowserDOM`, which carries the equalities back to
+  the concrete `Node`, `Element` and friends as superclasses. Named attributes
+  and properties are `MonadAttributes`, which only an HTML backend implements.
+- **Breaking.** `MonadDOM` has `PrimMonad` as a superclass instead of its own
+  mutable-cell operations; a `MutVar (PrimState m)` replaces the previous
+  associated `Ref`. `log` was dropped.
+- **Breaking.** The component monad is the DOM monad. `MonadDOM`,
+  `MonadAttributes` and `MonadBrowserDOM` lift through transformers — the
+  methods have defaults, and instances for `ReaderT` and `IdentityT` come with
+  them — so an application monad is a stack over a backend and derives them:
+  @newtype AppM a = AppM (ReaderT Config BrowserDOM a) deriving newtype
+  (..., MonadBrowserDOM)@. `StateT` and friends are deliberately absent: a
+  listener is called back by the DOM, so `mkEventListener` has to run the
+  transformer, and a state update made inside a callback has nowhere to go.
+  `runUI` therefore takes no natural transformations, and `runUIWith` is gone.
+  `VDomSpec` lost its `dom` parameter and its `runDom` field; `buildProp`
+  takes only the handler and the element.
+- Add `Halogen.Canvas.Types`, `.Core`, `.Elements` and `.Properties`: a
+  declarative scene language in the shape of `Halogen.HTML`, backend-neutral,
+  and reconciled by `Halogen.VDom.DOM.buildVDom` like any other `VDom`. Shapes
+  include an SVG `Path`, sharing the path commands in `Halogen.Svg.Attributes`.
+  The cursor is an enumeration of the CSS keywords rather than free text: a
+  misspelled keyword is silently ignored by the browser, which is the worst
+  way to find out.
+- Add `Clay.Extra.Pointer` with `touch-action`, which Clay does not cover.
+  `Halogen.Canvas` styles its host element with Clay rather than a CSS string.
 - Add `Halogen.Canvas`: a renderer-agnostic component that owns a canvas DOM
   node and delegates mounting, updating and teardown to a `Renderer` record.
   `haskell-halogen-pixi` implements that interface for PixiJS v8.
+- Fix duplicate keys in `Halogen.VDom.Utils`. Two props with the same key, or
+  two keyed children under the same key, each applied their effect while only
+  one was recorded — and the build path recorded the first while the patch
+  path recorded the last, so the second patch compared against the wrong one
+  and settled on the losing value. Shadowed entries are now dropped before any
+  effect runs, so the last one wins throughout. This affects HTML as much as
+  the canvas.
+- Re-export `~` from `HPrelude` via `Data.Type.Equality`.
 - Move into the `haskell-halogen` monorepo alongside `haskell-halogen-material`
   and `haskell-halogen-pixi`. The library now lives in `core/`; the example app
   moved to `examples/vanilla`.

@@ -18,8 +18,8 @@ import Halogen.HTML.Layout.BoxLayout
 import Halogen.HTML.Layout.GridBagLayout
 import Halogen.HTML.Properties as HP
 import Halogen.Subscription qualified as HS
-import Halogen.VDom.DOM.Monad
-import Protolude hiding (log)
+import Halogen.VDom.DOM.Monad (BrowserDOM, runBrowserDOM)
+import Protolude
 import UnliftIO (MonadUnliftIO)
 
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
@@ -27,24 +27,25 @@ import Halogen.IO.Util as HA
 import Halogen.VDom.Driver (runUI)
 #endif
 
-attachComponent :: IO (HalogenSocket Query Int IO)
+-- | The component monad is the browser backend itself. An application with
+-- effects of its own would stack them on it — @ReaderT Config BrowserDOM@ —
+-- and derive the DOM classes through.
+attachComponent :: BrowserDOM (HalogenSocket Query Int BrowserDOM)
 logStr :: Text -> IO ()
+logStr = putStrLn
 
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
-attachComponent =
-  HA.awaitBody >>= runUI component ()
-logStr = log
+attachComponent = HA.awaitBody >>= runUI component ()
 #else
 attachComponent = panic "This module can only be run on JavaScript"
-logStr = putStrLn
 #endif
 
 main :: IO ()
-main = do
+main = runBrowserDOM $ do
   HalogenSocket {messages} <- attachComponent
 
   void $ HS.subscribe messages $ \st ->
-    logStr $ "State changed: " <> show st
+    liftIO $ logStr $ "State changed: " <> show st
 
 #if defined(wasm32_HOST_ARCH)
 foreign export javascript "hs_start" start :: IO ()
@@ -67,7 +68,7 @@ type Slots = ("debounced" .== H.Slot VoidF () ())
 
 data Query a = IncrementQ a | DecrementQ a
 
-component :: forall m. (MonadDOM m, MonadUnliftIO m) => H.Component Query () Int m
+component :: forall m. (MonadUnliftIO m) => H.Component Query () Int m
 component =
   H.mkComponent $
     H.ComponentSpec
@@ -108,7 +109,7 @@ component =
 
     handleAction = \case
       Init ->
-        lift $ log "Initialized"
+        liftIO $ putStrLn @Text "Initialized"
       Increment n -> do
         modify (+ n)
         get >>= H.raise
@@ -120,7 +121,7 @@ component =
 
 newtype DebChanged = DebChanged Text
 
-debComp :: (MonadDOM m, MonadUnliftIO m) => Component VoidF () () m
+debComp :: (MonadUnliftIO m) => Component VoidF () () m
 debComp = unsafeMkDebouncedComponent 0.5 $ ComponentSpec {initialState, render, eval}
   where
     initialState _ = pure ""

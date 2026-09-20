@@ -24,43 +24,53 @@ spec = xdescribe "native VDom" $ pure ()
 
 #else
 
+import Control.Monad.IO.Class (liftIO)
 import Data.IORef
 import Data.Text (Text)
 import Data.Void (Void, absurd)
 import Halogen.VDom.DOM (VDomSpec (..), buildVDom)
-import Halogen.VDom.DOM.Monad (appendChild, propertyEquals, setProperty)
+import Halogen.VDom.DOM.Monad (MemDOM (..), appendChild, propertyEquals, runMemDOM, setProperty)
 import Halogen.VDom.DOM.Monad.Native qualified as N
 import Halogen.VDom.DOM.Prop (Prop (..), PropValue (..), buildProp)
-import Halogen.VDom.Machine (Step, extract, halt, step)
+import Halogen.VDom.Machine (Step, extract)
+import Halogen.VDom.Machine qualified as M
 import Halogen.VDom.Types (ElemName (..), VDom (..))
 import Test.Hspec (Spec, describe, it)
 import Test.Utils (assertEqual, assertWith)
 import Web.DOM.Internal.Types (Document, Element, Node)
-import Web.DOM.ParentNode (toParentNode)
 import Web.Event.Event (EventType (..))
 import Web.HTML.Common (AttrName (..))
 
 -- | The tests never build widgets, so the widget type is uninhabited.
 type TestVDom = VDom [Prop Text] Void
 
-type TestStep = Step IO TestVDom Node
+type TestStep = Step MemDOM TestVDom Node
 
 -- | A spec over a fresh document, plus the sink that collects whatever the
 -- handlers emit.
-newSpec :: IO (VDomSpec IO [Prop Text] Void, IORef [Text])
+newSpec :: IO (VDomSpec MemDOM [Prop Text] Void, IORef [Text])
 newSpec = do
   doc <- N.newDocument
   emitted <- newIORef []
   let vspec =
         VDomSpec
           { buildWidget = \_ -> absurd
-          , buildAttributes = buildProp (\msg -> modifyIORef' emitted (<> [msg]))
+          , buildAttributes = buildProp (\msg -> liftIO (modifyIORef' emitted (<> [msg])))
           , document = N.fromNative doc :: Document
           }
   pure (vspec, emitted)
 
-build :: VDomSpec IO [Prop Text] Void -> TestVDom -> IO TestStep
-build vspec = buildVDom vspec
+-- The machinery runs in MemDOM; the assertions are ordinary IO, so each of
+-- the three machine operations is unwrapped once here rather than at every
+-- call in the spec below.
+build :: VDomSpec MemDOM [Prop Text] Void -> TestVDom -> IO TestStep
+build vspec = runMemDOM . buildVDom vspec
+
+step :: TestStep -> TestVDom -> IO TestStep
+step s = runMemDOM . M.step s
+
+halt :: TestStep -> IO ()
+halt = runMemDOM . M.halt
 
 -- | The rendered node of a step, as HTML.
 snapshot :: TestStep -> IO Text
@@ -169,22 +179,22 @@ spec = describe "native VDom" $ do
     -- JSVals by reference here; wasm uses === and so does this backend.
     it "compares properties by value, not by reference" $ do
       element <- N.fromNative <$> N.newElement Nothing (ElemName "input")
-      setProperty "value" (TxtProp "abc") (element :: Element)
+      runMemDOM $ setProperty "value" (TxtProp "abc") (element :: Element)
       assertWith "a distinct but equal value compares equal"
-        =<< propertyEquals "value" (TxtProp ("ab" <> "c")) element
+        =<< runMemDOM (propertyEquals "value" (TxtProp ("ab" <> "c")) element)
       assertWith "a different value compares unequal" . not
-        =<< propertyEquals "value" (TxtProp "abd") element
+        =<< runMemDOM (propertyEquals "value" (TxtProp "abd") element)
 
     -- The browser holds a JS number here, and `1 === "1"` is false. A slot
     -- that compared rendered text would wrongly call these equal and skip the
     -- write.
     it "does not conflate a numeric property with its string spelling" $ do
       element <- N.fromNative <$> N.newElement Nothing (ElemName "input")
-      setProperty "value" (IntProp (1 :: Int)) (element :: Element)
+      runMemDOM $ setProperty "value" (IntProp (1 :: Int)) (element :: Element)
       assertWith "the same number compares equal"
-        =<< propertyEquals "value" (IntProp (1 :: Int)) element
+        =<< runMemDOM (propertyEquals "value" (IntProp (1 :: Int)) element)
       assertWith "the string \"1\" does not" . not
-        =<< propertyEquals "value" (TxtProp "1") element
+        =<< runMemDOM (propertyEquals "value" (TxtProp "1") element)
 
   describe "keyed reconciliation" $ do
     it "retains each child's node across a reorder" $ do
@@ -226,6 +236,25 @@ spec = describe "native VDom" $ do
       assertEqual "node is reused" before =<< childIdents s1
       assertEqual "markup" "<ul><li>A prime</li></ul>" =<< snapshot s1
 
+  describe "duplicate props" $ do
+    it "settles on the last of two props with the same key, and stays there" $ do
+      (vspec, _) <- newSpec
+      let vdom = el "div" [attr "class" "a", attr "class" "b"] []
+      s0 <- build vspec vdom
+      assertEqual "build" "<div class=\"b\"></div>" =<< snapshot s0
+      s1 <- step s0 vdom
+      assertEqual "first patch" "<div class=\"b\"></div>" =<< snapshot s1
+      s2 <- step s1 vdom
+      assertEqual "second patch" "<div class=\"b\"></div>" =<< snapshot s2
+
+    it "treats two children under one key as one child" $ do
+      (vspec, _) <- newSpec
+      let vdom = keyed "ul" [("a", item "first"), ("a", item "second"), ("b", item "other")]
+      s0 <- build vspec vdom
+      assertEqual "build" "<ul><li>second</li><li>other</li></ul>" =<< snapshot s0
+      s1 <- step s0 vdom
+      assertEqual "patch" "<ul><li>second</li><li>other</li></ul>" =<< snapshot s1
+
   describe "event handlers" $ do
     it "registers a listener for each handler prop" $ do
       (vspec, _) <- newSpec
@@ -244,7 +273,7 @@ spec = describe "native VDom" $ do
       (vspec, _) <- newSpec
       s <- build vspec $ el "div" [] [el "span" [] [Text "x"]]
       root <- N.newElement Nothing (ElemName "root")
-      appendChild (extract s) (toParentNode (N.fromNative root))
+      runMemDOM $ appendChild (extract s) (N.fromNative root)
       assertEqual "attached" 1 . length =<< N.childNodes root
       halt s
       assertEqual "detached" 0 . length =<< N.childNodes root

@@ -5,6 +5,8 @@ module Halogen.Canvas
   )
 where
 
+import Clay qualified as C
+import Clay.Extra.Pointer qualified as CP
 import Control.Monad.UUID
 import Data.Row (type Empty)
 import Halogen qualified as H
@@ -66,7 +68,13 @@ component renderer =
     render CanvasState {canvasRef} =
       HH.canvas
         [ HP.ref canvasRef
-        , HP.styleText "display:block;width:100%;height:100%;touch-action:none"
+        , HP.style $ do
+            C.display C.block
+            C.width (C.pct 100)
+            C.height (C.pct 100)
+            -- The backend interprets gestures itself, so the browser must not
+            -- scroll the page out from under it.
+            CP.touchAction C.none
         ]
 
     handleAction = \case

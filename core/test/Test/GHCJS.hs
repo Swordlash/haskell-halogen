@@ -44,8 +44,8 @@ js_fixture_child = Node . js_fixture_child_foreign
 js_fixture_sibling :: Foreign DOMFixture -> Node
 js_fixture_sibling = Node . js_fixture_sibling_foreign
 
-js_fixture_parent :: Foreign DOMFixture -> ParentNode
-js_fixture_parent = ParentNode . js_fixture_parent_foreign
+js_fixture_parent :: Foreign DOMFixture -> Node
+js_fixture_parent = Node . js_fixture_parent_foreign
 
 spec :: Spec
 spec = describe "GHCJS FFI" $ do
@@ -61,10 +61,12 @@ spec = describe "GHCJS FFI" $ do
     assertEqual "readProp" (Just 42) (readProp "answer" (Just . foreignToInt) js_object)
   it "recognizes null" $
     assertWith "nullableToMaybe should recognize null" (isNothing $ nullableToMaybe js_nullish)
-  it "does not append a child already in the final position" $
-    (DOM.appendChild (js_fixture_child js_dom_fixture) (js_fixture_parent js_dom_fixture) :: IO ())
-  it "does not insert a child already before the reference node" $
-    (DOM.insertBefore (js_fixture_child js_dom_fixture) (js_fixture_sibling js_dom_fixture) (js_fixture_parent js_dom_fixture) :: IO ())
+  it "does not append a child already in the final position"
+    $ DOM.runBrowserDOM
+    $ DOM.appendChild (js_fixture_child js_dom_fixture) (js_fixture_parent js_dom_fixture)
+  it "does not insert a child already before the reference node"
+    $ DOM.runBrowserDOM
+    $ DOM.insertBefore (js_fixture_child js_dom_fixture) (js_fixture_sibling js_dom_fixture) (js_fixture_parent js_dom_fixture)
 
 #else
 

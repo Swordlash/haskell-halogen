@@ -48,6 +48,7 @@ executable halogen-example-pixi
 
   build-depends:
       base >= 4.20,
+      clay >= 0.16.0,
       protolude,
       row-types,
       haskell-halogen-core,

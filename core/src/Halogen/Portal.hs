@@ -41,7 +41,7 @@ portal
   ->forall query action input output slots slot m
    . ( HasType label (H.Slot query output slot) slots
      , MonadUnliftIO m
-     , MonadDOM m
+     , MonadBrowserDOM m
      , MonadKill m
      , MonadParallel m
      , MonadMask m
@@ -111,7 +111,7 @@ wrapper =
 
 component
   :: forall q i o m
-   . (MonadDOM m, MonadUnliftIO m, MonadKill m, MonadParallel m, MonadMask m, MonadUUID m)
+   . (MonadBrowserDOM m, MonadUnliftIO m, MonadKill m, MonadParallel m, MonadMask m, MonadUUID m)
   => H.Component q (Input q i o m) o m
 component =
   H.mkComponent

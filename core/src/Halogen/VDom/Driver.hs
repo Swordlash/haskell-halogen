@@ -25,15 +25,14 @@ import Halogen.VDom.Thunk (Thunk)
 import Halogen.VDom.Thunk qualified as Thunk
 import Web.DOM.Internal.Types
 import Web.DOM.Internal.Types qualified as DOM
-import Web.DOM.ParentNode (ParentNode, toParentNode)
 
-#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
-{-# SPECIALISE substInParent :: DOM.Node -> Maybe DOM.Node -> Maybe ParentNode -> IO () #-}
-{-# SPECIALISE removeChild :: forall state action slots output. RenderState IO state action slots output -> IO () #-}
-{-# SPECIALISE renderSpec :: DOM.Document -> DOM.HTMLElement -> AD.RenderSpec IO (RenderState IO) #-}
-{-# SPECIALISE runUI :: forall query input output. Component query input output IO -> input -> DOM.HTMLElement -> IO (HalogenSocket query output IO) #-}
-{-# SPECIALISE mkSpec :: forall action slots. (Input action -> IO ()) -> IORef (ChildRenderer IO action slots) -> DOM.Document -> V.VDomSpec IO [Prop (Input action)] (ComponentSlot slots IO action) #-}
-#endif
+-- Specialisations live with each backend now that the class is no longer
+-- pinned to IO; the unfoldings have to be exported for them to fire.
+{-# INLINEABLE runUI #-}
+
+{-# INLINEABLE renderSpec #-}
+
+{-# INLINEABLE mkSpec #-}
 
 type VHTML m action slots =
   V.VDom [Prop (Input action)] (ComponentSlot slots m action)
@@ -55,7 +54,7 @@ type WidgetState m slots action =
 
 mkSpec
   :: forall m action slots
-   . (MonadIO m, DOM.MonadDOM m)
+   . (DOM.MonadBrowserDOM m, MonadIO m)
   => (Input action -> m ())
   -> IORef (ChildRenderer m action slots)
   -> DOM.Document
@@ -120,9 +119,15 @@ mkSpec handler renderChildRef document =
     getNode :: RenderStateX (RenderState m) -> DOM.Node
     getNode (RenderStateX (RenderState {node})) = node
 
+-- | Run a component against the DOM its own monad speaks.
+--
+-- The component monad /is/ the DOM monad. An application with effects of its
+-- own stacks them on a backend — @newtype AppM a = AppM (ReaderT Config
+-- BrowserDOM a)@ deriving the classes through — rather than handing the
+-- driver a pair of natural transformations to get between two of them.
 runUI
   :: forall m query input output
-   . (DOM.MonadDOM m, MonadUnliftIO m, MonadFork m, MonadKill m, MonadParallel m, MonadMask m, MonadUUID m)
+   . (DOM.MonadBrowserDOM m, MonadUnliftIO m, MonadFork m, MonadKill m, MonadParallel m, MonadMask m, MonadUUID m)
   => Component query input output m
   -> input
   -> DOM.HTMLElement
@@ -133,7 +138,7 @@ runUI component i element = do
 
 renderSpec
   :: forall m
-   . (DOM.MonadDOM m, MonadIO m)
+   . (DOM.MonadBrowserDOM m, MonadIO m)
   => DOM.Document
   -> DOM.HTMLElement
   -> AD.RenderSpec m (RenderState m)
@@ -159,7 +164,7 @@ renderSpec document container =
           let spec = mkSpec handler renderChildRef document
           machine <- V.buildVDom spec vdom
           let node = V.extract machine
-          void $ DOM.appendChild node $ toParentNode $ toNode container
+          void $ DOM.appendChild node $ toNode container
           pure $ RenderState {machine, node, renderChildRef}
         Just (RenderState {machine, node, renderChildRef}) -> do
           atomicWriteIORef renderChildRef child
@@ -171,12 +176,16 @@ renderSpec document container =
             $ substInParent newNode nextSib parent
           pure $ RenderState {machine = machine', node = newNode, renderChildRef}
 
-removeChild :: forall m state action slots output. (DOM.MonadDOM m) => RenderState m state action slots output -> m ()
+removeChild
+  :: forall m state action slots output
+   . (DOM.MonadBrowserDOM m)
+  => RenderState m state action slots output
+  -> m ()
 removeChild (RenderState {node}) = do
   npn <- DOM.parentNode node
   traverse_ (DOM.removeChild node) npn
 
-substInParent :: (DOM.MonadDOM m) => DOM.Node -> Maybe DOM.Node -> Maybe ParentNode -> m ()
+substInParent :: (DOM.MonadBrowserDOM m) => DOM.Node -> Maybe DOM.Node -> Maybe DOM.Node -> m ()
 substInParent newNode (Just sib) (Just pn) = void $ DOM.insertBefore newNode sib pn
 substInParent newNode Nothing (Just pn) = void $ DOM.appendChild newNode pn
 substInParent _ _ _ = pass

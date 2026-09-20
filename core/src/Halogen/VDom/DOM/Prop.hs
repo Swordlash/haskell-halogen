@@ -9,8 +9,10 @@ module Halogen.VDom.DOM.Prop
   )
 where
 
+import Control.Monad.Primitive (PrimMonad, PrimState)
 import Data.Foreign
 import Data.Map.Strict qualified as M
+import Data.Primitive.MutVar
 import HPrelude hiding (state)
 import Halogen.VDom.DOM.Monad
 import Halogen.VDom.Machine qualified as V
@@ -35,10 +37,10 @@ data ElemRef a
   | Removed a
   deriving (Functor)
 
-type EventMap m a = Map Text (DOM.EventListener, IORef (Event -> Maybe a))
+type EventMap m a = Map Text (DomEventListener m, MutVar (PrimState m) (Event -> Maybe a))
 
 data PropState m a = PropState
-  { events :: IORef (EventMap m a)
+  { events :: MutVar (PrimState m) (EventMap m a)
   , props :: Map Text (Prop a)
   }
 
@@ -50,12 +52,17 @@ propToStrKey = \case
   Handler (DOM.EventType ty) _ -> "handler/" <> ty
   Ref _ -> "ref"
 
+{-# INLINEABLE buildProp #-}
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
-{-# SPECIALISE buildProp :: (a -> IO ()) -> DOM.Element -> V.Machine IO [Prop a] () #-}
+{-# SPECIALISE buildProp :: (a -> BrowserDOM ()) -> DOM.Element -> V.Machine BrowserDOM [Prop a] () #-}
+#else
+{-# SPECIALISE buildProp :: (a -> MemDOM ()) -> DOM.Element -> V.Machine MemDOM [Prop a] () #-}
 #endif
+
+-- | Apply a property list to an element, and keep applying it across patches.
 buildProp
   :: forall m a
-   . (MonadIO m, MonadDOM m)
+   . (MonadAttributes m, DomElement m ~ DOM.Element)
   => (a -> m ())
   -> DOM.Element
   -> V.Machine m [Prop a] ()
@@ -63,7 +70,7 @@ buildProp emit el = renderProp
   where
     renderProp :: V.Machine m [Prop a] ()
     renderProp ps1 = do
-      events <- newIORef mempty
+      events <- newMutVar mempty
       ps1' <- Util.strMapWithIxE ps1 propToStrKey (applyProp events)
       let state =
             PropState
@@ -74,7 +81,7 @@ buildProp emit el = renderProp
 
     patchProp :: PropState m a -> [Prop a] -> m (V.Step m [Prop a] ())
     patchProp state ps2 = do
-      events <- newIORef mempty
+      events <- newMutVar mempty
       let PropState {events = prevEvents, props = ps1} = state
           onThese = diffProp prevEvents events
           onThis = removeProp prevEvents
@@ -93,9 +100,10 @@ buildProp emit el = renderProp
           mbEmit (f (Removed el))
         _ -> pass
 
+    mbEmit :: Maybe a -> m ()
     mbEmit = traverse_ emit
 
-    applyProp :: IORef (EventMap m a) -> Text -> Int -> Prop a -> m (Prop a)
+    applyProp :: MutVar (PrimState m) (EventMap m a) -> Text -> Int -> Prop a -> m (Prop a)
     applyProp events _ _ v =
       case v of
         Attribute ns attr val -> do
@@ -106,26 +114,26 @@ buildProp emit el = renderProp
           pure v
         Handler evty@(DOM.EventType ty) f -> do
           M.lookup ty
-            <$> readIORef events
+            <$> readMutVar events
             >>= \case
               Just handler -> do
-                atomicWriteIORef (snd handler) f
+                writeMutVar (snd handler) f
                 pure v
               _ -> do
-                ref <- newIORef f
+                ref <- newMutVar f
                 listener <- mkEventListener $ \ev -> do
-                  f' <- readIORef ref
+                  f' <- readMutVar ref
                   mbEmit (f' ev)
-                atomicModifyIORef'_ events (M.insert ty (listener, ref))
-                addEventListener evty listener $ toEventTarget el
+                atomicModifyMutVar'_ events (M.insert ty (listener, ref))
+                elementToEventTarget el >>= addEventListener evty listener
                 pure v
         Ref f -> do
           mbEmit (f (Created el))
           pure v
 
     diffProp
-      :: IORef (EventMap m a)
-      -> IORef (EventMap m a)
+      :: MutVar (PrimState m) (EventMap m a)
+      -> MutVar (PrimState m) (EventMap m a)
       -> Text
       -> Int
       -> Prop a
@@ -154,9 +162,9 @@ buildProp emit el = renderProp
               setProperty prop2 val2 el
               pure v2
         (Handler _ _, Handler (DOM.EventType ty) f) -> do
-          handler <- (M.! ty) <$> readIORef prevEvents
-          atomicWriteIORef (snd handler) f
-          atomicModifyIORef'_ events (M.insert ty handler)
+          handler <- (M.! ty) <$> readMutVar prevEvents
+          writeMutVar (snd handler) f
+          atomicModifyMutVar'_ events (M.insert ty handler)
           pure v2
         (_, _) ->
           pure v2
@@ -168,6 +176,10 @@ buildProp emit el = renderProp
         Property prop _ ->
           removeProperty prop el
         Handler evty@(DOM.EventType ty) _ -> do
-          handler <- (M.! ty) <$> readIORef prevEvents
-          removeEventListener evty (fst handler) $ toEventTarget el
+          handler <- (M.! ty) <$> readMutVar prevEvents
+          elementToEventTarget el >>= removeEventListener evty (fst handler)
         Ref _ -> pass
+
+-- | 'atomicModifyMutVar'' with the result discarded.
+atomicModifyMutVar'_ :: (PrimMonad m) => MutVar (PrimState m) a -> (a -> a) -> m ()
+atomicModifyMutVar'_ ref f = atomicModifyMutVar' ref ((,()) . f)

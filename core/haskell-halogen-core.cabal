@@ -70,6 +70,7 @@ common commons
       row-types,
       hashable,
       containers,
+      primitive,
       kan-extensions,
       uuid-types,
       unliftio,
@@ -85,6 +86,7 @@ library
 
     exposed-modules:
       Clay.Extra.Grid
+      Clay.Extra.Pointer
 
       Control.Monad.Fork
       Control.Monad.Parallel
@@ -131,7 +133,9 @@ library
 
       Halogen.VDom.DOM
       Halogen.VDom.DOM.Monad
+      Halogen.VDom.DOM.Monad.Browser
       Halogen.VDom.DOM.Monad.Class
+      Halogen.VDom.DOM.Monad.Mem
       Halogen.VDom.DOM.Prop
       Halogen.VDom.Driver
       Halogen.VDom.Machine
@@ -142,6 +146,10 @@ library
       Halogen.Component
       Halogen.Component.Debounced
       Halogen.Canvas
+      Halogen.Canvas.Core
+      Halogen.Canvas.Elements
+      Halogen.Canvas.Properties
+      Halogen.Canvas.Types
       Halogen.Subscription
 
       Halogen.Portal
@@ -209,14 +217,17 @@ test-suite Halogen-core-test
     hs-source-dirs:   test
     main-is:          Test.hs
     build-depends:    base >= 4.20,
+                      clay >= 0.16.0,
                       haskell-halogen-core,
                       hspec,
                       mtl,
+                      primitive,
                       row-types,
                       text,
                       transformers
     
-    other-modules:  Test.DriverReentrancy
+    other-modules:  Test.Canvas
+                    Test.DriverReentrancy
                     Test.GHCJS
                     Test.NativeDom
                     Test.SvgAttributes

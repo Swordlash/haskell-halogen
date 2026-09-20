@@ -50,15 +50,17 @@ where
 import Control.Exception.Safe (throwString)
 import Data.Map.Strict qualified as M
 import Data.Text qualified as T
-import Data.Text.IO qualified as TIO
 import HPrelude
 import Halogen.VDom.DOM.Monad.Class
+import Halogen.VDom.DOM.Monad.Mem
 import Halogen.VDom.Types
 import System.IO.Unsafe (unsafePerformIO)
 import Unsafe.Coerce (unsafeCoerce)
 import Web.DOM.Internal.Types
+import Web.DOM.Internal.Types qualified as DOMTypes
 import Web.DOM.ParentNode
 import Web.Event.Event
+import Web.Event.Internal.Types qualified as EventTypes
 import Web.HTML.Common
 import Web.HTML.HTMLDocument.ReadyState as ReadyState
 
@@ -99,7 +101,7 @@ instance Eq PropScalar where
 data Listener = Listener
   { ident :: Int
   , eventType :: Text
-  , fire :: Event -> IO ()
+  , fire :: Event -> MemDOM ()
   }
 
 -- | One node in the in-memory document.
@@ -179,10 +181,13 @@ fromNative = unsafeCoerce
 
 -- | @EventListener@ is the one DOM newtype that does not hold a node, so it
 -- gets its own pair. Same reasoning: it is @Any@ underneath.
-toListener :: EventListener -> Listener
+toListener :: DOMTypes.EventListener -> Listener
 toListener = unsafeCoerce
 
-fromListener :: Listener -> EventListener
+toForeignTarget :: a -> EventTypes.EventTarget
+toForeignTarget = unsafeCoerce
+
+fromListener :: Listener -> DOMTypes.EventListener
 fromListener = unsafeCoerce
 
 --------------------------------------------------------------------------------
@@ -370,86 +375,108 @@ scalarText = \case
   ScalarBool x -> if x then "true" else "false"
   ScalarText x -> x
 
-instance MonadDOM IO where
+instance MonadDOM MemDOM where
+  type DomNode MemDOM = DOMTypes.Node
+  type DomElement MemDOM = DOMTypes.Element
+  type DomDocument MemDOM = DOMTypes.Document
+  type DomEventListener MemDOM = DOMTypes.EventListener
+  type DomEventTarget MemDOM = EventTypes.EventTarget
+
+  elementToNode el = pure (coerce el)
+  elementToEventTarget el = pure (toForeignTarget el)
+
   -- The event type is not known until addEventListener; it is filled in there.
-  mkEventListener f = do
+  mkEventListener f = liftIO $ do
     i <- nextIdent
     pure $ fromListener $ Listener {ident = i, eventType = "", fire = f}
 
-  window = pure (fromNative ambientDocument)
-  document _ = pure (fromNative ambientDocument)
-
-  createTextNode txt _ = do
+  createTextNode txt _ = liftIO $ do
     node <- newNode TextNode
     writeIORef node.content txt
     pure (fromNative node)
 
-  setTextContent txt node = writeIORef (toNative node).content txt
+  setTextContent txt node = liftIO $ writeIORef (toNative node).content txt
 
-  createElement ns name _ = fromNative <$> newElement ns name
+  createElement ns name _ = liftIO $ fromNative <$> newElement ns name
 
   -- The browser backends guard each of these on reference equality; reproduce
   -- the guards so a no-op patch stays a no-op here too.
-  insertBefore inserted sibling parent = do
-    let child = toNative inserted
-        ref = toNative sibling
-    already <- previousSibling ref
-    when (already /= Just child) $ insertNative child (Just ref) (toNative parent)
 
-  appendChild child parent = do
-    let node = toNative child
-        p = toNative parent
-    end <- lastChild p
-    when (end /= Just node) $ insertNative node Nothing p
-
-  replaceChild newChild oldChild parent = do
-    let new = toNative newChild
-        old = toNative oldChild
-    when (new /= old) $ do
-      insertNative new (Just old) (toNative parent)
-      detach old
-
-  insertChildIx ix child parent = do
+  insertChildIx ix child parent = liftIO $ do
     let node = toNative child
         p = toNative parent
     occupant <- childAt ix p
     when (occupant /= Just node) $ insertNative node occupant p
 
-  removeChild child _ = detach (toNative child)
+  removeChild child _ = liftIO $ detach (toNative child)
 
-  parentNode node = fmap fromNative <$> readIORef (toNative node).parentRef
-  nextSibling node = fmap fromNative <$> nextSiblingNative (toNative node)
-
-  setAttribute ns (AttrName name) val el =
-    modifyIORef' (toNative el).attrs $ M.insert (unNamespace <$> ns, name) val
-
-  removeAttribute ns (AttrName name) el =
-    modifyIORef' (toNative el).attrs $ M.delete (unNamespace <$> ns, name)
-
-  hasAttribute ns (AttrName name) el =
-    M.member (unNamespace <$> ns, name) <$> readIORef (toNative el).attrs
-
-  setProperty (PropName name) val el =
-    modifyIORef' (toNative el).props $ M.insert name (propScalar val)
-
-  propertyEquals (PropName name) val el =
-    (== Just (propScalar val)) . M.lookup name <$> readIORef (toNative el).props
-
-  removeProperty (PropName name) el =
-    modifyIORef' (toNative el).props $ M.delete name
+  parentNode node = liftIO $ fmap fromNative <$> readIORef (toNative node).parentRef
 
   addEventListener (EventType ty) listener target =
-    modifyIORef' (toNative target).listeners (<> [(toListener listener) {eventType = ty}])
+    liftIO
+      $ modifyIORef' (toNative target).listeners (<> [(toListener listener) {eventType = ty}])
 
-  removeEventListener (EventType ty) listener target = do
+  removeEventListener (EventType ty) listener target = liftIO $ do
     let gone = toListener listener
     modifyIORef' (toNative target).listeners
       $ filter (\l -> not (l.ident == gone.ident && l.eventType == ty))
 
+-- Nothing to wait for: the tree is built synchronously.
+
+-- | The in-memory tree answers the browser-shaped queries too, so that the
+-- driver and Halogen.IO.Util compile and can be exercised natively. There is
+-- no window here; 'ambientDocument' stands in for one.
+instance MonadBrowserDOM MemDOM where
+  insertBefore inserted sibling parent = liftIO $ do
+    let child = toNative inserted
+        ref = toNative sibling
+    already <- previousSibling ref
+    when (already /= Just child) $ insertNative child (Just ref) (toNative parent)
+  appendChild child parent = liftIO $ do
+    let node = toNative child
+        p = toNative parent
+    end <- lastChild p
+    when (end /= Just node) $ insertNative node Nothing p
+  replaceChild newChild oldChild parent = liftIO $ do
+    let new = toNative newChild
+        old = toNative oldChild
+    when (new /= old) $ do
+      insertNative new (Just old) (toNative parent)
+      detach old
+  nextSibling node = liftIO $ fmap fromNative <$> nextSiblingNative (toNative node)
+  windowToEventTarget w = pure (coerce w)
+  documentToNode d = pure (coerce d)
+  window = liftIO $ pure (fromNative ambientDocument)
+  document _ = liftIO $ pure (fromNative ambientDocument)
   querySelector (QuerySelector selector) parent =
-    fmap fromNative <$> queryNative selector (toNative parent)
+    liftIO
+      $ fmap fromNative
+      <$> queryNative selector (toNative parent)
+  readyState _ = liftIO $ pure ReadyState.Complete
 
-  -- Nothing to wait for: the tree is built synchronously.
-  readyState _ = pure ReadyState.Complete
-
-  log = TIO.hPutStrLn stderr
+instance MonadAttributes MemDOM where
+  setAttribute ns (AttrName name) val el =
+    liftIO
+      $ modifyIORef' (toNative el).attrs
+      $ M.insert (unNamespace <$> ns, name) val
+  removeAttribute ns (AttrName name) el =
+    liftIO
+      $ modifyIORef' (toNative el).attrs
+      $ M.delete (unNamespace <$> ns, name)
+  hasAttribute ns (AttrName name) el =
+    liftIO
+      $ M.member (unNamespace <$> ns, name)
+      <$> readIORef (toNative el).attrs
+  setProperty (PropName name) val el =
+    liftIO
+      $ modifyIORef' (toNative el).props
+      $ M.insert name (propScalar val)
+  propertyEquals (PropName name) val el =
+    liftIO
+      $ (== Just (propScalar val))
+      . M.lookup name
+      <$> readIORef (toNative el).props
+  removeProperty (PropName name) el =
+    liftIO
+      $ modifyIORef' (toNative el).props
+      $ M.delete name
