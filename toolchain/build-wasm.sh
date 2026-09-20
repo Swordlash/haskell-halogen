@@ -18,7 +18,7 @@ if [ ! -d "examples/$example" ]; then
   exit 1
 fi
 
-package="halogen-example-$example"
+package=${PACKAGE:-halogen-example-$example}
 build_dir=dist-newstyle/wasm
 public_dir=$build_dir/public/$example
 

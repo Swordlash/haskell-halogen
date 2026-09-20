@@ -1,5 +1,6 @@
 module Halogen.VDom.Driver
   ( runUI
+  , MonadUI
   , module Halogen.IO.Driver
   )
 where
@@ -33,6 +34,8 @@ import Web.DOM.Internal.Types qualified as DOM
 {-# INLINEABLE renderSpec #-}
 
 {-# INLINEABLE mkSpec #-}
+
+type MonadUI m = (DOM.MonadBrowserDOM m, MonadUnliftIO m, MonadFork m, MonadKill m, MonadParallel m, MonadMask m, MonadUUID m)
 
 type VHTML m action slots =
   V.VDom [Prop (Input action)] (ComponentSlot slots m action)

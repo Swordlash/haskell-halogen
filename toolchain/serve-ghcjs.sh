@@ -8,7 +8,7 @@ cd "$(dirname "$0")/.."
 . toolchain/ghcjs-env.sh
 
 example=${1:-vanilla}
-package="halogen-example-$example"
+package=${PACKAGE:-halogen-example-$example}
 
 sh run_fourmolu.sh
 
