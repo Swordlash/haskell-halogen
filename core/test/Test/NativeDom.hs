@@ -38,7 +38,6 @@ import Halogen.VDom.Types (ElemName (..), VDom (..))
 import Test.Hspec (Spec, describe, it)
 import Test.Utils (assertEqual, assertWith)
 import Web.DOM.Internal.Types (Document, Element, Node)
-import Web.DOM.ParentNode (toParentNode)
 import Web.Event.Event (EventType (..))
 import Web.HTML.Common (AttrName (..))
 

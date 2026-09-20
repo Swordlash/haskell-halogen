@@ -15,7 +15,7 @@ module Halogen.VDom.DOM.Monad.Mem
   )
 where
 
-import Control.Exception.Safe (MonadCatch, MonadMask, MonadThrow)
+import Control.Exception.Safe (MonadCatch, MonadThrow)
 import Control.Monad.Fork (MonadFork, MonadKill)
 import Control.Monad.Parallel (MonadParallel)
 import Control.Monad.Primitive (PrimMonad (..))

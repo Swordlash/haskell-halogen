@@ -15,9 +15,6 @@ module Halogen.VDom.DOM.Monad.Class
   , MonadDOM (..)
   , MonadAttributes (..)
   , MonadBrowserDOM (..)
-  , LiftsDOM
-  , LiftsAttributes
-  , LiftsBrowserDOM
   , mouseHandler
   )
 where
