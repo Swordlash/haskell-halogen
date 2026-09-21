@@ -47,6 +47,7 @@ data TickEvent
 
 data Q a
   = Bump a
+  | BumpLater a
   | BumpOther a
   | CurrentCount (Int -> a)
   | WriteRef Int a
@@ -81,6 +82,13 @@ probeComponent probe = Hooks.component @Empty $ \_input -> Hooks.do
     Bump a -> do
       c <- Hooks.modify countId (+ 1)
       Hooks.raise (Counted c)
+      pure (Just a)
+    -- Forked, so it lands long after the query that started it has been
+    -- answered and nothing else is going to run the program again.
+    BumpLater a -> do
+      void $ Hooks.fork $ do
+        liftIO $ threadDelay 20_000
+        Hooks.modify_ countId (+ 1)
       pure (Just a)
     BumpOther a -> Hooks.modify_ otherId (+ 1) $> Just a
     CurrentCount k -> Just . k <$> Hooks.get countId
@@ -169,6 +177,11 @@ spec = describe "hooks" $ do
     void $ query harness (H.mkTell Bump)
     lastRender harness >>= (`shouldBe` "count=1 other=0 memo=(1,2)")
     query harness (H.mkRequest CurrentCount) >>= (`shouldBe` Just 1)
+
+  it "re-renders after a forked program changes state" $ withProbe $ \_probe harness -> do
+    void $ query harness (H.mkTell BumpLater)
+    lastRender harness >>= (`shouldBe` "count=0 other=0 memo=(0,1)")
+    eventually "count=1 other=0 memo=(1,2)" (lastRender harness)
 
   it "raises output from a handler" $ withProbe $ \_probe harness -> do
     void $ query harness (H.mkTell Bump)

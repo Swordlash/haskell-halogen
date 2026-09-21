@@ -49,7 +49,11 @@ newtype QueryHandler q slots output m = QueryHandler (forall a. q a -> HookM slo
 -- component state is how a render is requested: a write here (a state cell
 -- changed, a query handler replaced) must not be one by itself.
 data Internal q input slots output m hooks = Internal
-  { input :: input
+  { hookFn :: HookFn q input slots output m hooks
+  -- ^ The program itself, so that anything holding the state can run it
+  -- again. A forked program is the reason it has to live here: it settles
+  -- what it changed from a thread of its own, with nothing passed down to it.
+  , input :: input
   , cells :: Maybe (Cells slots output m hooks)
   , queryHandler :: Maybe (QueryHandler q slots output m)
   , dirty :: Bool
@@ -75,32 +79,36 @@ type Eval q input slots output m hooks =
 -- The driver renders once before it runs the initializer, and the hook program
 -- cannot run before then, so there is one render of nothing at the start of
 -- every hooks component's life.
-initialHookState :: forall q input slots output m hooks. (MonadIO m) => input -> m (HookState q input slots output m hooks)
-initialHookState i = do
-  ref <- liftIO $ newIORef Internal {input = i, cells = Nothing, queryHandler = Nothing, dirty = False}
+initialHookState
+  :: forall q input slots output m hooks
+   . (MonadIO m)
+  => HookFn q input slots output m hooks
+  -> input
+  -> m (HookState q input slots output m hooks)
+initialHookState hookFn i = do
+  ref <- liftIO $ newIORef Internal {hookFn, input = i, cells = Nothing, queryHandler = Nothing, dirty = False}
   pure HookState {result = HC.text "", internal = ref}
 
 -- | The component's @eval@.
 evalHook
   :: forall q input slots output m hooks
    . (MonadIO m)
-  => HookFn q input slots output m hooks
-  -> HalogenQ q (HookAction slots output m) input ~> Eval q input slots output m hooks
-evalHook hookFn = NT $ \case
+  => HalogenQ q (HookAction slots output m) input ~> Eval q input slots output m hooks
+evalHook = NT $ \case
   Initialize a ->
-    runHooks hookFn $> a
+    runHooks $> a
   Receive i a -> do
     modifyInternal $ \int -> int {input = i}
-    runHooks hookFn $> a
+    runHooks $> a
   Action act a ->
-    interpretHookM act *> settle hookFn $> a
+    interpretHookM act *> settle $> a
   Query (Coyoneda req fct) f -> do
     int <- readInternal
     case int.queryHandler of
       Nothing -> pure (f ())
       Just (QueryHandler handler) -> do
         result <- interpretHookM (handler fct)
-        settle hookFn
+        settle
         pure $ maybe (f ()) req result
   Finalize a -> do
     int <- readInternal
@@ -110,28 +118,28 @@ evalHook hookFn = NT $ \case
 
 -- | Run the hook program: build or step the cells, render what it produced,
 -- then run the effects it asked for and settle whatever they changed.
-runHooks :: forall q input slots output m hooks. (MonadIO m) => HookFn q input slots output m hooks -> Eval q input slots output m hooks ()
-runHooks hookFn = do
+runHooks :: forall q input slots output m hooks. (MonadIO m) => Eval q input slots output m hooks ()
+runHooks = do
   int <- readInternal
   modifyInternal $ \i -> i {dirty = False}
   (html, effects) <- case int.cells of
     Nothing -> do
-      (html, mkCells, effects) <- buildHooks (hookFn int.input)
+      (html, mkCells, effects) <- buildHooks (int.hookFn int.input)
       modifyInternal $ \i -> i {cells = Just (mkCells CNil)}
       pure (html, effects)
     Just cs -> do
-      (html, leftover, effects) <- stepHooks cs (hookFn int.input)
+      (html, leftover, effects) <- stepHooks cs (int.hookFn int.input)
       case leftover of
         CNil -> pure (html, effects)
   State.modify $ \st -> st {result = html}
   sequence_ effects
-  settle hookFn
+  settle
 
 -- | Run the program again if anything it or its effects did asked for it.
-settle :: forall q input slots output m hooks. (MonadIO m) => HookFn q input slots output m hooks -> Eval q input slots output m hooks ()
-settle hookFn = do
+settle :: forall q input slots output m hooks. (MonadIO m) => Eval q input slots output m hooks ()
+settle = do
   int <- readInternal
-  when int.dirty $ runHooks hookFn
+  when int.dirty runHooks
 
 -- | The first pass: the cells do not exist yet, so each hook makes its own.
 --
@@ -244,7 +252,9 @@ interpretHookM (HookM program) = foldF go program
       ChildQuery cq -> HM.HalogenM $ liftF $ HM.ChildQuery cq
       Subscribe esc k -> HM.HalogenM $ liftF $ HM.Subscribe esc k
       Unsubscribe sid a -> HM.unsubscribe sid $> a
-      Fork hm k -> map k $ HM.fork $ interpretHookM hm
+      -- A fork runs on its own, so nothing else is going to notice what it
+      -- changed: it has to run the program again itself.
+      Fork hm k -> map k $ HM.fork $ interpretHookM hm *> settle
       Kill fid a -> HM.kill fid $> a
       GetRef label k -> map k $ HM.getRef label
 

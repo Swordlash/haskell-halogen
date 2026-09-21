@@ -128,7 +128,7 @@ component
 component hookFn =
   mkComponent
     ComponentSpec
-      { initialState = initialHookState
+      { initialState = initialHookState hookFn
       , render = \st -> st.result
-      , eval = evalHook hookFn
+      , eval = evalHook
       }

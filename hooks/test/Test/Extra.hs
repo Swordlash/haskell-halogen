@@ -63,6 +63,20 @@ debouncerComponent probe events = Hooks.component @Empty $ \_input -> Hooks.do
 
   Hooks.pure $ HH.text "debouncer"
 
+-- | The debounced value goes into hook state rather than an 'IORef', which is
+-- what a page would do with it. Whether it reaches the screen is then a
+-- question about the hook, not about the probe.
+settlingComponent :: HS.Emitter IO Text -> H.Component H.VoidF () Void IO
+settlingComponent events = Hooks.component @Empty $ \_input -> Hooks.do
+  (settled, setSettled) <- usePutState ""
+  push <- useDebouncer 0.05 setSettled
+
+  Hooks.useLifecycleEffect $ do
+    void $ Hooks.subscribe $ map push events
+    pure Nothing
+
+  Hooks.pure $ HH.text ("settled=" <> settled)
+
 throttleComponent :: IORef [Text] -> HS.Emitter IO Text -> H.Component H.VoidF () Void IO
 throttleComponent probe events = Hooks.component @Empty $ \_input -> Hooks.do
   push <- useThrottle 0.05 $ \t -> liftIO $ modifyIORef' probe (<> [t])
@@ -125,6 +139,14 @@ spec = describe "hooks-extra" $ do
     eventually ["c"] (readIORef probe)
     threadDelay 150_000
     readIORef probe >>= (`shouldBe` ["c"])
+    dispose harness
+
+  it "shows a debounced state change without waiting for another event" $ do
+    source <- HS.create
+    harness <- start (settlingComponent source.emitter) ()
+    traverse_ (HS.notify source.listener) ["a", "b", "c"]
+    lastRender harness >>= (`shouldBe` "settled=")
+    eventually "settled=c" (lastRender harness)
     dispose harness
 
   it "throttles: the first of a burst runs at once, the last after the period" $ do
