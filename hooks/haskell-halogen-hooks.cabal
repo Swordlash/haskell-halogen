@@ -83,7 +83,9 @@ library
       Halogen.Hooks.Extra.Hooks.UseDebouncer
       Halogen.Hooks.Extra.Hooks.UseEvent
       Halogen.Hooks.Extra.Hooks.UseGet
+      Halogen.Hooks.Extra.Hooks.UsePrevious
       Halogen.Hooks.Extra.Hooks.UseStateFn
+      Halogen.Hooks.Extra.Hooks.UseStorage
       Halogen.Hooks.Extra.Hooks.UseThrottle
 
     other-modules:

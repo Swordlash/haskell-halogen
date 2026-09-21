@@ -9,7 +9,9 @@ module Halogen.Hooks.Extra.Hooks
   ( module Halogen.Hooks.Extra.Hooks.UseDebouncer
   , module Halogen.Hooks.Extra.Hooks.UseEvent
   , module Halogen.Hooks.Extra.Hooks.UseGet
+  , module Halogen.Hooks.Extra.Hooks.UsePrevious
   , module Halogen.Hooks.Extra.Hooks.UseStateFn
+  , module Halogen.Hooks.Extra.Hooks.UseStorage
   , module Halogen.Hooks.Extra.Hooks.UseThrottle
   )
 where
@@ -17,5 +19,7 @@ where
 import Halogen.Hooks.Extra.Hooks.UseDebouncer
 import Halogen.Hooks.Extra.Hooks.UseEvent
 import Halogen.Hooks.Extra.Hooks.UseGet
+import Halogen.Hooks.Extra.Hooks.UsePrevious
 import Halogen.Hooks.Extra.Hooks.UseStateFn
+import Halogen.Hooks.Extra.Hooks.UseStorage
 import Halogen.Hooks.Extra.Hooks.UseThrottle

@@ -13,7 +13,7 @@ import Data.Row (Empty)
 import Halogen qualified as H
 import Halogen.HTML qualified as HH
 import Halogen.Hooks qualified as Hooks
-import Halogen.Hooks.Extra.Hooks (EventApi (..), useDebouncer, useEvent, useGet, usePutState, useThrottle)
+import Halogen.Hooks.Extra.Hooks (EventApi (..), useDebouncer, useEvent, useGet, useModifyState_, usePrevious, usePutState, useThrottle)
 import Halogen.Subscription qualified as HS
 import Protolude
 import Test.Harness (dispose, eventually, lastRender, start)
@@ -86,6 +86,22 @@ throttleComponent probe events = Hooks.component @Empty $ \_input -> Hooks.do
   Hooks.pure $ HH.text "throttle"
 
 ----------------------------------------------------------------------
+-- usePrevious.
+----------------------------------------------------------------------
+
+-- | Renders the count and what the count was on the render before.
+previousComponent :: HS.Emitter IO () -> H.Component H.VoidF () Void IO
+previousComponent events = Hooks.component @Empty $ \_input -> Hooks.do
+  (count, bump) <- useModifyState_ (0 :: Int)
+  previous <- usePrevious count
+
+  Hooks.useLifecycleEffect $ do
+    void $ Hooks.subscribe $ map (\() -> bump (+ 1)) events
+    pure Nothing
+
+  Hooks.pure $ HH.text ("count=" <> show count <> " previous=" <> show previous)
+
+----------------------------------------------------------------------
 -- useEvent.
 ----------------------------------------------------------------------
 
@@ -154,6 +170,16 @@ spec = describe "hooks-extra" $ do
     eventually ["a", "c"] (readIORef probe)
     threadDelay 150_000
     readIORef probe >>= (`shouldBe` ["a", "c"])
+    dispose harness
+
+  it "remembers what a value was on the render before" $ do
+    source <- HS.create
+    harness <- start (previousComponent source.emitter) ()
+    lastRender harness >>= (`shouldBe` "count=0 previous=Nothing")
+    HS.notify source.listener ()
+    lastRender harness >>= (`shouldBe` "count=1 previous=Just 0")
+    HS.notify source.listener ()
+    lastRender harness >>= (`shouldBe` "count=2 previous=Just 1")
     dispose harness
 
   it "pushes events to a handler that can remove itself" $ do

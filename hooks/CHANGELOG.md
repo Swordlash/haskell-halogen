@@ -15,3 +15,6 @@
 * `component` rejects a program that installs more than one query handler.
 * `useTickEffectBy` and `useMemoBy` take the comparison on dependencies, for
   types with no `Eq` instance or an expensive one.
+* `usePrevious`, and `useLocalStorage` / `useSessionStorage` / `useStorageWith`
+  for state that outlives the page, after the example hooks in the PureScript
+  repository.

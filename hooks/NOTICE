@@ -4,6 +4,10 @@ See https://github.com/thomashoneyman/purescript-halogen-hooks for the original 
 The modules under `Halogen.Hooks.Extra` are adapted from a second project, licensed under MIT:
 - https://github.com/JordanMartinez/purescript-halogen-hooks-extra
 
+`Halogen.Hooks.Extra.Hooks.UsePrevious` and `Halogen.Hooks.Extra.Hooks.UseStorage` are adapted
+from the example hooks in the first repository (`examples/Example/Hooks`), under the same Apache
+2.0 licence as the library itself.
+
 It builds on `haskell-halogen-core`, which carries its own NOTICE covering the PureScript
 projects it was adapted from.
 
