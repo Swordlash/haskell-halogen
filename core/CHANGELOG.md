@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `Web.Event.Event` gains `preventDefault`, `stopPropagation` and
+  `stopImmediatePropagation`, and every event newtype gains `toEvent`. Off the
+  browser backends the three are no-ops rather than a `panic`, so a handler
+  written for the browser can still be run against the in-memory DOM.
 - **Fix.** A forked program is registered as running for as long as it runs.
   The bookkeeping that strikes a fork off the register was being run *before*
   the program instead of after it, which left `kill` and `join` with nothing to

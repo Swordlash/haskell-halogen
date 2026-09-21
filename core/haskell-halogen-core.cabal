@@ -197,6 +197,7 @@ library
 
       js-sources:
         jsbits/monad_dom.js
+        jsbits/web_event.js
 
       ghc-options: -fexpose-all-unfoldings
 
