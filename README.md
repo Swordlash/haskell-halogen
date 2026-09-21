@@ -145,7 +145,9 @@ type UseCounter hooks = UseState Int : UseEffect Int : hooks
 [purescript-halogen-hooks-extra](https://github.com/JordanMartinez/purescript-halogen-hooks-extra)
 into the same package rather than a second one: `useDebouncer`, `useThrottle`, `useGet`,
 `useEvent`, the `useStateFn` family, and `preventDefault` and friends for handlers that have to
-stop the browser handling the same event. None of them is primitive — each is written with the hooks
+stop the browser handling the same event. `usePrevious` and the `useLocalStorage` family come
+from that library's own examples; the latter is built on `Web.Storage.Storage` and
+`Web.HTML.Window` in `core`, which also now has `Web.HTML.Cookie`. None of them is primitive — each is written with the hooks
 above and nothing else, and each is worth reading as an example of a composite hook.
 [examples/hooks/](examples/hooks/) is a page that uses every one of them.
 

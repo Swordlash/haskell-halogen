@@ -6,23 +6,35 @@
 -- The whole application is one function from its input to its HTML. What it
 -- needs to do that it asks for on the way down: state, effects, a memoised
 -- value, a debouncer, a throttle, a handle on the latest value of something,
--- and a query to a child component.
+-- what a value was a render ago, somewhere to keep what should outlive the
+-- page, and a query to a child component.
+--
+-- The component is written for any monad that is a browser, rather than for
+-- 'BrowserDOM' itself, so that the module still compiles on a host GHC where
+-- there is no browser to be had. Only 'main' names the backend.
 module Main where
 
 import Clay qualified as C
 import DOM.HTML.Indexed qualified as I
+import Data.Map.Strict qualified as M
 import Data.Row (Empty, type (.==))
+import Data.Text qualified as T
 import Halogen qualified as H
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
 import Halogen.Hooks qualified as Hooks
 import Halogen.Hooks.Extra.Actions.Events (preventDefault')
-import Halogen.Hooks.Extra.Hooks (useDebouncer, useGet, useModifyState_, usePutState, useThrottle)
+import Halogen.Hooks.Extra.Hooks (StorageInterface (..), useDebouncer, useGet, useLocalStorage, useModifyState_, usePrevious, usePutState, useThrottle)
 import Halogen.Hooks.Types (Hook, HookK (..), HookM)
+import Halogen.Query.Event qualified as HQE
 import Halogen.Subscription qualified as HS
-import Halogen.VDom.DOM.Monad (BrowserDOM, runBrowserDOM)
+import Halogen.VDom.DOM.Monad (BrowserDOM, MonadBrowserDOM, document, runBrowserDOM, window, windowToEventTarget)
 import Protolude
+import UnliftIO (MonadUnliftIO)
+import Web.Event.Event (EventType (..))
+import Web.HTML.Cookie qualified as Cookie
+import Web.HTML.Window qualified as Window
 
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 import Halogen.IO.Util qualified as HA
@@ -30,7 +42,7 @@ import Halogen.VDom.Driver (runUI)
 #endif
 
 ----------------------------------------------------------------------
--- A hook of one's own.
+-- Hooks of the page's own.
 ----------------------------------------------------------------------
 
 -- | A composite hook is a type synonym over the hooks it is made of, and the
@@ -68,6 +80,36 @@ useCounter initial = Hooks.do
       , decrement = Hooks.modify_ countId (subtract 1)
       }
 
+-- | The width of the window, kept current.
+--
+-- This one stays here rather than in @Halogen.Hooks.Extra@: what to do about
+-- resize events is an application's business — throttle them, ignore anything
+-- under a threshold, watch a different window — and everything it is made of
+-- is library already. It is also the shortest example of subscribing a hook to
+-- a DOM event: 'HQE.eventListener' speaks the component's monad and the driver
+-- subscribes in 'IO', which is what 'HS.lowerEmitter' is for.
+type UseWindowWidth hooks = UseState (Maybe Int) : UseEffect () : hooks
+
+useWindowWidth
+  :: forall scope q slots output m hooks
+   . (MonadIO m, MonadUnliftIO m, MonadBrowserDOM m)
+  => Hook scope q slots output m (UseWindowWidth hooks) hooks (Maybe Int)
+useWindowWidth = Hooks.do
+  (width, setWidth) <- usePutState Nothing
+
+  Hooks.useLifecycleEffect $ do
+    win <- lift window
+    target <- lift (windowToEventTarget win)
+    resizes <- lift $ HS.lowerEmitter $ HQE.eventListener (EventType "resize") target (const (Just ()))
+
+    let measure = setWidth . Just =<< lift (Window.innerWidth win)
+    subscription <- Hooks.subscribe $ map (const measure) resizes
+    measure
+
+    pure $ Just $ Hooks.unsubscribe subscription
+
+  Hooks.pure width
+
 ----------------------------------------------------------------------
 -- A child component, so the parent has something to query.
 ----------------------------------------------------------------------
@@ -75,7 +117,7 @@ useCounter initial = Hooks.do
 newtype NotesQuery a = ReadNotes (Text -> a)
 
 -- | An editable note. Its parent cannot see the text — it has to ask.
-notes :: H.Component NotesQuery () Void BrowserDOM
+notes :: forall m. (MonadIO m) => H.Component NotesQuery () Void m
 notes = Hooks.component @Empty $ \_input -> Hooks.do
   (text, setText) <- usePutState "hooks all the way down"
 
@@ -101,11 +143,15 @@ newtype Output = Counted Int
 
 type Slots = "notes" .== H.Slot NotesQuery Void ()
 
-type Html scope = Hooks.HookHTML scope Slots Output BrowserDOM
+type Html scope m = Hooks.HookHTML scope Slots Output m
 
-app :: H.Component H.VoidF () Output BrowserDOM
+app :: forall m. (MonadIO m, MonadUnliftIO m, MonadBrowserDOM m) => H.Component H.VoidF () Output m
 app = Hooks.component $ \_input -> Hooks.do
   counter <- useCounter 0
+
+  -- What the count was a render ago, which this render has no other way to
+  -- know.
+  previousCount <- usePrevious counter.count
 
   -- A value read from a program that outlives the render it was written in.
   getCount <- useGet counter.count
@@ -135,19 +181,38 @@ app = Hooks.component $ \_input -> Hooks.do
 
   (fromChild, setFromChild) <- usePutState "(not asked yet)"
 
+  -- Kept in the browser rather than in the component: reload the page and the
+  -- note is still here.
+  (kept, setKept) <-
+    useLocalStorage
+      StorageInterface
+        { key = "halogen-hooks-example/note"
+        , defaultValue = "" :: Text
+        , encode = identity
+        , decode = Right
+        }
+
+  (jar, setJar) <- usePutState M.empty
+  width <- useWindowWidth
+
+  let readJar = setJar =<< lift (Cookie.getCookies =<< document =<< window)
+
+  Hooks.useLifecycleEffect $ readJar $> Nothing
+
   Hooks.pure $
     page
       [ HH.h1_ [HH.text "Halogen Hooks"]
       , HH.p_ [HH.small_ [HH.text "Open the console: the effects say what they are doing."]]
       , panel
-          "useState, useTickEffect, useMemo"
-          "A hook of the page's own, plus a value that is only recomputed when the count changes."
+          "useState, useTickEffect, useMemo, usePrevious"
+          "A hook of the page's own, a value only recomputed when the count changes, and what the count was a render ago."
           [ HH.div_
               [ button "-" counter.decrement
               , HH.text (" " <> show counter.count <> " ")
               , button "+" counter.increment
               ]
           , HH.p_ [HH.text ("count! = " <> show factorial)]
+          , HH.p_ [HH.text ("a render ago: " <> maybe "(nothing yet)" show previousCount)]
           ]
       , panel
           "useDebouncer, preventDefault"
@@ -182,6 +247,37 @@ app = Hooks.component $ \_input -> Hooks.do
           , HH.p_ [HH.text ("clicks: " <> show clicks <> ", throttled: " <> show accepted)]
           ]
       , panel
+          "useLocalStorage, and a cookie"
+          "The note is read back out of the browser on mount and written on every change: reload the page and it is still here."
+          [ HH.input
+              [ HP.type_ I.InputText
+              , HP.placeholder "something to keep"
+              , HP.value (either (const "") identity kept)
+              , HP.style $ C.width (C.pct 100)
+              , HE.onValueInput $ \t -> setKept (const (Right t))
+              ]
+          , HH.p_ [HH.text (either ("what was kept could not be read: " <>) ("what was kept: " <>) kept)]
+          , HH.p_
+              [ button "keep the count in a cookie" $ do
+                  doc <- lift (document =<< window)
+                  lift $
+                    Cookie.setCookie
+                      (Cookie.defaultCookie "halogen-hooks-example" (show counter.count))
+                        { Cookie.maxAge = Just 3600
+                        , Cookie.path = Just "/"
+                        , Cookie.sameSite = Just Cookie.Lax
+                        }
+                      doc
+                  readJar
+              ]
+          , HH.p_ [HH.small_ [HH.text ("cookies: " <> showJar jar)]]
+          ]
+      , panel
+          "a hook of your own: useWindowWidth"
+          "Subscribed to the window's resize event for as long as the component is mounted. Drag the window."
+          [ HH.p_ [HH.text ("window width: " <> maybe "(measuring)" show width)]
+          ]
+      , panel
           "useQuery, in a child"
           "The note below is a second hooks component; this one has to ask it for its text."
           [ HH.slot_ "notes" () notes ()
@@ -198,7 +294,12 @@ app = Hooks.component $ \_input -> Hooks.do
 -- Chrome.
 ----------------------------------------------------------------------
 
-page :: forall scope. [Html scope] -> Html scope
+showJar :: Map Text Text -> Text
+showJar jar
+  | M.null jar = "(none)"
+  | otherwise = T.intercalate ", " [k <> "=" <> v | (k, v) <- M.toList jar]
+
+page :: forall scope m. [Html scope m] -> Html scope m
 page =
   HH.div
     [ HP.style $ do
@@ -209,7 +310,7 @@ page =
         C.padding (C.px 24) (C.px 16) (C.px 24) (C.px 16)
     ]
 
-panel :: forall scope. Text -> Text -> [Html scope] -> Html scope
+panel :: forall scope m. Text -> Text -> [Html scope m] -> Html scope m
 panel title subtitle contents =
   HH.section
     [ HP.style $ do
@@ -223,7 +324,7 @@ panel title subtitle contents =
         <> contents
     )
 
-button :: forall scope. Text -> HookM scope Slots Output BrowserDOM () -> Html scope
+button :: forall scope m. Text -> HookM scope Slots Output m () -> Html scope m
 button label act = HH.button [HE.onClick $ const act] [HH.text label]
 
 ----------------------------------------------------------------------

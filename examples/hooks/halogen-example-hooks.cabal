@@ -52,6 +52,7 @@ executable halogen-example-hooks
       protolude,
       clay >= 0.16.0,
       kan-extensions,
+      containers,
       row-types,
       text,
       unliftio,
