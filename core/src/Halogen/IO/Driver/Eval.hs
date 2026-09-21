@@ -110,14 +110,22 @@ evalM render initRef (HalogenM hm) = foldF (go initRef) hm
         fid <- fresh ForkId ref
         DriverState {forks} <- readIORef ref
         doneRef <- newIORef False
+        -- The bookkeeping is the finalizer, not the action: a fork has to stay
+        -- in `forks` for as long as it runs, because that map is what `Join`,
+        -- `Kill` and finalization look it up in. With the two the other way
+        -- round the fork struck itself off the register before doing any work,
+        -- which left `kill` and `join` as no-ops and let a component's forks
+        -- outlive it.
         fiber <-
           fork
             $ Safe.finally
+              (evalM render ref hmu)
               ( do
                   atomicModifyIORef'_ forks (M.delete fid)
                   atomicWriteIORef doneRef True
               )
-              (evalM render ref hmu)
+        -- Already finished, so there is nothing to register: the finalizer has
+        -- run and would not remove an entry added now.
         unlessM (readIORef doneRef) $ do
           atomicModifyIORef'_ forks (M.insert fid fiber)
         pure (k fid)

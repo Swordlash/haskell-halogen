@@ -1,5 +1,13 @@
 # Revision history for haskell-halogen-core
 
+## Unreleased
+
+- **Fix.** A forked program is registered as running for as long as it runs.
+  The bookkeeping that strikes a fork off the register was being run *before*
+  the program instead of after it, which left `kill` and `join` with nothing to
+  find — both were silently no-ops — and let a component's forks carry on after
+  the component was finalized.
+
 ## 0.10.0 - 2026-09-14
 
 - **Breaking.** `MonadDOM` no longer has an instance at `IO`. Each backend is

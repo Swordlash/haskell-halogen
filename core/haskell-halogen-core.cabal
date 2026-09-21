@@ -228,6 +228,7 @@ test-suite Halogen-core-test
     
     other-modules:  Test.Canvas
                     Test.DriverReentrancy
+                    Test.Fork
                     Test.GHCJS
                     Test.NativeDom
                     Test.SvgAttributes
