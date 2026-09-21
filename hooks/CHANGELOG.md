@@ -17,4 +17,5 @@
   types with no `Eq` instance or an expensive one.
 * `usePrevious`, and `useLocalStorage` / `useSessionStorage` / `useStorageWith`
   for state that outlives the page, after the example hooks in the PureScript
-  repository.
+  repository. They take a key and a default, and how the value is written is
+  `Web.Storage.Serialize` — JSON, for a type that has aeson instances.

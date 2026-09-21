@@ -111,6 +111,9 @@ test-suite Halogen-hooks-test
     main-is:          Test.hs
     build-depends:    base >= 4.20,
                       containers,
+                      exceptions,
+                      text,
+                      unliftio,
                       haskell-halogen-core,
                       haskell-halogen-hooks,
                       hspec,
@@ -120,6 +123,7 @@ test-suite Halogen-hooks-test
     other-modules:  Test.Extra
                     Test.Harness
                     Test.Hooks
+                    Test.Storage
 
     if arch(javascript)
       js-sources:     jsbits/ghcjs_test_compat.js

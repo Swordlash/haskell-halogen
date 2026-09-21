@@ -159,7 +159,7 @@ subscriber emitter = Hooks.component @Empty $ \_input -> Hooks.do
 -- Spec.
 ----------------------------------------------------------------------
 
-withProbe :: (Probe -> Harness Q Out -> IO a) -> IO a
+withProbe :: (Probe -> Harness Q Out IO -> IO a) -> IO a
 withProbe k = do
   probe <- newProbe
   harness <- start (probeComponent probe) ()

@@ -25,7 +25,7 @@ import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
 import Halogen.Hooks qualified as Hooks
 import Halogen.Hooks.Extra.Actions.Events (preventDefault')
-import Halogen.Hooks.Extra.Hooks (StorageInterface (..), useDebouncer, useGet, useLocalStorage, useModifyState_, usePrevious, usePutState, useThrottle)
+import Halogen.Hooks.Extra.Hooks (useDebouncer, useGet, useLocalStorage, useModifyState_, usePrevious, usePutState, useThrottle)
 import Halogen.Hooks.Types (Hook, HookK (..), HookM)
 import Halogen.Query.Event qualified as HQE
 import Halogen.Subscription qualified as HS
@@ -183,14 +183,7 @@ app = Hooks.component $ \_input -> Hooks.do
 
   -- Kept in the browser rather than in the component: reload the page and the
   -- note is still here.
-  (kept, setKept) <-
-    useLocalStorage
-      StorageInterface
-        { key = "halogen-hooks-example/note"
-        , defaultValue = "" :: Text
-        , encode = identity
-        , decode = Right
-        }
+  (kept, setKept) <- useLocalStorage "halogen-hooks-example/note" ("" :: Text)
 
   (jar, setJar) <- usePutState M.empty
   width <- useWindowWidth

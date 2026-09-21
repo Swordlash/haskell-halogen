@@ -14,6 +14,10 @@ module Test.Harness
   )
 where
 
+import Control.Monad.Catch (MonadMask)
+import Control.Monad.Fork (MonadFork, MonadKill)
+import Control.Monad.Parallel (MonadParallel)
+import Control.Monad.UUID (MonadUUID)
 import Data.IORef
 import Data.Row (Row)
 import Halogen (Component, HalogenSocket (..))
@@ -26,35 +30,41 @@ import Halogen.Subscription qualified as HS
 import Halogen.VDom.Types (VDom (..), runGraft)
 import Protolude
 import Test.Hspec (shouldBe)
+import UnliftIO (MonadUnliftIO)
 
 -- | Nothing is kept per render: what the tests look at is the log.
 data TestRenderState (s :: Type) (act :: Type) (ps :: Row Type) (o :: Type)
   = TestRenderState
 
-data Harness q o = Harness
-  { socket :: HalogenSocket q o IO
+data Harness q o m = Harness
+  { socket :: HalogenSocket q o m
   , renders :: IORef [Text]
   , outputs :: IORef [o]
   }
 
+-- | What the driver asks of a component monad. 'IO' has all of it, and so does
+-- 'Halogen.VDom.DOM.Monad.MemDOM', which is the one to run in when a test
+-- needs a component monad that is a browser.
+type TestMonad m = (MonadIO m, MonadUnliftIO m, MonadFork m, MonadKill m, MonadParallel m, MonadMask m, MonadUUID m)
+
 -- | Mount a component and start watching it.
-start :: forall q i o. Component q i o IO -> i -> IO (Harness q o)
+start :: forall q i o m. (TestMonad m) => Component q i o m -> i -> m (Harness q o m)
 start c i = do
-  renders <- newIORef []
-  outputs <- newIORef []
+  renders <- liftIO $ newIORef []
+  outputs <- liftIO $ newIORef []
   socket <- AD.runUI (renderSpec renders) c i
-  void $ HS.subscribe socket.messages $ \o -> modifyIORef' outputs (<> [o])
+  void $ HS.subscribe socket.messages $ \o -> liftIO $ modifyIORef' outputs (<> [o])
   pure Harness {socket, renders, outputs}
 
 -- | Send a query to the component, as a parent would.
 --
 -- Not a field of 'Harness': 'HalogenSocket'\'s @query@ is rank-2, which a
 -- record selector cannot be.
-query :: forall q o a. Harness q o -> q a -> IO (Maybe a)
+query :: forall q o m a. Harness q o m -> q a -> m (Maybe a)
 query h q = let HalogenSocket {query = send} = h.socket in send q
 
 -- | Finalize the component.
-dispose :: forall q o. Harness q o -> IO ()
+dispose :: forall q o m. Harness q o m -> m ()
 dispose h = h.socket.dispose
 
 -- | Wait for something to become true, then assert it.
@@ -62,20 +72,20 @@ dispose h = h.socket.dispose
 -- The driver forks a component's finalizers, so @dispose@ returns before they
 -- have run; anything an effect's cleanup does has to be waited for rather than
 -- assumed to have happened.
-eventually :: forall a. (Eq a, Show a) => a -> IO a -> IO ()
+eventually :: forall a m. (MonadIO m) => (Eq a, Show a) => a -> m a -> m ()
 eventually expected act = go (1000 :: Int)
   where
     go n = do
       actual <- act
       if actual == expected || n == 0
-        then actual `shouldBe` expected
-        else threadDelay 1000 *> go (n - 1)
+        then liftIO (actual `shouldBe` expected)
+        else liftIO (threadDelay 1000) *> go (n - 1)
 
 -- | The text of the most recent render.
-lastRender :: forall q o. Harness q o -> IO Text
-lastRender h = fromMaybe "" . lastMay <$> readIORef h.renders
+lastRender :: forall q o m. (MonadIO m) => Harness q o m -> m Text
+lastRender h = liftIO $ fromMaybe "" . lastMay <$> readIORef h.renders
 
-renderSpec :: IORef [Text] -> AD.RenderSpec IO TestRenderState
+renderSpec :: forall m. (MonadIO m) => IORef [Text] -> AD.RenderSpec m TestRenderState
 renderSpec renders =
   AD.RenderSpec
     { AD.render = renderHtml renders
@@ -85,23 +95,24 @@ renderSpec renders =
     }
 
 renderHtml
-  :: forall s act ps o
-   . IORef [Text]
-  -> (Input act -> IO ())
-  -> (ComponentSlotBox ps IO act -> IO (RenderStateX TestRenderState))
-  -> HC.HTML (ComponentSlot ps IO act) act
+  :: forall s act ps o m
+   . (MonadIO m)
+  => IORef [Text]
+  -> (Input act -> m ())
+  -> (ComponentSlotBox ps m act -> m (RenderStateX TestRenderState))
+  -> HC.HTML (ComponentSlot ps m act) act
   -> Maybe (TestRenderState s act ps o)
-  -> IO (TestRenderState s act ps o)
+  -> m (TestRenderState s act ps o)
 renderHtml renders _handler renderChild html _prev = do
   -- Forced here, not when a test looks at it: what a render says is a fact
   -- about the moment it happened, and a hook program may have counted
   -- something into it.
-  rendered <- evaluate (textOf (HC.unHTML html))
-  modifyIORef' renders (<> [rendered])
+  rendered <- liftIO $ evaluate (textOf (HC.unHTML html))
+  liftIO $ modifyIORef' renders (<> [rendered])
   traverse_ renderSlot (slotsOf (HC.unHTML html))
   pure TestRenderState
   where
-    renderSlot :: ComponentSlot ps IO act -> IO ()
+    renderSlot :: ComponentSlot ps m act -> m ()
     renderSlot = \case
       ComponentSlot box -> void (renderChild box)
       ThunkSlot _ -> panic "Test.Harness: thunk slots are unsupported"

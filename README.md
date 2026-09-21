@@ -146,8 +146,10 @@ type UseCounter hooks = UseState Int : UseEffect Int : hooks
 into the same package rather than a second one: `useDebouncer`, `useThrottle`, `useGet`,
 `useEvent`, the `useStateFn` family, and `preventDefault` and friends for handlers that have to
 stop the browser handling the same event. `usePrevious` and the `useLocalStorage` family come
-from that library's own examples; the latter is built on `Web.Storage.Storage` and
-`Web.HTML.Window` in `core`, which also now has `Web.HTML.Cookie`. None of them is primitive — each is written with the hooks
+from that library's own examples. Storage is a `MonadBrowserDOM` operation, so the in-memory
+backend has it too and what a page persists can be tested without a browser; a store holds one
+JSON object of base64 values, and `Web.Storage.Serialize` says how a value becomes bytes — JSON by
+default, for any type with aeson instances. None of them is primitive — each is written with the hooks
 above and nothing else, and each is worth reading as an example of a composite hook.
 [examples/hooks/](examples/hooks/) is a page that uses every one of them.
 
