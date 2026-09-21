@@ -15,33 +15,33 @@ where
 
 import Data.IORef (IORef, readIORef)
 import Data.Row (Row)
-import Halogen.Hooks.HookM (HookAction)
-import Halogen.Hooks.Types (HookK (..))
+import Halogen.Hooks.Internal.HookM (HookAction)
+import Halogen.Hooks.Internal.Types (HookK (..))
 import Protolude
 
 -- | What an effect hook remembers: the dependencies it last ran on, and the
 -- cleanup it left.
-data EffectCell deps slots output m = EffectCell
+data EffectCell scope deps slots output m = EffectCell
   { deps :: deps
-  , cleanup :: Maybe (HookAction slots output m)
+  , cleanup :: Maybe (HookAction scope slots output m)
   }
 
-type Cells :: Row Type -> Type -> (Type -> Type) -> [HookK] -> Type
+type Cells :: Type -> Row Type -> Type -> (Type -> Type) -> [HookK] -> Type
 
 -- | The cells of a hook program, in use order.
-data Cells slots output m i where
-  CNil :: Cells slots output m '[]
-  CState :: IORef s -> Cells slots output m i -> Cells slots output m (UseState s : i)
-  CEffect :: IORef (EffectCell deps slots output m) -> Cells slots output m i -> Cells slots output m (UseEffect deps : i)
-  CMemo :: IORef (deps, a) -> Cells slots output m i -> Cells slots output m (UseMemo deps a : i)
-  CRef :: IORef a -> Cells slots output m i -> Cells slots output m (UseRef a : i)
+data Cells scope slots output m i where
+  CNil :: Cells scope slots output m '[]
+  CState :: IORef s -> Cells scope slots output m i -> Cells scope slots output m (UseState s : i)
+  CEffect :: IORef (EffectCell scope deps slots output m) -> Cells scope slots output m i -> Cells scope slots output m (UseEffect deps : i)
+  CMemo :: IORef (deps, a) -> Cells scope slots output m i -> Cells scope slots output m (UseMemo deps a : i)
+  CRef :: IORef a -> Cells scope slots output m i -> Cells scope slots output m (UseRef a : i)
   -- | A query hook keeps nothing here: its handler is replaced on every render
   -- and so lives with the rest of the per-render state.
-  CQuery :: Cells slots output m i -> Cells slots output m (UseQuery : i)
+  CQuery :: Cells scope slots output m i -> Cells scope slots output m (UseQuery : i)
 
 -- | Every cleanup the effect hooks have outstanding, in use order. Run when
 -- the component is finalized.
-cleanups :: forall slots output m i. Cells slots output m i -> IO [HookAction slots output m]
+cleanups :: forall scope slots output m i. Cells scope slots output m i -> IO [HookAction scope slots output m]
 cleanups = \case
   CNil -> pure []
   CState _ rest -> cleanups rest

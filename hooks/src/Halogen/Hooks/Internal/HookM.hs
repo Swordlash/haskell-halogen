@@ -12,7 +12,7 @@
 -- threading it through the type of every handler would defeat the point.
 -- "Halogen.Hooks.Internal.Eval" interprets these instructions into the
 -- @HalogenM@ the driver expects.
-module Halogen.Hooks.HookM
+module Halogen.Hooks.Internal.HookM
   ( HookM (..)
   , HookF (..)
   , HookAction
@@ -46,11 +46,11 @@ where
 import Control.Monad.Free.Church (F, liftF)
 import Control.Monad.Trans.Class (MonadTrans (..))
 import Data.Map.Strict qualified as M
-import Data.Row (HasType)
+import Data.Row (HasType, Row)
 import Halogen.Data.Slot (Slot)
 import Halogen.Data.Slot qualified as Slot
 import Halogen.HTML (ComponentHTML)
-import Halogen.Hooks.Types (StateId (..))
+import Halogen.Hooks.Internal.Types (StateId (..))
 import Halogen.Query.ChildQuery qualified as CQ
 import Halogen.Query.HalogenM (ForkId, SubscriptionId)
 import Halogen.Query.Input (RefLabel)
@@ -58,21 +58,23 @@ import Halogen.Subscription qualified as HS
 import Protolude hiding (get, gets, modify, put, state)
 import Web.DOM.Element (Element)
 
+type HookF :: Type -> Row Type -> Type -> (Type -> Type) -> Type -> Type
+
 -- | The instruction set. Every constructor ends in a continuation rather than
 -- carrying a @Functor m@ constraint, so 'HookM' is a monad for any @m@ at all
 -- and the constraints appear only where the program is run.
-data HookF slots output m a where
-  Lift :: m x -> (x -> a) -> HookF slots output m a
-  State :: StateId s -> (s -> (x, s)) -> (x -> a) -> HookF slots output m a
-  Raise :: output -> a -> HookF slots output m a
-  ChildQuery :: CQ.ChildQuery slots a -> HookF slots output m a
-  Subscribe :: (SubscriptionId -> HS.Emitter IO (HookM slots output m ())) -> (SubscriptionId -> a) -> HookF slots output m a
-  Unsubscribe :: SubscriptionId -> a -> HookF slots output m a
-  Fork :: HookM slots output m () -> (ForkId -> a) -> HookF slots output m a
-  Kill :: ForkId -> a -> HookF slots output m a
-  GetRef :: RefLabel -> (Maybe Element -> a) -> HookF slots output m a
+data HookF scope slots output m a where
+  Lift :: m x -> (x -> a) -> HookF scope slots output m a
+  State :: StateId scope s -> (s -> (x, s)) -> (x -> a) -> HookF scope slots output m a
+  Raise :: output -> a -> HookF scope slots output m a
+  ChildQuery :: CQ.ChildQuery slots a -> HookF scope slots output m a
+  Subscribe :: (SubscriptionId -> HS.Emitter IO (HookM scope slots output m ())) -> (SubscriptionId -> a) -> HookF scope slots output m a
+  Unsubscribe :: SubscriptionId -> a -> HookF scope slots output m a
+  Fork :: HookM scope slots output m () -> (ForkId -> a) -> HookF scope slots output m a
+  Kill :: ForkId -> a -> HookF scope slots output m a
+  GetRef :: RefLabel -> (Maybe Element -> a) -> HookF scope slots output m a
 
-instance Functor (HookF slots output m) where
+instance Functor (HookF scope slots output m) where
   fmap f = \case
     Lift mx k -> Lift mx (f . k)
     State sid g k -> State sid g (f . k)
@@ -84,53 +86,54 @@ instance Functor (HookF slots output m) where
     Kill fid a -> Kill fid (f a)
     GetRef l k -> GetRef l (f . k)
 
-newtype HookM slots output m a = HookM (F (HookF slots output m) a)
+type HookM :: Type -> Row Type -> Type -> (Type -> Type) -> Type -> Type
+newtype HookM scope slots output m a = HookM (F (HookF scope slots output m) a)
   deriving newtype (Functor, Applicative, Monad)
 
-instance MonadTrans (HookM slots output) where
+instance MonadTrans (HookM scope slots output) where
   lift mx = HookM $ liftF $ Lift mx identity
 
-instance (MonadIO m) => MonadIO (HookM slots output m) where
+instance (MonadIO m) => MonadIO (HookM scope slots output m) where
   liftIO = lift . liftIO
 
 -- | What a hooks component's DOM emits: an action is simply the 'HookM'
 -- program to run when the event fires.
-type HookAction slots output m = HookM slots output m ()
+type HookAction scope slots output m = HookM scope slots output m ()
 
 -- | The HTML a hook program renders to.
-type HookHTML slots output m = ComponentHTML (HookAction slots output m) slots m
+type HookHTML scope slots output m = ComponentHTML (HookAction scope slots output m) slots m
 
 -- | Read the current value of a state cell. Always the current value, not the
 -- one the handler was rendered with.
-get :: forall s slots output m. StateId s -> HookM slots output m s
+get :: forall s scope slots output m. StateId scope s -> HookM scope slots output m s
 get sid = HookM $ liftF $ State sid (\s -> (s, s)) identity
 
 -- | Replace the value of a state cell, scheduling a re-render.
-put :: forall s slots output m. StateId s -> s -> HookM slots output m ()
+put :: forall s scope slots output m. StateId scope s -> s -> HookM scope slots output m ()
 put sid s = HookM $ liftF $ State sid (const ((), s)) identity
 
 -- | Modify a state cell, returning the new value.
-modify :: forall s slots output m. StateId s -> (s -> s) -> HookM slots output m s
+modify :: forall s scope slots output m. StateId scope s -> (s -> s) -> HookM scope slots output m s
 modify sid f = HookM $ liftF $ State sid (\s -> let s' = f s in (s', s')) identity
 
 -- | Modify a state cell.
-modify_ :: forall s slots output m. StateId s -> (s -> s) -> HookM slots output m ()
+modify_ :: forall s scope slots output m. StateId scope s -> (s -> s) -> HookM scope slots output m ()
 modify_ sid f = HookM $ liftF $ State sid (\s -> ((), f s)) identity
 
 -- | Raise an output message for the parent component.
-raise :: forall slots output m. output -> HookM slots output m ()
+raise :: forall scope slots output m. output -> HookM scope slots output m ()
 raise o = HookM $ liftF $ Raise o ()
 
 -- | Send a query to a child component at the given slot.
 query
   :: forall label
-  ->forall slots output m query output' slot a
+  ->forall scope slots output m query output' slot a
    . (HasType label (Slot query output' slot) slots)
   => (KnownSymbol label)
   => (Ord slot)
   => slot
   -> query a
-  -> HookM slots output m (Maybe a)
+  -> HookM scope slots output m (Maybe a)
 query label p q =
   HookM
     $ liftF
@@ -140,12 +143,12 @@ query label p q =
 -- | Send a query to every child component at the given slot label.
 queryAll
   :: forall label
-  ->forall slots output m query output' slot a
+  ->forall scope slots output m query output' slot a
    . (HasType label (Slot query output' slot) slots)
   => (KnownSymbol label)
   => (Ord slot)
   => query a
-  -> HookM slots output m (Map slot a)
+  -> HookM scope slots output m (Map slot a)
 queryAll label q =
   HookM
     $ liftF
@@ -157,26 +160,26 @@ queryAll label q =
 
 -- | Subscribe to an emitter of hook programs. The subscription ends with the
 -- component, or at 'unsubscribe'.
-subscribe :: forall slots output m. HS.Emitter IO (HookAction slots output m) -> HookM slots output m SubscriptionId
+subscribe :: forall scope slots output m. HS.Emitter IO (HookAction scope slots output m) -> HookM scope slots output m SubscriptionId
 subscribe es = HookM $ liftF $ Subscribe (const es) identity
 
 -- | 'subscribe' for subscriptions that end themselves: the id is handed to the
 -- emitter rather than returned, so what it emits can refer to it.
-subscribe' :: forall slots output m. (SubscriptionId -> HS.Emitter IO (HookAction slots output m)) -> HookM slots output m ()
+subscribe' :: forall scope slots output m. (SubscriptionId -> HS.Emitter IO (HookAction scope slots output m)) -> HookM scope slots output m ()
 subscribe' esc = HookM $ liftF $ Subscribe esc (const ())
 
 -- | End a subscription early.
-unsubscribe :: forall slots output m. SubscriptionId -> HookM slots output m ()
+unsubscribe :: forall scope slots output m. SubscriptionId -> HookM scope slots output m ()
 unsubscribe sid = HookM $ liftF $ Unsubscribe sid ()
 
 -- | Run a hook program independently of the one that started it.
-fork :: forall slots output m. HookAction slots output m -> HookM slots output m ForkId
+fork :: forall scope slots output m. HookAction scope slots output m -> HookM scope slots output m ForkId
 fork hm = HookM $ liftF $ Fork hm identity
 
 -- | Kill a forked program.
-kill :: forall slots output m. ForkId -> HookM slots output m ()
+kill :: forall scope slots output m. ForkId -> HookM scope slots output m ()
 kill fid = HookM $ liftF $ Kill fid ()
 
 -- | The element currently rendered at a 'RefLabel', if any.
-getRef :: forall slots output m. RefLabel -> HookM slots output m (Maybe Element)
+getRef :: forall scope slots output m. RefLabel -> HookM scope slots output m (Maybe Element)
 getRef label = HookM $ liftF $ GetRef label identity

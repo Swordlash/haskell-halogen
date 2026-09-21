@@ -36,16 +36,14 @@ stalenessComponent probe events = Hooks.component @Empty $ \_input -> Hooks.do
 
   Hooks.useLifecycleEffect $ do
     -- Built once. @count@ in here is the first render's 0 for ever after.
-    void $ Hooks.subscribe $ map (onEvent count getCount setCount) events
+    void $ Hooks.subscribe $ flip map events $ \case
+      Bump -> getCount >>= setCount . (+ 1)
+      Report -> do
+        latest <- getCount
+        liftIO $ writeIORef probe (latest, count)
     pure Nothing
 
   Hooks.pure $ HH.text ("count=" <> show count)
-  where
-    onEvent asRendered getLatest setCount = \case
-      Bump -> getLatest >>= setCount . (+ 1)
-      Report -> do
-        latest <- getLatest
-        liftIO $ writeIORef probe (latest, asRendered)
 
 ----------------------------------------------------------------------
 -- useDebouncer and useThrottle.
@@ -100,18 +98,16 @@ eventComponent probe events = Hooks.component @Empty $ \_input -> Hooks.do
   api <- useEvent
 
   Hooks.useLifecycleEffect $ do
-    void $ Hooks.subscribe $ map (onEvent api) events
-    pure Nothing
-
-  Hooks.pure $ HH.text "event"
-  where
-    onEvent api = \case
+    void $ Hooks.subscribe $ flip map events $ \case
       Push t -> api.push t
       Listen -> void $ api.setCallback $ \unsubscribe t -> do
         liftIO $ modifyIORef' probe (<> [t])
         -- A handler can take itself off, which is what the program it is
         -- handed is for.
         when (t == "last") unsubscribe
+    pure Nothing
+
+  Hooks.pure $ HH.text "event"
 
 ----------------------------------------------------------------------
 -- Spec.

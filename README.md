@@ -152,7 +152,10 @@ above and nothing else, and each is worth reading as an example of a composite h
 The PureScript original has to do several of these things at runtime, and GHC's type system means
 this port does not. The hook list is a type-level list rather than a chain of newtypes; the cell
 store is indexed by it, so a cell is read back at the type it was written rather than coerced out
-of an array; effect and memo dependencies are an ordinary value compared with `==`, so
+of an array; a state handle is branded with the component that owns it, the way `ST` brands an
+`STRef`, so it cannot be raised as an output or stashed somewhere that outlives its component;
+effect and memo dependencies are an ordinary value compared with `==` (or with a comparison of
+your own, through `useTickEffectBy` and `useMemoBy`), so
 `Hooks.captures {x, y} Hooks.useTickEffect` becomes `Hooks.useTickEffect (x, y)`; and a
 component's query algebra is part of its hook program's type, so there is no `componentWithQuery`
 and no tokens to pass around.

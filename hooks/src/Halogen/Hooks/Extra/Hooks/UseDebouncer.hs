@@ -18,9 +18,9 @@ where
 
 import Data.IORef (readIORef, writeIORef)
 import Data.Time (NominalDiffTime)
-import Halogen.Hooks (Hook, HookK (..), HookM)
 import Halogen.Hooks qualified as Hooks
 import Halogen.Hooks.Extra.Internal.Delay (delayFor)
+import Halogen.Hooks.Types (Hook, HookK (..), HookM)
 import Halogen.Query.HalogenM (ForkId)
 import Protolude
 
@@ -32,12 +32,12 @@ type UseDebouncer hooks = UseRef (Maybe ForkId) : hooks
 --
 -- The waiting is a component fork, so it is killed along with the component.
 useDebouncer
-  :: forall a q slots output m hooks
+  :: forall a scope q slots output m hooks
    . (MonadIO m)
   => NominalDiffTime
   -- ^ how long the values have to stop for
-  -> (a -> HookM slots output m ())
-  -> Hook q slots output m (UseDebouncer hooks) hooks (a -> HookM slots output m ())
+  -> (a -> HookM scope slots output m ())
+  -> Hook scope q slots output m (UseDebouncer hooks) hooks (a -> HookM scope slots output m ())
 useDebouncer quiet act = Hooks.do
   (_, pending) <- Hooks.useRef Nothing
 

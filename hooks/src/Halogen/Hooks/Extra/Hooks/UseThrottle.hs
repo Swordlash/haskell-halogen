@@ -13,9 +13,9 @@ where
 
 import Data.IORef (IORef, atomicModifyIORef')
 import Data.Time (NominalDiffTime)
-import Halogen.Hooks (Hook, HookK (..), HookM)
 import Halogen.Hooks qualified as Hooks
 import Halogen.Hooks.Extra.Internal.Delay (delayFor)
+import Halogen.Hooks.Types (Hook, HookK (..), HookM)
 import Protolude
 
 -- | What the throttle is doing: nothing, or holding a period open with at most
@@ -29,12 +29,12 @@ type UseThrottle a hooks = UseRef (Throttling a) : hooks
 --
 -- The waiting is a component fork, so it is killed along with the component.
 useThrottle
-  :: forall a q slots output m hooks
+  :: forall a scope q slots output m hooks
    . (MonadIO m)
   => NominalDiffTime
   -- ^ the shortest gap between two runs
-  -> (a -> HookM slots output m ())
-  -> Hook q slots output m (UseThrottle a hooks) hooks (a -> HookM slots output m ())
+  -> (a -> HookM scope slots output m ())
+  -> Hook scope q slots output m (UseThrottle a hooks) hooks (a -> HookM scope slots output m ())
 useThrottle period act = Hooks.do
   (_, throttle) <- Hooks.useRef Nothing
 
@@ -48,7 +48,7 @@ useThrottle period act = Hooks.do
       act a
       void $ Hooks.fork $ drain throttle
   where
-    drain :: IORef (Throttling a) -> HookM slots output m ()
+    drain :: IORef (Throttling a) -> HookM scope slots output m ()
     drain throttle = do
       delayFor period
       waiting <- liftIO $ atomicModifyIORef' throttle $ \case

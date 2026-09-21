@@ -16,10 +16,10 @@ import Halogen qualified as H
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
-import Halogen.Hooks (Hook, HookK (..), HookM)
 import Halogen.Hooks qualified as Hooks
 import Halogen.Hooks.Extra.Actions.Events (preventDefault')
 import Halogen.Hooks.Extra.Hooks (useDebouncer, useGet, useModifyState_, usePutState, useThrottle)
+import Halogen.Hooks.Types (Hook, HookK (..), HookM)
 import Halogen.Subscription qualified as HS
 import Halogen.VDom.DOM.Monad (BrowserDOM, runBrowserDOM)
 import Protolude
@@ -39,10 +39,10 @@ type UseCounter hooks = UseState Int : UseEffect Int : hooks
 
 -- | What 'useCounter' hands back. Handlers rather than a 'Hooks.StateId', so
 -- the caller cannot change the count in a way the hook did not intend.
-data Counter slots output m = Counter
+data Counter scope slots output m = Counter
   { count :: Int
-  , increment :: HookM slots output m ()
-  , decrement :: HookM slots output m ()
+  , increment :: HookM scope slots output m ()
+  , decrement :: HookM scope slots output m ()
   }
 
 -- | A counter that logs every value it takes.
@@ -50,10 +50,10 @@ data Counter slots output m = Counter
 -- Nothing here is special to this application: a hook is an ordinary function,
 -- and this one could live in a library.
 useCounter
-  :: forall q slots output m hooks
+  :: forall scope q slots output m hooks
    . (MonadIO m)
   => Int
-  -> Hook q slots output m (UseCounter hooks) hooks (Counter slots output m)
+  -> Hook scope q slots output m (UseCounter hooks) hooks (Counter scope slots output m)
 useCounter initial = Hooks.do
   (count, countId) <- Hooks.useState initial
 
@@ -101,7 +101,7 @@ newtype Output = Counted Int
 
 type Slots = "notes" .== H.Slot NotesQuery Void ()
 
-type Html = Hooks.HookHTML Slots Output BrowserDOM
+type Html scope = Hooks.HookHTML scope Slots Output BrowserDOM
 
 app :: H.Component H.VoidF () Output BrowserDOM
 app = Hooks.component $ \_input -> Hooks.do
@@ -198,7 +198,7 @@ app = Hooks.component $ \_input -> Hooks.do
 -- Chrome.
 ----------------------------------------------------------------------
 
-page :: [Html] -> Html
+page :: forall scope. [Html scope] -> Html scope
 page =
   HH.div
     [ HP.style $ do
@@ -209,7 +209,7 @@ page =
         C.padding (C.px 24) (C.px 16) (C.px 24) (C.px 16)
     ]
 
-panel :: Text -> Text -> [Html] -> Html
+panel :: forall scope. Text -> Text -> [Html scope] -> Html scope
 panel title subtitle contents =
   HH.section
     [ HP.style $ do
@@ -223,7 +223,7 @@ panel title subtitle contents =
         <> contents
     )
 
-button :: Text -> HookM Slots Output BrowserDOM () -> Html
+button :: forall scope. Text -> HookM scope Slots Output BrowserDOM () -> Html scope
 button label act = HH.button [HE.onClick $ const act] [HH.text label]
 
 ----------------------------------------------------------------------

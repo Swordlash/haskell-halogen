@@ -18,7 +18,7 @@ module Halogen.Hooks.Extra.Actions.Events
   )
 where
 
-import Halogen.Hooks.HookM (HookM)
+import Halogen.Hooks.Types (HookM)
 import Protolude
 import Web.Event.Event (Event)
 import Web.Event.Event qualified as EE
@@ -28,26 +28,26 @@ import Web.UIEvent.MouseEvent (MouseEvent)
 import Web.UIEvent.MouseEvent qualified as ME
 
 -- | Prevent the default action of an 'Event'.
-preventDefault' :: forall slots output m. (MonadIO m) => Event -> HookM slots output m ()
+preventDefault' :: forall scope slots output m. (MonadIO m) => Event -> HookM scope slots output m ()
 preventDefault' = EE.preventDefault
 
 -- | Prevent the default action of anything that is an 'Event' underneath, such
 -- as a 'MouseEvent'. Takes the @toEvent@ of the event's own module.
-preventDefault :: forall e slots output m. (MonadIO m) => (e -> Event) -> e -> HookM slots output m ()
+preventDefault :: forall e scope slots output m. (MonadIO m) => (e -> Event) -> e -> HookM scope slots output m ()
 preventDefault toEvent = preventDefault' . toEvent
 
 -- | 'preventDefault' for a 'MouseEvent'.
-preventMouseEvent :: forall slots output m. (MonadIO m) => MouseEvent -> HookM slots output m ()
+preventMouseEvent :: forall scope slots output m. (MonadIO m) => MouseEvent -> HookM scope slots output m ()
 preventMouseEvent = preventDefault ME.toEvent
 
 -- | 'preventDefault' for a 'KeyboardEvent'.
-preventKeyEvent :: forall slots output m. (MonadIO m) => KeyboardEvent -> HookM slots output m ()
+preventKeyEvent :: forall scope slots output m. (MonadIO m) => KeyboardEvent -> HookM scope slots output m ()
 preventKeyEvent = preventDefault KE.toEvent
 
 -- | Stop an 'Event' travelling further up the tree.
-stopPropagation' :: forall slots output m. (MonadIO m) => Event -> HookM slots output m ()
+stopPropagation' :: forall scope slots output m. (MonadIO m) => Event -> HookM scope slots output m ()
 stopPropagation' = EE.stopPropagation
 
 -- | 'stopPropagation'' for anything that is an 'Event' underneath.
-stopPropagation :: forall e slots output m. (MonadIO m) => (e -> Event) -> e -> HookM slots output m ()
+stopPropagation :: forall e scope slots output m. (MonadIO m) => (e -> Event) -> e -> HookM scope slots output m ()
 stopPropagation toEvent = stopPropagation' . toEvent

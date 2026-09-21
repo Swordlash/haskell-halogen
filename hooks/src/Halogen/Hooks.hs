@@ -52,6 +52,7 @@ module Halogen.Hooks
     -- * Hook programs
   , Hook
   , HookK (..)
+  , AtMostOneQuery
   , HookFn
   , HookHTML
 
@@ -59,7 +60,9 @@ module Halogen.Hooks
   , useState
   , useLifecycleEffect
   , useTickEffect
+  , useTickEffectBy
   , useMemo
+  , useMemoBy
   , useRef
   , useQuery
 
@@ -104,10 +107,10 @@ module Halogen.Hooks
 where
 
 import Halogen.Component (Component, ComponentSpec' (..), mkComponent)
-import Halogen.Hooks.Hook
-import Halogen.Hooks.HookM
-import Halogen.Hooks.Internal.Eval (HookFn, HookState (..), evalHook, initialHookState)
-import Halogen.Hooks.Types (HookK (..), StateId)
+import Halogen.Hooks.Internal.Eval (HookState (..), evalHook, initialHookState)
+import Halogen.Hooks.Internal.Hook
+import Halogen.Hooks.Internal.HookM
+import Halogen.Hooks.Internal.Types (AtMostOneQuery, HookK (..), StateId)
 import Protolude hiding (fmap, get, gets, modify, pure, put, return, state, void, (<$>), (<*>), (>>), (>>=))
 
 -- | Turn a hook program into a component.
@@ -120,15 +123,28 @@ import Protolude hiding (fmap, get, gets, modify, pure, put, return, state, void
 -- component that renders no children has to say which row it means some other
 -- way: either a signature on the hook function, or @Hooks.component \@Empty@
 -- — the slot row is deliberately the first type argument for that reason.
+--
+-- The program is taken for every @scope@ so that the state handles it makes
+-- belong to it alone: see 'StateId'. Writing one changes nothing about how a
+-- component is written, but a handle that leaves the component — raised as an
+-- output, kept in a ref that outlives it — no longer type-checks.
 component
   :: forall slots q input output m hooks
-   . (MonadIO m)
-  => HookFn q input slots output m hooks
+   . (MonadIO m, AtMostOneQuery hooks)
+  => (forall scope. HookFn scope q input slots output m hooks)
   -> Component q input output m
 component hookFn =
   mkComponent
     ComponentSpec
-      { initialState = initialHookState hookFn
+      { initialState = initialHookState (hookFn @ComponentScope)
       , render = \st -> st.result
       , eval = evalHook
       }
+
+-- | The scope every component's state handles are run at.
+--
+-- Uninhabited and never exported. A hook program has to be written for /every/
+-- scope, so the one it is run at is a type its own code cannot name, and the
+-- handles it makes cannot be passed to anything outside it. 'Control.Monad.ST.runST'
+-- instantiates at 'GHC.Exts.RealWorld' for the same reason.
+data ComponentScope

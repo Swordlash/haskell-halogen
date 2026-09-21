@@ -18,8 +18,8 @@ module Halogen.Hooks.Extra.Hooks.UseGet
 where
 
 import Data.IORef (readIORef, writeIORef)
-import Halogen.Hooks (Hook, HookK (..), HookM)
 import Halogen.Hooks qualified as Hooks
+import Halogen.Hooks.Types (Hook, HookK (..), HookM)
 import Protolude
 
 -- | The hooks 'useGet' uses: a ref holding the value, and the effect that
@@ -28,10 +28,10 @@ type UseGet a hooks = UseRef a : UseEffect a : hooks
 
 -- | A program that reads the latest value this hook was called with.
 useGet
-  :: forall a q slots output m hooks
+  :: forall a scope q slots output m hooks
    . (Eq a, MonadIO m)
   => a
-  -> Hook q slots output m (UseGet a hooks) hooks (HookM slots output m a)
+  -> Hook scope q slots output m (UseGet a hooks) hooks (HookM scope slots output m a)
 useGet value = Hooks.do
   (_, ref) <- Hooks.useRef value
 

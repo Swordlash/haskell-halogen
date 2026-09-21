@@ -11,8 +11,8 @@ import Data.IORef
 import Data.Row (Empty, type (.==))
 import Halogen qualified as H
 import Halogen.HTML qualified as HH
-import Halogen.Hooks (HookK (UseQuery, UseState))
 import Halogen.Hooks qualified as Hooks
+import Halogen.Hooks.Types (HookK (UseQuery, UseState))
 import Halogen.Subscription qualified as HS
 import Protolude
 import System.IO.Unsafe (unsafePerformIO)
@@ -121,8 +121,9 @@ parent = Hooks.component parentHooks
 -- | Written out to show what a hook program's type looks like when it is not
 -- inferred: the hooks it uses, in the order it uses them.
 parentHooks
-  :: ()
-  -> Hooks.Hook ParentQ PSlots Void IO (UseState Int : UseQuery : '[]) '[] (Hooks.HookHTML PSlots Void IO)
+  :: forall scope
+   . ()
+  -> Hooks.Hook scope ParentQ PSlots Void IO (UseState Int : UseQuery : '[]) '[] (Hooks.HookHTML scope PSlots Void IO)
 parentHooks _input = Hooks.do
   (seen, seenId) <- Hooks.useState (0 :: Int)
 
