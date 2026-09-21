@@ -26,6 +26,9 @@ toForeign = unsafeCoerce
 unsafeFromForeign :: Foreign tag -> a
 unsafeFromForeign = unsafeCoerce
 
+stringToForeign :: Text -> Foreign tag
+stringToForeign = toJSString . toS
+
 readProp :: Text -> (Foreign tag -> Maybe a) -> Foreign tag' -> Maybe a
 readProp key f o = nullableToMaybe (Nullable $ unsafeGetProp o (toS key)) >>= f
 
@@ -79,6 +82,10 @@ toForeign = unsafeCoerce
 unsafeFromForeign :: Foreign tag -> a
 unsafeFromForeign = unsafeCoerce
 
+stringToForeign :: Text -> Foreign tag
+stringToForeign value = case toJSString (toS value) of
+  JSString result -> result
+
 readProp :: Text -> (Foreign tag -> Maybe a) -> Foreign tag' -> Maybe a
 readProp key f o = f $ unsafeGetProp o (toJSString $ toS key)
 
@@ -98,6 +105,9 @@ toForeign = Foreign . unsafeCoerce
 
 unsafeFromForeign :: Foreign tag -> a
 unsafeFromForeign (Foreign o) = unsafeCoerce o
+
+stringToForeign :: Text -> Foreign tag
+stringToForeign = toForeign
 
 readProp :: Text -> (Foreign tag -> Maybe a) -> Foreign tag' -> Maybe a
 readProp = panic "Unavailable in GHC" -- TODO

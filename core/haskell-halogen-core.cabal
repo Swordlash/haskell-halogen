@@ -168,11 +168,14 @@ library
       Web.Event.Internal.Types
       Web.Event.Event
       Web.HTML.Common
+      Web.HTML.Cookie
       Web.HTML.Event.DragEvent
       Web.HTML.Event.DragEvent.EventTypes
       Web.HTML.Event.EventTypes
       Web.HTML.HTMLDocument
       Web.HTML.HTMLDocument.ReadyState
+      Web.HTML.Window
+      Web.Storage.Storage
       Web.UIEvent.FocusEvent
       Web.UIEvent.FocusEvent.EventTypes
       Web.UIEvent.KeyboardEvent
@@ -197,6 +200,7 @@ library
 
       js-sources:
         jsbits/monad_dom.js
+        jsbits/web_browser.js
         jsbits/web_event.js
 
       ghc-options: -fexpose-all-unfoldings
@@ -219,6 +223,7 @@ test-suite Halogen-core-test
     main-is:          Test.hs
     build-depends:    base >= 4.20,
                       clay >= 0.16.0,
+                      containers,
                       haskell-halogen-core,
                       hspec,
                       mtl,
@@ -228,6 +233,7 @@ test-suite Halogen-core-test
                       transformers
     
     other-modules:  Test.Canvas
+                    Test.Cookie
                     Test.DriverReentrancy
                     Test.Fork
                     Test.GHCJS

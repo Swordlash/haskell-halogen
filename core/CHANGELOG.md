@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- The browser's own storage: `Web.Storage.Storage` for the Web Storage API,
+  `Web.HTML.Window` for `localStorage`, `sessionStorage` and the viewport size,
+  and `Web.HTML.Cookie` for cookies one at a time — the parsing and rendering
+  of the cookie string are pure, and percent-encode what a cookie cannot carry.
+  Off the browser backends a store holds nothing and keeps nothing, so a
+  component written for the browser still runs against the in-memory DOM.
+- `Halogen.Subscription.lowerEmitter` runs an emitter's registration in `IO`,
+  which is what the driver subscribes in. `Halogen.Query.Event.eventListener`
+  builds an emitter in the component's monad, so until now the two could not
+  be put together.
 - `Web.Event.Event` gains `preventDefault`, `stopPropagation` and
   `stopImmediatePropagation`, and every event newtype gains `toEvent`. Off the
   browser backends the three are no-ops rather than a `panic`, so a handler
