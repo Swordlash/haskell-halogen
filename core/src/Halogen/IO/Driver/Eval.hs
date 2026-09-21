@@ -128,6 +128,12 @@ evalM render initRef (HalogenM hm) = foldF (go initRef) hm
         -- run and would not remove an entry added now.
         unlessM (readIORef doneRef) $ do
           atomicModifyIORef'_ forks (M.insert fid fiber)
+          -- It can also finish in the gap between that check and this insert,
+          -- in which case its own removal ran before there was anything to
+          -- remove and this entry would sit in the map until the component was
+          -- disposed of. doneRef is written after the removal, so reading it
+          -- once more here catches exactly the entry we have just orphaned.
+          whenM (readIORef doneRef) $ atomicModifyIORef'_ forks (M.delete fid)
         pure (k fid)
       Join fid a -> do
         DriverState {forks} <- readIORef ref
