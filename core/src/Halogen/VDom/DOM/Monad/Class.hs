@@ -15,6 +15,8 @@ module Halogen.VDom.DOM.Monad.Class
   , MonadDOM (..)
   , MonadAttributes (..)
   , MonadBrowserDOM (..)
+  , StorageKind (..)
+  , storageKey
   , mouseHandler
   )
 where
@@ -225,6 +227,35 @@ class
   readyState :: HTMLDocument -> m ReadyState
   default readyState :: (LiftsBrowserDOM t n m) => HTMLDocument -> m ReadyState
   readyState = lift . readyState
+
+  -- What a store keeps, as one piece of text. A backend is asked for nothing
+  -- more than that: "Web.Storage.Storage" is what says the text is a JSON
+  -- object of base64, and it says it once for every backend rather than once
+  -- per backend.
+  --
+  -- A store that has never been written reads as the empty text.
+  readStorage :: StorageKind -> m Text
+  default readStorage :: (LiftsBrowserDOM t n m) => StorageKind -> m Text
+  readStorage = lift . readStorage
+
+  writeStorage :: StorageKind -> Text -> m ()
+  default writeStorage :: (LiftsBrowserDOM t n m) => StorageKind -> Text -> m ()
+  writeStorage kind text = lift (writeStorage kind text)
+
+-- | Which of the browser's two stores is meant. They differ only in how long
+-- what is written to them lasts: a session store is emptied when the tab is
+-- closed, a local one is not.
+data StorageKind
+  = LocalStorage
+  | SessionStorage
+  deriving stock (Eq, Ord, Show)
+
+-- | The key a browser keeps the whole of one store under.
+--
+-- One entry rather than a scattering of them, because what a store holds is
+-- one object: see "Web.Storage.Storage".
+storageKey :: Text
+storageKey = "haskell-halogen"
 
 -- | 'LiftsAttributes', for a backend that is a browser.
 type LiftsBrowserDOM t n m = (LiftsAttributes t n m, MonadBrowserDOM n)

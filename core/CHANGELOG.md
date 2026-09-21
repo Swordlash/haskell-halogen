@@ -2,12 +2,17 @@
 
 ## Unreleased
 
-- The browser's own storage: `Web.Storage.Storage` for the Web Storage API,
-  `Web.HTML.Window` for `localStorage`, `sessionStorage` and the viewport size,
-  and `Web.HTML.Cookie` for cookies one at a time — the parsing and rendering
-  of the cookie string are pure, and percent-encode what a cookie cannot carry.
-  Off the browser backends a store holds nothing and keeps nothing, so a
-  component written for the browser still runs against the in-memory DOM.
+- The browser's own storage. `MonadBrowserDOM` gains `readStorage` and
+  `writeStorage`, which read and write the whole of one store as text, and
+  `Web.Storage.Storage` says what that text is: one JSON object, whose keys are
+  the keys a program stores under and whose values are the base64 of whatever
+  `Web.Storage.Serialize` turned a value into. That class writes as JSON by
+  default, so a type with `ToJSON` and `FromJSON` needs only an empty instance.
+  The in-memory DOM has the two stores as well, kept in a global `IORef`, so
+  what a page persists can be tested without a browser.
+- `Web.HTML.Window` for the viewport size, and `Web.HTML.Cookie` for cookies
+  one at a time — the parsing and rendering of the cookie string are pure, and
+  percent-encode what a cookie cannot carry.
 - `Halogen.Subscription.lowerEmitter` runs an emitter's registration in `IO`,
   which is what the driver subscribes in. `Halogen.Query.Event.eventListener`
   builds an emitter in the component's monad, so until now the two could not

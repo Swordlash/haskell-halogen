@@ -38,6 +38,10 @@ foreign import javascript unsafe "js_insert_before" js_insert_before :: Node -> 
 
 foreign import javascript unsafe "js_get_window" js_get_window :: IO Window
 
+foreign import javascript unsafe "js_storage_read" js_storage_read :: JSVal -> JSVal -> IO JSVal
+
+foreign import javascript unsafe "js_storage_write" js_storage_write :: JSVal -> JSVal -> JSVal -> IO ()
+
 foreign import javascript unsafe "js_get_document" js_get_document :: Window -> IO HTMLDocument
 
 foreign import javascript unsafe "js_append_child" js_append_child :: Node -> ParentNode -> IO ()
@@ -113,6 +117,8 @@ instance MonadBrowserDOM BrowserDOM where
   document w = liftIO $ js_get_document w
   querySelector (QuerySelector qs) parent = liftIO $ fmap Element . nullableToMaybe <$> js_query_selector (toJSString $ toS qs) (coerce parent)
   readyState doc = liftIO $ (fromMaybe ReadyState.Loading . ReadyState.parse . toS . fromJSString) <$> js_ready_state doc
+  readStorage kind = liftIO $ toS . fromJSString <$> js_storage_read (storageName kind) (toJSString $ toS storageKey)
+  writeStorage kind text = liftIO $ js_storage_write (storageName kind) (toJSString $ toS storageKey) (toJSString $ toS text)
 
 instance MonadAttributes BrowserDOM where
   setAttribute ns (AttrName name) val el = liftIO $ js_set_attribute (maybe jsNull (toJSString . toS . unNamespace) ns) (toJSString $ toS name) (toJSString $ toS val) el
@@ -121,6 +127,13 @@ instance MonadAttributes BrowserDOM where
   removeProperty (PropName name) el = liftIO $ js_remove_property (toJSString $ toS name) el
   removeAttribute ns (AttrName name) el = liftIO $ js_remove_attribute (maybe jsNull (toJSString . toS . unNamespace) ns) (toJSString $ toS name) el
   hasAttribute ns (AttrName name) el = liftIO $ js_has_attribute (maybe jsNull (toJSString . toS . unNamespace) ns) (toJSString $ toS name) el
+
+-- | Which store the browser is being asked for, as the string the shim
+-- switches on.
+storageName :: StorageKind -> JSVal
+storageName = \case
+  LocalStorage -> toJSString "local"
+  SessionStorage -> toJSString "session"
 
 propValueToJSVal :: PropValue a -> JSVal
 propValueToJSVal (IntProp x) = toJSInt $ fromIntegral x

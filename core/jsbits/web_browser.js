@@ -1,37 +1,15 @@
-// The browser globals bound by Web.Storage.Storage, Web.HTML.Window and the
-// cookie half of Web.HTML.HTMLDocument. The GHC JavaScript backend calls these
+// The browser globals bound by the storage half of MonadBrowserDOM,
+// Web.HTML.Window and the cookie half of Web.HTML.HTMLDocument. The GHC JavaScript backend calls these
 // by name; the wasm backend writes the same expressions inline.
 
-function js_storage_get_item(key, storage) {
-  return storage.getItem(key);
+function js_storage_read(kind, key) {
+  const store = kind === "local" ? window.localStorage : window.sessionStorage;
+  return store.getItem(key) ?? "";
 }
 
-function js_storage_set_item(key, value, storage) {
-  storage.setItem(key, value);
-}
-
-function js_storage_remove_item(key, storage) {
-  storage.removeItem(key);
-}
-
-function js_storage_clear(storage) {
-  storage.clear();
-}
-
-function js_storage_length(storage) {
-  return storage.length;
-}
-
-function js_storage_key(index, storage) {
-  return storage.key(index);
-}
-
-function js_window_local_storage(window) {
-  return window.localStorage;
-}
-
-function js_window_session_storage(window) {
-  return window.sessionStorage;
+function js_storage_write(kind, key, value) {
+  const store = kind === "local" ? window.localStorage : window.sessionStorage;
+  store.setItem(key, value);
 }
 
 function js_window_inner_width(window) {

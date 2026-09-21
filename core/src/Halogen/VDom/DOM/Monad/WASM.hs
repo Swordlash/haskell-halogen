@@ -35,6 +35,10 @@ foreign import javascript unsafe "$1 !== $2.previousSibling && $3.insertBefore($
 
 foreign import javascript unsafe "globalThis.window" js_get_window :: IO Window
 
+foreign import javascript unsafe "(($1 === 'local' ? globalThis.localStorage : globalThis.sessionStorage).getItem($2) ?? '')" js_storage_read :: JSVal -> JSVal -> IO JSVal
+
+foreign import javascript unsafe "($1 === 'local' ? globalThis.localStorage : globalThis.sessionStorage).setItem($2, $3)" js_storage_write :: JSVal -> JSVal -> JSVal -> IO ()
+
 foreign import javascript unsafe "$1.document" js_get_document :: Window -> IO HTMLDocument
 
 foreign import javascript unsafe "$2.lastChild !== $1 && $2.appendChild($1)" js_append_child :: Node -> ParentNode -> IO ()
@@ -117,6 +121,15 @@ instance MonadBrowserDOM BrowserDOM where
   document w = liftIO $ js_get_document w
   querySelector (QuerySelector selector) parent = liftIO $ fmap Element . nullableToMaybe <$> js_query_selector (jsStringVal selector) (coerce parent)
   readyState doc = liftIO $ (fromMaybe ReadyState.Loading . ReadyState.parse . foreignToString) <$> js_ready_state doc
+  readStorage kind = liftIO $ foreignToString <$> js_storage_read (storageName kind) (jsStringVal storageKey)
+  writeStorage kind text = liftIO $ js_storage_write (storageName kind) (jsStringVal storageKey) (jsStringVal text)
+
+-- | Which store the browser is being asked for, as the string the expressions
+-- above switch on.
+storageName :: StorageKind -> JSVal
+storageName = \case
+  LocalStorage -> jsStringVal "local"
+  SessionStorage -> jsStringVal "session"
 
 propValueToJSVal :: PropValue a -> JSVal
 propValueToJSVal (IntProp x) = js_toJSInt $ fromIntegral x

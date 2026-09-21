@@ -139,6 +139,17 @@ nextIdent = atomicModifyIORef' identSource $ \n -> (n + 1, n)
 ambientDocument :: NativeNode
 ambientDocument = unsafePerformIO newDocument
 
+-- | What the in-memory DOM keeps instead of the browser's stores.
+--
+-- One global, for the same reason 'ambientDocument' is one: the class hands a
+-- backend a 'StorageKind' and nothing else to key on. It is never emptied
+-- between components, which is the point — that is how a test watches
+-- something persist across a remount — so a test that cares about starting
+-- from nothing should 'Web.Storage.Storage.clear' first.
+{-# NOINLINE ambientStorage #-}
+ambientStorage :: IORef (Map StorageKind Text)
+ambientStorage = unsafePerformIO (newIORef M.empty)
+
 -- | A fresh document containing @\<html>\<head>\<\/head>\<body>\<\/body>\<\/html>@,
 -- so 'Halogen.IO.Util.awaitBody' finds a body the way it would in a browser.
 newDocument :: IO NativeNode
@@ -453,6 +464,8 @@ instance MonadBrowserDOM MemDOM where
       $ fmap fromNative
       <$> queryNative selector (toNative parent)
   readyState _ = liftIO $ pure ReadyState.Complete
+  readStorage kind = liftIO $ fromMaybe "" . M.lookup kind <$> readIORef ambientStorage
+  writeStorage kind text = liftIO $ atomicModifyIORef' ambientStorage $ \stores -> (M.insert kind text stores, ())
 
 instance MonadAttributes MemDOM where
   setAttribute ns (AttrName name) val el =

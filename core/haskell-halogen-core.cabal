@@ -55,6 +55,8 @@ common commons
   import: defaults
   build-depends:
       base >= 4.20,
+      aeson,
+      base64-bytestring,
       free,
       transformers,
       mtl,
@@ -175,6 +177,7 @@ library
       Web.HTML.HTMLDocument
       Web.HTML.HTMLDocument.ReadyState
       Web.HTML.Window
+      Web.Storage.Serialize
       Web.Storage.Storage
       Web.UIEvent.FocusEvent
       Web.UIEvent.FocusEvent.EventTypes
@@ -222,6 +225,7 @@ test-suite Halogen-core-test
     hs-source-dirs:   test
     main-is:          Test.hs
     build-depends:    base >= 4.20,
+                      aeson,
                       clay >= 0.16.0,
                       containers,
                       haskell-halogen-core,
@@ -238,6 +242,7 @@ test-suite Halogen-core-test
                     Test.Fork
                     Test.GHCJS
                     Test.NativeDom
+                    Test.Storage
                     Test.SvgAttributes
                     Test.Utils
 
