@@ -14,12 +14,13 @@ The examples are deployed [here](https://swordlash.github.io/haskell-halogen/).
 | Directory | Package | What it is |
 | --- | --- | --- |
 | [core/](core/) | `haskell-halogen-core` | The Halogen port itself: components, VDom, events, SVG, layouts. |
+| [hooks/](hooks/) | `haskell-halogen-hooks` | A port of `purescript-halogen-hooks`: a component as one function. |
 | [material/](material/) | `haskell-halogen-material` | Google Material Components bindings. |
 | [pixi/](pixi/) | `haskell-halogen-pixi` | A PixiJS v8 canvas rendering backend. |
 | [examples/](examples/) | `halogen-example-*` | One runnable browser app per library. |
 
-`core` is dependency-free with respect to the others; `material` and `pixi` each depend only on
-`core`. Every package builds from the one `cabal.project` at the repository root, so a change to
+`core` is dependency-free with respect to the others; `hooks`, `material` and `pixi` each depend
+only on `core`. Every package builds from the one `cabal.project` at the repository root, so a change to
 `core` is type-checked against every dependent and every example in the same build.
 
 ## The monad a component runs in
@@ -107,6 +108,54 @@ Create `examples/<name>/` with a `halogen-example-<name>.cabal` (executable name
 and `toolchain/build-wasm-all.sh` picks up the directory — nothing else needs editing. If the
 example needs bundling, add a `webpack.config.js` beside it and the build script will run it,
 passing the output directory in `WASM_PUBLIC_DIR`.
+
+## Hooks
+
+`haskell-halogen-hooks` writes a component as one function from its input to its HTML, asking for
+state, effects, memoised values and a query handler as it goes, instead of spreading them across
+`initialState`, `render` and `handleAction`:
+
+```haskell
+counter :: H.Component H.VoidF () Void BrowserDOM
+counter = Hooks.component @Empty $ \_input -> Hooks.do
+  (count, countId) <- Hooks.useState (0 :: Int)
+
+  Hooks.useTickEffect count $ do
+    liftIO $ putStrLn ("count is now " <> show count)
+    pure Nothing
+
+  Hooks.pure $
+    HH.div_
+      [ HH.button [HE.onClick $ \_ -> Hooks.modify_ countId (+ 1)] [HH.text "more"]
+      , HH.text (show count)
+      ]
+```
+
+`Hooks.do` is `QualifiedDo`, because a hook program is an indexed monad indexed by the list of
+hooks it uses. That is what enforces the rules of hooks — the same hooks in the same order on
+every render, since the interpreter walks a store of cells in step with the program — and it
+enforces them at compile time: a `useState` inside an `if` does not type-check. A composite hook
+is a parameterised type synonym over the same list:
+
+```haskell
+type UseCounter hooks = UseState Int : UseEffect Int : hooks
+```
+
+`Halogen.Hooks.Extra.Hooks` ports
+[purescript-halogen-hooks-extra](https://github.com/JordanMartinez/purescript-halogen-hooks-extra)
+into the same package rather than a second one: `useDebouncer`, `useThrottle`, `useGet`,
+`useEvent`, the `useStateFn` family, and `preventDefault` and friends for handlers that have to
+stop the browser handling the same event. None of them is primitive — each is written with the hooks
+above and nothing else, and each is worth reading as an example of a composite hook.
+[examples/hooks/](examples/hooks/) is a page that uses every one of them.
+
+The PureScript original has to do several of these things at runtime, and GHC's type system means
+this port does not. The hook list is a type-level list rather than a chain of newtypes; the cell
+store is indexed by it, so a cell is read back at the type it was written rather than coerced out
+of an array; effect and memo dependencies are an ordinary value compared with `==`, so
+`Hooks.captures {x, y} Hooks.useTickEffect` becomes `Hooks.useTickEffect (x, y)`; and a
+component's query algebra is part of its hook program's type, so there is no `componentWithQuery`
+and no tokens to pass around.
 
 ## Canvas rendering
 

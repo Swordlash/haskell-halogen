@@ -2,6 +2,7 @@ packages:
   core
   pixi
   material
+  hooks
   examples/*
 
 allow-newer: protolude:*
