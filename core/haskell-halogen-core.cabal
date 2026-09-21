@@ -229,7 +229,7 @@ test-suite Halogen-core-test
                       clay >= 0.16.0,
                       containers,
                       haskell-halogen-core,
-                      hspec,
+                      hspec >= 2,
                       mtl,
                       primitive,
                       row-types,

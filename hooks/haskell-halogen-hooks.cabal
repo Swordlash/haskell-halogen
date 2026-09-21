@@ -116,7 +116,7 @@ test-suite Halogen-hooks-test
                       unliftio,
                       haskell-halogen-core,
                       haskell-halogen-hooks,
-                      hspec,
+                      hspec >= 2,
                       protolude,
                       row-types
 
