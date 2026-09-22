@@ -6,3 +6,11 @@ packages:
   examples/*
 
 allow-newer: protolude:*
+
+-- A test suite's dependencies are optional goals unless this says otherwise:
+-- rather than report that it cannot satisfy them, the solver is free to hand
+-- back a plan with no test suites in it, and `cabal test` then fails with
+-- nothing to run. Asking for them here makes an unsatisfiable test dependency
+-- an error that names itself, and gives the build and test steps one plan
+-- between them rather than one each.
+tests: True
