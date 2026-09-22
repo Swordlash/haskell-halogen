@@ -121,18 +121,24 @@ evalM render initRef (HalogenM hm) = foldF (go initRef) hm
             $ Safe.finally
               (evalM render ref hmu)
               ( do
-                  atomicModifyIORef'_ forks (M.delete fid)
+                  -- The flag goes up before the entry comes out, which is what
+                  -- makes the pair of checks below exhaustive.
                   atomicWriteIORef doneRef True
+                  atomicModifyIORef'_ forks (M.delete fid)
               )
         -- Already finished, so there is nothing to register: the finalizer has
         -- run and would not remove an entry added now.
         unlessM (readIORef doneRef) $ do
           atomicModifyIORef'_ forks (M.insert fid fiber)
-          -- It can also finish in the gap between that check and this insert,
-          -- in which case its own removal ran before there was anything to
-          -- remove and this entry would sit in the map until the component was
-          -- disposed of. doneRef is written after the removal, so reading it
-          -- once more here catches exactly the entry we have just orphaned.
+          -- It can also finish in the gap between that check and this
+          -- insert, and then either its removal runs after the insert and
+          -- takes this entry with it, or it ran before the insert -- in which
+          -- case the flag was already up, because the finalizer raises it
+          -- first, and so is up when it is read here. Between them the two
+          -- readings leave no interleaving in which a finished fork stays in
+          -- the map. (With the finalizer's two writes the other way round
+          -- there is one: remove, be read as unfinished, be inserted, be read
+          -- as unfinished again, and only then raise the flag.)
           whenM (readIORef doneRef) $ atomicModifyIORef'_ forks (M.delete fid)
         pure (k fid)
       Join fid a -> do
