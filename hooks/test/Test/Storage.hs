@@ -28,7 +28,7 @@ import Halogen.Hooks qualified as Hooks
 import Halogen.Hooks.Extra.Hooks (useLocalStorage)
 import Halogen.Subscription qualified as HS
 import Halogen.VDom.DOM.Monad (MemDOM, StorageKind (..), runMemDOM)
-import Test.Harness (dispose, lastRender, start)
+import Test.Harness (dispose, eventually, lastRender, start)
 import Test.Hspec (Spec, describe, it, shouldBe)
 import Web.Storage.Storage qualified as Storage
 
@@ -45,6 +45,19 @@ persistentComponent events = Hooks.component @Empty $ \_input -> Hooks.do
     pure Nothing
 
   Hooks.pure $ HH.text ("count=" <> either ("unreadable: " <>) show count)
+
+-- | Counts under a key it can be told to change, which is what a component
+-- whose input starts naming somebody else looks like from inside the hook.
+switchingComponent :: HS.Emitter IO (Either Text ()) -> H.Component H.VoidF () Void MemDOM
+switchingComponent events = Hooks.component @Empty $ \_input -> Hooks.do
+  (key, keyId) <- Hooks.useState "test/a"
+  (count, setCount) <- useLocalStorage key (0 :: Int)
+
+  Hooks.useLifecycleEffect $ do
+    void $ Hooks.subscribe $ map (either (Hooks.put keyId) (const $ setCount (map (+ 1)))) events
+    pure Nothing
+
+  Hooks.pure $ HH.text (key <> "=" <> either ("unreadable: " <>) show count)
 
 -- | 'shouldBe', where these tests run.
 expect :: (MonadIO m, Eq a, Show a) => a -> a -> m ()
@@ -71,6 +84,28 @@ spec = describe "hooks-extra storage" $ do
     second <- start (persistentComponent source.emitter) ()
     expect "count=2" =<< lastRender second
     dispose second
+
+  it "reads the key it is given now, and leaves the one before it alone" $ runMemDOM $ do
+    Storage.clear LocalStorage
+    Storage.setItem LocalStorage "test/b" (7 :: Int)
+    source <- liftIO HS.create
+
+    harness <- start (switchingComponent source.emitter) ()
+    expect "test/a=0" =<< lastRender harness
+    liftIO $ HS.notify source.listener (Right ())
+    expect "test/a=1" =<< lastRender harness
+
+    -- Told to keep a different key, it shows what that key holds rather than
+    -- carrying the first key's count over to it.
+    liftIO $ HS.notify source.listener (Left "test/b")
+    eventually "test/b=7" (lastRender harness)
+
+    -- And what it writes from here goes there, while the first key is left
+    -- where it was.
+    liftIO $ HS.notify source.listener (Right ())
+    eventually "test/b=8" (lastRender harness)
+    expect (Just (Right (1 :: Int))) =<< Storage.getItem LocalStorage "test/a"
+    dispose harness
 
   it "starts from the default when the store holds something it cannot read" $ runMemDOM $ do
     Storage.clear LocalStorage
