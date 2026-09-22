@@ -108,6 +108,7 @@ previousComponent events = Hooks.component @Empty $ \_input -> Hooks.do
 data EventTest
   = Push Text
   | Listen
+  | Supersede
 
 eventComponent :: IORef [Text] -> HS.Emitter IO EventTest -> H.Component H.VoidF () Void IO
 eventComponent probe events = Hooks.component @Empty $ \_input -> Hooks.do
@@ -121,6 +122,13 @@ eventComponent probe events = Hooks.component @Empty $ \_input -> Hooks.do
         -- A handler can take itself off, which is what the program it is
         -- handed is for.
         when (t == "last") unsubscribe
+      Supersede -> do
+        removeFirst <- api.setCallback $ \_ t -> liftIO $ modifyIORef' probe (<> ["first:" <> t])
+        void $ api.setCallback $ \_ t -> liftIO $ modifyIORef' probe (<> ["second:" <> t])
+        -- The first handler is long gone, replaced by the second. Its
+        -- program has nothing left to remove, and the second is not its to
+        -- remove.
+        removeFirst
     pure Nothing
 
   Hooks.pure $ HH.text "event"
@@ -194,4 +202,13 @@ spec = describe "hooks-extra" $ do
     HS.notify source.listener (Push "last")
     HS.notify source.listener (Push "after")
     readIORef probe >>= (`shouldBe` ["a", "last"])
+    dispose harness
+
+  it "gives each callback a program that removes that callback" $ do
+    probe <- newIORef []
+    source <- HS.create
+    harness <- start (eventComponent probe source.emitter) ()
+    HS.notify source.listener Supersede
+    HS.notify source.listener (Push "x")
+    readIORef probe >>= (`shouldBe` ["second:x"])
     dispose harness

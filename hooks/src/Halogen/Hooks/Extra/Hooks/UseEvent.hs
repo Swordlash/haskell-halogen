@@ -22,7 +22,7 @@ module Halogen.Hooks.Extra.Hooks.UseEvent
   )
 where
 
-import Data.IORef (IORef, readIORef, writeIORef)
+import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Halogen.Hooks qualified as Hooks
 import Halogen.Hooks.Types (Hook, HookK (..), HookM)
 import Halogen.Query.HalogenM (SubscriptionId)
@@ -39,6 +39,10 @@ data EventApi scope slots output m a = EventApi
   -- ^ Install the handler, replacing any previous one. Returns the program
   -- that removes it — the same one the handler itself is given as its first
   -- argument, so that a handler can stop listening from inside itself.
+  --
+  -- It removes that handler and no other: one kept from an earlier
+  -- 'setCallback' does nothing once the handler it belongs to has been
+  -- replaced.
   }
 
 -- | The hooks 'useEvent' uses: the channel, whatever is listening on it, and
@@ -75,14 +79,38 @@ useEvent = Hooks.do
       , setCallback = \handler -> do
           remove listening
           open <- liftIO $ readIORef channel
-          for_ open $ \c -> do
-            sid <- Hooks.subscribe $ map (handler (remove listening)) c.emitter
-            liftIO $ writeIORef listening (Just sid)
-          pure (remove listening)
+          case open of
+            Nothing -> pure (pure ())
+            Just c -> do
+              -- The handler is built before there is a subscription for it to
+              -- remove, so the program that removes it reads the id out of
+              -- here rather than closing over it.
+              mine <- liftIO $ newIORef Nothing
+              let dispose = removeOnly mine listening
+              sid <- Hooks.subscribe $ map (handler dispose) c.emitter
+              liftIO $ writeIORef mine (Just sid)
+              liftIO $ writeIORef listening (Just sid)
+              pure dispose
       }
   where
+    -- Stop listening, whichever callback it was that is listening.
     remove :: IORef (Maybe SubscriptionId) -> HookM scope slots output m ()
     remove listening = do
       listener <- liftIO $ readIORef listening
       for_ listener Hooks.unsubscribe
       liftIO $ writeIORef listening Nothing
+
+    -- Stop listening, but only while it is still this callback that is: the
+    -- program handed back by 'setCallback' removes the callback it was handed
+    -- back for, and a caller that keeps an old one must not be able to
+    -- unsubscribe the callback that replaced it.
+    removeOnly
+      :: IORef (Maybe SubscriptionId)
+      -> IORef (Maybe SubscriptionId)
+      -> HookM scope slots output m ()
+    removeOnly mine listening = do
+      ours <- liftIO $ readIORef mine
+      listener <- liftIO $ readIORef listening
+      for_ ours $ \sid -> when (listener == Just sid) $ do
+        Hooks.unsubscribe sid
+        liftIO $ writeIORef listening Nothing
