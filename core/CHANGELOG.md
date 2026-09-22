@@ -2,14 +2,18 @@
 
 ## Unreleased
 
-- The browser's own storage. `MonadBrowserDOM` gains `readStorage` and
-  `writeStorage`, which read and write the whole of one store as text, and
-  `Web.Storage.Storage` says what that text is: one JSON object, whose keys are
-  the keys a program stores under and whose values are the base64 of whatever
-  `Web.Storage.Serialize` turned a value into. That class writes as JSON by
-  default, so a type with `ToJSON` and `FromJSON` needs only an empty instance.
-  The in-memory DOM has the two stores as well, kept in a global `IORef`, so
-  what a page persists can be tested without a browser.
+- The browser's own storage. `MonadBrowserDOM` gains `readStorageItem`,
+  `writeStorageItem`, `removeStorageItem` and `storageItemKeys`, which read and
+  write one key of a store at a time as text, and `Web.Storage.Storage` says
+  what that text is: the base64 of whatever `Web.Storage.Serialize` turned a
+  value into, kept under a key prefixed to say it is this program's. That class
+  writes as JSON by default, so a type with `ToJSON` and `FromJSON` needs only
+  an empty instance. One entry per key rather than one object holding every
+  key, because a store is shared by every tab open on the page and an object
+  would have to be read, changed and written back -- which loses whatever
+  another tab wrote in between. The in-memory DOM has the two stores as well,
+  kept in a global `IORef`, so what a page persists can be tested without a
+  browser.
 - `Web.HTML.Window` for the viewport size, and `Web.HTML.Cookie` for cookies
   one at a time — the parsing and rendering of the cookie string are pure, and
   percent-encode what a cookie cannot carry.

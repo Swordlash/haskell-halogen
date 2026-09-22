@@ -1,8 +1,7 @@
 -- | The window globals that are not about the document tree.
 --
--- The two stores are not here: they are
--- 'Halogen.VDom.DOM.Monad.Class.readStorage' and
--- 'Halogen.VDom.DOM.Monad.Class.writeStorage', so that a backend with no
+-- The two stores are not here: they are the storage methods of
+-- 'Halogen.VDom.DOM.Monad.Class.MonadBrowserDOM', so that a backend with no
 -- browser can have them too.
 --
 -- Obtaining the window itself is 'Halogen.VDom.DOM.Monad.Class.window', a

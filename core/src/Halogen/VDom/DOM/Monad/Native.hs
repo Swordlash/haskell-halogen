@@ -147,8 +147,12 @@ ambientDocument = unsafePerformIO newDocument
 -- something persist across a remount — so a test that cares about starting
 -- from nothing should 'Web.Storage.Storage.clear' first.
 {-# NOINLINE ambientStorage #-}
-ambientStorage :: IORef (Map StorageKind Text)
+ambientStorage :: IORef (Map StorageKind (Map Text Text))
 ambientStorage = unsafePerformIO (newIORef M.empty)
+
+-- | One of the two stores, empty until something is written to it.
+store :: StorageKind -> Map StorageKind (Map Text Text) -> Map Text Text
+store kind = M.findWithDefault M.empty kind
 
 -- | A fresh document containing @\<html>\<head>\<\/head>\<body>\<\/body>\<\/html>@,
 -- so 'Halogen.IO.Util.awaitBody' finds a body the way it would in a browser.
@@ -464,8 +468,12 @@ instance MonadBrowserDOM MemDOM where
       $ fmap fromNative
       <$> queryNative selector (toNative parent)
   readyState _ = liftIO $ pure ReadyState.Complete
-  readStorage kind = liftIO $ fromMaybe "" . M.lookup kind <$> readIORef ambientStorage
-  writeStorage kind text = liftIO $ atomicModifyIORef' ambientStorage $ \stores -> (M.insert kind text stores, ())
+  readStorageItem kind key = liftIO $ M.lookup key . store kind <$> readIORef ambientStorage
+  writeStorageItem kind key text =
+    liftIO $ atomicModifyIORef'_ ambientStorage $ M.insertWith M.union kind (M.singleton key text)
+  removeStorageItem kind key =
+    liftIO $ atomicModifyIORef'_ ambientStorage $ M.adjust (M.delete key) kind
+  storageItemKeys kind = liftIO $ M.keys . store kind <$> readIORef ambientStorage
 
 instance MonadAttributes MemDOM where
   setAttribute ns (AttrName name) val el =

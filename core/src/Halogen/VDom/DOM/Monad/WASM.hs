@@ -35,9 +35,15 @@ foreign import javascript unsafe "$1 !== $2.previousSibling && $3.insertBefore($
 
 foreign import javascript unsafe "globalThis.window" js_get_window :: IO Window
 
-foreign import javascript unsafe "(($1 === 'local' ? globalThis.localStorage : globalThis.sessionStorage).getItem($2) ?? '')" js_storage_read :: JSVal -> JSVal -> IO JSVal
+foreign import javascript unsafe "($1 === 'local' ? globalThis.localStorage : globalThis.sessionStorage).getItem($2)" js_storage_read :: JSVal -> JSVal -> IO (Nullable JSVal)
 
 foreign import javascript unsafe "($1 === 'local' ? globalThis.localStorage : globalThis.sessionStorage).setItem($2, $3)" js_storage_write :: JSVal -> JSVal -> JSVal -> IO ()
+
+foreign import javascript unsafe "($1 === 'local' ? globalThis.localStorage : globalThis.sessionStorage).removeItem($2)" js_storage_remove :: JSVal -> JSVal -> IO ()
+
+foreign import javascript unsafe "($1 === 'local' ? globalThis.localStorage : globalThis.sessionStorage).length" js_storage_length :: JSVal -> IO (Foreign Int)
+
+foreign import javascript unsafe "($1 === 'local' ? globalThis.localStorage : globalThis.sessionStorage).key($2)" js_storage_key :: JSVal -> Int -> IO (Nullable JSVal)
 
 foreign import javascript unsafe "$1.document" js_get_document :: Window -> IO HTMLDocument
 
@@ -121,8 +127,16 @@ instance MonadBrowserDOM BrowserDOM where
   document w = liftIO $ js_get_document w
   querySelector (QuerySelector selector) parent = liftIO $ fmap Element . nullableToMaybe <$> js_query_selector (jsStringVal selector) (coerce parent)
   readyState doc = liftIO $ (fromMaybe ReadyState.Loading . ReadyState.parse . foreignToString) <$> js_ready_state doc
-  readStorage kind = liftIO $ foreignToString <$> js_storage_read (storageName kind) (jsStringVal storageKey)
-  writeStorage kind text = liftIO $ js_storage_write (storageName kind) (jsStringVal storageKey) (jsStringVal text)
+  readStorageItem kind key = liftIO $ fmap foreignToString . nullableToMaybe <$> js_storage_read (storageName kind) (jsStringVal key)
+  writeStorageItem kind key text = liftIO $ js_storage_write (storageName kind) (jsStringVal key) (jsStringVal text)
+  removeStorageItem kind key = liftIO $ js_storage_remove (storageName kind) (jsStringVal key)
+
+  -- `key(i)` rather than a list, because a list would have to be marshalled
+  -- and this is what a store offers: the indices are stable for as long as
+  -- nothing is added or removed, which is as much as a store promises anyway.
+  storageItemKeys kind = liftIO $ do
+    count <- foreignToInt <$> js_storage_length (storageName kind)
+    catMaybes <$> for [0 .. count - 1] (\ix -> fmap foreignToString . nullableToMaybe <$> js_storage_key (storageName kind) ix)
 
 -- | Which store the browser is being asked for, as the string the expressions
 -- above switch on.

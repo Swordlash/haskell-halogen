@@ -26,9 +26,10 @@ spec = xdescribe "storage" $ pure ()
 
 import Control.Monad.IO.Class (liftIO)
 import Data.Aeson (FromJSON, ToJSON)
+import Data.Map.Strict qualified as M
 import Data.Text (Text)
 import GHC.Generics (Generic)
-import Halogen.VDom.DOM.Monad (MemDOM, StorageKind (..), readStorage, runMemDOM, writeStorage)
+import Halogen.VDom.DOM.Monad (MemDOM, StorageKind (..), readStorageItem, removeStorageItem, runMemDOM, writeStorageItem)
 import Test.Hspec (Spec, describe, it)
 import Test.Utils (assertEqual)
 import Web.Storage.Storage qualified as Storage
@@ -67,10 +68,10 @@ spec = describe "storage" $ do
     stored <- Storage.getItem LocalStorage "settings"
     expect "settings" (Just (Right settings)) stored
 
-  it "keeps the store as a JSON object of base64" $ emptied $ do
+  it "keeps one entry per key, under a prefix, as base64" $ emptied $ do
     Storage.setItem LocalStorage "greeting" ("hi" :: Text)
-    raw <- readStorage LocalStorage
-    expect "rendered" "{\"greeting\":\"aGk=\"}" raw
+    raw <- readStorageItem LocalStorage "haskell-halogen:greeting"
+    expect "entry" (Just "aGk=") raw
 
   it "finds nothing under a key nothing was put under" $ emptied $ do
     stored <- Storage.getItem LocalStorage "absent"
@@ -99,12 +100,35 @@ spec = describe "storage" $ do
     Storage.clear LocalStorage
     expect "after clear" [] =<< Storage.keys LocalStorage
 
-  it "reads a store it cannot parse as an empty one" $ emptied $ do
-    writeStorage LocalStorage "this is not JSON"
-    expect "unparseable" [] =<< Storage.keys LocalStorage
+  it "leaves what the page shares the store with alone" $ emptied $ do
+    writeStorageItem LocalStorage "someone else's" "not ours"
+    Storage.setItem LocalStorage "ours" ("1" :: Text)
+    expect "keys" ["ours"] =<< Storage.keys LocalStorage
+    Storage.clear LocalStorage
+    expect "cleared" [] =<< Storage.keys LocalStorage
+    expect "theirs" (Just "not ours") =<< readStorageItem LocalStorage "someone else's"
+    -- The store is left as it was found, since nothing else empties it.
+    removeStorageItem LocalStorage "someone else's"
 
-  it "leaves a value it cannot decode out of the object" $ emptied $ do
-    writeStorage LocalStorage "{\"good\":\"aGk=\",\"bad\":\"not base64!\"}"
-    expect "only the good one" ["good"] =<< Storage.keys LocalStorage
+  it "says why a value it cannot decode cannot be read" $ emptied $ do
+    writeStorageItem LocalStorage "haskell-halogen:bad" "not base64!"
+    stored <- Storage.getItem @Text LocalStorage "bad"
+    expect "undecodable" True $ case stored of
+      Just (Left _) -> True
+      _ -> False
+
+  it "leaves a value it cannot decode out of the whole store" $ emptied $ do
+    Storage.setItem LocalStorage "good" ("hi" :: Text)
+    writeStorageItem LocalStorage "haskell-halogen:bad" "not base64!"
+    object <- Storage.readStorageObject LocalStorage
+    expect "only the good one" ["good"] (M.keys object)
+
+  it "writes one key without reading the others" $ emptied $ do
+    Storage.setItem LocalStorage "a" ("1" :: Text)
+    -- What another tab wrote after this one last looked at the store.
+    writeStorageItem LocalStorage "haskell-halogen:b" "Mg=="
+    Storage.setItem LocalStorage "a" ("3" :: Text)
+    expect "both" ["a", "b"] =<< Storage.keys LocalStorage
+    expect "theirs" (Just (Right ("2" :: Text))) =<< Storage.getItem LocalStorage "b"
 
 #endif
