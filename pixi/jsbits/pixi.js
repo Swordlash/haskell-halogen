@@ -47,7 +47,13 @@ function halogen_pixi_set_asset_text(holder, object, value, family, source, size
   holder.pixi.Assets.load({ src: source, data: { family: family } })
     .then(function () {
       // Restyle once the face is in, so the glyphs are not left in the fallback.
+      // Pixi caches a font's ascent and descent by its CSS font string, and it
+      // measured this one when the style was first set, with the fallback face
+      // standing in. Kept, those metrics size the text's texture for the wrong
+      // face and cut off whatever of the real glyphs does not fit, so forget
+      // them before restyling.
       if (object.destroyed || object.__halogenFontRequest !== request) return;
+      holder.pixi.CanvasTextMetrics.clearMetrics();
       object.style = style;
       halogen_pixi_refresh_outline(object);
     })

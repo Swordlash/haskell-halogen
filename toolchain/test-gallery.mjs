@@ -54,6 +54,13 @@ let failed = false;
 
 try {
   const page = await browser.newPage();
+  // Hold web fonts back, so text is always drawn before its face arrives, as
+  // it is on a slow connection. How that race goes otherwise depends on the
+  // network, and a test that only sometimes loses it proves nothing.
+  await page.route(/\.woff2$/, async (route) => {
+    await new Promise((later) => setTimeout(later, 1500));
+    await route.continue();
+  });
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("console", (message) => {
     if (message.type() === "error") errors.push(message.text());
@@ -75,10 +82,48 @@ try {
   await page.goto(url);
   await expectRoute("", "load");
 
+  // Pixi sizes a text's texture from font metrics it caches per font string.
+  // Measured while an asset font was still loading, they are the fallback's,
+  // and the real glyphs come out with their tops cut off, which no selector can
+  // see. So compare what Pixi has cached with a fresh measurement, through the
+  // very module the page imported, until the font's load has been handled.
+  const expectFreshFontMetrics = async () => {
+    const compare = () =>
+      page.evaluate(async () => {
+        const url = performance
+          .getEntriesByType("resource")
+          .map((entry) => entry.name)
+          .find((name) => /pixi.*\.mjs$/.test(name));
+        // The canvas is on the page before PixiJS has been fetched, and until
+        // the face itself has loaded a fresh measurement is of the fallback
+        // too, so there is nothing to compare yet.
+        const loaded = [...document.fonts].some((face) => face.family.includes("Press Start 2P") && face.status === "loaded");
+        if (!url || !loaded) return {};
+        const { CanvasTextMetrics } = await import(url);
+        const font = Object.keys(CanvasTextMetrics._fonts).find((key) => key.includes("Press Start 2P"));
+        if (!font) return { font };
+        const cached = CanvasTextMetrics._fonts[font];
+        CanvasTextMetrics.clearMetrics(font);
+        const fresh = CanvasTextMetrics.measureFont(font);
+        CanvasTextMetrics._fonts[font] = cached;
+        return { font, cached, fresh };
+      });
+    let last;
+    for (const deadline = Date.now() + 10000; Date.now() < deadline; await page.waitForTimeout(250)) {
+      last = await compare();
+      if (last.font && JSON.stringify(last.cached) === JSON.stringify(last.fresh)) {
+        console.log("ok  Pixi measured the title's font after it loaded");
+        return;
+      }
+    }
+    assert.fail(`Pixi kept stale metrics for the title's font: ${JSON.stringify(last)}`);
+  };
+
   const visited = ["#/vanilla", "#/hooks", "#/pixi", "#/material"];
   for (const hash of visited) {
     await page.locator("nav a", { hasText: routes[hash].name }).click();
     await expectRoute(hash, `click ${routes[hash].name}`);
+    if (hash === "#/pixi") await expectFreshFontMetrics();
   }
 
   for (const hash of [...visited].reverse().slice(1).concat("")) {

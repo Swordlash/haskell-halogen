@@ -31,6 +31,7 @@
     "build-js-dev": "sh toolchain/build-ghcjs.sh --dev",
     "dev-wasm": "sh examples/material/dev-wasm.sh",
     "format": "sh run_fourmolu.sh",
+    "serve": "npm run serve-wasm",
     "test": "sh toolchain/run-tests.sh",
     "test-gallery": "node toolchain/test-gallery.mjs",
     "clean": "rm -rf dist-newstyle/wasm/public dist-newstyle/ghcjs"
