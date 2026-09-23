@@ -57,14 +57,26 @@ titleStyle =
 titleText :: Text
 titleText = "PIXEL FIELD"
 
-titleAt :: Pixi.Point
-titleAt = Pixi.Point (-315) (-300)
+-- The scene is laid out around the origin, which the default camera puts at
+-- the centre of the canvas: the title and the tiles below it span 938 by 516
+-- pixels centred on it, so all of it is on screen in any canvas at least that
+-- big, whatever size the page gives the canvas.
 
+-- | Text is placed by its top-left corner. Press Start 2P advances one em per
+-- glyph, so the title is 11 * 28 = 308 pixels wide and starts half of that
+-- left of centre; its top is the top of the scene.
+titleAt :: Pixi.Point
+titleAt = Pixi.Point (-154) (-258)
+
+-- | Where a tile's centre goes, since shapes are placed by their centre. Six
+-- columns and three rows of 88-pixel tiles, 170 pixels apart, make a block 938
+-- wide and 428 tall; it starts 60 pixels below the title's 28, so the first
+-- row's centre is 60 + 28 + 44 = 132 pixels below the top of the scene.
 tileAt :: Int -> Pixi.Point
 tileAt index =
   Pixi.Point
     (fromIntegral (index `mod` 6) * 170 - 425)
-    (fromIntegral (index `div` 6) * 170 - 170)
+    (fromIntegral (index `div` 6) * 170 - 126)
 
 scene :: State -> Pixi.View GameEvent
 scene state =
@@ -188,7 +200,7 @@ parent =
             [ HP.style $ do
                 C.position C.absolute
                 C.left (C.px 20)
-                C.top (C.px 16)
+                C.bottom (C.px 16)
                 C.color (C.rgb 0xf8 0xfa 0xfc)
                 C.pointerEvents C.none
                 C.fontSize (C.px 16)
