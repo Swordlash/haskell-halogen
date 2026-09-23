@@ -7,6 +7,8 @@ Haskell, plus the component and rendering libraries built on top of it.
 
 The examples are deployed [here](https://swordlash.github.io/haskell-halogen/).
 
+AI usage disclaimer: All code until tag `0.9.0` was hand-written. Any later commits might have used Codex or Claude.
+
 ![image](screenshot.png)
 
 ## Packages
