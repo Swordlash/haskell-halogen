@@ -67,7 +67,8 @@ and wired into `test/Test.hs`.
   if it runs after the RTS has shut down. `toolchain/test-wasm-runner.sh` checks exit codes survive.
 - `toolchain/test-gallery.mjs` is the one real-browser test: it serves the built
   `dist-newstyle/wasm/public/all` and checks that each route mounts its example and unmounts the
-  previous one, through clicks, back, forward and a reload. CI installs Chromium with
+  previous one, through clicks, back, forward and a reload. It runs in CI and gates the Pages deploy;
+  both install Chromium with
   `npx playwright install --with-deps --only-shell chromium`; Pixi needs network for its CDN.
 
 ## Architecture

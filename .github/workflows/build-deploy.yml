@@ -114,6 +114,15 @@ jobs:
     - name: Build every example
       run: npm run build-wasm-all
 
+    # The same browser test as the build-wasm job in build.yml, run here too
+    # because the two workflows run side by side on a push to master: without
+    # it, a gallery that fails there would still be deployed from here.
+    - name: Install Chromium
+      run: npx playwright install --with-deps --only-shell chromium
+
+    - name: Test the examples gallery in a browser
+      run: npm run test-gallery
+
     # Only the gallery: it mounts every other example itself, so the site is
     # one page and one binary rather than an index linking four apps.
     - name: Upload examples to GH Pages artifact
