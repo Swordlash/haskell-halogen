@@ -45,8 +45,7 @@ if ! command -v ghciwatch >/dev/null 2>&1; then
 fi
 
 mkdir -p dist-newstyle/wasm-dev/public
-WASM_PUBLIC_DIR=dist-newstyle/wasm-dev/public \
-  npx webpack-cli --config examples/material/webpack.config.js
+sh examples/material/bundle.sh dist-newstyle/wasm-dev/public
 cp examples/material/web/index-ghci.html dist-newstyle/wasm-dev/public/index.html
 
 exec ghciwatch \

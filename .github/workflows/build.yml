@@ -10,8 +10,7 @@ on:
 
 env:
   EM_VERSION: 3.1.74
-  # Keep GHCJS_VERSION in step with with-compiler in cabal-ghcjs.project and
-  # GHC_VERSION in examples/material/webpack.config-js.js.
+  # Keep GHCJS_VERSION in step with with-compiler in cabal-ghcjs.project.
   GHCJS_VERSION: '9.12.2'
   # The native GHC the runner image already ships, so setup is a no-op download.
   GHC_VERSION: '9.14.1'
@@ -207,6 +206,7 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-ghcjs-${{ env.GHCJS_VERSION }}-cabal-store-
 
+    # Also writes the bundle sizes to the job summary.
     - name: Build
       run: npm run build-js
 

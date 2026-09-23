@@ -54,7 +54,7 @@ The library itself compiles under any GHC from 9.6 to 9.14; CI builds against 9.
 the GitHub runner image ships. The browser targets need a cross-compiler.
 
 ```sh
-npm install                  # once, for the webpack/sass/material toolchain
+npm install                  # once, for esbuild, sass and Material Components
 npm run build-native         # every package, host GHC
 npm run test                 # test suites across native, JavaScript and wasm
 ```
@@ -107,7 +107,8 @@ precompiled binaries described [here](https://www.haskell.org/ghcup/guide/#cross
 
 ```sh
 npm run serve-ghcjs -- vanilla    # cabal build + http-server
-npm run build-js                  # material example, bundled into dist/ via webpack
+npm run build-js                  # material example, bundled into dist/ with esbuild
+npm run build-js-dev              # the same, without minification or brotli
 ```
 
 Build artifacts are kept in `dist-newstyle/native`, `dist-newstyle/javascript`,
@@ -119,8 +120,8 @@ Create `examples/<name>/` with a `halogen-example-<name>.cabal` (executable name
 `halogen-example-<name>`), a `Main.hs`, and a `web/` directory holding `index.html` and an
 `index.js` that fetches `./app.wasm`. The `examples/*` glob in `cabal.project` picks the package up,
 and `toolchain/build-wasm-all.sh` picks up the directory — nothing else needs editing. If the
-example needs bundling, add a `webpack.config.js` beside it and the build script will run it,
-passing the output directory in `WASM_PUBLIC_DIR`.
+example needs bundling, add a `bundle.sh` beside it and the build script will run it, passing the
+output directory as its argument.
 
 ## Hooks
 

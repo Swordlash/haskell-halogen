@@ -46,8 +46,8 @@ node "$wasm_libdir/post-link.mjs" --input "$wasm_binary" --output "$public_dir/g
 cp "$wasm_binary" "$public_dir/app.wasm"
 cp -R "examples/$example/web/." "$public_dir/"
 
-if [ -f "examples/$example/webpack.config.js" ]; then
-  WASM_PUBLIC_DIR="$public_dir" npx webpack-cli --config "examples/$example/webpack.config.js"
+if [ -f "examples/$example/bundle.sh" ]; then
+  sh "examples/$example/bundle.sh" "$public_dir"
 fi
 
 printf '\nBuilt %s in %s.\n' "$package" "$public_dir"

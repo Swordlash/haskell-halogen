@@ -23,6 +23,7 @@ npm run test-wasm               # toolchain/test-wasm.sh — wasm backend
 npm run test                    # toolchain/run-tests.sh — all three in sequence
 npm run serve-wasm -- <example> # build one example to wasm and serve it on :8080
 npm run build-wasm-all          # every example plus the index page (what Pages deploys)
+npm run build-js                # JS backend: build all, bundle the material example into dist/
 npm run format                  # fourmolu over core, hooks, pixi, examples
 ```
 
@@ -46,8 +47,8 @@ and wired into `test/Test.hs`.
   solver fails with "requires installed instance with unit id ghc-internal-…".
 - wasm GHC: `wasm32-wasi-ghc-9.14.1.20260731` (pinned in `cabal-wasm.project`); ghc-wasm-meta revision
   pinned in `.github/workflows/build.yml` — keep them in step. Scripts source `~/.ghc-wasm/env`.
-- JS GHC: `javascript-unknown-ghcjs-ghc-9.12.2` (pinned in `cabal-ghcjs.project`, `GHCJS_VERSION` in CI,
-  and `examples/material/webpack.config-js.js`).
+- JS GHC: `javascript-unknown-ghcjs-ghc-9.12.2` (pinned in `cabal-ghcjs.project` and `GHCJS_VERSION` in
+  CI).
 - Node 24+ for the cross-backend tests.
 - Always go through the `toolchain/` scripts for cross builds: they pass `--with-compiler`/`--with-hc-pkg`
   explicitly and delete `<builddir>/cache/compiler`, because cabal otherwise reuses the host `ghc-pkg`
@@ -124,4 +125,5 @@ storage, …) is built only from public hooks.
 - Haddocks and comments explain reasoning in full sentences rather than restating the code.
 - A new example needs only `examples/<name>/` with `halogen-example-<name>.cabal`, `Main.hs` and
   `web/` (`index.html` + `index.js` fetching `./app.wasm`); the `examples/*` glob and
-  `build-wasm-all.sh` pick it up. An optional `webpack.config.js` is run with `WASM_PUBLIC_DIR` set.
+  `build-wasm-all.sh` pick it up. An optional `bundle.sh` beside it is run with the output directory
+  as its argument (the material example uses one to bundle its JS and CSS with esbuild and sass).
