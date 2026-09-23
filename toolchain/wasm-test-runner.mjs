@@ -19,4 +19,7 @@ const instance = await WebAssembly.instantiate(module, {
 });
 
 Object.assign(exports, instance.exports);
-process.exitCode = wasi.start(instance);
+// Exit before the event loop runs again. A JavaScript callback into Haskell
+// can leave the RTS with rts_schedulerLoop queued on setImmediate, which
+// cannot run until start returns and fails once the RTS has shut down.
+process.exit(wasi.start(instance));

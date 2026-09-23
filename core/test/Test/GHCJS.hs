@@ -7,9 +7,10 @@ import Prelude
 import Data.Foreign
 import Data.Maybe (isNothing)
 import Control.Concurrent (threadDelay)
+import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Monad.IO.Class (liftIO)
-import Data.IORef (newIORef, readIORef, writeIORef)
 import Halogen.VDom.DOM.Monad qualified as DOM
+import System.Timeout (timeout)
 import Test.Hspec (Spec, describe, it)
 import Test.Utils (assertEqual, assertWith)
 import Web.DOM.Internal.Types (Node (..), EventListener (..))
@@ -64,14 +65,15 @@ spec = describe "GHCJS FFI" $ do
     listener <- DOM.runBrowserDOM $ DOM.mkEventListener Event.stopImmediatePropagation
     assertEqual "stopped" True =<< js_stopped listener
   it "continues a blocking event handler after canceling the event" $ do
-    finished <- newIORef False
+    finished <- newEmptyMVar
     listener <- DOM.runBrowserDOM $ DOM.mkEventListener $ \event -> do
       Event.preventDefault event
       liftIO $ threadDelay 10_000
-      liftIO $ writeIORef finished True
+      liftIO $ putMVar finished ()
     assertEqual "canceled before blocking" True =<< js_cancelled listener
-    threadDelay 50_000
-    assertEqual "handler resumed" True =<< readIORef finished
+    -- A generous bound, so a loaded machine is not mistaken for a handler
+    -- that never resumed.
+    assertEqual "handler resumed" (Just ()) =<< timeout 5_000_000 (takeMVar finished)
   it "converts true to True" $
     assertWith "foreignToBool should convert true to True" (foreignToBool js_true)
   it "converts false to False" $
