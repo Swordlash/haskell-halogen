@@ -7,7 +7,7 @@ author:             Mateusz Goślinowski
 maintainer:         mateusz.goslinowski@gmail.com
 category:           Web
 
-executable halogen-example-pixi
+common shared
   default-language: GHC2021
   ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture
 
@@ -43,9 +43,6 @@ executable halogen-example-pixi
       RequiredTypeArguments
       ExplicitNamespaces
 
-  main-is:          Main.hs
-  hs-source-dirs:   .
-
   build-depends:
       base >= 4.20,
       clay >= 0.16.0,
@@ -53,6 +50,17 @@ executable halogen-example-pixi
       row-types,
       haskell-halogen-core,
       haskell-halogen-pixi
+
+library
+  import:           shared
+  hs-source-dirs:   src
+  exposed-modules:  Example.Pixi
+
+executable halogen-example-pixi
+  import:           shared
+  main-is:          Main.hs
+  hs-source-dirs:   .
+  build-depends:    halogen-example-pixi
 
   if arch(wasm32)
     build-depends: ghc-experimental

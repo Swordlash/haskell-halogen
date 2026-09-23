@@ -13,7 +13,7 @@ flag interactive
     default:     False
     manual:      True
 
-executable halogen-example-material
+common shared
     default-language: GHC2024
     ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists -Wno-ambiguous-fields
     default-extensions:
@@ -29,9 +29,6 @@ executable halogen-example-material
         RequiredTypeArguments
         TypeAbstractions
 
-    main-is:          Main.hs
-    hs-source-dirs:   .
-
     build-depends:
         base,
         protolude,
@@ -45,8 +42,27 @@ executable halogen-example-material
         haskell-halogen-core,
         haskell-halogen-material
 
+library
+    import:           shared
+    hs-source-dirs:   src
+    exposed-modules:  Example.Material
+
+executable halogen-example-material
+    import:           shared
+    main-is:          Main.hs
+    hs-source-dirs:   .
+
     if arch(wasm32)
         build-depends: ghc-experimental
+
+    -- Browser GHCi (dev-wasm.sh) reloads only the modules of the target it
+    -- loaded, so there the example's module is compiled into the executable
+    -- rather than taken from the library, where edits would go unnoticed.
+    if flag(interactive)
+        hs-source-dirs: src
+        other-modules:  Example.Material
+    else
+        build-depends:  halogen-example-material
 
     if arch(wasm32) && !flag(interactive)
         ghc-options:

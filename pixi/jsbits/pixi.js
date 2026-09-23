@@ -42,13 +42,17 @@ function halogen_pixi_set_asset_text(holder, object, value, family, source, size
   var request = {};
   object.__halogenFontRequest = request;
   object.text = value;
-  var style = { fontFamily: family, fontSize: size, fill: color, align: align };
-  object.style = style;
+  // The asset's family is not named until its face has loaded. Pixi measures a
+  // font's ascent and descent once per font string and caches them; named any
+  // earlier, it would measure whatever face the browser substitutes and keep
+  // that, sizing the text's texture for the wrong glyphs and cutting off what
+  // does not fit. Until then the text is drawn in the generic fallback, whose
+  // font string is a different one.
+  object.style = { fontFamily: "sans-serif", fontSize: size, fill: color, align: align };
   holder.pixi.Assets.load({ src: source, data: { family: family } })
     .then(function () {
-      // Restyle once the face is in, so the glyphs are not left in the fallback.
       if (object.destroyed || object.__halogenFontRequest !== request) return;
-      object.style = style;
+      object.style = { fontFamily: family, fontSize: size, fill: color, align: align };
       halogen_pixi_refresh_outline(object);
     })
     .catch(function (error) { console.error("Could not load PixiJS font", source, error); });

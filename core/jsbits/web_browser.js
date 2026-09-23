@@ -34,6 +34,10 @@ function js_window_inner_height(window) {
   return window.innerHeight;
 }
 
+function js_window_location_hash(window) {
+  return window.location.hash;
+}
+
 function js_document_cookie(document) {
   return document.cookie;
 }

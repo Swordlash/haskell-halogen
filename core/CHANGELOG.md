@@ -14,9 +14,11 @@
   another tab wrote in between. The in-memory DOM has the two stores as well,
   kept in a global `IORef`, so what a page persists can be tested without a
   browser.
-- `Web.HTML.Window` for the viewport size, and `Web.HTML.Cookie` for cookies
-  one at a time — the parsing and rendering of the cookie string are pure, and
-  percent-encode what a cookie cannot carry.
+- `Web.HTML.Window` for the viewport size and the URL's fragment, and
+  `Web.HTML.Cookie` for cookies one at a time — the parsing and rendering of
+  the cookie string are pure, and percent-encode what a cookie cannot carry.
+  `locationHash` together with a `hashchange` listener is enough to route a
+  single-page app served from static files, back button included.
 - `Halogen.Subscription.lowerEmitter` runs an emitter's registration in `IO`,
   which is what the driver subscribes in. `Halogen.Query.Event.eventListener`
   builds an emitter in the component's monad, so until now the two could not

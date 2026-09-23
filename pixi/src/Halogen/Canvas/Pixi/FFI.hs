@@ -254,7 +254,9 @@ foreign import javascript unsafe "$1.fill({color:$2,alpha:$3})" fill :: Object -
 foreign import javascript unsafe "$1.stroke({color:$2,width:$3,alpha:$4})" stroke :: Object -> Int -> Double -> Double -> IO ()
 foreign import javascript unsafe "new $1.pixi.Text({text:'',style:{}})" newText :: Application -> IO Object
 foreign import javascript unsafe "$1.__halogenFontRequest=null;$1.text=$2;$1.style={fontFamily:$3,fontSize:$4,fill:$5,align:$6}" setSystemTextRaw :: Object -> JSVal -> JSVal -> Double -> Int -> JSVal -> IO ()
-foreign import javascript unsafe "const request={};$2.__halogenFontRequest=request;$2.text=$3;$2.style={fontFamily:$4,fontSize:$6,fill:$7,align:$8};$1.pixi.Assets.load({src:$5,data:{family:$4}}).then(()=>{if($2.destroyed||$2.__halogenFontRequest!==request)return;$2.style={fontFamily:$4,fontSize:$6,fill:$7,align:$8};globalThis.__halogenPixi.outline($2)}).catch(error=>console.error('Could not load PixiJS font',$5,error))" setAssetTextRaw :: Application -> Object -> JSVal -> JSVal -> JSVal -> Double -> Int -> JSVal -> IO ()
+-- Draws in the generic fallback until the asset's face has loaded, and only
+-- then names its family: see halogen_pixi_set_asset_text in jsbits/pixi.js.
+foreign import javascript unsafe "const request={};$2.__halogenFontRequest=request;$2.text=$3;$2.style={fontFamily:'sans-serif',fontSize:$6,fill:$7,align:$8};$1.pixi.Assets.load({src:$5,data:{family:$4}}).then(()=>{if($2.destroyed||$2.__halogenFontRequest!==request)return;$2.style={fontFamily:$4,fontSize:$6,fill:$7,align:$8};globalThis.__halogenPixi.outline($2)}).catch(error=>console.error('Could not load PixiJS font',$5,error))" setAssetTextRaw :: Application -> Object -> JSVal -> JSVal -> JSVal -> Double -> Int -> JSVal -> IO ()
 foreign import javascript unsafe "new $1.pixi.Sprite($1.pixi.Texture.EMPTY)" newSprite :: Application -> IO Object
 foreign import javascript unsafe "$1.__halogenFontRequest=null;$1.text=''" clearText :: Object -> IO ()
 foreign import javascript unsafe "$2.__halogenAsset=null;$2.__halogenSize=null;$2.texture=$1.pixi.Texture.EMPTY;globalThis.__halogenPixi.resize($2)" clearTexture :: Application -> Object -> IO ()
