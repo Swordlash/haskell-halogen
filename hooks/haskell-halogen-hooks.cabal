@@ -1,0 +1,136 @@
+cabal-version:      3.0
+name:               haskell-halogen-hooks
+version:            0.1.0.0
+synopsis:           Hooks for haskell-halogen-core components
+description:
+  A port of purescript-halogen-hooks. A component is written as one function
+  from its input to its HTML, and the state, effects, memoisation and query
+  handling it needs are requested along the way with hooks.
+  .
+  The hook list is tracked in the type, so the rules of hooks are a type error
+  rather than a runtime check: see "Halogen.Hooks".
+homepage:           https://github.com/Swordlash/haskell-halogen
+license:            Apache-2.0
+license-file:       LICENSE
+author:             Mateusz Goślinowski
+maintainer:         mateusz.goslinowski@gmail.com
+category:           Web
+extra-source-files: CHANGELOG.md, NOTICE
+
+common defaults
+  default-language: GHC2021
+  ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture
+
+  default-extensions:
+      RankNTypes
+      GeneralizedNewtypeDeriving
+      MultiParamTypeClasses
+      FunctionalDependencies
+      FlexibleContexts
+      FlexibleInstances
+      UndecidableInstances
+      GADTs
+      DeriveFunctor
+      DerivingStrategies
+      NoImplicitPrelude
+      KindSignatures
+      DataKinds
+      TypeData
+      OverloadedStrings
+      TypeOperators
+      LambdaCase
+      TypeFamilies
+      OverloadedRecordDot
+      RecordWildCards
+      NamedFieldPuns
+      DuplicateRecordFields
+      PartialTypeSignatures
+      DefaultSignatures
+      StandaloneKindSignatures
+      NoFieldSelectors
+      DerivingVia
+      CPP
+      StrictData
+      RequiredTypeArguments
+      ExplicitNamespaces
+
+common commons
+  import: defaults
+  build-depends:
+      base >= 4.20,
+      free,
+      transformers,
+      unliftio,
+      protolude,
+      containers,
+      kan-extensions,
+      mtl,
+      time,
+      row-types,
+      haskell-halogen-core
+
+  if arch(wasm32)
+    build-depends: ghc-experimental
+
+library
+    import: commons
+
+    exposed-modules:
+      Halogen.Hooks
+      Halogen.Hooks.Types
+
+      Halogen.Hooks.Extra.Actions.Events
+      Halogen.Hooks.Extra.Hooks
+      Halogen.Hooks.Extra.Hooks.UseDebouncer
+      Halogen.Hooks.Extra.Hooks.UseEvent
+      Halogen.Hooks.Extra.Hooks.UseGet
+      Halogen.Hooks.Extra.Hooks.UsePrevious
+      Halogen.Hooks.Extra.Hooks.UseStateFn
+      Halogen.Hooks.Extra.Hooks.UseStorage
+      Halogen.Hooks.Extra.Hooks.UseThrottle
+
+    other-modules:
+      Halogen.Hooks.Extra.Internal.Delay
+      Halogen.Hooks.Internal.Cells
+      Halogen.Hooks.Internal.Eval
+      Halogen.Hooks.Internal.Hook
+      Halogen.Hooks.Internal.HookM
+      Halogen.Hooks.Internal.Types
+
+    hs-source-dirs:   src
+
+    if arch(javascript)
+      ghc-options: -fexpose-all-unfoldings
+
+    if arch(wasm32)
+      ghc-options: -fexpose-all-unfoldings
+
+test-suite Halogen-hooks-test
+    import: defaults
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          Test.hs
+    build-depends:    base >= 4.20,
+                      containers,
+                      exceptions,
+                      text,
+                      unliftio,
+                      haskell-halogen-core,
+                      haskell-halogen-hooks,
+                      hspec >= 2,
+                      protolude,
+                      row-types
+
+    other-modules:  Test.Extra
+                    Test.Harness
+                    Test.Hooks
+                    Test.Storage
+                    Test.Scope
+
+    if arch(javascript)
+      js-sources:     jsbits/ghcjs_test_compat.js
+
+source-repository head
+  type:     git
+  location: https://github.com/Swordlash/haskell-halogen.git
+  subdir:   hooks

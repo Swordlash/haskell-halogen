@@ -15,6 +15,8 @@ module Halogen.VDom.DOM.Monad.Class
   , MonadDOM (..)
   , MonadAttributes (..)
   , MonadBrowserDOM (..)
+  , StorageKind (..)
+  , storagePrefix
   , mouseHandler
   )
 where
@@ -225,6 +227,51 @@ class
   readyState :: HTMLDocument -> m ReadyState
   default readyState :: (LiftsBrowserDOM t n m) => HTMLDocument -> m ReadyState
   readyState = lift . readyState
+
+  -- What a store keeps under one key, as text, and nothing where it keeps
+  -- nothing. A backend is asked for nothing more than that:
+  -- "Web.Storage.Storage" is what says the text is base64 and what the bytes
+  -- under it mean, and it says it once for every backend rather than once per
+  -- backend.
+  --
+  -- One key at a time, rather than the store as a whole, because the store is
+  -- shared: a tab that read every key, changed one and wrote them all back
+  -- would undo whatever another tab had written in between.
+  readStorageItem :: StorageKind -> Text -> m (Maybe Text)
+  default readStorageItem :: (LiftsBrowserDOM t n m) => StorageKind -> Text -> m (Maybe Text)
+  readStorageItem kind key = lift (readStorageItem kind key)
+
+  writeStorageItem :: StorageKind -> Text -> Text -> m ()
+  default writeStorageItem :: (LiftsBrowserDOM t n m) => StorageKind -> Text -> Text -> m ()
+  writeStorageItem kind key text = lift (writeStorageItem kind key text)
+
+  removeStorageItem :: StorageKind -> Text -> m ()
+  default removeStorageItem :: (LiftsBrowserDOM t n m) => StorageKind -> Text -> m ()
+  removeStorageItem kind key = lift (removeStorageItem kind key)
+
+  -- Every key the store holds, this program's and anything else's. Which of
+  -- them are this program's is 'Web.Storage.Storage.keys', which knows the
+  -- prefix they are kept under.
+  storageItemKeys :: StorageKind -> m [Text]
+  default storageItemKeys :: (LiftsBrowserDOM t n m) => StorageKind -> m [Text]
+  storageItemKeys = lift . storageItemKeys
+
+-- | Which of the browser's two stores is meant. They differ only in how long
+-- what is written to them lasts: a session store is emptied when the tab is
+-- closed, a local one is not.
+data StorageKind
+  = LocalStorage
+  | SessionStorage
+  deriving stock (Eq, Ord, Show)
+
+-- | What a browser keeps this program's entries under: a prefix on every key
+-- it writes.
+--
+-- A store belongs to an origin rather than to a page, so what is in it was not
+-- necessarily put there by this program. The prefix is how the two are told
+-- apart: see "Web.Storage.Storage".
+storagePrefix :: Text
+storagePrefix = "haskell-halogen:"
 
 -- | 'LiftsAttributes', for a backend that is a browser.
 type LiftsBrowserDOM t n m = (LiftsAttributes t n m, MonadBrowserDOM n)

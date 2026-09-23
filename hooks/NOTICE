@@ -1,0 +1,53 @@
+This project, `haskell-halogen-hooks`, is based on code from the PureScript Halogen Hooks library, licensed under Apache 2.0, and adapted to GHC Haskell.
+See https://github.com/thomashoneyman/purescript-halogen-hooks for the original project.
+
+The modules under `Halogen.Hooks.Extra` are adapted from a second project, licensed under MIT:
+- https://github.com/JordanMartinez/purescript-halogen-hooks-extra
+
+`Halogen.Hooks.Extra.Hooks.UsePrevious` and `Halogen.Hooks.Extra.Hooks.UseStorage` are adapted
+from the example hooks in the first repository (`examples/Example/Hooks`), under the same Apache
+2.0 licence as the library itself.
+
+It builds on `haskell-halogen-core`, which carries its own NOTICE covering the PureScript
+projects it was adapted from.
+
+The hooks, their names and their semantics follow the originals. The implementation differs where
+GHC's type system allows something the PureScript versions have to check or coerce at runtime: the
+list of hooks a program uses is a type-level list rather than a chain of newtypes, the cell store
+is indexed by that list rather than by arrays of coerced values, effect and memo dependencies are
+ordinary values compared with `==` rather than a coerced array, and a component's query algebra is
+part of the type of its hook program rather than a token carried at runtime. State handles carry
+the scope of the component that owns them, in the manner of `ST`, where the original's are array
+indices. `useEvent` is written on the library's own subscriptions rather than on a stored
+callback, which is what keeps the cells it uses free of that scope.
+
+---
+
+### **License Notices**
+#### **Apache 2.0 License**
+© 2025 Mateusz Goślinowski
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at:
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+#### **MIT-Licensed Code Attribution**
+This project includes portions of MIT-licensed code, from the repository listed above. The full
+MIT license text is included in that repository:
+
+> "Permission is hereby granted, free of charge, to any person obtaining a copy
+> of this software and associated documentation files (the 'Software'), to deal
+> in the Software without restriction, including without limitation the rights
+> to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+> copies of the Software, and to permit persons to whom the Software is
+> furnished to do so, subject to the following conditions:
+>
+> The above copyright notice and this permission notice shall be included in
+> all copies or substantial portions of the Software."

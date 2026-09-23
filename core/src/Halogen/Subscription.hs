@@ -31,6 +31,16 @@ create = do
 newtype Emitter m a = Emitter {registerHandler :: (a -> m ()) -> m (Subscription m)}
   deriving (Functor)
 
+-- | Run an emitter's registration in 'IO'.
+--
+-- The driver subscribes in 'IO', and an emitter built over the DOM — anything
+-- from 'Halogen.Query.Event.eventListener' — speaks the component's monad
+-- instead. This is what joins the two.
+lowerEmitter :: (MonadUnliftIO m) => Emitter m a -> m (Emitter IO a)
+lowerEmitter (Emitter register) = withRunInIO $ \runInIO ->
+  pure $ Emitter $ \handler ->
+    runInIO $ hoistSubscription (NT runInIO) <$> register (liftIO . handler)
+
 hoistEmitter :: (MonadUnliftIO m) => Emitter IO a -> Emitter m a
 hoistEmitter (Emitter g) = Emitter $ \k -> withRunInIO $ \runInIO ->
   fmap (hoistSubscription $ NT liftIO) $ g $ runInIO . k

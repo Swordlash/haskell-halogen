@@ -1,5 +1,38 @@
 # Revision history for haskell-halogen-core
 
+## Unreleased
+
+- The browser's own storage. `MonadBrowserDOM` gains `readStorageItem`,
+  `writeStorageItem`, `removeStorageItem` and `storageItemKeys`, which read and
+  write one key of a store at a time as text, and `Web.Storage.Storage` says
+  what that text is: the base64 of whatever `Web.Storage.Serialize` turned a
+  value into, kept under a key prefixed to say it is this program's. That class
+  writes as JSON by default, so a type with `ToJSON` and `FromJSON` needs only
+  an empty instance. One entry per key rather than one object holding every
+  key, because a store is shared by every tab open on the page and an object
+  would have to be read, changed and written back -- which loses whatever
+  another tab wrote in between. The in-memory DOM has the two stores as well,
+  kept in a global `IORef`, so what a page persists can be tested without a
+  browser.
+- `Web.HTML.Window` for the viewport size, and `Web.HTML.Cookie` for cookies
+  one at a time — the parsing and rendering of the cookie string are pure, and
+  percent-encode what a cookie cannot carry.
+- `Halogen.Subscription.lowerEmitter` runs an emitter's registration in `IO`,
+  which is what the driver subscribes in. `Halogen.Query.Event.eventListener`
+  builds an emitter in the component's monad, so until now the two could not
+  be put together.
+- `Web.Event.Event` gains `preventDefault`, `stopPropagation` and
+  `stopImmediatePropagation`, and every event newtype gains `toEvent`. Off the
+  browser backends the three are no-ops rather than a `panic`, so a handler
+  written for the browser can still be run against the in-memory DOM.
+- JavaScript event callbacks start synchronously, so cancellation takes effect
+  during dispatch. A callback that blocks continues asynchronously.
+- **Fix.** A forked program is registered as running for as long as it runs.
+  The bookkeeping that strikes a fork off the register was being run *before*
+  the program instead of after it, which left `kill` and `join` with nothing to
+  find — both were silently no-ops — and let a component's forks carry on after
+  the component was finalized.
+
 ## 0.10.0 - 2026-09-14
 
 - **Breaking.** `MonadDOM` no longer has an instance at `IO`. Each backend is

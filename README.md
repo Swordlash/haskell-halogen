@@ -14,12 +14,13 @@ The examples are deployed [here](https://swordlash.github.io/haskell-halogen/).
 | Directory | Package | What it is |
 | --- | --- | --- |
 | [core/](core/) | `haskell-halogen-core` | The Halogen port itself: components, VDom, events, SVG, layouts. |
+| [hooks/](hooks/) | `haskell-halogen-hooks` | A port of `purescript-halogen-hooks`: a component as one function. |
 | [material/](material/) | `haskell-halogen-material` | Google Material Components bindings. |
 | [pixi/](pixi/) | `haskell-halogen-pixi` | A PixiJS v8 canvas rendering backend. |
 | [examples/](examples/) | `halogen-example-*` | One runnable browser app per library. |
 
-`core` is dependency-free with respect to the others; `material` and `pixi` each depend only on
-`core`. Every package builds from the one `cabal.project` at the repository root, so a change to
+`core` is dependency-free with respect to the others; `hooks`, `material` and `pixi` each depend
+only on `core`. Every package builds from the one `cabal.project` at the repository root, so a change to
 `core` is type-checked against every dependent and every example in the same build.
 
 ## The monad a component runs in
@@ -56,6 +57,10 @@ npm run build-native         # every package, host GHC
 npm run test                 # test suites across native, JavaScript and wasm
 ```
 
+The cross-backend test scripts use Node 24 or later. They give each run a
+temporary Web Storage file so storage tests exercise the browser FFI as well
+as the native backend, without sharing a store between runs.
+
 ### WebAssembly
 
 The default browser and deployment target. It requires the
@@ -63,13 +68,20 @@ The default browser and deployment target. It requires the
 first — the build scripts source `~/.ghc-wasm/env` and will fail without it:
 
 ```sh
+cd
 git clone https://gitlab.haskell.org/haskell-wasm/ghc-wasm-meta.git
-cd ghc-wasm-meta && FLAVOUR=9.14 ./setup.sh
+cd ghc-wasm-meta 
+git checkout 358ea50b8496a69da6ce375c0c58bc049dbcb92d
+SKIP_GHC=1 FLAVOUR=9.14 ./setup.sh
+source ~/.ghc-wasm/env
+ghcup -s "file://$HOME/ghc-wasm-meta/ghcup-wasm-0.0.9.yaml" install ghc "wasm32-wasi-9.14.1.20260731" --set -- $CONFIGURE_ARGS
 ```
 
 That installs `wasm32-wasi-ghc` and friends under `~/.ghc-wasm`. The exact GHC version this
 repository builds against is pinned in `cabal-wasm.project`, and `.github/workflows/build.yml`
 pins the ghc-wasm-meta revision CI bootstraps from — keep the two in step when bumping either.
+
+NOTE: use `cabal` version `3.16.1` on this repository.
 
 With that in place, build and serve any example by name:
 
@@ -107,6 +119,61 @@ Create `examples/<name>/` with a `halogen-example-<name>.cabal` (executable name
 and `toolchain/build-wasm-all.sh` picks up the directory — nothing else needs editing. If the
 example needs bundling, add a `webpack.config.js` beside it and the build script will run it,
 passing the output directory in `WASM_PUBLIC_DIR`.
+
+## Hooks
+
+`haskell-halogen-hooks` writes a component as one function from its input to its HTML, asking for
+state, effects, memoised values and a query handler as it goes, instead of spreading them across
+`initialState`, `render` and `handleAction`:
+
+```haskell
+counter :: H.Component H.VoidF () Void BrowserDOM
+counter = Hooks.component @Empty $ \_input -> Hooks.do
+  (count, countId) <- Hooks.useState (0 :: Int)
+
+  Hooks.useTickEffect count $ do
+    liftIO $ putStrLn ("count is now " <> show count)
+    pure Nothing
+
+  Hooks.pure $
+    HH.div_
+      [ HH.button [HE.onClick $ \_ -> Hooks.modify_ countId (+ 1)] [HH.text "more"]
+      , HH.text (show count)
+      ]
+```
+
+`Hooks.do` is `QualifiedDo`, because a hook program is an indexed monad indexed by the list of
+hooks it uses. That is what enforces the rules of hooks — the same hooks in the same order on
+every render, since the interpreter walks a store of cells in step with the program — and it
+enforces them at compile time: a `useState` inside an `if` does not type-check. A composite hook
+is a parameterised type synonym over the same list:
+
+```haskell
+type UseCounter hooks = UseState Int : UseEffect Int : hooks
+```
+
+`Halogen.Hooks.Extra.Hooks` ports
+[purescript-halogen-hooks-extra](https://github.com/JordanMartinez/purescript-halogen-hooks-extra)
+into the same package rather than a second one: `useDebouncer`, `useThrottle`, `useGet`,
+`useEvent`, the `useStateFn` family, and `preventDefault` and friends for handlers that have to
+stop the browser handling the same event. `usePrevious` and the `useLocalStorage` family come
+from that library's own examples. Storage is a `MonadBrowserDOM` operation, so the in-memory
+backend has it too and what a page persists can be tested without a browser; a store holds one
+prefixed entry per key, with a base64 value, and `Web.Storage.Serialize` says how a value becomes bytes — JSON by
+default, for any type with aeson instances. None of them is primitive — each is written with the hooks
+above and nothing else, and each is worth reading as an example of a composite hook.
+[examples/hooks/](examples/hooks/) is a page that uses every one of them.
+
+The PureScript original has to do several of these things at runtime, and GHC's type system means
+this port does not. The hook list is a type-level list rather than a chain of newtypes; the cell
+store is indexed by it, so a cell is read back at the type it was written rather than coerced out
+of an array; a state handle is branded with the component that owns it, the way `ST` brands an
+`STRef`, so it cannot be raised as an output or stashed somewhere that outlives its component;
+effect and memo dependencies are an ordinary value compared with `==` (or with a comparison of
+your own, through `useTickEffectBy` and `useMemoBy`), so
+`Hooks.captures {x, y} Hooks.useTickEffect` becomes `Hooks.useTickEffect (x, y)`; and a
+component's query algebra is part of its hook program's type, so there is no `componentWithQuery`
+and no tokens to pass around.
 
 ## Canvas rendering
 

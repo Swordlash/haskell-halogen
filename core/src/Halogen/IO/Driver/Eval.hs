@@ -110,16 +110,36 @@ evalM render initRef (HalogenM hm) = foldF (go initRef) hm
         fid <- fresh ForkId ref
         DriverState {forks} <- readIORef ref
         doneRef <- newIORef False
+        -- The bookkeeping is the finalizer, not the action: a fork has to stay
+        -- in `forks` for as long as it runs, because that map is what `Join`,
+        -- `Kill` and finalization look it up in. With the two the other way
+        -- round the fork struck itself off the register before doing any work,
+        -- which left `kill` and `join` as no-ops and let a component's forks
+        -- outlive it.
         fiber <-
           fork
             $ Safe.finally
-              ( do
-                  atomicModifyIORef'_ forks (M.delete fid)
-                  atomicWriteIORef doneRef True
-              )
               (evalM render ref hmu)
+              ( do
+                  -- The flag goes up before the entry comes out, which is what
+                  -- makes the pair of checks below exhaustive.
+                  atomicWriteIORef doneRef True
+                  atomicModifyIORef'_ forks (M.delete fid)
+              )
+        -- Already finished, so there is nothing to register: the finalizer has
+        -- run and would not remove an entry added now.
         unlessM (readIORef doneRef) $ do
           atomicModifyIORef'_ forks (M.insert fid fiber)
+          -- It can also finish in the gap between that check and this
+          -- insert, and then either its removal runs after the insert and
+          -- takes this entry with it, or it ran before the insert -- in which
+          -- case the flag was already up, because the finalizer raises it
+          -- first, and so is up when it is read here. Between them the two
+          -- readings leave no interleaving in which a finished fork stays in
+          -- the map. (With the finalizer's two writes the other way round
+          -- there is one: remove, be read as unfinished, be inserted, be read
+          -- as unfinished again, and only then raise the flag.)
+          whenM (readIORef doneRef) $ atomicModifyIORef'_ forks (M.delete fid)
         pure (k fid)
       Join fid a -> do
         DriverState {forks} <- readIORef ref

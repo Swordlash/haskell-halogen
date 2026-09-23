@@ -14,6 +14,8 @@ wasm_ghc_pkg=$(command -v wasm32-wasi-ghc-pkg)
 wasm_hsc2hs=$(command -v wasm32-wasi-hsc2hs)
 build_dir=dist-newstyle/wasm
 
+sh toolchain/test-wasm-runner.sh
+
 # Cabal may reuse the host ghc-pkg from this cache when switching toolchains.
 rm -f "$build_dir/cache/compiler"
 

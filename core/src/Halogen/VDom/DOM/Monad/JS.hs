@@ -38,6 +38,16 @@ foreign import javascript unsafe "js_insert_before" js_insert_before :: Node -> 
 
 foreign import javascript unsafe "js_get_window" js_get_window :: IO Window
 
+foreign import javascript unsafe "js_storage_read" js_storage_read :: JSVal -> JSVal -> IO (Nullable JSVal)
+
+foreign import javascript unsafe "js_storage_write" js_storage_write :: JSVal -> JSVal -> JSVal -> IO ()
+
+foreign import javascript unsafe "js_storage_remove" js_storage_remove :: JSVal -> JSVal -> IO ()
+
+foreign import javascript unsafe "js_storage_length" js_storage_length :: JSVal -> IO (Foreign Int)
+
+foreign import javascript unsafe "js_storage_key" js_storage_key :: JSVal -> Int -> IO (Nullable JSVal)
+
 foreign import javascript unsafe "js_get_document" js_get_document :: Window -> IO HTMLDocument
 
 foreign import javascript unsafe "js_append_child" js_append_child :: Node -> ParentNode -> IO ()
@@ -88,7 +98,9 @@ instance MonadDOM BrowserDOM where
   elementToNode el = pure (coerce el)
   elementToEventTarget el = pure (coerce el)
 
-  mkEventListener f = liftIO $ EventListener <$> asyncCallback1 (runBrowserDOM . f . Event)
+  -- Cancellation and propagation control must run before dispatch returns.
+  -- A handler that blocks can continue asynchronously after its initial work.
+  mkEventListener f = liftIO $ EventListener <$> syncCallback1 ContinueAsync (runBrowserDOM . f . Event)
 
   createTextNode txt doc = liftIO $ js_create_text_node (toJSString $ toS txt) doc
   setTextContent txt node = liftIO $ js_set_text_content (toJSString $ toS txt) node
@@ -113,6 +125,16 @@ instance MonadBrowserDOM BrowserDOM where
   document w = liftIO $ js_get_document w
   querySelector (QuerySelector qs) parent = liftIO $ fmap Element . nullableToMaybe <$> js_query_selector (toJSString $ toS qs) (coerce parent)
   readyState doc = liftIO $ (fromMaybe ReadyState.Loading . ReadyState.parse . toS . fromJSString) <$> js_ready_state doc
+  readStorageItem kind key = liftIO $ fmap foreignToString . nullableToMaybe <$> js_storage_read (storageName kind) (jsKey key)
+  writeStorageItem kind key text = liftIO $ js_storage_write (storageName kind) (jsKey key) (jsKey text)
+  removeStorageItem kind key = liftIO $ js_storage_remove (storageName kind) (jsKey key)
+
+  -- `key(i)` rather than a list, because a list would have to be marshalled
+  -- and this is what a store offers: the indices are stable for as long as
+  -- nothing is added or removed, which is as much as a store promises anyway.
+  storageItemKeys kind = liftIO $ do
+    count <- foreignToInt <$> js_storage_length (storageName kind)
+    catMaybes <$> for [0 .. count - 1] (\ix -> fmap foreignToString . nullableToMaybe <$> js_storage_key (storageName kind) ix)
 
 instance MonadAttributes BrowserDOM where
   setAttribute ns (AttrName name) val el = liftIO $ js_set_attribute (maybe jsNull (toJSString . toS . unNamespace) ns) (toJSString $ toS name) (toJSString $ toS val) el
@@ -121,6 +143,17 @@ instance MonadAttributes BrowserDOM where
   removeProperty (PropName name) el = liftIO $ js_remove_property (toJSString $ toS name) el
   removeAttribute ns (AttrName name) el = liftIO $ js_remove_attribute (maybe jsNull (toJSString . toS . unNamespace) ns) (toJSString $ toS name) el
   hasAttribute ns (AttrName name) el = liftIO $ js_has_attribute (maybe jsNull (toJSString . toS . unNamespace) ns) (toJSString $ toS name) el
+
+-- | A key or a value, as the string the shim takes.
+jsKey :: Text -> JSVal
+jsKey = toJSString . toS
+
+-- | Which store the browser is being asked for, as the string the shim
+-- switches on.
+storageName :: StorageKind -> JSVal
+storageName = \case
+  LocalStorage -> toJSString "local"
+  SessionStorage -> toJSString "session"
 
 propValueToJSVal :: PropValue a -> JSVal
 propValueToJSVal (IntProp x) = toJSInt $ fromIntegral x
