@@ -1,6 +1,9 @@
 #!/bin/sh
-# Build every example in examples/ and generate the index page that links them.
-# This is what the GitHub Pages deploy uploads.
+# Build every example in examples/, each into dist-newstyle/wasm/public/<name>/.
+#
+# The GitHub Pages deploy uploads only public/all: the gallery that mounts every
+# other example in one page, from one binary. The rest are built so that each
+# still links on its own, and so the size report below covers them all.
 set -eu
 
 cd "$(dirname "$0")/.."
@@ -19,47 +22,9 @@ for example in $examples; do
   sh toolchain/build-wasm.sh "$example"
 done
 
-{
-  cat <<'EOF'
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>haskell-halogen examples</title>
-    <style>
-      :root { color-scheme: light dark; }
-      body { margin: 0; padding: 3rem 1.5rem; font: 16px/1.6 system-ui, sans-serif; }
-      main { max-width: 42rem; margin: 0 auto; }
-      h1 { font-size: 1.6rem; margin-bottom: .25rem; }
-      p { opacity: .75; margin-top: 0; }
-      ul { list-style: none; padding: 0; }
-      li { margin: .5rem 0; }
-      a { display: block; padding: .9rem 1.1rem; border: 1px solid currentColor;
-          border-radius: .5rem; text-decoration: none; color: inherit; }
-      a:hover { background: rgba(127,127,127,.12); }
-    </style>
-  </head>
-  <body>
-    <main>
-      <h1>haskell-halogen examples</h1>
-      <p>Compiled to WebAssembly with the GHC wasm backend.</p>
-      <ul>
-EOF
-  for example in $examples; do
-    printf '        <li><a href="./%s/">%s</a></li>\n' "$example" "$example"
-  done
-  cat <<'EOF'
-      </ul>
-    </main>
-  </body>
-</html>
-EOF
-} > "$public_dir/index.html"
-
 # GitHub Pages compresses on the fly, so only report the sizes here rather
 # than writing precompressed copies into the upload.
 node toolchain/compress.mjs --no-write \
   $(find "$public_dir" -mindepth 2 -type f \( -name '*.wasm' -o -name '*.js' -o -name '*.css' \) | sort)
 
-printf '\nAll examples built in %s.\n' "$public_dir"
+printf '\nAll examples built in %s; the gallery is in %s/all.\n' "$public_dir" "$public_dir"

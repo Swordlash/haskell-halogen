@@ -5,7 +5,8 @@
 A port of [purescript-halogen](https://github.com/purescript-halogen/purescript-halogen/) to GHC
 Haskell, plus the component and rendering libraries built on top of it.
 
-The examples are deployed [here](https://swordlash.github.io/haskell-halogen/).
+The examples are deployed [here](https://swordlash.github.io/haskell-halogen/), as one single-page
+app written in Halogen itself.
 
 AI usage disclaimer: All code until tag `0.9.0` was hand-written. Any later commits might have used Codex or Claude.
 
@@ -19,7 +20,7 @@ AI usage disclaimer: All code until tag `0.9.0` was hand-written. Any later comm
 | [hooks/](hooks/) | `haskell-halogen-hooks` | A port of `purescript-halogen-hooks`: a component as one function. |
 | [material/](material/) | `haskell-halogen-material` | Google Material Components bindings. |
 | [pixi/](pixi/) | `haskell-halogen-pixi` | A PixiJS v8 canvas rendering backend. |
-| [examples/](examples/) | `halogen-example-*` | One runnable browser app per library. |
+| [examples/](examples/) | `halogen-example-*` | One runnable browser app per library, and `all`, which mounts them in one page. |
 
 `core` is dependency-free with respect to the others; `hooks`, `material` and `pixi` each depend
 only on `core`. Every package builds from the one `cabal.project` at the repository root, so a change to
@@ -88,9 +89,14 @@ NOTE: use `cabal` version `3.16.1` on this repository.
 With that in place, build and serve any example by name:
 
 ```sh
-npm run serve-wasm -- pixi        # or: vanilla, material
-npm run build-wasm-all            # every example plus the index page
+npm run serve-wasm -- pixi        # or: vanilla, hooks, material, all
+npm run build-wasm-all            # every example, size-optimised with wasm-opt
+npm run test-gallery              # drive the built `all` in headless Chromium
 ```
+
+`all` is what GitHub Pages serves: every other example in one page and one binary, switched by the
+URL's fragment (`#/pixi`), so the back button, reloads and deep links work on a static host.
+`test-gallery` needs a Chromium that Playwright can launch (`npx playwright install chromium`).
 
 `serve-wasm` opens <http://127.0.0.1:8080> automatically. Set `PORT` to choose another port, or
 `NO_OPEN=1` to suppress opening the browser (for example in CI).
@@ -119,9 +125,13 @@ Build artifacts are kept in `dist-newstyle/native`, `dist-newstyle/javascript`,
 Create `examples/<name>/` with a `halogen-example-<name>.cabal` (executable named
 `halogen-example-<name>`), a `Main.hs`, and a `web/` directory holding `index.html` and an
 `index.js` that fetches `./app.wasm`. The `examples/*` glob in `cabal.project` picks the package up,
-and `toolchain/build-wasm-all.sh` picks up the directory — nothing else needs editing. If the
-example needs bundling, add a `bundle.sh` beside it and the build script will run it, passing the
-output directory as its argument.
+and `toolchain/build-wasm-all.sh` picks up the directory. If the example needs bundling, add a
+`bundle.sh` beside it and the build script will run it, passing the output directory as its
+argument.
+
+To show it in the deployed gallery as well, put its component in a library module
+(`src/Example/<Name>.hs`, as the existing examples do, with `Main.hs` only starting it), depend on
+that library from `examples/all`, and add a route to `examples/all/Gallery.hs`.
 
 ## Hooks
 

@@ -7,7 +7,7 @@ author:             Mateusz Goślinowski
 maintainer:         mateusz.goslinowski@gmail.com
 category:           Web
 
-executable halogen-example-hooks
+common shared
   default-language: GHC2021
   ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture
 
@@ -44,9 +44,6 @@ executable halogen-example-hooks
       RequiredTypeArguments
       ExplicitNamespaces
 
-  main-is:          Main.hs
-  hs-source-dirs:   .
-
   build-depends:
       base >= 4.20,
       protolude,
@@ -58,6 +55,17 @@ executable halogen-example-hooks
       unliftio,
       haskell-halogen-core,
       haskell-halogen-hooks
+
+library
+  import:           shared
+  hs-source-dirs:   src
+  exposed-modules:  Example.Hooks
+
+executable halogen-example-hooks
+  import:           shared
+  main-is:          Main.hs
+  hs-source-dirs:   .
+  build-depends:    halogen-example-hooks
 
   if arch(wasm32)
     build-depends: ghc-experimental

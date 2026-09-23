@@ -114,10 +114,12 @@ jobs:
     - name: Build every example
       run: npm run build-wasm-all
 
+    # Only the gallery: it mounts every other example itself, so the site is
+    # one page and one binary rather than an index linking four apps.
     - name: Upload examples to GH Pages artifact
       uses: actions/upload-pages-artifact@v5
       with:
-        path: ./dist-newstyle/wasm/public
+        path: ./dist-newstyle/wasm/public/all
 
     - name: Setup Pages
       uses: actions/configure-pages@v6

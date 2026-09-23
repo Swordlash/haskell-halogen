@@ -7,7 +7,7 @@ This file provides guidance to AI coding agents working with code in this reposi
 A port of purescript-halogen to GHC Haskell, as a multi-package cabal project: `core`
 (`haskell-halogen-core`, the port itself), `hooks` (`purescript-halogen-hooks` port), `material`
 (Material Components bindings), `pixi` (PixiJS v8 canvas backend), and `examples/*` (one browser app
-each). `hooks`, `material` and `pixi` depend only on `core`. Everything builds from the root
+each, plus `examples/all`, the gallery that mounts the others and is what Pages deploys). `hooks`, `material` and `pixi` depend only on `core`. Everything builds from the root
 `cabal.project`, so a `core` change is type-checked against every dependent and example.
 
 Every package is compiled for three targets: native GHC, the GHC JavaScript backend, and GHC
@@ -22,7 +22,8 @@ npm run test-ghcjs              # toolchain/test-ghcjs.sh — JS backend
 npm run test-wasm               # toolchain/test-wasm.sh — wasm backend
 npm run test                    # toolchain/run-tests.sh — all three in sequence
 npm run serve-wasm -- <example> # build one example to wasm and serve it on :8080
-npm run build-wasm-all          # every example plus the index page (what Pages deploys)
+npm run build-wasm-all          # every example, wasm-opt'd; Pages deploys only public/all
+npm run test-gallery            # the built `all` gallery in headless Chromium (Playwright)
 npm run build-js                # JS backend: build all, bundle the material example into dist/
 npm run format                  # fourmolu over core, hooks, pixi, examples
 ```
@@ -64,6 +65,10 @@ and wired into `test/Test.hs`.
 - `wasm-test-runner.mjs` must `process.exit` as soon as `wasi.start` returns: a JS→Haskell callback
   can leave `rts_schedulerLoop` queued on `setImmediate`, which crashes with "RTS is not initialised"
   if it runs after the RTS has shut down. `toolchain/test-wasm-runner.sh` checks exit codes survive.
+- `toolchain/test-gallery.mjs` is the one real-browser test: it serves the built
+  `dist-newstyle/wasm/public/all` and checks that each route mounts its example and unmounts the
+  previous one, through clicks, back, forward and a reload. CI installs Chromium with
+  `npx playwright install --with-deps --only-shell chromium`; Pixi needs network for its CDN.
 
 ## Architecture
 
@@ -127,3 +132,7 @@ storage, …) is built only from public hooks.
   `web/` (`index.html` + `index.js` fetching `./app.wasm`); the `examples/*` glob and
   `build-wasm-all.sh` pick it up. An optional `bundle.sh` beside it is run with the output directory
   as its argument (the material example uses one to bundle its JS and CSS with esbuild and sass).
+- Each example's component lives in a library module (`src/Example/<Name>.hs`); `Main.hs` only starts
+  it. `examples/all/Gallery.hs` mounts those components by route, so a new example appears on the
+  deployed site only once it is added there. `Gallery` is compiled for JS and wasm only, because
+  `BrowserDOM` has no DOM instances on native.

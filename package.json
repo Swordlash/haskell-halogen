@@ -14,6 +14,7 @@
   "devDependencies": {
     "esbuild": "^0.28.2",
     "http-server": "^14.1.1",
+    "playwright": "^1.63.0",
     "sass-embedded": "^1.105.0"
   },
   "scripts": {
@@ -31,6 +32,7 @@
     "dev-wasm": "sh examples/material/dev-wasm.sh",
     "format": "sh run_fourmolu.sh",
     "test": "sh toolchain/run-tests.sh",
+    "test-gallery": "node toolchain/test-gallery.mjs",
     "clean": "rm -rf dist-newstyle/wasm/public dist-newstyle/ghcjs"
   }
 }

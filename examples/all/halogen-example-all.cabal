@@ -1,0 +1,51 @@
+cabal-version:      3.0
+name:               halogen-example-all
+version:            0.1.0.0
+synopsis:           Every haskell-halogen example in one single-page app
+license:            Apache-2.0
+author:             Mateusz Goślinowski
+maintainer:         mateusz.goslinowski@gmail.com
+category:           Web
+
+executable halogen-example-all
+  default-language: GHC2021
+  ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture
+
+  default-extensions:
+      CPP
+      DataKinds
+      DerivingStrategies
+      DuplicateRecordFields
+      ExplicitNamespaces
+      LambdaCase
+      NamedFieldPuns
+      NoImplicitPrelude
+      OverloadedRecordDot
+      OverloadedStrings
+      RequiredTypeArguments
+      TypeOperators
+
+  main-is:          Main.hs
+  hs-source-dirs:   .
+
+  build-depends:
+      base >= 4.20,
+      clay >= 0.16.0,
+      protolude,
+      row-types,
+      text,
+      haskell-halogen-core,
+      halogen-example-hooks,
+      halogen-example-material,
+      halogen-example-pixi,
+      halogen-example-vanilla
+
+  if arch(wasm32) || arch(javascript)
+    other-modules: Gallery
+
+  if arch(wasm32)
+    build-depends: ghc-experimental
+    ghc-options:
+      -no-hs-main
+      -optl-mexec-model=reactor
+      "-optl-Wl,--export=hs_start"
