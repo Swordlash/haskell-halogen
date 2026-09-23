@@ -1,3 +1,5 @@
+{-# LANGUAGE RoleAnnotations #-}
+
 -- | The vocabulary a hook program is indexed by, and the handle a hook hands
 -- back for the state it owns.
 --
@@ -55,6 +57,9 @@ type data HookK
 -- been finalized, or from a component that is not its owner, would change one
 -- component's state while marking another's for re-rendering.
 type StateId :: Type -> Type -> Type
+
+type role StateId nominal representational
+
 newtype StateId scope s = StateId (IORef s)
 
 -- | Holds of a hook program that installs at most one query handler.

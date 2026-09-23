@@ -19,4 +19,5 @@ exec cabal test all \
   --builddir="$build_dir" \
   --with-compiler="$ghcjs_ghc" \
   --with-hc-pkg="$ghcjs_ghc_pkg" \
+  --test-wrapper="$(pwd)/toolchain/ghcjs-test-wrapper.sh" \
   "$@"

@@ -173,6 +173,8 @@ unsubscribe :: forall scope slots output m. SubscriptionId -> HookM scope slots 
 unsubscribe sid = HookM $ liftF $ Unsubscribe sid ()
 
 -- | Run a hook program independently of the one that started it.
+-- State writes in a fork request renders as they happen, even if the program
+-- keeps running. Ordinary handlers batch their writes until they return.
 fork :: forall scope slots output m. HookAction scope slots output m -> HookM scope slots output m ForkId
 fork hm = HookM $ liftF $ Fork hm identity
 

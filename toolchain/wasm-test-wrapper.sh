@@ -7,6 +7,8 @@ wasm_ghc=$(command -v wasm32-wasi-ghc)
 wasm_libdir=$($wasm_ghc --print-libdir)
 temp_dir=$(mktemp -d)
 trap 'rm -rf "$temp_dir"' EXIT HUP INT TERM
+browser_test_dir=$temp_dir
+. "$(dirname "$0")/browser-test-env.sh"
 
 node "$wasm_libdir/post-link.mjs" \
   --input "$wasm_binary" \

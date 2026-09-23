@@ -57,6 +57,10 @@ npm run build-native         # every package, host GHC
 npm run test                 # test suites across native, JavaScript and wasm
 ```
 
+The cross-backend test scripts use Node 24 or later. They give each run a
+temporary Web Storage file so storage tests exercise the browser FFI as well
+as the native backend, without sharing a store between runs.
+
 ### WebAssembly
 
 The default browser and deployment target. It requires the
@@ -148,7 +152,7 @@ into the same package rather than a second one: `useDebouncer`, `useThrottle`, `
 stop the browser handling the same event. `usePrevious` and the `useLocalStorage` family come
 from that library's own examples. Storage is a `MonadBrowserDOM` operation, so the in-memory
 backend has it too and what a page persists can be tested without a browser; a store holds one
-JSON object of base64 values, and `Web.Storage.Serialize` says how a value becomes bytes — JSON by
+prefixed entry per key, with a base64 value, and `Web.Storage.Serialize` says how a value becomes bytes — JSON by
 default, for any type with aeson instances. None of them is primitive — each is written with the hooks
 above and nothing else, and each is worth reading as an example of a composite hook.
 [examples/hooks/](examples/hooks/) is a page that uses every one of them.

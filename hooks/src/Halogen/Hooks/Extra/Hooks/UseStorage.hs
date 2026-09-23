@@ -8,7 +8,7 @@
 -- the same way, rather than carrying the old one over to it.
 -- How it is written is 'Storage.StorageSerialize', which for most types means
 -- the JSON they already have instances for; where it is written is
--- "Web.Storage.Storage", one object per store.
+-- "Web.Storage.Storage", one prefixed entry per key.
 --
 -- The state is an 'Either' because a store can hold something this version of
 -- the program cannot read — written by an older one, or by something else

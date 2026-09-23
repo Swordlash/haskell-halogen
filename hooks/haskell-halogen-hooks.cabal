@@ -60,6 +60,7 @@ common commons
       base >= 4.20,
       free,
       transformers,
+      unliftio,
       protolude,
       containers,
       kan-extensions,
@@ -124,6 +125,7 @@ test-suite Halogen-hooks-test
                     Test.Harness
                     Test.Hooks
                     Test.Storage
+                    Test.Scope
 
     if arch(javascript)
       js-sources:     jsbits/ghcjs_test_compat.js

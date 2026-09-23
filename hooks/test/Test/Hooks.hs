@@ -15,9 +15,10 @@ import Halogen.Hooks qualified as Hooks
 import Halogen.Hooks.Types (HookK (UseQuery, UseState))
 import Halogen.Subscription qualified as HS
 import Protolude
+import System.IO.Error (userError)
 import System.IO.Unsafe (unsafePerformIO)
 import Test.Harness (Harness (..), dispose, eventually, lastRender, query, start)
-import Test.Hspec (Spec, describe, it, shouldBe)
+import Test.Hspec (Spec, anyIOException, describe, it, shouldBe, shouldThrow)
 
 ----------------------------------------------------------------------
 -- A component that reports on itself.
@@ -48,6 +49,7 @@ data TickEvent
 data Q a
   = Bump a
   | BumpLater a
+  | BumpAndWait (MVar ()) (MVar ()) a
   | BumpOther a
   | CurrentCount (Int -> a)
   | WriteRef Int a
@@ -89,6 +91,13 @@ probeComponent probe = Hooks.component @Empty $ \_input -> Hooks.do
       void $ Hooks.fork $ do
         liftIO $ threadDelay 20_000
         Hooks.modify_ countId (+ 1)
+      pure (Just a)
+    BumpAndWait changed release a -> do
+      void $ Hooks.fork $ do
+        liftIO $ threadDelay 20_000
+        Hooks.modify_ countId (+ 1)
+        liftIO $ putMVar changed ()
+        liftIO $ takeMVar release
       pure (Just a)
     BumpOther a -> Hooks.modify_ otherId (+ 1) $> Just a
     CurrentCount k -> Just . k <$> Hooks.get countId
@@ -155,6 +164,32 @@ subscriber emitter = Hooks.component @Empty $ \_input -> Hooks.do
 
   Hooks.pure $ HH.text ("total=" <> show total)
 
+-- A subscription can deliver an action synchronously from inside an effect.
+-- The next pass must wait for that effect to return its cleanup.
+reentrantComponent :: IORef [TickEvent] -> HS.Subscribe IO () -> H.Component H.VoidF () Void IO
+reentrantComponent logRef source = Hooks.component @Empty $ \_ -> Hooks.do
+  (count, countId) <- Hooks.useState (0 :: Int)
+  Hooks.useLifecycleEffect $ do
+    void $ Hooks.subscribe $ map (\() -> Hooks.put countId 1) source.emitter
+    pure Nothing
+  Hooks.useTickEffect count $ do
+    liftIO $ modifyIORef' logRef (<> [Ran count])
+    when (count == 0) $ liftIO $ HS.notify source.listener ()
+    pure $ Just $ liftIO $ modifyIORef' logRef (<> [Cleaned count])
+  Hooks.pure $ HH.text (show count)
+
+throwingComponent :: IORef [Int] -> HS.Emitter IO Int -> H.Component H.VoidF () Void IO
+throwingComponent logRef source = Hooks.component @Empty $ \_ -> Hooks.do
+  (count, countId) <- Hooks.useState (0 :: Int)
+  Hooks.useLifecycleEffect $ do
+    void $ Hooks.subscribe $ map (Hooks.put countId) source
+    pure Nothing
+  Hooks.useTickEffect count $ do
+    when (count == 1) $ liftIO $ throwIO (userError "effect failed")
+    liftIO $ modifyIORef' logRef (<> [count])
+    pure Nothing
+  Hooks.pure $ HH.text (show count)
+
 ----------------------------------------------------------------------
 -- Spec.
 ----------------------------------------------------------------------
@@ -183,6 +218,36 @@ spec = describe "hooks" $ do
     void $ query harness (H.mkTell BumpLater)
     lastRender harness >>= (`shouldBe` "count=0 other=0 memo=(0,1)")
     eventually "count=1 other=0 memo=(1,2)" (lastRender harness)
+
+  it "renders a fork's state and effects before the fork finishes" $ withProbe $ \probe harness -> do
+    changed <- newEmptyMVar
+    release <- newEmptyMVar
+    void $ query harness (H.mkTell (BumpAndWait changed release))
+    takeMVar changed
+    rendered <- lastRender harness
+    ticks <- readIORef probe.tickLog
+    putMVar release ()
+    rendered `shouldBe` "count=1 other=0 memo=(1,2)"
+    ticks `shouldBe` [Ran 0, Cleaned 0, Ran 1]
+
+  it "finishes an effect before processing a reentrant state update" $ do
+    ticks <- newIORef []
+    source <- HS.create
+    harness <- start (reentrantComponent ticks source) ()
+    readIORef ticks >>= (`shouldBe` [Ran 0, Cleaned 0, Ran 1])
+    lastRender harness >>= (`shouldBe` "1")
+    dispose harness
+    eventually [Ran 0, Cleaned 0, Ran 1, Cleaned 1] (readIORef ticks)
+
+  it "allows another pass after an effect throws" $ do
+    runs <- newIORef []
+    source <- HS.create
+    harness <- start (throwingComponent runs source.emitter) ()
+    HS.notify source.listener 1 `shouldThrow` anyIOException
+    HS.notify source.listener 2
+    lastRender harness >>= (`shouldBe` "2")
+    readIORef runs >>= (`shouldBe` [0, 2])
+    dispose harness
 
   it "raises output from a handler" $ withProbe $ \_probe harness -> do
     void $ query harness (H.mkTell Bump)

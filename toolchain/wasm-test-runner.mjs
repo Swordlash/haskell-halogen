@@ -8,6 +8,7 @@ const wasi = new WASI({
   env: process.env,
   preopens: { "/": "/" },
   version: "preview1",
+  returnOnExit: true,
 });
 const exports = {};
 const ghcWasmImports = (await import(pathToFileURL(jsffiPath))).default;
@@ -18,4 +19,4 @@ const instance = await WebAssembly.instantiate(module, {
 });
 
 Object.assign(exports, instance.exports);
-wasi.start(instance);
+process.exitCode = wasi.start(instance);

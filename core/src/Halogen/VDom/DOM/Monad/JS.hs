@@ -98,7 +98,9 @@ instance MonadDOM BrowserDOM where
   elementToNode el = pure (coerce el)
   elementToEventTarget el = pure (coerce el)
 
-  mkEventListener f = liftIO $ EventListener <$> asyncCallback1 (runBrowserDOM . f . Event)
+  -- Cancellation and propagation control must run before dispatch returns.
+  -- A handler that blocks can continue asynchronously after its initial work.
+  mkEventListener f = liftIO $ EventListener <$> syncCallback1 ContinueAsync (runBrowserDOM . f . Event)
 
   createTextNode txt doc = liftIO $ js_create_text_node (toJSString $ toS txt) doc
   setTextContent txt node = liftIO $ js_set_text_content (toJSString $ toS txt) node

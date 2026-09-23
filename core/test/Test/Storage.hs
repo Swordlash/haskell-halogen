@@ -6,33 +6,35 @@
 
 -- | What a store keeps, and what shape it keeps it in.
 --
--- The in-memory DOM has the same two stores the browser has, so all of this is
--- exercised without one — on native, which is where that backend has its
--- instance. The browser backends have real stores and no browser to run these
--- under, so there they say nothing.
+-- Runs against the in-memory DOM on native and the browser backend on JS and
+-- wasm. The cross-backend test scripts provide Node's Web Storage globals.
 module Test.Storage (spec) where
-
-import Prelude
-
-#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
-
-import Test.Hspec (Spec, xdescribe)
-
-spec :: Spec
-spec = xdescribe "storage" $ pure ()
-
-#else
-
 
 import Control.Monad.IO.Class (liftIO)
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Map.Strict qualified as M
 import Data.Text (Text)
 import GHC.Generics (Generic)
-import Halogen.VDom.DOM.Monad (MemDOM, StorageKind (..), readStorageItem, removeStorageItem, runMemDOM, writeStorageItem)
+import Halogen.VDom.DOM.Monad (StorageKind (..), readStorageItem, removeStorageItem, writeStorageItem)
+import Prelude
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+import Halogen.VDom.DOM.Monad (BrowserDOM, runBrowserDOM)
+#else
+import Halogen.VDom.DOM.Monad (MemDOM, runMemDOM)
+#endif
 import Test.Hspec (Spec, describe, it)
 import Test.Utils (assertEqual)
 import Web.Storage.Storage qualified as Storage
+
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+type TestDOM = BrowserDOM
+runTestDOM :: TestDOM a -> IO a
+runTestDOM = runBrowserDOM
+#else
+type TestDOM = MemDOM
+runTestDOM :: TestDOM a -> IO a
+runTestDOM = runMemDOM
+#endif
 
 -- | A type that says nothing about how it is stored: the class writes it as
 -- the JSON its own instances describe.
@@ -45,14 +47,14 @@ data Settings = Settings
 
 -- | Each test starts from an empty store: the in-memory one is global, and
 -- deliberately outlives the component that wrote to it.
-emptied :: MemDOM a -> IO a
-emptied act = runMemDOM $ do
+emptied :: TestDOM a -> IO a
+emptied act = runTestDOM $ do
   Storage.clear LocalStorage
   Storage.clear SessionStorage
   act
 
 -- | 'assertEqual', where these tests run.
-expect :: (Eq a, Show a) => String -> a -> a -> MemDOM ()
+expect :: (Eq a, Show a) => String -> a -> a -> TestDOM ()
 expect message expected actual = liftIO (assertEqual message expected actual)
 
 spec :: Spec
@@ -130,5 +132,3 @@ spec = describe "storage" $ do
     Storage.setItem LocalStorage "a" ("3" :: Text)
     expect "both" ["a", "b"] =<< Storage.keys LocalStorage
     expect "theirs" (Just (Right ("2" :: Text))) =<< Storage.getItem LocalStorage "b"
-
-#endif

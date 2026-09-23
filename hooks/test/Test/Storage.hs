@@ -1,24 +1,11 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE QualifiedDo #-}
 
--- | The storage hooks, against the in-memory DOM.
+-- | The storage hooks, across the DOM backends.
 --
--- What a store is depends on the backend, and the in-memory one has the two
--- stores a browser has — on native, which is where that backend has its
--- instance. The browser backends have real stores and no browser to run these
--- under, so there this says nothing.
+-- Runs on the in-memory DOM natively, and through the browser FFI on JS and
+-- wasm using the Web Storage globals supplied by the test scripts.
 module Test.Storage (spec) where
-
-import Protolude
-
-#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
-
-import Test.Hspec (Spec, xdescribe)
-
-spec :: Spec
-spec = xdescribe "hooks-extra storage" $ pure ()
-
-#else
 
 import Data.Row (Empty)
 import Data.Text qualified as T
@@ -27,16 +14,32 @@ import Halogen.HTML qualified as HH
 import Halogen.Hooks qualified as Hooks
 import Halogen.Hooks.Extra.Hooks (useLocalStorage)
 import Halogen.Subscription qualified as HS
-import Halogen.VDom.DOM.Monad (MemDOM, StorageKind (..), runMemDOM)
+import Halogen.VDom.DOM.Monad (StorageKind (..))
+import Protolude
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+import Halogen.VDom.DOM.Monad (BrowserDOM, runBrowserDOM)
+#else
+import Halogen.VDom.DOM.Monad (MemDOM, runMemDOM)
+#endif
 import Test.Harness (dispose, eventually, lastRender, start)
 import Test.Hspec (Spec, describe, it, shouldBe)
 import Web.Storage.Storage qualified as Storage
 
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+type TestDOM = BrowserDOM
+runTestDOM :: TestDOM a -> IO a
+runTestDOM = runBrowserDOM
+#else
+type TestDOM = MemDOM
+runTestDOM :: TestDOM a -> IO a
+runTestDOM = runMemDOM
+#endif
+
 -- | Counts, and keeps the count where a reload would find it.
 --
--- Its monad is 'MemDOM' rather than 'IO': what a store is depends on the
--- backend, and the in-memory one has the two stores the browser has.
-persistentComponent :: HS.Emitter IO () -> H.Component H.VoidF () Void MemDOM
+-- Its monad is the tested DOM backend rather than 'IO', so every persistence
+-- operation goes through that backend's storage methods.
+persistentComponent :: HS.Emitter IO () -> H.Component H.VoidF () Void TestDOM
 persistentComponent events = Hooks.component @Empty $ \_input -> Hooks.do
   (count, setCount) <- useLocalStorage "test/count" (0 :: Int)
 
@@ -48,7 +51,7 @@ persistentComponent events = Hooks.component @Empty $ \_input -> Hooks.do
 
 -- | Counts under a key it can be told to change, which is what a component
 -- whose input starts naming somebody else looks like from inside the hook.
-switchingComponent :: HS.Emitter IO (Either Text ()) -> H.Component H.VoidF () Void MemDOM
+switchingComponent :: HS.Emitter IO (Either Text ()) -> H.Component H.VoidF () Void TestDOM
 switchingComponent events = Hooks.component @Empty $ \_input -> Hooks.do
   (key, keyId) <- Hooks.useState "test/a"
   (count, setCount) <- useLocalStorage key (0 :: Int)
@@ -65,7 +68,7 @@ expect expected actual = liftIO (actual `shouldBe` expected)
 
 spec :: Spec
 spec = describe "hooks-extra storage" $ do
-  it "keeps state where a remount finds it" $ runMemDOM $ do
+  it "keeps state where a remount finds it" $ runTestDOM $ do
     Storage.clear LocalStorage
     source <- liftIO HS.create
 
@@ -85,7 +88,7 @@ spec = describe "hooks-extra storage" $ do
     expect "count=2" =<< lastRender second
     dispose second
 
-  it "reads the key it is given now, and leaves the one before it alone" $ runMemDOM $ do
+  it "reads the key it is given now, and leaves the one before it alone" $ runTestDOM $ do
     Storage.clear LocalStorage
     Storage.setItem LocalStorage "test/b" (7 :: Int)
     source <- liftIO HS.create
@@ -107,7 +110,7 @@ spec = describe "hooks-extra storage" $ do
     expect (Just (Right (1 :: Int))) =<< Storage.getItem LocalStorage "test/a"
     dispose harness
 
-  it "starts from the default when the store holds something it cannot read" $ runMemDOM $ do
+  it "starts from the default when the store holds something it cannot read" $ runTestDOM $ do
     Storage.clear LocalStorage
     Storage.setItem LocalStorage "test/count" ("not a number" :: Text)
     source <- liftIO HS.create
@@ -117,5 +120,3 @@ spec = describe "hooks-extra storage" $ do
     rendered <- lastRender harness
     expect True ("count=unreadable: " `T.isPrefixOf` rendered)
     dispose harness
-
-#endif
