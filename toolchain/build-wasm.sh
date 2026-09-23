@@ -3,8 +3,9 @@
 #
 #   sh toolchain/build-wasm.sh pixi [extra cabal args...]
 #
-# Output lands in dist-newstyle/wasm/public/<example>/, containing app.wasm,
-# ghc_wasm_jsffi.js and everything under examples/<example>/web/.
+# Output lands in dist-newstyle/wasm/public/<example>/, containing app.wasm
+# (size-optimised with wasm-opt), ghc_wasm_jsffi.js and everything under
+# examples/<example>/web/.
 set -eu
 
 cd "$(dirname "$0")/.."
@@ -43,7 +44,12 @@ wasm_libdir=$($wasm_ghc --print-libdir)
 
 mkdir -p "$public_dir"
 node "$wasm_libdir/post-link.mjs" --input "$wasm_binary" --output "$public_dir/ghc_wasm_jsffi.js"
-cp "$wasm_binary" "$public_dir/app.wasm"
+# The linker output carries a name section and debug info worth about a third
+# of the file; stripping those and optimising for size roughly halves the
+# binary and takes about a fifth off what is served gzipped. wasm-opt comes with
+# ghc-wasm-meta's binaryen and leaves the imports and exports the JSFFI glue
+# binds to untouched.
+wasm-opt -Oz --strip-debug --strip-producers "$wasm_binary" -o "$public_dir/app.wasm"
 cp -R "examples/$example/web/." "$public_dir/"
 
 if [ -f "examples/$example/bundle.sh" ]; then

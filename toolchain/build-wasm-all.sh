@@ -57,4 +57,9 @@ EOF
 EOF
 } > "$public_dir/index.html"
 
+# GitHub Pages compresses on the fly, so only report the sizes here rather
+# than writing precompressed copies into the upload.
+node toolchain/compress.mjs --no-write \
+  $(find "$public_dir" -mindepth 2 -type f \( -name '*.wasm' -o -name '*.js' -o -name '*.css' \) | sort)
+
 printf '\nAll examples built in %s.\n' "$public_dir"
