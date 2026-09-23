@@ -68,13 +68,20 @@ The default browser and deployment target. It requires the
 first — the build scripts source `~/.ghc-wasm/env` and will fail without it:
 
 ```sh
+cd
 git clone https://gitlab.haskell.org/haskell-wasm/ghc-wasm-meta.git
-cd ghc-wasm-meta && FLAVOUR=9.14 ./setup.sh
+cd ghc-wasm-meta 
+git checkout 358ea50b8496a69da6ce375c0c58bc049dbcb92d
+SKIP_GHC=1 FLAVOUR=9.14 ./setup.sh
+source ~/.ghc-wasm/env
+ghcup -s "file://$HOME/ghc-wasm-meta/ghcup-wasm-0.0.9.yaml" install ghc "wasm32-wasi-9.14.1.20260731" --set -- $CONFIGURE_ARGS
 ```
 
 That installs `wasm32-wasi-ghc` and friends under `~/.ghc-wasm`. The exact GHC version this
 repository builds against is pinned in `cabal-wasm.project`, and `.github/workflows/build.yml`
 pins the ghc-wasm-meta revision CI bootstraps from — keep the two in step when bumping either.
+
+NOTE: use `cabal` version `3.16.1` on this repository.
 
 With that in place, build and serve any example by name:
 
