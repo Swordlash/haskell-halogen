@@ -6,6 +6,9 @@
   name, so markup a parent hands to `tabsComponent` or `list` can use any ref
   label without taking over theirs. `tabsComponent`, `list` and `button` now
   need `MonadUUID m`, which `BrowserDOM` has.
+* `MonadMaterial` has an instance for `BrowserDOM` natively too, whose methods
+  panic: code written against `BrowserDOM`, such as the browser test suite,
+  type-checks natively and loads in the language server.
 * `tabsComponent` keeps every tab mounted and hides the ones not selected,
   where before it rendered only the selected tab. Switching tabs used to unmount
   the components in the tab being left, so a radio button picked or text typed
