@@ -12,6 +12,13 @@
   `ChildOutput`) sees its re-render reach the tab contents. `selectedTab` still
   sets only the initial tab. If a new spec has fewer tabs than the selected
   index, the selection moves to the last tab and `SelectedTab` is raised.
+* `TextFieldStyle` gains `Outlined`, drawn with MDC's notched outline, which
+  MDC opens around the floating label.
+* A text field's floating label carries the id its input's `aria-labelledby`
+  names, so screen readers announce the label.
+* A text field leaves floating its label to MDC. It used to float the label
+  exactly while the text was non-empty, so clearing a focused field dropped the
+  label under the caret; now it stays up until the field loses focus empty.
 
 ## 0.2.0.0 - 2026-09-14
 

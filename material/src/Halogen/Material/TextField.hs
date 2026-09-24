@@ -26,8 +26,8 @@ import Protolude
 
 data TextFieldStyle
   = Filled
+  | Outlined
 
--- | Outlined
 data TextFieldAffix
   = NoAffix
   | TextAffix Text
@@ -131,60 +131,87 @@ textField =
           _ -> show $ T.length text
         tf = renderTF TextFieldState {..}
 
-    renderTF TextFieldState {..} = case style of
-      Filled ->
-        HH.label
-          [ HP.ref ref
-          , HP.classes $
-              HH.ClassName "mdc-text-field"
-                : HH.ClassName "mdc-text-field--filled"
-                : catMaybes
-                  [ pureIf (isJust label && not (T.null text)) (HH.ClassName "mdc-text-field--label-floating")
-                  , pureIf (isNothing label) (HH.ClassName "mdc-text-field--no-label")
-                  , pureIf (not enabled) (HH.ClassName "mdc-text-field--disabled")
-                  ]
-          ]
-          $ HH.span [HP.class_ $ HH.ClassName "mdc-text-field__ripple"] []
-            : catMaybes
-              [ fmap (HH.span [HP.classes $ HH.ClassName "mdc-floating-label" : pureIf (not $ T.null text) (HH.ClassName "mdc-floating-label--float-above")] . pure . HH.text) label
-              , case prefix of
-                  NoAffix -> Nothing
-                  TextAffix t -> Just $ HH.span [HP.classes [HH.ClassName "mdc-text-field__affix", HH.ClassName "mdc-text-field__affix--prefix"]] [HH.text t]
-                  IconAffix i ->
-                    Just $
-                      HH.i
-                        ( HP.classes [HH.ClassName "material-icons", HH.ClassName "mdc-text-field__icon--leading"]
-                            : if isIconAffix suffix then [] else [HP.tabIndex 0, HPA.role "button"]
-                        )
-                        [HH.text $ iconText i]
-              , pure $
-                  HH.input $
-                    [ HP.type_ type_
-                    , HP.class_ $ HH.ClassName "mdc-text-field__input"
-                    , HP.disabled (not enabled)
-                    , HP.value text
-                    , HE.onInputValueChange $ Just . InputChange
-                    , HPA.labelledBy $ UUID.toText labelId
-                    , HPA.describedBy $ UUID.toText helperId
-                    ]
-                      <> catMaybes
-                        [ fmap HP.minLength $ fst minMaxLength
-                        , fmap HP.maxLength $ snd minMaxLength
-                        ]
-              , case suffix of
-                  NoAffix -> Nothing
-                  TextAffix t -> Just $ HH.span [HP.classes [HH.ClassName "mdc-text-field__affix", HH.ClassName "mdc-text-field__affix--suffix"]] [HH.text t]
-                  IconAffix i ->
-                    Just $
-                      HH.i
-                        [ HP.classes [HH.ClassName "material-icons", HH.ClassName "mdc-text-field__icon--trailing"]
-                        , HP.tabIndex 0
-                        , HPA.role "button"
-                        ]
-                        [HH.text $ iconText i]
-              , pure $ HH.span [HP.class_ $ HH.ClassName "mdc-line-ripple"] []
+    -- Whether the label floats is left to MDC, which floats it on focus and
+    -- input and lowers it on blur only if the field is empty. Deciding it here
+    -- from the text alone would lower it under the caret as soon as a focused
+    -- field was cleared, and a class list that changed with it would wipe the
+    -- classes MDC keeps on the same elements.
+    renderTF TextFieldState {..} =
+      HH.label
+        [ HP.ref ref
+        , HP.classes $
+            HH.ClassName "mdc-text-field"
+              : styleClass
+              : catMaybes
+                [ pureIf (isNothing label) (HH.ClassName "mdc-text-field--no-label")
+                , pureIf (not enabled) (HH.ClassName "mdc-text-field--disabled")
+                ]
+        ]
+        $ case style of
+          Filled ->
+            HH.span [HP.class_ $ HH.ClassName "mdc-text-field__ripple"] []
+              : catMaybes [floatingLabel, prefixEl, Just inputEl, suffixEl]
+              <> [HH.span [HP.class_ $ HH.ClassName "mdc-line-ripple"] []]
+          -- The outline draws the border and carries the label in its notch,
+          -- which MDC opens to the label's width; there is no ripple.
+          Outlined ->
+            HH.span
+              [HP.classes $ HH.ClassName "mdc-notched-outline" : pureIf (isNothing label) (HH.ClassName "mdc-notched-outline--no-label")]
+              ( HH.span [HP.class_ $ HH.ClassName "mdc-notched-outline__leading"] []
+                  : map (HH.span [HP.class_ $ HH.ClassName "mdc-notched-outline__notch"] . pure) (maybeToList floatingLabel)
+                  <> [HH.span [HP.class_ $ HH.ClassName "mdc-notched-outline__trailing"] []]
+              )
+              : catMaybes [prefixEl, Just inputEl, suffixEl]
+      where
+        styleClass = HH.ClassName $ case style of
+          Filled -> "mdc-text-field--filled"
+          Outlined -> "mdc-text-field--outlined"
+
+        floatingLabel =
+          label <&> \l ->
+            HH.span
+              [ HP.class_ $ HH.ClassName "mdc-floating-label"
+              , HP.id (UUID.toText labelId)
               ]
-    -- Outlined -> TODO
+              [HH.text l]
+
+        prefixEl = case prefix of
+          NoAffix -> Nothing
+          TextAffix t -> Just $ HH.span [HP.classes [HH.ClassName "mdc-text-field__affix", HH.ClassName "mdc-text-field__affix--prefix"]] [HH.text t]
+          IconAffix i ->
+            Just $
+              HH.i
+                ( HP.classes [HH.ClassName "material-icons", HH.ClassName "mdc-text-field__icon--leading"]
+                    : if isIconAffix suffix then [] else [HP.tabIndex 0, HPA.role "button"]
+                )
+                [HH.text $ iconText i]
+
+        inputEl =
+          HH.input $
+            [ HP.type_ type_
+            , HP.class_ $ HH.ClassName "mdc-text-field__input"
+            , HP.disabled (not enabled)
+            , HP.value text
+            , HE.onInputValueChange $ Just . InputChange
+            , HPA.labelledBy $ UUID.toText labelId
+            , HPA.describedBy $ UUID.toText helperId
+            ]
+              <> catMaybes
+                [ fmap HP.minLength $ fst minMaxLength
+                , fmap HP.maxLength $ snd minMaxLength
+                ]
+
+        suffixEl = case suffix of
+          NoAffix -> Nothing
+          TextAffix t -> Just $ HH.span [HP.classes [HH.ClassName "mdc-text-field__affix", HH.ClassName "mdc-text-field__affix--suffix"]] [HH.text t]
+          IconAffix i ->
+            Just $
+              HH.i
+                [ HP.classes [HH.ClassName "material-icons", HH.ClassName "mdc-text-field__icon--trailing"]
+                , HP.tabIndex 0
+                , HPA.role "button"
+                ]
+                [HH.text $ iconText i]
 
     handleQuery = \case
       GetText f -> (Just . f) <$> gets (.text)

@@ -98,6 +98,14 @@ component =
                           , HMTF.type_ = InputNumber
                           , HMTF.helperLine = HMTF.HelperLine "Any donation helps our cause!"
                           }
+                    , -- Filled in from the start and in a tab that is hidden on
+                      -- load, so its outline is first measured while hidden.
+                      HH.slot_ "textField" 3 HMTF.textField $
+                        HMTF.emptyTextFieldSpec
+                          { HMTF.label = Just "Email"
+                          , HMTF.text = "someone@example.com"
+                          , HMTF.style = HMTF.Outlined
+                          }
                     ]
                 )
               ,
