@@ -17,6 +17,7 @@ maintainer:         mateusz.goslinowski@gmail.com
 category:           Web, Testing
 build-type:         Simple
 extra-doc-files:    CHANGELOG.md
+                    README.md
 extra-source-files: js/runner.mjs
                     js/open.mjs
 
