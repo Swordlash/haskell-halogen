@@ -13,7 +13,6 @@ where
 import Clay qualified as C
 import Control.Monad.Extra (pureIf)
 import Data.Functor qualified as F
-import Data.List.NonEmpty ((!!))
 import Data.Row
 import Data.Text qualified as T
 import Halogen qualified as H hiding (Initialize)
@@ -34,14 +33,13 @@ data TabSpec = TabSpec
   , icon :: Maybe (Icon, IconPosition)
   }
 
--- | The tab bar renders only the selected tab's content, so switching tabs
--- unmounts every child component in the tab being left and mounts the ones in
--- the tab being entered afresh from their inputs. State that should survive a
--- switch therefore belongs to the parent: map the children's outputs to the
--- parent's action @i@ (they reach the parent as 'ChildOutput'), keep the values
--- in the parent's state, and pass them back in the children's inputs. The
--- component takes every new spec it receives, so the tab contents always
--- reflect the parent's latest render.
+-- | Every tab's content stays mounted, and the ones not selected are only
+-- hidden, so the child components in a tab keep their state while another tab
+-- is shown. Their outputs reach the parent as 'ChildOutput' when their slot maps
+-- them to the parent's action @i@; a parent that only needs to react to some of
+-- them handles those and leaves the rest to 'HH.slot_'. The component takes every
+-- new spec it receives, so the tab contents always reflect the parent's latest
+-- render.
 --
 -- 'selectedTab' is only the initial selection; after that the component owns
 -- it and reports changes with 'SelectedTab'.
@@ -108,10 +106,14 @@ tabsComponent =
     render TabsState {..} =
       HH.div
         [HP.style (C.display C.flex <> C.flexDirection C.column <> extraStyle)]
-        [header, HH.mapHTMLAction ChildAction tab]
+        (header : zipWith panel [0 ..] (toList tabContents))
       where
         (tabHeaders, tabContents) = F.unzip tabs
-        tab = tabContents !! selectedTab
+
+        panel i content =
+          HH.div
+            [HPA.role "tabpanel", HP.hidden (i /= selectedTab)]
+            [HH.mapHTMLAction ChildAction content]
 
         header =
           HH.div [HP.class_ (HH.ClassName "mdc-tab-bar"), HPA.role "tablist", HP.ref ref] $
@@ -164,7 +166,7 @@ tabsComponent =
       Finalize -> traverse_ (lift . destroyTabBar) =<< gets (.mdcTabBar)
       Receive tabs extraStyle -> do
         -- A parent that shrinks the tab list must not leave the selection
-        -- pointing past its end, or render would index out of bounds.
+        -- pointing past its end, where no panel would be shown.
         old <- gets (.selectedTab)
         let selectedTab = min (length tabs - 1) old
         modify $ \s -> s {tabs, extraStyle, selectedTab} :: TabsState slots i m
