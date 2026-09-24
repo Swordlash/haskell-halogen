@@ -3,6 +3,7 @@ packages:
   pixi
   material
   hooks
+  hspec-halogen
   examples/*
 
 allow-newer: protolude:*

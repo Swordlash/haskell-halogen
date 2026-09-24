@@ -6,8 +6,10 @@ This file provides guidance to AI coding agents working with code in this reposi
 
 A port of purescript-halogen to GHC Haskell, as a multi-package cabal project: `core`
 (`haskell-halogen-core`, the port itself), `hooks` (`purescript-halogen-hooks` port), `material`
-(Material Components bindings), `pixi` (PixiJS v8 canvas backend), and `examples/*` (one browser app
-each, plus `examples/all`, the gallery that mounts the others and is what Pages deploys). `hooks`, `material` and `pixi` depend only on `core`. Everything builds from the root
+(Material Components bindings), `pixi` (PixiJS v8 canvas backend), `hspec-halogen`
+(an hspec harness that tests components in a real browser), and
+`examples/*` (one browser app each, plus `examples/all`, the gallery that mounts the others and is what
+Pages deploys). `hooks`, `material`, `pixi` and `hspec-halogen` depend only on `core`. Everything builds from the root
 `cabal.project`, so a `core` change is type-checked against every dependent and example.
 
 Every package is compiled for three targets: native GHC, the GHC JavaScript backend, and GHC
@@ -129,6 +131,11 @@ storage, …) is built only from public hooks.
 - Commit subjects are short imperative sentences in plain English ("Make a prop that goes away
   actually go away"), sometimes prefixed with the package (`core: …`, `hooks: …`); bodies explain why.
 - Haddocks and comments explain reasoning in full sentences rather than restating the code.
+- Don't hardcode a monad: components, specs and helpers are polymorphic in `m` with class
+  constraints (`MonadMaterial m`, `MonadUUID m`, `MonadBrowserTest m`, …), and only an entry point
+  picks one: `Main.hs`, or a test suite's `main`. A spec takes the monad as a required type argument
+  (`spec :: forall m -> (MonadBrowserTest m) => Spec`, called as `spec BrowserDOM`), not through
+  `AllowAmbiguousTypes`, a `Proxy` or a type application.
 - Never hardcode a `RefLabel`: generate it with `H.newRefLabel "<name>"` in `initialState` and keep
   it in the state. Refs are looked up in the component that rendered them, which includes HTML a
   component renders for its parent (Tabs, List), so a fixed label can collide with a parent's.
