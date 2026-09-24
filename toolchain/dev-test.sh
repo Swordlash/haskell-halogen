@@ -8,11 +8,22 @@
 #   sh toolchain/dev-test.sh --open-browser material   # then open its page from another terminal
 #
 # The suite must have an `interactive` flag that drops its reactor options, as
-# material's does. The page is opened through Playwright (browser-test-open.mjs)
+# material's does. The page is opened through Playwright (hspec-halogen open)
 # so that the suite's clicks and keystrokes are real input.
 set -eu
 
 cd "$(dirname "$0")/.."
+
+# The opener is the native hspec-halogen executable: build it before the wasm
+# toolchain takes over the environment.
+case "${1:-}" in
+  --repl) ;;
+  *)
+    HSPEC_HALOGEN=${HSPEC_HALOGEN:-$(sh toolchain/build-hspec-halogen.sh)}
+    export HSPEC_HALOGEN
+    ;;
+esac
+
 . "$HOME/.ghc-wasm/env"
 export PATH="$HOME/.local/bin:$PATH"
 
@@ -65,10 +76,12 @@ case "$mode" in
       fi
       sleep 1
     done
-    exec node toolchain/browser-test-open.mjs "$url"
+    exec "$HSPEC_HALOGEN" open "$url"
     ;;
   repl)
     [ -f "$public_dir/index.html" ] || prepare_page
+    # Cabal may reuse the host ghc-pkg from this cache when switching toolchains.
+    rm -f dist-newstyle/wasm-dev/cache/compiler
     exec cabal repl --project-file=cabal-wasm.project \
       --with-compiler="$(command -v wasm32-wasi-ghc)" \
       --with-hc-pkg="$(command -v wasm32-wasi-ghc-pkg)" \

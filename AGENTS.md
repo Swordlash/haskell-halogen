@@ -71,12 +71,14 @@ and wired into `test/Test.hs`.
   if it runs after the RTS has shut down. `toolchain/test-wasm-runner.sh` checks exit codes survive.
 - A browser test suite (built with `hspec-halogen`, e.g. material's) is a wasm *reactor* exporting
   `hs_start`, whose `main` is `runBrowserTests spec`. `wasm-test-wrapper.sh` recognises the export
-  and hands the binary to `toolchain/browser-test-runner.mjs`, which loads it into headless Chromium
-  with the package's `test/web/` assets (and whatever `test/web/bundle.sh` builds), relays its
-  output, and performs its `click`/`typeText`/`press` through Playwright as trusted input. So
-  `npm run test-wasm` needs Chromium installed. The suite's cabal `interactive` flag drops the
-  reactor options, and `toolchain/dev-test.sh` runs it in browser GHCi under ghciwatch, in a
-  Playwright-opened window (`browser-test-open.mjs`), rerunning `:main` on every save.
+  and hands the binary to the native `hspec-halogen` executable (`hspec-halogen test`, built by
+  `toolchain/build-hspec-halogen.sh`), which loads it into headless Chromium with the package's
+  `test/web/` assets (and whatever `test/web/bundle.sh` builds), relays its output, and performs
+  its `click`/`typeText`/`press` through Playwright as trusted input. Its JavaScript lives in
+  `hspec-halogen/js/` and is compiled into the executable. So `npm run test-wasm` needs the host
+  GHC and Chromium. The suite's cabal `interactive` flag drops the reactor options, and
+  `toolchain/dev-test.sh` runs it in browser GHCi under ghciwatch, in a window
+  `hspec-halogen open` opened, rerunning `:main` on every save.
   `hspec-halogen` builds on every backend (its page functions panic off wasm, see
   `Test.Hspec.Halogen.Internal.Page`) so suites type-check natively for HLS; there
   `runBrowserTests` only reports a skip. Material's suite is not built for the JS backend.

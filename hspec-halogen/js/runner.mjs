@@ -1,40 +1,90 @@
-// Run a wasm hspec suite built with hspec-halogen inside
-// headless Chromium.
+// Run a wasm test suite for the hspec-halogen executable: one built with
+// hspec-halogen in headless Chromium, any other under Node.
 //
-//   node toolchain/browser-test-runner.mjs <app.wasm> <ghc_wasm_jsffi.mjs> [hspec args...]
+//   hspec-halogen test <suite.wasm> [hspec args...]
 //
-// wasm-test-wrapper.sh calls this for a test binary built as a reactor (one
-// exporting hs_start), from the package directory, as cabal runs test suites.
-// The suite is loaded into a page and runs there, so it can mount components
-// into the real DOM; this side only serves it, relays what it prints, and
-// performs its clicks and keystrokes as trusted input through Playwright.
+// The executable post-links the suite and runs this with node, from the
+// directory cabal runs the suite in (the package's):
 //
-// A package's test/web/ directory is served next to the suite, and every .css
-// and .js file in it is loaded before the suite starts. If it holds a bundle.sh,
-// that is run first with a fresh output directory as its argument, and what it
-// writes there is served and loaded the same way.
+//   node runner.mjs <suite.wasm> <ghc_wasm_jsffi.mjs> [hspec args...]
 //
-// HALOGEN_TEST_HEADED=1 shows the browser; HALOGEN_TEST_SLOWMO=<ms> slows
-// every Playwright action down so it can be followed; HALOGEN_TEST_TIMEOUT is
+// A suite built with hspec-halogen is a reactor exporting hs_start. It is
+// loaded into a page and runs there, so it can mount components into the real
+// DOM; this side only serves it, relays what it prints, and performs its
+// clicks and keystrokes as trusted input through Playwright. Any other suite is
+// a WASI command, run here as it would be by a plain wasm test wrapper.
+//
+// A package's test/web/ directory is served next to a browser suite, and every
+// .css and .js file in it is loaded before the suite starts. If it holds a
+// bundle.sh, that is run first with a fresh output directory as its argument,
+// and what it writes there is served and loaded the same way.
+//
+// The npm packages it needs, playwright and @bjorn3/browser_wasi_shim, are
+// looked up from the working directory upwards, as node itself would for a
+// script there: they belong to the project under test, not to this file.
+//
+// HSPEC_HALOGEN_HEADED=1 shows the browser; HSPEC_HALOGEN_SLOWMO=<ms> slows
+// every Playwright action down so it can be followed; HSPEC_HALOGEN_TIMEOUT is
 // how many seconds the whole suite may take (600 by default).
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, extname, join, normalize, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { chromium } from "playwright";
+import { pathToFileURL } from "node:url";
+import { WASI } from "node:wasi";
 
 const [wasmPath, jsffiPath, ...hspecArgs] = process.argv.slice(2);
-const toolchain = dirname(fileURLToPath(import.meta.url));
-const wasiShim = resolve(toolchain, "../node_modules/@bjorn3/browser_wasi_shim/dist");
+
+// The directory holding node_modules/<name>, from here upwards, else from
+// NODE_PATH.
+const packageDir = (name) => {
+  const candidates = [];
+  for (let dir = process.cwd(); ; dir = dirname(dir)) {
+    candidates.push(join(dir, "node_modules", name));
+    if (dirname(dir) === dir) break;
+  }
+  for (const dir of (process.env.NODE_PATH ?? "").split(":").filter(Boolean)) candidates.push(join(dir, name));
+  const found = candidates.find((dir) => existsSync(join(dir, "package.json")));
+  if (!found) {
+    process.stderr.write(
+      `hspec-halogen: cannot find the npm package ${name} from ${process.cwd()}.\n` +
+        "Install it in the project: npm install --save-dev playwright @bjorn3/browser_wasi_shim\n" +
+        "and a browser for it: npx playwright install chromium\n",
+    );
+    process.exit(1);
+  }
+  return found;
+};
+
+const bytes = readFileSync(wasmPath);
+const isBrowserSuite = WebAssembly.Module.exports(new WebAssembly.Module(bytes)).some((e) => e.name === "hs_start");
+
+if (!isBrowserSuite) {
+  // A WASI command: run it here. Exit before the event loop runs again: a
+  // JavaScript callback into Haskell can leave the RTS scheduler queued, and it
+  // fails if it runs once the RTS has shut down.
+  const wasi = new WASI({ args: [wasmPath, ...hspecArgs], env: process.env, preopens: { "/": "/" }, version: "preview1", returnOnExit: true });
+  const exports = {};
+  const ghcWasmImports = (await import(pathToFileURL(resolve(jsffiPath)))).default;
+  const instance = await WebAssembly.instantiate(await WebAssembly.compile(bytes), {
+    wasi_snapshot_preview1: wasi.wasiImport,
+    ghc_wasm_jsffi: ghcWasmImports(exports),
+  });
+  Object.assign(exports, instance.exports);
+  process.exit(wasi.start(instance));
+}
+
+const { chromium } = createRequire(join(packageDir("playwright"), "package.json"))("playwright");
+const wasiShim = join(packageDir("@bjorn3/browser_wasi_shim"), "dist");
 
 // hspec colours its report only for a terminal, and the suite writes to a page.
 const args =
   process.stdout.isTTY && !hspecArgs.some((arg) => /^--(no-)?colou?r$/.test(arg)) ? ["--color", ...hspecArgs] : hspecArgs;
 
 const webDir = resolve("test/web");
-const bundleDir = mkdtempSync(join(tmpdir(), "halogen-browser-test-"));
+const bundleDir = mkdtempSync(join(tmpdir(), "hspec-halogen-"));
 if (existsSync(join(webDir, "bundle.sh"))) {
   execFileSync("sh", [join(webDir, "bundle.sh"), bundleDir], { stdio: "inherit" });
 }
@@ -81,7 +131,7 @@ const types = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/ja
 const routes = {
   "/": [page, ".html"],
   "/__runner/boot.js": [boot, ".js"],
-  "/__runner/test.wasm": [() => readFileSync(wasmPath), ".wasm"],
+  "/__runner/test.wasm": [bytes, ".wasm"],
   "/__runner/ghc_wasm_jsffi.js": [() => readFileSync(jsffiPath), ".js"],
 };
 
@@ -112,8 +162,8 @@ const server = createServer((request, response) => {
 await new Promise((ready) => server.listen(0, "127.0.0.1", ready));
 
 const browser = await chromium.launch({
-  headless: !process.env.HALOGEN_TEST_HEADED,
-  slowMo: Number(process.env.HALOGEN_TEST_SLOWMO ?? 0),
+  headless: !process.env.HSPEC_HALOGEN_HEADED,
+  slowMo: Number(process.env.HSPEC_HALOGEN_SLOWMO ?? 0),
 });
 let exitCode = 1;
 try {
@@ -163,7 +213,7 @@ try {
   await tab.goto(`http://127.0.0.1:${port}/`);
   // A suite that never finishes (a test waiting on something that will not
   // happen, with no timeout of its own) fails the run rather than hanging it.
-  const timeoutSeconds = Number(process.env.HALOGEN_TEST_TIMEOUT ?? 600);
+  const timeoutSeconds = Number(process.env.HSPEC_HALOGEN_TIMEOUT ?? 600);
   const crash = await Promise.race([
     finished,
     new Promise((resolve) => setTimeout(() => resolve(`no result after ${timeoutSeconds}s`), timeoutSeconds * 1000).unref()),

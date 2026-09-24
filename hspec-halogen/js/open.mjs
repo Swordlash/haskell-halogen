@@ -1,25 +1,40 @@
 // Open a browser test page in a Chromium that Playwright controls, and keep it
 // open until the window is closed.
 //
-//   node toolchain/browser-test-open.mjs <url>
+//   hspec-halogen open <url>
 //
-// dev-test.sh uses this for the browser-GHCi page a suite runs in. Opening it
-// through Playwright rather than the desktop browser is what lets the suite's
-// clicks and keystrokes be real input: the page gets the same bridge as under
-// browser-test-runner.mjs. What the page logs, the suite's report included, is
-// printed here. HALOGEN_TEST_HEADLESS=1 opens no window, and
-// HALOGEN_TEST_SLOWMO=<ms> slows every action down so it can be followed.
-import { chromium } from "playwright";
+// For running a suite in browser GHCi: GHCi boots whatever page loads its
+// script, and opening that page through Playwright rather than the desktop
+// browser is what lets the suite's clicks and keystrokes be real input. The
+// page gets the same bridge as a suite run with hspec-halogen test. What the
+// page logs, the suite's report included, is printed here.
+//
+// playwright is looked up from the working directory upwards, as for
+// runner.mjs. HSPEC_HALOGEN_HEADLESS=1 opens no window, and
+// HSPEC_HALOGEN_SLOWMO=<ms> slows every action down so it can be followed.
+import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+
+const packageDir = (name) => {
+  for (let dir = process.cwd(); ; dir = dirname(dir)) {
+    if (existsSync(join(dir, "node_modules", name, "package.json"))) return join(dir, "node_modules", name);
+    if (dirname(dir) === dir) break;
+  }
+  process.stderr.write(`hspec-halogen: cannot find the npm package ${name} from ${process.cwd()}; npm install --save-dev ${name}\n`);
+  process.exit(1);
+};
+const { chromium } = createRequire(join(packageDir("playwright"), "package.json"))("playwright");
 
 const url = process.argv[2];
 if (!url) {
-  console.error("usage: browser-test-open.mjs <url>");
+  console.error("usage: hspec-halogen open <url>");
   process.exit(1);
 }
 
 const browser = await chromium.launch({
-  headless: Boolean(process.env.HALOGEN_TEST_HEADLESS),
-  slowMo: Number(process.env.HALOGEN_TEST_SLOWMO ?? 0),
+  headless: Boolean(process.env.HSPEC_HALOGEN_HEADLESS),
+  slowMo: Number(process.env.HSPEC_HALOGEN_SLOWMO ?? 0),
 });
 const page = await browser.newPage({ viewport: null });
 page.setDefaultTimeout(5000);

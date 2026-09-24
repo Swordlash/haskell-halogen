@@ -5,8 +5,9 @@ synopsis:           Test haskell-halogen components in a real browser with hspec
 description:
   Mount a component into a real page, find its elements, click and type into
   them with real input, and check the result with hspec. A suite built with
-  this runs in headless Chromium under toolchain/browser-test-runner.mjs, on
-  the WebAssembly backend; see "Test.Hspec.Halogen". It builds on every
+  this runs in headless Chromium on the WebAssembly backend, run by this
+  package's hspec-halogen executable as cabal's test wrapper; see
+  "Test.Hspec.Halogen" and the README. It builds on every
   backend, so a suite type-checks natively, but only runs on WebAssembly.
 homepage:           https://github.com/Swordlash/haskell-halogen
 license:            Apache-2.0
@@ -16,6 +17,8 @@ maintainer:         mateusz.goslinowski@gmail.com
 category:           Web, Testing
 build-type:         Simple
 extra-doc-files:    CHANGELOG.md
+extra-source-files: js/runner.mjs
+                    js/open.mjs
 
 library
     default-language: GHC2024
@@ -45,6 +48,26 @@ library
     if arch(wasm32)
         other-modules: Test.Hspec.Halogen.Internal.Wasm
         build-depends: ghc-experimental
+
+-- The host side, run with the host compiler: cabal's test wrapper for wasm
+-- suites, and the opener for a suite in browser GHCi. It carries the
+-- JavaScript that drives Playwright, so a project using the library writes
+-- none.
+executable hspec-halogen
+    default-language: GHC2024
+    hs-source-dirs:   app
+    main-is:          Main.hs
+    other-modules:    Embed
+    ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists
+    build-depends:
+        base,
+        filepath,
+        process,
+        temporary,
+        template-haskell
+
+    if arch(wasm32) || arch(javascript)
+        buildable: False
 
 source-repository head
   type:     git

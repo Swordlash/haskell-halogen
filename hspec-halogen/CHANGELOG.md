@@ -15,3 +15,9 @@
   one mouse, keyboard and focus, so tests marked `parallel` still run in turn. It builds on every
   backend, so a suite type-checks natively, but runs only on WebAssembly;
   elsewhere `runBrowserTests` reports that it skipped.
+* The `hspec-halogen` executable is the host side: `hspec-halogen test`, as
+  cabal's `--test-wrapper`, post-links a wasm suite and runs it in headless
+  Chromium (or under Node, if it is not a browser suite), and `hspec-halogen
+  open` opens a page for a suite run in browser GHCi. It carries the
+  JavaScript that drives Playwright, so a project writes none; it needs Node,
+  the npm packages `playwright` and `@bjorn3/browser_wasi_shim`, and Chromium.
