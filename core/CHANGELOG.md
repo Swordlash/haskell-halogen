@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- A component's refs are recorded as soon as their elements are created or
+  removed, rather than queued with its actions. Queued handlers are forked,
+  and a forked thread starts only when the scheduler gets to it, while
+  initialisers run straight away, so an initialiser that looked up one of its
+  own refs could run first and find nothing. Material's components look up
+  their root element that way, and failed with "no HTMLElement found" when
+  mounted after another component had just been disposed. purescript-halogen
+  gets this order from Aff's `fork`, which starts a fiber at once.
 - A patch writes a property only when its rendered value has changed, as
   purescript-halogen-vdom does. Old and new values were compared by pointer, and
   a render builds every value afresh, so each patch wrote every property back

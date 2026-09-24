@@ -127,8 +127,20 @@ runUI RenderSpec {..} c i = do
                   childrenInRef <- newIORef cur.children
                   childrenOutRef <- newIORef Slot.empty
 
+                  -- A ref is recorded as soon as its element is created or
+                  -- removed, not queued with the actions: queued handlers are
+                  -- forked below, and a forked thread only starts when the
+                  -- scheduler gets to it, while initialisers run on this one.
+                  -- An initialiser that looks up a ref of its own component
+                  -- (as MDC components do, to attach to their root element)
+                  -- could otherwise run first and find nothing. Recording a
+                  -- ref runs no component code, so doing it mid-render is safe;
+                  -- purescript-halogen gets the same order from Aff's fork,
+                  -- which runs a fiber at once.
                   let handler :: Input act -> m ()
-                      handler = Eval.queueOrRun ds.pendingHandlers . void . Eval.evalF render' ds.selfRef
+                      handler = \case
+                        input@(Input.RefUpdate _ _) -> void $ Eval.evalF render' ds.selfRef input
+                        input -> Eval.queueOrRun ds.pendingHandlers . void $ Eval.evalF render' ds.selfRef input
 
                       childHandler :: act -> m ()
                       childHandler = Eval.queueOrRun ds.pendingQueries . handler . Input.Action
