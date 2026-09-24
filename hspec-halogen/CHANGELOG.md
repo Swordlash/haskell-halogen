@@ -9,6 +9,9 @@
   browser GHCi, rerun on every save (`npm run dev-test -- <package>`). Nothing in
   it names a monad: a component is mounted in any `MonadBrowserTest m`, whose
   instance says how to run `m` (and, by default, mounts with `runUI`); a
-  suite's `main` picks one, typically `BrowserDOM`. It builds on every
+  suite's `main` picks one, typically `BrowserDOM`. Each test works in a page
+  of its own, from `withPage`, whose `forall s` keeps what the test mounts and
+  finds from outliving it; pages open one at a time, since the browser has
+  one mouse, keyboard and focus, so tests marked `parallel` still run in turn. It builds on every
   backend, so a suite type-checks natively, but runs only on WebAssembly;
   elsewhere `runBrowserTests` reports that it skipped.

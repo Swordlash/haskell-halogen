@@ -8,6 +8,7 @@ module Test.Hspec.Halogen.Internal.Wasm
   , reportDone
   , removeLeftovers
   , createContainer
+  , createContainerIn
   , removeElement
   , querySelector
   , querySelectorAll
@@ -43,6 +44,9 @@ removeLeftovers :: IO ()
 
 -- | A fresh container at the end of the body.
 createContainer :: IO Element
+
+-- | A fresh container at the end of another.
+createContainerIn :: Element -> IO Element
 removeElement :: Element -> IO ()
 querySelector :: Element -> Text -> IO (Maybe Element)
 querySelectorAll :: Element -> Text -> IO [Element]
@@ -77,6 +81,8 @@ reportDone = js_test_done
 removeLeftovers = js_remove_leftovers
 
 createContainer = Element <$> js_create_container
+
+createContainerIn (Element parent) = Element <$> js_create_container_in parent
 
 removeElement (Element element) = js_remove element
 
@@ -135,6 +141,9 @@ foreign import javascript unsafe "globalThis.__halogenTest?.done?.($1)"
 
 foreign import javascript unsafe "document.body.appendChild(Object.assign(document.createElement('div'), {className: 'halogen-test-root'}))"
   js_create_container :: IO JSVal
+
+foreign import javascript unsafe "$1.appendChild(document.createElement('div'))"
+  js_create_container_in :: JSVal -> IO JSVal
 
 foreign import javascript unsafe "$1.remove()"
   js_remove :: JSVal -> IO ()

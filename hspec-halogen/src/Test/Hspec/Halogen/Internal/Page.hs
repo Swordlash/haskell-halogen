@@ -13,6 +13,7 @@ module Test.Hspec.Halogen.Internal.Page
   , reportDone
   , removeLeftovers
   , createContainer
+  , createContainerIn
   , removeElement
   , querySelector
   , querySelectorAll
@@ -54,6 +55,9 @@ removeLeftovers :: IO ()
 -- | A fresh container at the end of the body.
 createContainer :: IO Element
 
+-- | A fresh container at the end of another.
+createContainerIn :: Element -> IO Element
+
 removeElement :: Element -> IO ()
 
 querySelector :: Element -> Text -> IO (Maybe Element)
@@ -94,6 +98,8 @@ reportDone _ = pass
 removeLeftovers = pass
 
 createContainer = needsBrowser
+
+createContainerIn _ = needsBrowser
 
 removeElement _ = needsBrowser
 

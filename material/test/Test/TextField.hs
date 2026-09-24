@@ -11,30 +11,31 @@ floated = "mdc-floating-label--float-above"
 
 spec :: forall m -> (MonadBrowserTest m, MonadMaterial m) => Spec
 spec m = do
-  it "raises what is typed, one keystroke at a time" $ do
-    ui <- mount m HMTF.textField HMTF.emptyTextFieldSpec {HMTF.label = Just "Name"}
+  it "raises what is typed, one keystroke at a time" $ withPage $ \page -> do
+    ui <- mount page m HMTF.textField HMTF.emptyTextFieldSpec {HMTF.label = Just "Name"}
     find ui "input" >>= (`typeText` "ab")
     outputs ui >>= (`shouldBe` ["a", "ab"]) . map (\(HMTF.InputChanged t) -> t)
     query ui (HMTF.GetText identity) `shouldReturn` Just "ab"
 
-  it "keeps the label up while a cleared field has focus" $ do
-    ui <- mount m HMTF.textField HMTF.emptyTextFieldSpec {HMTF.label = Just "Name"}
+  it "keeps the label up while a cleared field has focus" $ withPage $ \page -> do
+    ui <- mount page m HMTF.textField HMTF.emptyTextFieldSpec {HMTF.label = Just "Name"}
     input <- find ui "input"
     label <- find ui ".mdc-floating-label"
     label `shouldNotHaveClass` floated
     click input
     label `shouldHaveClass` floated
     typeText input "ab"
-    press "Backspace"
-    press "Backspace"
+    press page "Backspace"
+    press page "Backspace"
     getProperty input "value" `shouldReturn` ""
     label `shouldHaveClass` floated
     blur input
     label `shouldNotHaveClass` floated
 
-  it "opens an outlined field's notch around a preset value" $ do
+  it "opens an outlined field's notch around a preset value" $ withPage $ \page -> do
     ui <-
       mount
+        page
         m
         HMTF.textField
         HMTF.emptyTextFieldSpec

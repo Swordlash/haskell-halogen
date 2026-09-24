@@ -26,6 +26,7 @@ library
         OverloadedRecordDot
         NoImplicitPrelude
         RequiredTypeArguments
+        DuplicateRecordFields
     exposed-modules:  Test.Hspec.Halogen
     other-modules:    Test.Hspec.Halogen.Internal.Monad
                       Test.Hspec.Halogen.Internal.Page

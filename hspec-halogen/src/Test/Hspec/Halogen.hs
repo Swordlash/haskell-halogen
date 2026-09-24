@@ -8,8 +8,8 @@
 -- @
 -- spec :: forall m -> (MonadBrowserTest m) => Spec
 -- spec m = describe "counter" $
---   it "counts clicks" $ do
---     ui <- mount m Counter.component ()
+--   it "counts clicks" $ withPage $ \page -> do
+--     ui <- mount page m Counter.component ()
 --     find ui "button" >>= click
 --     find ui ".count" >>= (`shouldHaveText` "1")
 --     query ui (H.mkRequest Counter.GetCount) `shouldReturn` Just 1
@@ -18,9 +18,16 @@
 -- main = runBrowserTests (spec BrowserDOM)
 -- @
 --
+-- Each test works in a 'Page' of its own, which 'withPage' opens and tears
+-- down. Like an @STRef s@, nothing typed with its @s@ -- the page, what was
+-- mounted on it, the elements found there -- can outlive it, so no test can
+-- reach into another's. A page has one mouse, one keyboard and one focused
+-- element, so pages are opened one at a time: tests marked @parallel@ still
+-- run in turn.
+--
 -- The suite runs inside the page it tests: its @main@ is 'runBrowserTests', it
--- is built as a WebAssembly reactor, and @toolchain/browser-test-runner.mjs@
--- loads it into headless Chromium. That is what lets a test hold the
+-- is built as a WebAssembly reactor, and the @hspec-halogen@ executable, as
+-- cabal's test wrapper, loads it into headless Chromium. That is what lets a test hold the
 -- component itself rather than only the DOM it renders. The runner also backs
 -- 'click' and 'typeText' with Playwright, so input arrives as trusted events,
 -- to an element Playwright has checked is visible, enabled and not covered.
@@ -37,6 +44,10 @@
 module Test.Hspec.Halogen
   ( -- * Running a suite
     runBrowserTests
+
+    -- * Pages
+  , Page
+  , withPage
 
     -- * Mounting
   , MonadBrowserTest (..)
@@ -81,7 +92,7 @@ module Test.Hspec.Halogen
   )
 where
 
-import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef)
+import Data.IORef (IORef, atomicModifyIORef', atomicWriteIORef, modifyIORef', newIORef, readIORef)
 import Data.Text qualified as T
 import Halogen.Component (Component)
 import Halogen.IO.Driver (HalogenSocket (..))
@@ -91,11 +102,11 @@ import System.Environment (withArgs)
 import System.IO (BufferMode (..), hFlush, hSetBuffering)
 import System.IO.Unsafe (unsafePerformIO)
 import Test.HUnit.Lang (assertFailure)
-import Test.Hspec (Spec, around_, expectationFailure)
+import Test.Hspec (Spec, expectationFailure)
 import Test.Hspec.Halogen.Internal.Monad (MonadBrowserTest (..))
 import Test.Hspec.Halogen.Internal.Page qualified as Page
 import Test.Hspec.Runner (Summary (..), defaultConfig, hspecWithResult)
-import Web.DOM.Internal.Types (Element)
+import Web.DOM.Internal.Types qualified as DOM
 
 --------------------------------------------------------------------------------
 -- Running a suite
@@ -105,76 +116,111 @@ import Web.DOM.Internal.Types (Element)
 --
 -- A page has no command line, so under the runner hspec's arguments
 -- (@--match@ and the rest) come through a page global. In browser GHCi they
--- are whatever @:main@ was given. Every test ends by disposing of what it
--- mounted, pass or fail, so the next one starts from an empty page; so does
--- the suite, in case a run before it was interrupted.
+-- are whatever @:main@ was given. It starts by removing whatever a run before
+-- it left behind, in case that one was interrupted.
 --
 -- Off the WebAssembly backend there is no page, so it says so and returns
 -- without running anything.
 runBrowserTests :: Spec -> IO ()
 runBrowserTests spec
   | not Page.inBrowser =
-      putText "hspec-halogen: skipped, this suite runs in a browser on the WebAssembly backend (npm run test-wasm)"
+      putText "hspec-halogen: skipped, this suite runs in a browser on the WebAssembly backend"
   | otherwise = do
       hSetBuffering stdout LineBuffering
       Page.removeLeftovers
       args <- Page.runnerArgs
-      summary <- maybe identity (withArgs . map toS) args $ hspecWithResult defaultConfig (around_ (`finally` unmountAll) spec)
+      summary <- maybe identity (withArgs . map toS) args $ hspecWithResult defaultConfig spec
       hFlush stdout
       Page.reportDone (summaryFailures summary)
+
+--------------------------------------------------------------------------------
+-- Pages
+--------------------------------------------------------------------------------
+
+-- | One test's share of the browser: a container at the end of the body for
+-- what it mounts, and the teardown of everything mounted there.
+data Page s = Page
+  { container :: DOM.Element
+  , teardowns :: IORef [IO ()]
+  }
+
+-- | An element of the page a test is working in.
+newtype Element s = Element DOM.Element
+
+-- | Run a test in a page of its own, and tear down everything mounted on it
+-- when the test ends, pass or fail.
+--
+-- The @forall s@ keeps what the test finds and mounts inside it, as 'runST'
+-- keeps an @STRef@. Only one page is open at a time -- the browser has one
+-- mouse, one keyboard and one focused element to share -- so a test waits
+-- here for the one before it, whatever hspec was told about parallelism.
+-- Opening a page inside another would wait on itself, and fails instead.
+withPage :: (forall s. Page s -> IO a) -> IO a
+withPage test = do
+  me <- myThreadId
+  holder <- readIORef pageHolder
+  when (holder == Just me) $
+    panic "hspec-halogen: withPage inside withPage; a test works in one page"
+  withMVar pageLock $ \() ->
+    bracket open close $ \page -> do
+      atomicWriteIORef pageHolder (Just me)
+      test page
+  where
+    open = Page <$> Page.createContainer <*> newIORef []
+    close page = do
+      atomicWriteIORef pageHolder Nothing
+      pending <- atomicModifyIORef' page.teardowns ([],)
+      sequence_ pending
+      Page.removeElement page.container
+
+pageLock :: MVar ()
+pageLock = unsafePerformIO (newMVar ())
+{-# NOINLINE pageLock #-}
+
+pageHolder :: IORef (Maybe ThreadId)
+pageHolder = unsafePerformIO (newIORef Nothing)
+{-# NOINLINE pageHolder #-}
 
 --------------------------------------------------------------------------------
 -- Mounting
 --------------------------------------------------------------------------------
 
--- | A component mounted into its own container in the page.
-data Mounted q o m = Mounted
-  { container :: Element
+-- | A component mounted on a page.
+data Mounted s q o m = Mounted
+  { container :: DOM.Element
   , socket :: HalogenSocket q o m
   , raised :: IORef [o]
   }
 
--- | Every mounted component's teardown, run when its test ends.
-cleanups :: IORef [IO ()]
-cleanups = unsafePerformIO (newIORef [])
-{-# NOINLINE cleanups #-}
-
-unmountAll :: IO ()
-unmountAll = do
-  pending <- atomicModifyIORef' cleanups ([],)
-  sequence_ pending
-
--- | Mount a component into a fresh container at the end of the body. It is
--- unmounted, and the container removed, when the test ends.
+-- | Mount a component into a container of its own on the page. It is
+-- unmounted when the page is torn down.
 --
 -- The component has rendered and run its initialisers by the time this
 -- returns. Its outputs are collected from then on, for 'outputs'.
 --
--- The monad is the first argument, @mount BrowserDOM component input@, so a
--- spec polymorphic in it passes it on as @mount m@.
-mount :: forall m -> (MonadBrowserTest m) => Component q i o m -> i -> IO (Mounted q o m)
-mount _ component input = do
-  element <- Page.createContainer
+-- The monad follows the page, @mount page BrowserDOM component input@, so a
+-- spec polymorphic in it passes it on as @mount page m@.
+mount :: Page s -> forall m -> (MonadBrowserTest m) => Component q i o m -> i -> IO (Mounted s q o m)
+mount page _ component input = do
+  element <- Page.createContainerIn page.container
   socket <- runTest $ mountInto component input element
   raised <- newIORef []
   subscription <- runTest $ HS.subscribe socket.messages $ \o -> liftIO $ modifyIORef' raised (<> [o])
-  let teardown = do
-        runTest $ HS.unsubscribe subscription >> socket.dispose
-        Page.removeElement element
-  atomicModifyIORef' cleanups (\cs -> (teardown : cs, ()))
+  let teardown = runTest $ HS.unsubscribe subscription >> socket.dispose
+  atomicModifyIORef' page.teardowns (\ts -> (teardown : ts, ()))
   pure Mounted {container = element, socket, raised}
 
 -- | Send the component a query, as a parent would.
-query :: (MonadBrowserTest m) => Mounted q o m -> q a -> IO (Maybe a)
+query :: (MonadBrowserTest m) => Mounted s q o m -> q a -> IO (Maybe a)
 query Mounted {socket = HalogenSocket {query = send}} q = runTest (send q)
 
 -- | Everything the component has raised since it was mounted, oldest first.
-outputs :: Mounted q o m -> IO [o]
+outputs :: Mounted s q o m -> IO [o]
 outputs ui = readIORef ui.raised
 
 -- | The container the component renders into.
-root :: Mounted q o m -> Element
-root ui = ui.container
+root :: Mounted s q o m -> Element s
+root ui = Element ui.container
 
 --------------------------------------------------------------------------------
 -- Finding elements
@@ -182,25 +228,25 @@ root ui = ui.container
 
 -- | The first element in the component matching a CSS selector, waiting for
 -- one to appear. Fails with the component's markup if none does.
-find :: (HasCallStack) => Mounted q o m -> Text -> IO Element
-find ui = findIn ui.container
+find :: (HasCallStack) => Mounted s q o m -> Text -> IO (Element s)
+find ui = findIn (root ui)
 
 -- | Every element in the component matching a CSS selector, as it is now.
-findAll :: Mounted q o m -> Text -> IO [Element]
-findAll ui = findAllIn ui.container
+findAll :: Mounted s q o m -> Text -> IO [Element s]
+findAll ui = findAllIn (root ui)
 
 -- | 'find' within one element rather than the whole component.
-findIn :: (HasCallStack) => Element -> Text -> IO Element
-findIn scope selector = eventually $ do
-  Page.querySelector scope selector >>= \case
-    Just found -> pure found
+findIn :: (HasCallStack) => Element s -> Text -> IO (Element s)
+findIn scope@(Element element) selector = eventually $ do
+  Page.querySelector element selector >>= \case
+    Just found -> pure (Element found)
     Nothing -> do
       html <- outerHTML scope
       assertFailure $ toS $ "No element matches " <> show selector <> " in\n" <> html
 
 -- | 'findAll' within one element rather than the whole component.
-findAllIn :: Element -> Text -> IO [Element]
-findAllIn = Page.querySelectorAll
+findAllIn :: Element s -> Text -> IO [Element s]
+findAllIn (Element element) selector = map Element <$> Page.querySelectorAll element selector
 
 --------------------------------------------------------------------------------
 -- Acting
@@ -208,27 +254,29 @@ findAllIn = Page.querySelectorAll
 
 -- | Click an element as a user would: Playwright waits until it is visible,
 -- stable, enabled and not covered, then clicks its centre.
-click :: Element -> IO ()
+click :: Element s -> IO ()
 click = viaRunner "click" ""
 
 -- | Type text into an element key by key, after what it already holds.
-typeText :: Element -> Text -> IO ()
+typeText :: Element s -> Text -> IO ()
 typeText element text = viaRunner "type" text element
 
 -- | Empty an input as a user selecting all and deleting would.
-clear :: Element -> IO ()
+clear :: Element s -> IO ()
 clear = viaRunner "clear" ""
 
 -- | Press a key, or a chord such as @Shift+Tab@, on the focused element. Key
 -- names are Playwright's: @Enter@, @Backspace@, @ArrowDown@, …
-press :: Text -> IO ()
-press key = Page.pressKey key >> settle
+--
+-- It takes the page only to show that it happens in one.
+press :: Page s -> Text -> IO ()
+press _ key = Page.pressKey key >> settle
 
-focus :: Element -> IO ()
-focus element = Page.focusElement element >> settle
+focus :: Element s -> IO ()
+focus (Element element) = Page.focusElement element >> settle
 
-blur :: Element -> IO ()
-blur element = Page.blurElement element >> settle
+blur :: Element s -> IO ()
+blur (Element element) = Page.blurElement element >> settle
 
 -- | Let the component finish reacting to what just happened in the page.
 --
@@ -243,34 +291,34 @@ settle = Page.settleTasks
 
 -- The runner acts on a selector, so the element is tagged with one for the
 -- length of the call.
-viaRunner :: Text -> Text -> Element -> IO ()
-viaRunner action argument element = Page.act action element argument >> settle
+viaRunner :: Text -> Text -> Element s -> IO ()
+viaRunner action argument (Element element) = Page.act action element argument >> settle
 
 --------------------------------------------------------------------------------
 -- Reading
 --------------------------------------------------------------------------------
 
-textContent :: Element -> IO Text
-textContent = Page.textContentOf
+textContent :: Element s -> IO Text
+textContent (Element element) = Page.textContentOf element
 
 -- | A property as text, the way JavaScript's @String()@ renders it: a boolean
 -- reads @true@ or @false@.
-getProperty :: Element -> Text -> IO Text
-getProperty = Page.propertyOf
+getProperty :: Element s -> Text -> IO Text
+getProperty (Element element) = Page.propertyOf element
 
-getAttribute :: Element -> Text -> IO (Maybe Text)
-getAttribute = Page.attributeOf
+getAttribute :: Element s -> Text -> IO (Maybe Text)
+getAttribute (Element element) = Page.attributeOf element
 
-classes :: Element -> IO [Text]
+classes :: Element s -> IO [Text]
 classes element = T.words <$> getProperty element "className"
 
-outerHTML :: Element -> IO Text
-outerHTML = Page.outerHTMLOf
+outerHTML :: Element s -> IO Text
+outerHTML (Element element) = Page.outerHTMLOf element
 
 -- | Whether the element takes up space on the page: not hidden, not inside
 -- something hidden, not @display: none@.
-isVisible :: Element -> IO Bool
-isVisible = Page.checkVisibility
+isVisible :: Element s -> IO Bool
+isVisible (Element element) = Page.checkVisibility element
 
 --------------------------------------------------------------------------------
 -- Waiting and expecting
@@ -296,27 +344,27 @@ eventuallyWithin timeoutMs action = go (timeoutMs `div` pollMs)
       Just (_ :: SomeAsyncException) -> Nothing
       Nothing -> Just e
 
-shouldHaveClass :: (HasCallStack) => Element -> Text -> IO ()
+shouldHaveClass :: (HasCallStack) => Element s -> Text -> IO ()
 shouldHaveClass element name = eventually $ do
   cs <- classes element
   unless (name `elem` cs) $ failText $ "expected class " <> show name <> ", found " <> show cs
 
-shouldNotHaveClass :: (HasCallStack) => Element -> Text -> IO ()
+shouldNotHaveClass :: (HasCallStack) => Element s -> Text -> IO ()
 shouldNotHaveClass element name = eventually $ do
   cs <- classes element
   when (name `elem` cs) $ failText $ "expected no class " <> show name <> ", found " <> show cs
 
-shouldHaveText :: (HasCallStack) => Element -> Text -> IO ()
+shouldHaveText :: (HasCallStack) => Element s -> Text -> IO ()
 shouldHaveText element expected = eventually $ do
   actual <- textContent element
   unless (actual == expected) $ failText $ "expected text " <> show expected <> ", found " <> show actual
 
-shouldBeVisible :: (HasCallStack) => Element -> IO ()
+shouldBeVisible :: (HasCallStack) => Element s -> IO ()
 shouldBeVisible element = eventually $ do
   visible <- isVisible element
   unless visible $ outerHTML element >>= \html -> failText (("expected to be visible:\n" <> html))
 
-shouldBeHidden :: (HasCallStack) => Element -> IO ()
+shouldBeHidden :: (HasCallStack) => Element s -> IO ()
 shouldBeHidden element = eventually $ do
   visible <- isVisible element
   when visible $ outerHTML element >>= \html -> failText (("expected to be hidden:\n" <> html))
