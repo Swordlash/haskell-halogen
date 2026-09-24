@@ -12,6 +12,8 @@
 -- having to stub them.
 module Halogen.VDom.DOM.Monad.Class
   ( PropValue (..)
+  , PropScalar (..)
+  , propScalar
   , MonadDOM (..)
   , MonadAttributes (..)
   , MonadBrowserDOM (..)
@@ -39,6 +41,42 @@ data PropValue val where
   BoolProp :: Bool -> PropValue Bool
   TxtProp :: Text -> PropValue Text
   ViaTxtProp :: (a -> Text) -> a -> PropValue a
+
+-- | What a property looks like once it is on the element.
+--
+-- This mirrors the browser, not 'PropValue': @propValueToJSVal@ collapses the
+-- five 'PropValue' shapes onto three JavaScript ones, with @IntProp@ and
+-- @NumProp@ both becoming numbers and @TxtProp@ and @ViaTxtProp@ both becoming
+-- strings. Modelling the result rather than the input is what lets the
+-- in-memory DOM's @propertyEquals@ reproduce @===@ exactly, and what the
+-- reconciler compares a property's old and new values by.
+data PropScalar
+  = ScalarInt Integer
+  | ScalarNum Double
+  | ScalarBool Bool
+  | ScalarText Text
+  deriving (Show)
+
+-- | @===@ semantics: numbers compare numerically across the two integral and
+-- fractional spellings, and nothing compares equal across kinds — in
+-- particular @1@ and @\"1\"@ do not.
+instance Eq PropScalar where
+  ScalarInt a == ScalarInt b = a == b
+  ScalarNum a == ScalarNum b = a == b
+  ScalarInt a == ScalarNum b = fromInteger a == b
+  ScalarNum a == ScalarInt b = a == fromInteger b
+  ScalarBool a == ScalarBool b = a == b
+  ScalarText a == ScalarText b = a == b
+  _ == _ = False
+
+-- | The value an element ends up holding, mirroring @propValueToJSVal@.
+propScalar :: PropValue a -> PropScalar
+propScalar = \case
+  IntProp x -> ScalarInt (toInteger x)
+  NumProp x -> ScalarNum x
+  BoolProp x -> ScalarBool x
+  TxtProp x -> ScalarText x
+  ViaTxtProp f x -> ScalarText (f x)
 
 -- | 'PrimMonad' is a superclass because "Halogen.VDom.DOM.Prop" needs one
 -- mutable cell per event handler: a listener is registered with the DOM once

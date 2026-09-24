@@ -72,32 +72,6 @@ data NodeKind
   | DocumentNode
   deriving (Eq, Show)
 
--- | What a property looks like once it is on the element.
---
--- This mirrors the browser, not 'PropValue': @propValueToJSVal@ collapses the
--- five 'PropValue' shapes onto three JavaScript ones, with @IntProp@ and
--- @NumProp@ both becoming numbers and @TxtProp@ and @ViaTxtProp@ both becoming
--- strings. Modelling the result rather than the input is what lets
--- @propertyEquals@ reproduce @===@ exactly.
-data PropScalar
-  = ScalarInt Integer
-  | ScalarNum Double
-  | ScalarBool Bool
-  | ScalarText Text
-  deriving (Show)
-
--- | @===@ semantics: numbers compare numerically across the two integral and
--- fractional spellings, and nothing compares equal across kinds — in
--- particular @1@ and @\"1\"@ do not.
-instance Eq PropScalar where
-  ScalarInt a == ScalarInt b = a == b
-  ScalarNum a == ScalarNum b = a == b
-  ScalarInt a == ScalarNum b = fromInteger a == b
-  ScalarNum a == ScalarInt b = a == fromInteger b
-  ScalarBool a == ScalarBool b = a == b
-  ScalarText a == ScalarText b = a == b
-  _ == _ = False
-
 data Listener = Listener
   { ident :: Int
   , eventType :: Text
@@ -371,15 +345,6 @@ queryNative selector root = go root
 --------------------------------------------------------------------------------
 -- The instance
 --------------------------------------------------------------------------------
-
--- | The value the element ends up holding, mirroring @propValueToJSVal@.
-propScalar :: PropValue a -> PropScalar
-propScalar = \case
-  IntProp x -> ScalarInt (toInteger x)
-  NumProp x -> ScalarNum x
-  BoolProp x -> ScalarBool x
-  TxtProp x -> ScalarText x
-  ViaTxtProp f x -> ScalarText (f x)
 
 -- | How a property reads as text, for the inspection helpers and for the
 -- @#id@\/@.class@ selectors. Not used for equality — 'PropScalar' is.

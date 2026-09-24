@@ -10,7 +10,6 @@ module Halogen.VDom.DOM.Prop
 where
 
 import Control.Monad.Primitive (PrimMonad, PrimState)
-import Data.Foreign
 import Data.Map.Strict qualified as M
 import Data.Primitive.MutVar
 import HPrelude hiding (state)
@@ -147,18 +146,24 @@ buildProp emit el = renderProp
             else do
               setAttribute ns2 attr2 val2 el
               pure v2
-        (Property _ val1, Property prop2 val2) ->
-          case (val1 `unsafeRefEq'` val2, prop2) of
-            (True, _) ->
-              pure v2
-            (_, "value") -> do
+        -- A property is written only when its value changes, compared as the
+        -- value the element would hold, which is what purescript-halogen-vdom's
+        -- refEq decides for JavaScript scalars. Writing it on every patch would
+        -- undo whatever the page changed in between: classes a JavaScript
+        -- widget added, or a checkbox the user ticked.
+        --
+        -- @value@ is the exception, compared against the element itself on
+        -- every patch: the user edits it, so an unchanged rendered value is not
+        -- evidence that the element still holds it, and a component that turns
+        -- an edit down expects its value put back.
+        (Property _ val1, Property prop2 val2)
+          | prop2 == "value" -> do
               isEqual <- propertyEquals "value" val2 el
-              if isEqual
-                then pure v2
-                else do
-                  setProperty prop2 val2 el
-                  pure v2
-            (_, _) -> do
+              unless isEqual $ setProperty prop2 val2 el
+              pure v2
+          | propScalar val1 == propScalar val2 ->
+              pure v2
+          | otherwise -> do
               setProperty prop2 val2 el
               pure v2
         (Handler _ _, Handler (DOM.EventType ty) f) -> do
