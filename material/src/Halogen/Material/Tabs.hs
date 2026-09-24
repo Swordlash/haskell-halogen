@@ -34,6 +34,17 @@ data TabSpec = TabSpec
   , icon :: Maybe (Icon, IconPosition)
   }
 
+-- | The tab bar renders only the selected tab's content, so switching tabs
+-- unmounts every child component in the tab being left and mounts the ones in
+-- the tab being entered afresh from their inputs. State that should survive a
+-- switch therefore belongs to the parent: map the children's outputs to the
+-- parent's action @i@ (they reach the parent as 'ChildOutput'), keep the values
+-- in the parent's state, and pass them back in the children's inputs. The
+-- component takes every new spec it receives, so the tab contents always
+-- reflect the parent's latest render.
+--
+-- 'selectedTab' is only the initial selection; after that the component owns
+-- it and reports changes with 'SelectedTab'.
 data TabsSpec slots i m = TabsSpec
   { tabs :: NonEmpty (TabSpec, HH.ComponentHTML i slots m)
   , selectedTab :: Int
@@ -55,9 +66,10 @@ data TabsState slots i m = TabsState
   , extraStyle :: C.Css
   }
 
-data TabsAction i
+data TabsAction slots i m
   = Initialize
   | Finalize
+  | Receive (NonEmpty (TabSpec, HH.ComponentHTML i slots m)) C.Css
   | TabSelected Int
   | ChildAction i
 
@@ -80,7 +92,15 @@ tabsComponent =
     H.ComponentSpec
       { initialState = \TabsSpec {..} -> pure TabsState {mdcTabBar = Nothing, ..}
       , render
-      , eval = H.mkEval $ H.defaultEval {handleAction, handleQuery, initialize = Just Initialize, finalize = Just Finalize}
+      , eval =
+          H.mkEval $
+            H.defaultEval
+              { handleAction
+              , handleQuery
+              , initialize = Just Initialize
+              , receive = \TabsSpec {tabs, extraStyle} -> Just $ Receive tabs extraStyle
+              , finalize = Just Finalize
+              }
       }
   where
     ref = H.RefLabel "tabBar"
@@ -129,7 +149,7 @@ tabsComponent =
 
     handleQuery
       :: TabsQuery slots q x
-      -> H.HalogenM (TabsState slots i m) (TabsAction i) slots (TabsOutput i) m (Maybe x)
+      -> H.HalogenM (TabsState slots i m) (TabsAction slots i m) slots (TabsOutput i) m (Maybe x)
     handleQuery = \case
       GetSelectedTab k -> Just . k <$> gets (.selectedTab)
       ParentQuery (Proxy @lab) slot q -> H.query lab slot q
@@ -142,6 +162,13 @@ tabsComponent =
             mdcTabBar <- lift $ initTabBar e
             modify $ \s -> s {mdcTabBar = Just mdcTabBar}
       Finalize -> traverse_ (lift . destroyTabBar) =<< gets (.mdcTabBar)
+      Receive tabs extraStyle -> do
+        -- A parent that shrinks the tab list must not leave the selection
+        -- pointing past its end, or render would index out of bounds.
+        old <- gets (.selectedTab)
+        let selectedTab = min (length tabs - 1) old
+        modify $ \s -> s {tabs, extraStyle, selectedTab} :: TabsState slots i m
+        when (selectedTab /= old) $ H.raise $ SelectedTab selectedTab
       TabSelected i -> do
         modify $ \s -> s {selectedTab = i} :: TabsState slots i m
         H.raise $ SelectedTab i

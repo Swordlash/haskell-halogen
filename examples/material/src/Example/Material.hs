@@ -3,7 +3,9 @@ module Example.Material (component) where
 import Clay qualified as C
 import Control.Monad.UUID
 import DOM.HTML.Indexed (InputType (..))
+import Data.Map.Strict qualified as Map
 import Data.Row
+import Data.Set qualified as Set
 import Halogen as H
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Properties qualified as HP
@@ -20,7 +22,7 @@ import Protolude.Partial (fromJust, (!!))
 
 type All m = List m .+ Radios .+ TextFields .+ Checkboxes
 
-type Slots m = ("tab" .== H.Slot (HMT.TabsQuery (All m) VoidF) (HMT.TabsOutput Void) ())
+type Slots m = ("tab" .== H.Slot (HMT.TabsQuery (All m) VoidF) (HMT.TabsOutput Action) ())
 
 type List m = ("list" .== H.Slot (HML.ListQuery Buttons VoidF) (HML.ListOutput Void) ())
 
@@ -32,19 +34,62 @@ type Radios = ("radio" .== H.Slot VoidF HMR.RadioClicked Int)
 
 type Checkboxes = ("checkbox" .== H.Slot HMC.CheckboxQuery HMC.CheckboxChange Int)
 
+-- | The tab bar unmounts the controls of every tab but the selected one, so
+-- what they hold is kept here, updated from their outputs and handed back in
+-- their specs, and a control remounted by a tab switch starts where it left off.
+data Model = Model
+  { selectedTab :: Int
+  , texts :: Map Int Text
+  , colour :: Int
+  , languages :: Set Int
+  }
+
+data Action
+  = TabSelected Int
+  | TextChanged Int Text
+  | ColourPicked Int
+  | LanguageToggled Int Bool
+
+colours :: [Text]
+colours = ["White", "Black", "Red", "Green"]
+
+languageNames :: [Text]
+languageNames = ["English", "German", "French", "Polish"]
+
 component :: forall q i o m. (MonadMaterial m, MonadUUID m) => H.Component q i o m
 component =
   H.mkComponent $
     H.ComponentSpec
-      { initialState = const $ pure ()
+      { initialState =
+          const $
+            pure
+              Model
+                { selectedTab = 0
+                , texts = mempty
+                , colour = 0
+                , languages = Set.fromList [0, 3]
+                }
       , render
-      , eval = H.mkEval H.defaultEval
+      , eval = H.mkEval H.defaultEval {H.handleAction = handleAction}
       }
   where
-    render :: () -> H.ComponentHTML Void (Slots m) m
-    render _ =
-      HH.slot_ "tab" () HMT.tabsComponent $ HMT.emptyTabsSpec {HMT.tabs = tabs}
+    handleAction :: Action -> H.HalogenM Model Action (Slots m) o m ()
+    handleAction = \case
+      TabSelected n -> modify $ \s -> s {selectedTab = n}
+      TextChanged n t -> modify $ \s -> s {texts = Map.insert n t s.texts}
+      ColourPicked n -> modify $ \s -> s {colour = n}
+      LanguageToggled n checked -> modify $ \s -> s {languages = (if checked then Set.insert else Set.delete) n s.languages}
+
+    render :: Model -> H.ComponentHTML Action (Slots m) m
+    render Model {..} =
+      HH.slot "tab" () HMT.tabsComponent (HMT.emptyTabsSpec {HMT.tabs = tabs, HMT.selectedTab = selectedTab}) $ \case
+        HMT.SelectedTab n -> TabSelected n
+        HMT.ChildOutput a -> a
       where
+        textOf n = Map.findWithDefault "" n texts
+
+        textField n spec = HH.slot "textField" n HMTF.textField spec {HMTF.text = textOf n} $ \(HMTF.InputChanged t) -> TextChanged n t
+
         tabs =
           fromJust $
             nonEmpty
@@ -62,19 +107,19 @@ component =
                         C.padding pad pad pad pad
                         extraStyle
                     ]
-                    [ HH.slot_ "textField" 0 HMTF.textField $
+                    [ textField 0 $
                         HMTF.emptyTextFieldSpec
                           { HMTF.label = Just "Username"
                           , HMTF.helperLine = HMTF.CharacterCounter
                           , HMTF.minMaxLength = (Nothing, Just 20)
                           }
-                    , HH.slot_ "textField" 1 HMTF.textField $
+                    , textField 1 $
                         HMTF.emptyTextFieldSpec
                           { HMTF.label = Just "Password"
                           , HMTF.type_ = InputPassword
                           , HMTF.helperLine = HMTF.CharacterCounter
                           }
-                    , HH.slot_ "textField" 2 HMTF.textField $
+                    , textField 2 $
                         HMTF.emptyTextFieldSpec
                           { HMTF.label = Just "Donation"
                           , HMTF.prefix = HMTF.TextAffix "$"
@@ -92,28 +137,18 @@ component =
                         C.flexDirection C.column
                         C.width C.auto
                     ]
-                    [ HH.slot_ "radio" 0 HMR.radio $
+                    $ flip map (zip [0 ..] colours)
+                    $ \(n, label) ->
+                      HH.slot
+                        "radio"
+                        n
+                        HMR.radio
                         HMR.emptyRadioButtonSpec
-                          { HMR.label = "White"
+                          { HMR.label = label
                           , HMR.groupName = "group1"
-                          , HMR.checked = True
+                          , HMR.checked = n == colour
                           }
-                    , HH.slot_ "radio" 1 HMR.radio $
-                        HMR.emptyRadioButtonSpec
-                          { HMR.label = "Black"
-                          , HMR.groupName = "group1"
-                          }
-                    , HH.slot_ "radio" 2 HMR.radio $
-                        HMR.emptyRadioButtonSpec
-                          { HMR.label = "Red"
-                          , HMR.groupName = "group1"
-                          }
-                    , HH.slot_ "radio" 3 HMR.radio $
-                        HMR.emptyRadioButtonSpec
-                          { HMR.label = "Green"
-                          , HMR.groupName = "group1"
-                          }
-                    ]
+                        (const $ ColourPicked n)
                 )
               ,
                 ( HMT.TabSpec {label = Just "Checkboxes", icon = Just (HMI.CheckBox, HMT.Stacked)}
@@ -123,26 +158,18 @@ component =
                         C.flexDirection C.column
                         C.width C.auto
                     ]
-                    [ HH.slot_ "checkbox" 0 HMC.checkbox $
+                    $ flip map (zip [0 ..] languageNames)
+                    $ \(n, label) ->
+                      HH.slot
+                        "checkbox"
+                        n
+                        HMC.checkbox
                         HMC.emptyCheckboxSpec
-                          { HMC.label = "English"
-                          , HMC.checked = True
+                          { HMC.label = label
+                          , HMC.checked = Set.member n languages
+                          , HMC.enabled = label /= "Polish"
                           }
-                    , HH.slot_ "checkbox" 1 HMC.checkbox $
-                        HMC.emptyCheckboxSpec
-                          { HMC.label = "German"
-                          }
-                    , HH.slot_ "checkbox" 2 HMC.checkbox $
-                        HMC.emptyCheckboxSpec
-                          { HMC.label = "French"
-                          }
-                    , HH.slot_ "checkbox" 3 HMC.checkbox $
-                        HMC.emptyCheckboxSpec
-                          { HMC.label = "Polish"
-                          , HMC.checked = True
-                          , HMC.enabled = False
-                          }
-                    ]
+                        (\(HMC.CheckboxChange checked) -> LanguageToggled n checked)
                 )
               ]
 
