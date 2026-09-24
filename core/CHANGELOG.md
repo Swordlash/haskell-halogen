@@ -13,6 +13,8 @@
   `propScalar`, the comparison both use, moved from
   `Halogen.VDom.DOM.Monad.Native` to `Halogen.VDom.DOM.Monad.Class`; the native
   module still exports `PropScalar`.
+- `Halogen.HTML.Properties.hidden` sets the `hidden` property, as it does in
+  purescript-halogen.
 - The browser's own storage. `MonadBrowserDOM` gains `readStorageItem`,
   `writeStorageItem`, `removeStorageItem` and `storageItemKeys`, which read and
   write one key of a store at a time as text, and `Web.Storage.Storage` says
