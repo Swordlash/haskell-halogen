@@ -14,8 +14,8 @@ enabled and not covered.
 ```haskell
 spec :: forall m -> (MonadBrowserTest m) => Spec
 spec m = describe "counter" $
-  it "counts clicks" $ withPage $ \page -> do
-    ui <- mount page m Counter.component ()
+  it "counts clicks" $ runPage $ do
+    ui <- mount m Counter.component ()
     find ui "button.increment" >>= click
     find ui ".count" >>= (`shouldHaveText` "1")
     query ui (H.mkRequest Counter.GetCount) `shouldReturn` Just 1
@@ -149,22 +149,30 @@ wasm (`--builddir=dist-newstyle/wasm`).
 
 ## Writing tests
 
-Each test works in a page of its own:
+Import `Test.Hspec.Halogen` instead of `Test.Hspec`. It re-exports `Spec`,
+`describe`, `it` and the other names a spec is built from, and has its own
+expectations under hspec's names.
+
+Each test is a `PageM s` action, run in a page of its own by `runPage`:
 
 ```haskell
-it "…" $ withPage $ \page -> do
-  ui <- mount page m MyComponent.component input
+it "…" $ runPage $ do
+  ui <- mount m MyComponent.component input
   …
 ```
 
-`withPage` gives the test a container at the end of the body. When the test
-ends, pass or fail, it unmounts everything mounted there. As with `runST`, the
-`s` in `Page s`, `Mounted s …` and `Element s` keeps what a test mounted and
-found from being used anywhere else.
+`runPage` gives the test a container at the end of the body. When the test
+ends, pass or fail, it unmounts everything mounted there.
+
+`runPage` is to `PageM` what `runST` is to `ST`. The `s` in `Mounted s …` and
+`Element s` keeps what a test mounted and found from being used outside it.
+`PageM` has no `MonadIO`, so a test cannot open a page inside its own. For
+other `IO`, there is `unsafeIOToPageM`, unsafe in the same way as
+`unsafeIOToSTM`.
 
 ### Mounting and talking to the component
 
-- `mount page m component input`: mount into the page. The component has
+- `mount m component input`: mount into the page. The component has
   rendered and run its initialisers when this returns.
 - `query ui q`: send a query, as a parent would.
 - `outputs ui`: everything the component has raised, oldest first.
@@ -181,7 +189,7 @@ found from being used anywhere else.
 
 - `click`, `typeText element "text"` and `clear` go through Playwright:
   trusted events, to an element it has checked it can reach.
-- `press page "Enter"` presses a key on the focused element. Key names are
+- `press "Enter"` presses a key on the focused element. Key names are
   Playwright's (`Backspace`, `ArrowDown`, `Shift+Tab`, …).
 - `focus` and `blur`.
 
@@ -192,8 +200,13 @@ Every action returns once the component has reacted, so a synchronous
 
 - `textContent`, `getProperty element "value"` (as JavaScript's `String()`
   renders it), `getAttribute`, `classes`, `outerHTML` and `isVisible`.
+- `shouldBe`, `shouldNotBe`, `shouldSatisfy`, `shouldContain`, `shouldReturn`
+  and `expectationFailure` work as hspec's do, in `PageM`. A failure points at
+  the test's line.
 - `shouldHaveClass`, `shouldNotHaveClass`, `shouldHaveText`, `shouldBeVisible`
   and `shouldBeHidden` retry for up to two seconds before they fail.
+- A pattern that does not match, such as `[a, b] <- findAll ui "li"` finding
+  three, fails the test.
 - `eventually` gives any expectation the same retrying, for what finishes
   later: a forked effect, a timer, work a JavaScript widget defers to the next
   frame.
@@ -206,8 +219,7 @@ Every action returns once the component has reacted, so a synchronous
 
 A page has one mouse, one keyboard and one focused element, so pages open one
 at a time. Tests marked `parallel` still run in turn, and cannot type into
-each other's inputs. Opening a page inside another fails at once instead of
-waiting on itself.
+each other's inputs.
 
 ### Your own monad
 

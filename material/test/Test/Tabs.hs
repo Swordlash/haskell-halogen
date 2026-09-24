@@ -8,7 +8,6 @@ import Halogen.Material.Monad (MonadMaterial)
 import Halogen.Material.Tabs qualified as HMT
 import Halogen.Material.TextField qualified as HMTF
 import Protolude hiding (find)
-import Test.Hspec
 import Test.Hspec.Halogen
 
 type Slots = ("textField" .== H.Slot HMTF.TextFieldQuery HMTF.TextFieldOutput Int)
@@ -27,16 +26,16 @@ twoTabs =
              ]
     }
 
-tabBar :: Page s -> forall m -> (MonadBrowserTest m, MonadMaterial m) => IO (Mounted s (HMT.TabsQuery Slots HMTF.TextFieldQuery) (HMT.TabsOutput Void) m)
-tabBar page m = mount page m HMT.tabsComponent twoTabs
+tabBar :: forall m -> (MonadBrowserTest m, MonadMaterial m) => PageM s (Mounted s (HMT.TabsQuery Slots HMTF.TextFieldQuery) (HMT.TabsOutput Void) m)
+tabBar m = mount m HMT.tabsComponent twoTabs
 
-selectTab :: Mounted s q o m -> Int -> IO ()
+selectTab :: Mounted s q o m -> Int -> PageM s ()
 selectTab ui n = find ui (".mdc-tab:nth-child(" <> show n <> ")") >>= click
 
 spec :: forall m -> (MonadBrowserTest m, MonadMaterial m) => Spec
 spec m = do
-  it "shows only the selected tab" $ withPage $ \page -> do
-    ui <- tabBar page m
+  it "shows only the selected tab" $ runPage $ do
+    ui <- tabBar m
     [firstPanel, secondPanel] <- findAll ui "[role=tabpanel]"
     shouldBeVisible firstPanel
     shouldBeHidden secondPanel
@@ -44,8 +43,8 @@ spec m = do
     shouldBeHidden firstPanel
     shouldBeVisible secondPanel
 
-  it "keeps what was typed in a tab across a switch" $ withPage $ \page -> do
-    ui <- tabBar page m
+  it "keeps what was typed in a tab across a switch" $ runPage $ do
+    ui <- tabBar m
     selectTab ui 2
     input <- find ui "input"
     typeText input "alice"
@@ -54,8 +53,8 @@ spec m = do
     getProperty input "value" `shouldReturn` "alice"
     query ui (HMT.ParentQuery (Proxy @"textField") 0 (HMTF.GetText identity)) `shouldReturn` Just "alice"
 
-  it "raises and answers with the tab the user selects" $ withPage $ \page -> do
-    ui <- tabBar page m
+  it "raises and answers with the tab the user selects" $ runPage $ do
+    ui <- tabBar m
     selectTab ui 2
     outputs ui >>= (`shouldBe` [1]) . selections
     query ui (HMT.GetSelectedTab identity) `shouldReturn` Just 1
