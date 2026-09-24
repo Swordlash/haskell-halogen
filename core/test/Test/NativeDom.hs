@@ -154,9 +154,6 @@ spec = describe "native VDom" $ do
       s2 <- step s1 $ el "ul" [] [el "li" [] [Text "z"]]
       assertEqual "shrunk" "<ul><li>z</li></ul>" =<< snapshot s2
 
-  -- Properties are the branch of diffProp gated on unsafeRefEq': structurally
-  -- equal but separately allocated PropValues are ref-unequal, so these patches
-  -- all take the fall-through path rather than the short-circuit.
   describe "properties" $ do
     it "sets properties without serialising them into markup" $ do
       (vspec, _) <- newSpec
@@ -172,6 +169,34 @@ spec = describe "native VDom" $ do
         =<< N.propertyList (N.toNative (extract s0))
       s1 <- step s0 $ el "input" [Property "value" (TxtProp "two")] []
       assertEqual "updated and pruned" [("value", "two")]
+        =<< N.propertyList (N.toNative (extract s1))
+
+    -- Something other than the reconciler -- a JavaScript widget adding a
+    -- class, the user ticking a box -- may change a property between patches.
+    -- A patch that renders the same value must leave that change alone, as
+    -- purescript-halogen-vdom does; comparing the rendered values by pointer
+    -- found every freshly built one different and wrote them all back.
+    it "leaves a property alone while its rendered value is unchanged" $ do
+      (vspec, _) <- newSpec
+      s0 <- build vspec $ el "div" [Property "className" (TxtProp "a")] []
+      let element = N.fromNative (N.toNative (extract s0)) :: Element
+      runMemDOM $ setProperty "className" (TxtProp "a widget-added") element
+      s1 <- step s0 $ el "div" [Property "className" (TxtProp ("" <> "a"))] []
+      assertEqual "the page's change survives" [("className", "a widget-added")]
+        =<< N.propertyList (N.toNative (extract s1))
+      s2 <- step s1 $ el "div" [Property "className" (TxtProp "b")] []
+      assertEqual "a changed value is written" [("className", "b")]
+        =<< N.propertyList (N.toNative (extract s2))
+
+    -- Except for value, which the user edits: a component that turns an edit
+    -- down renders the same value again and expects it put back.
+    it "puts back a value the element no longer holds" $ do
+      (vspec, _) <- newSpec
+      s0 <- build vspec $ el "input" [Property "value" (TxtProp "kept")] []
+      let element = N.fromNative (N.toNative (extract s0)) :: Element
+      runMemDOM $ setProperty "value" (TxtProp "typed") element
+      s1 <- step s0 $ el "input" [Property "value" (TxtProp "kept")] []
+      assertEqual "value restored" [("value", "kept")]
         =<< N.propertyList (N.toNative (extract s1))
 
     -- The "value" special case in diffProp consults propertyEquals to avoid

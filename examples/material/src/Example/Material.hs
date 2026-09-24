@@ -20,7 +20,7 @@ import Protolude.Partial (fromJust, (!!))
 
 type All m = List m .+ Radios .+ TextFields .+ Checkboxes
 
-type Slots m = ("tab" .== H.Slot (HMT.TabsQuery (All m) VoidF) (HMT.TabsOutput Void) ())
+type Slots m = ("tab" .== H.Slot (HMT.TabsQuery (All m) VoidF) (HMT.TabsOutput Action) ())
 
 type List m = ("list" .== H.Slot (HML.ListQuery Buttons VoidF) (HML.ListOutput Void) ())
 
@@ -32,19 +32,35 @@ type Radios = ("radio" .== H.Slot VoidF HMR.RadioClicked Int)
 
 type Checkboxes = ("checkbox" .== H.Slot HMC.CheckboxQuery HMC.CheckboxChange Int)
 
+-- | The controls keep their own state, since the tab bar only hides the tabs
+-- that are not selected. The radio buttons are the one place this component
+-- reacts to what happens inside a tab, to show the chosen colour.
+data Action
+  = TabSelected
+  | ColourPicked Text
+
 component :: forall q i o m. (MonadMaterial m, MonadUUID m) => H.Component q i o m
 component =
   H.mkComponent $
     H.ComponentSpec
-      { initialState = const $ pure ()
+      { initialState = const $ pure "White"
       , render
-      , eval = H.mkEval H.defaultEval
+      , eval = H.mkEval H.defaultEval {H.handleAction = handleAction}
       }
   where
-    render :: () -> H.ComponentHTML Void (Slots m) m
-    render _ =
-      HH.slot_ "tab" () HMT.tabsComponent $ HMT.emptyTabsSpec {HMT.tabs = tabs}
+    handleAction :: Action -> H.HalogenM Text Action (Slots m) o m ()
+    handleAction = \case
+      TabSelected -> pure ()
+      ColourPicked colour -> put colour
+
+    render :: Text -> H.ComponentHTML Action (Slots m) m
+    render colour =
+      HH.slot "tab" () HMT.tabsComponent HMT.emptyTabsSpec {HMT.tabs = tabs} $ \case
+        HMT.SelectedTab _ -> TabSelected
+        HMT.ChildOutput a -> a
       where
+        radio n spec = HH.slot "radio" n HMR.radio spec $ \(HMR.RadioClicked label) -> ColourPicked label
+
         tabs =
           fromJust $
             nonEmpty
@@ -82,6 +98,14 @@ component =
                           , HMTF.type_ = InputNumber
                           , HMTF.helperLine = HMTF.HelperLine "Any donation helps our cause!"
                           }
+                    , -- Filled in from the start and in a tab that is hidden on
+                      -- load, so its outline is first measured while hidden.
+                      HH.slot_ "textField" 3 HMTF.textField $
+                        HMTF.emptyTextFieldSpec
+                          { HMTF.label = Just "Email"
+                          , HMTF.text = "someone@example.com"
+                          , HMTF.style = HMTF.Outlined
+                          }
                     ]
                 )
               ,
@@ -92,27 +116,28 @@ component =
                         C.flexDirection C.column
                         C.width C.auto
                     ]
-                    [ HH.slot_ "radio" 0 HMR.radio $
+                    [ radio 0 $
                         HMR.emptyRadioButtonSpec
                           { HMR.label = "White"
                           , HMR.groupName = "group1"
                           , HMR.checked = True
                           }
-                    , HH.slot_ "radio" 1 HMR.radio $
+                    , radio 1 $
                         HMR.emptyRadioButtonSpec
                           { HMR.label = "Black"
                           , HMR.groupName = "group1"
                           }
-                    , HH.slot_ "radio" 2 HMR.radio $
+                    , radio 2 $
                         HMR.emptyRadioButtonSpec
                           { HMR.label = "Red"
                           , HMR.groupName = "group1"
                           }
-                    , HH.slot_ "radio" 3 HMR.radio $
+                    , radio 3 $
                         HMR.emptyRadioButtonSpec
                           { HMR.label = "Green"
                           , HMR.groupName = "group1"
                           }
+                    , HH.p_ [HH.text $ "Chosen colour: " <> colour]
                     ]
                 )
               ,

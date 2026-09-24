@@ -105,6 +105,9 @@ target = prop (PropName "target")
 title :: (HasType "title" Text r) => Text -> IProp r i
 title = prop (PropName "title")
 
+hidden :: (HasType "hidden" Bool r) => Bool -> IProp r i
+hidden = prop (PropName "hidden")
+
 download :: (HasType "download" Text r) => Text -> IProp r i
 download = prop (PropName "download")
 

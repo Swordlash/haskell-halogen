@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- A patch writes a property only when its rendered value has changed, as
+  purescript-halogen-vdom does. Old and new values were compared by pointer, and
+  a render builds every value afresh, so each patch wrote every property back
+  and undid whatever the page had changed in between: a JavaScript widget's
+  classes (Material's notched outline lost its notch this way), or a checkbox
+  the user had ticked while its rendered `checked` stayed the same. `value` is
+  still compared against the element on every patch, so an input whose
+  component turns an edit down gets its value put back. `PropScalar` and
+  `propScalar`, the comparison both use, moved from
+  `Halogen.VDom.DOM.Monad.Native` to `Halogen.VDom.DOM.Monad.Class`; the native
+  module still exports `PropScalar`.
+- `Halogen.HTML.Properties.hidden` sets the `hidden` property, as it does in
+  purescript-halogen.
 - The browser's own storage. `MonadBrowserDOM` gains `readStorageItem`,
   `writeStorageItem`, `removeStorageItem` and `storageItemKeys`, which read and
   write one key of a store at a time as text, and `Web.Storage.Storage` says

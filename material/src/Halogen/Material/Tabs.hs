@@ -13,7 +13,6 @@ where
 import Clay qualified as C
 import Control.Monad.Extra (pureIf)
 import Data.Functor qualified as F
-import Data.List.NonEmpty ((!!))
 import Data.Row
 import Data.Text qualified as T
 import Halogen qualified as H hiding (Initialize)
@@ -34,6 +33,16 @@ data TabSpec = TabSpec
   , icon :: Maybe (Icon, IconPosition)
   }
 
+-- | Every tab's content stays mounted, and the ones not selected are only
+-- hidden, so the child components in a tab keep their state while another tab
+-- is shown. Their outputs reach the parent as 'ChildOutput' when their slot maps
+-- them to the parent's action @i@; a parent that only needs to react to some of
+-- them handles those and leaves the rest to 'HH.slot_'. The component takes every
+-- new spec it receives, so the tab contents always reflect the parent's latest
+-- render.
+--
+-- 'selectedTab' is only the initial selection; after that the component owns
+-- it and reports changes with 'SelectedTab'.
 data TabsSpec slots i m = TabsSpec
   { tabs :: NonEmpty (TabSpec, HH.ComponentHTML i slots m)
   , selectedTab :: Int
@@ -55,9 +64,10 @@ data TabsState slots i m = TabsState
   , extraStyle :: C.Css
   }
 
-data TabsAction i
+data TabsAction slots i m
   = Initialize
   | Finalize
+  | Receive (NonEmpty (TabSpec, HH.ComponentHTML i slots m)) C.Css
   | TabSelected Int
   | ChildAction i
 
@@ -80,7 +90,15 @@ tabsComponent =
     H.ComponentSpec
       { initialState = \TabsSpec {..} -> pure TabsState {mdcTabBar = Nothing, ..}
       , render
-      , eval = H.mkEval $ H.defaultEval {handleAction, handleQuery, initialize = Just Initialize, finalize = Just Finalize}
+      , eval =
+          H.mkEval $
+            H.defaultEval
+              { handleAction
+              , handleQuery
+              , initialize = Just Initialize
+              , receive = \TabsSpec {tabs, extraStyle} -> Just $ Receive tabs extraStyle
+              , finalize = Just Finalize
+              }
       }
   where
     ref = H.RefLabel "tabBar"
@@ -88,10 +106,14 @@ tabsComponent =
     render TabsState {..} =
       HH.div
         [HP.style (C.display C.flex <> C.flexDirection C.column <> extraStyle)]
-        [header, HH.mapHTMLAction ChildAction tab]
+        (header : zipWith panel [0 ..] (toList tabContents))
       where
         (tabHeaders, tabContents) = F.unzip tabs
-        tab = tabContents !! selectedTab
+
+        panel i content =
+          HH.div
+            [HPA.role "tabpanel", HP.hidden (i /= selectedTab)]
+            [HH.mapHTMLAction ChildAction content]
 
         header =
           HH.div [HP.class_ (HH.ClassName "mdc-tab-bar"), HPA.role "tablist", HP.ref ref] $
@@ -129,7 +151,7 @@ tabsComponent =
 
     handleQuery
       :: TabsQuery slots q x
-      -> H.HalogenM (TabsState slots i m) (TabsAction i) slots (TabsOutput i) m (Maybe x)
+      -> H.HalogenM (TabsState slots i m) (TabsAction slots i m) slots (TabsOutput i) m (Maybe x)
     handleQuery = \case
       GetSelectedTab k -> Just . k <$> gets (.selectedTab)
       ParentQuery (Proxy @lab) slot q -> H.query lab slot q
@@ -142,6 +164,13 @@ tabsComponent =
             mdcTabBar <- lift $ initTabBar e
             modify $ \s -> s {mdcTabBar = Just mdcTabBar}
       Finalize -> traverse_ (lift . destroyTabBar) =<< gets (.mdcTabBar)
+      Receive tabs extraStyle -> do
+        -- A parent that shrinks the tab list must not leave the selection
+        -- pointing past its end, where no panel would be shown.
+        old <- gets (.selectedTab)
+        let selectedTab = min (length tabs - 1) old
+        modify $ \s -> s {tabs, extraStyle, selectedTab} :: TabsState slots i m
+        when (selectedTab /= old) $ H.raise $ SelectedTab selectedTab
       TabSelected i -> do
         modify $ \s -> s {selectedTab = i} :: TabsState slots i m
         H.raise $ SelectedTab i
