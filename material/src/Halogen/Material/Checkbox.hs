@@ -40,6 +40,7 @@ emptyCheckboxSpec =
 
 data CheckboxState = CheckboxState
   { mdcFormField :: Maybe MDCFormField
+  , ref :: H.RefLabel
   , label :: Text
   , enabled :: Bool
   , extraStyle :: Css
@@ -62,6 +63,7 @@ checkbox =
   H.mkComponent $
     H.ComponentSpec
       { initialState = \CheckboxSpec {..} -> do
+          ref <- H.newRefLabel "checkbox"
           id <- generateV4
           pure CheckboxState {mdcFormField = Nothing, ..}
       , render
@@ -75,8 +77,6 @@ checkbox =
               }
       }
   where
-    ref = H.RefLabel "checkbox"
-
     render CheckboxState {..} =
       HH.div [HP.class_ $ HH.ClassName "mdc-touch-targer-wrapper"] $
         pure $
@@ -115,7 +115,7 @@ checkbox =
 
     handleAction = \case
       Initialize -> do
-        H.getHTMLElementRef ref >>= \case
+        gets (.ref) >>= H.getHTMLElementRef >>= \case
           Just el -> do
             mdcFormField <- lift $ initCheckbox el
             modify $ \s -> s {mdcFormField = Just mdcFormField}

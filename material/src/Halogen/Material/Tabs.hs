@@ -12,6 +12,7 @@ where
 
 import Clay qualified as C
 import Control.Monad.Extra (pureIf)
+import Control.Monad.UUID (MonadUUID)
 import Data.Functor qualified as F
 import Data.Row
 import Data.Text qualified as T
@@ -59,6 +60,7 @@ emptyTabsSpec =
 
 data TabsState slots i m = TabsState
   { mdcTabBar :: Maybe MDCTabBar
+  , ref :: H.RefLabel
   , tabs :: NonEmpty (TabSpec, HH.ComponentHTML i slots m)
   , selectedTab :: Int
   , extraStyle :: C.Css
@@ -83,12 +85,14 @@ data TabsOutput i
 
 tabsComponent
   :: forall q slots i m
-   . (MonadMaterial m)
+   . (MonadMaterial m, MonadUUID m)
   => H.Component (TabsQuery slots q) (TabsSpec slots i m) (TabsOutput i) m
 tabsComponent =
   H.mkComponent $
     H.ComponentSpec
-      { initialState = \TabsSpec {..} -> pure TabsState {mdcTabBar = Nothing, ..}
+      { initialState = \TabsSpec {..} -> do
+          ref <- H.newRefLabel "tab-bar"
+          pure TabsState {mdcTabBar = Nothing, ..}
       , render
       , eval =
           H.mkEval $
@@ -101,8 +105,6 @@ tabsComponent =
               }
       }
   where
-    ref = H.RefLabel "tabBar"
-
     render TabsState {..} =
       HH.div
         [HP.style (C.display C.flex <> C.flexDirection C.column <> extraStyle)]
@@ -158,7 +160,7 @@ tabsComponent =
 
     handleAction = \case
       Initialize -> do
-        H.getHTMLElementRef ref >>= \case
+        gets (.ref) >>= H.getHTMLElementRef >>= \case
           Nothing -> panic "Cannot initialize Tab Bar, no HTML element found\n"
           Just e -> do
             mdcTabBar <- lift $ initTabBar e

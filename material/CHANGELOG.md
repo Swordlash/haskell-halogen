@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* Every component labels its element ref with `newRefLabel` rather than a fixed
+  name, so markup a parent hands to `tabsComponent` or `list` can use any ref
+  label without taking over theirs. `tabsComponent`, `list` and `button` now
+  need `MonadUUID m`, which `BrowserDOM` has.
 * `tabsComponent` keeps every tab mounted and hides the ones not selected,
   where before it rendered only the selected tab. Switching tabs used to unmount
   the components in the tab being left, so a radio button picked or text typed
