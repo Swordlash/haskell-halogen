@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `Halogen.newRefLabel` makes a ref label from a name and a fresh UUID, for a
+  component to generate in `initialState` and keep in its state. A fixed label
+  can collide: refs are looked up in the component that rendered them, and a
+  component that renders HTML handed to it by its parent (a tab bar, a list)
+  registers that HTML's refs among its own. `Halogen.Canvas` uses it.
 - A component's refs are recorded as soon as their elements are created or
   removed, rather than queued with its actions. Queued handlers are forked,
   and a forked thread starts only when the scheduler gets to it, while

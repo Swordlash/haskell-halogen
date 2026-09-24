@@ -129,6 +129,9 @@ storage, …) is built only from public hooks.
 - Commit subjects are short imperative sentences in plain English ("Make a prop that goes away
   actually go away"), sometimes prefixed with the package (`core: …`, `hooks: …`); bodies explain why.
 - Haddocks and comments explain reasoning in full sentences rather than restating the code.
+- Never hardcode a `RefLabel`: generate it with `H.newRefLabel "<name>"` in `initialState` and keep
+  it in the state. Refs are looked up in the component that rendered them, which includes HTML a
+  component renders for its parent (Tabs, List), so a fixed label can collide with a parent's.
 - A new example needs only `examples/<name>/` with `halogen-example-<name>.cabal`, `Main.hs` and
   `web/` (`index.html` + `index.js` fetching `./app.wasm`); the `examples/*` glob and
   `build-wasm-all.sh` pick it up. An optional `bundle.sh` beside it is run with the output directory
