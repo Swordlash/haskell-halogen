@@ -27,11 +27,13 @@ npm run serve-wasm -- <example> # build one example to wasm and serve it on :808
 npm run build-wasm-all          # every example, wasm-opt'd; Pages deploys only public/all
 npm run test-gallery            # the built `all` gallery in headless Chromium (Playwright)
 npm run build-js                # JS backend: build all, bundle the material example into dist/
-npm run format                  # fourmolu over core, hooks, pixi, examples
+npm run dev-test -- <package>   # a package's browser test suite in browser GHCi, rerun on save
+npm run format                  # fourmolu over core, hooks, pixi, hspec-halogen, material/test, examples
 ```
 
-Only `core` and `hooks` have test suites (`Halogen-core-test`, `Halogen-hooks-test`, both hspec,
-`main-is: Test.hs` which aggregates `Test.*` specs). Run one suite or one test with hspec's
+`core` and `hooks` have test suites that run under Node (`Halogen-core-test`,
+`Halogen-hooks-test`), and `material` has one that runs in a browser (`Halogen-material-test`,
+wasm only; see below). All are hspec, `main-is: Test.hs` which aggregates `Test.*` specs. Run one suite or one test with hspec's
 `--match`:
 
 ```sh
@@ -67,7 +69,23 @@ and wired into `test/Test.hs`.
 - `wasm-test-runner.mjs` must `process.exit` as soon as `wasi.start` returns: a JS→Haskell callback
   can leave `rts_schedulerLoop` queued on `setImmediate`, which crashes with "RTS is not initialised"
   if it runs after the RTS has shut down. `toolchain/test-wasm-runner.sh` checks exit codes survive.
-- `toolchain/test-gallery.mjs` is the one real-browser test: it serves the built
+- A browser test suite (built with `hspec-halogen`, e.g. material's) is a wasm *reactor* exporting
+  `hs_start`, whose `main` is `runBrowserTests spec`. `wasm-test-wrapper.sh` recognises the export
+  and hands the binary to `toolchain/browser-test-runner.mjs`, which loads it into headless Chromium
+  with the package's `test/web/` assets (and whatever `test/web/bundle.sh` builds), relays its
+  output, and performs its `click`/`typeText`/`press` through Playwright as trusted input. So
+  `npm run test-wasm` needs Chromium installed. The suite's cabal `interactive` flag drops the
+  reactor options, and `toolchain/dev-test.sh` runs it in browser GHCi under ghciwatch, in a
+  Playwright-opened window (`browser-test-open.mjs`), rerunning `:main` on every save.
+  `hspec-halogen` builds on every backend (its page functions panic off wasm, see
+  `Test.Hspec.Halogen.Internal.Page`) so suites type-check natively for HLS; there
+  `runBrowserTests` only reports a skip. Material's suite is not built for the JS backend.
+- Two wasm facts the harness depends on: an async (`safe`) JSFFI import returns a *thunk*, and the
+  calling thread only waits for the promise when it is forced, so an `IO ()` import must be forced
+  (`evaluate`) or the test runs on while the page still acts. And a JS→Haskell callback is not run
+  on the spot: the glue schedules the RTS scheduler loop as a task (`scheduler.postTask` in
+  Chromium), which is why every harness action ends with `settle`.
+- `toolchain/test-gallery.mjs` tests the deployed artefact rather than a component: it serves the built
   `dist-newstyle/wasm/public/all` and checks that each route mounts its example and unmounts the
   previous one, through clicks, back, forward and a reload. It runs in CI and gates the Pages deploy;
   both install Chromium with

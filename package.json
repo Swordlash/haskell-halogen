@@ -12,6 +12,7 @@
     "@material/textfield": "^14.0.0"
   },
   "devDependencies": {
+    "@bjorn3/browser_wasi_shim": "^0.3.0",
     "esbuild": "^0.28.2",
     "http-server": "^14.1.1",
     "playwright": "^1.63.0",
@@ -30,6 +31,7 @@
     "build-js": "sh toolchain/build-ghcjs.sh",
     "build-js-dev": "sh toolchain/build-ghcjs.sh --dev",
     "dev-wasm": "sh examples/material/dev-wasm.sh",
+    "dev-test": "sh toolchain/dev-test.sh",
     "format": "sh run_fourmolu.sh",
     "serve": "npm run serve-wasm",
     "test": "sh toolchain/run-tests.sh",
