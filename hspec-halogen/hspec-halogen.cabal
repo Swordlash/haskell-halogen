@@ -58,14 +58,14 @@ executable hspec-halogen
     default-language: GHC2024
     hs-source-dirs:   app
     main-is:          Main.hs
-    other-modules:    Embed
     ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists
     build-depends:
         base,
+        file-embed,
         filepath,
+        optparse-applicative,
         process,
-        temporary,
-        template-haskell
+        temporary
 
     if arch(wasm32) || arch(javascript)
         buildable: False

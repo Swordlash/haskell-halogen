@@ -18,48 +18,65 @@
 -- installed for Playwright. See the package's README.
 module Main (main) where
 
+import Data.FileEmbed (embedStringFile, makeRelativeToProject)
 import Data.Maybe (fromMaybe)
-import Embed (embedText)
-import System.Environment (getArgs, lookupEnv)
+import Options.Applicative
+import Options.Applicative.Help.Pretty (Doc, indent, pretty, vsep)
+import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..), exitWith)
 import System.FilePath ((</>))
-import System.IO (IOMode (..), hPutStrLn, hSetEncoding, stderr, utf8, withFile)
+import System.IO (IOMode (..), hSetEncoding, utf8, withFile)
 import System.IO qualified as IO
 import System.IO.Temp (withSystemTempDirectory)
 import System.Process (rawSystem, readProcess)
 
+-- The runner's JavaScript, compiled in so that it is found wherever the
+-- executable is: installed, in a build directory, or run by cabal as a test
+-- wrapper from another package's directory.
 runnerScript :: String
-runnerScript = $(embedText "js/runner.mjs")
+runnerScript = $(makeRelativeToProject "js/runner.mjs" >>= embedStringFile)
 
 openScript :: String
-openScript = $(embedText "js/open.mjs")
+openScript = $(makeRelativeToProject "js/open.mjs" >>= embedStringFile)
+
+data Command
+  = Test FilePath [String]
+  | Open String
 
 main :: IO ()
 main =
-  getArgs >>= \case
-    "test" : suite : hspecArgs -> test suite hspecArgs
-    ["open", url] -> open url
-    [flag] | flag `elem` ["-h", "--help"] -> putStr usage
-    _ -> hPutStrLn stderr usage >> exitWith (ExitFailure 2)
+  execParser (info (commands <**> helper) (fullDesc <> header "hspec-halogen - run hspec-halogen browser test suites" <> footerDoc (Just environment))) >>= \case
+    Test suite hspecArgs -> test suite hspecArgs
+    Open url -> open url
+  where
+    commands =
+      hsubparser $
+        command
+          "test"
+          ( info
+              (Test <$> strArgument (metavar "SUITE.wasm") <*> many (strArgument (metavar "HSPEC-ARGS...")))
+              -- Everything after the suite is hspec's, --match and all.
+              (progDesc "Run a wasm test suite: one built with hspec-halogen in headless Chromium, any other under Node. Use it as cabal's --test-wrapper." <> noIntersperse <> forwardOptions)
+          )
+          <> command
+            "open"
+            ( info
+                (Open <$> strArgument (metavar "URL"))
+                (progDesc "Open a page in a Chromium that Playwright controls, for a suite run in browser GHCi.")
+            )
 
-usage :: String
-usage =
-  unlines
-    [ "Usage: hspec-halogen test <suite.wasm> [hspec args...]"
-    , "       hspec-halogen open <url>"
-    , ""
-    , "  test   Run a wasm test suite: one built with hspec-halogen in headless"
-    , "         Chromium, any other under Node. Use it as cabal's --test-wrapper."
-    , "  open   Open a page in a Chromium that Playwright controls, for a suite"
-    , "         run in browser GHCi."
-    , ""
-    , "Environment:"
-    , "  HSPEC_HALOGEN_WASM_GHC  the wasm GHC to post-link with (wasm32-wasi-ghc)"
-    , "  HSPEC_HALOGEN_NODE      the node to run with (node)"
-    , "  HSPEC_HALOGEN_HEADED    show the browser while testing"
-    , "  HSPEC_HALOGEN_HEADLESS  open no window for 'open'"
-    , "  HSPEC_HALOGEN_SLOWMO    milliseconds to wait before every browser action"
-    , "  HSPEC_HALOGEN_TIMEOUT   seconds the whole suite may take (600)"
+environment :: Doc
+environment =
+  vsep
+    [ pretty "Environment:"
+    , indent 2 . vsep . map pretty $
+        [ "HSPEC_HALOGEN_WASM_GHC  the wasm GHC to post-link with (wasm32-wasi-ghc)"
+        , "HSPEC_HALOGEN_NODE      the node to run with (node)"
+        , "HSPEC_HALOGEN_HEADED    show the browser while testing"
+        , "HSPEC_HALOGEN_HEADLESS  open no window for 'open'"
+        , "HSPEC_HALOGEN_SLOWMO    milliseconds to wait before every browser action"
+        , "HSPEC_HALOGEN_TIMEOUT   seconds the whole suite may take (600)"
+        ]
     ]
 
 test :: FilePath -> [String] -> IO ()
