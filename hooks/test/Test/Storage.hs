@@ -72,21 +72,21 @@ spec = describe "hooks-extra storage" $ do
     Storage.clear LocalStorage
     source <- liftIO HS.create
 
-    first <- start (persistentComponent source.emitter) ()
-    expect "count=0" =<< lastRender first
+    firstMount <- start (persistentComponent source.emitter) ()
+    expect "count=0" =<< lastRender firstMount
     liftIO $ HS.notify source.listener ()
     liftIO $ HS.notify source.listener ()
-    expect "count=2" =<< lastRender first
+    expect "count=2" =<< lastRender firstMount
 
     -- What the component keeps is what the store holds, readable by anything
     -- else that knows the key.
     expect (Just (Right (2 :: Int))) =<< Storage.getItem LocalStorage "test/count"
-    dispose first
+    dispose firstMount
 
     -- A second mount starts from the store rather than from the default.
-    second <- start (persistentComponent source.emitter) ()
-    expect "count=2" =<< lastRender second
-    dispose second
+    secondMount <- start (persistentComponent source.emitter) ()
+    expect "count=2" =<< lastRender secondMount
+    dispose secondMount
 
   it "reads the key it is given now, and leaves the one before it alone" $ runTestDOM $ do
     Storage.clear LocalStorage

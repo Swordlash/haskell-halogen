@@ -198,7 +198,7 @@ runUI RenderSpec {..} c i = do
           runComponent lchs (maybe pass handler . output) input component
       isDuplicate <- isJust . get <$> readIORef childrenOutRef
       when isDuplicate
-        $ traceM "Halogen: Duplicate slot address was detected during rendering, unexpected results may occur"
+        $ hPutStrLn stderr ("Halogen: Duplicate slot address was detected during rendering, unexpected results may occur" :: Text)
       atomicModifyIORef'_ childrenOutRef (set var)
       (readDriverStateRef var >>=) $ renderStateX $ \case
         Nothing -> throwString "Halogen internal error: child was not initialized in renderChild"

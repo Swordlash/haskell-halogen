@@ -15,3 +15,10 @@ allow-newer: protolude:*
 -- an error that names itself, and gives the build and test steps one plan
 -- between them rather than one each.
 tests: True
+
+-- Warnings are errors in this repository's own packages (program-options
+-- applies to local packages only, not to dependencies). It lives here rather
+-- than in the .cabal files so that a released package doesn't stop building
+-- when a newer GHC starts warning about something new.
+program-options
+  ghc-options: -Werror
