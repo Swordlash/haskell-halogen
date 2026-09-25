@@ -102,8 +102,8 @@ data Store t clip = Store
   { entries :: Map t (Entry clip)
   , pins :: Map t Int
   -- ^ Effects playing, counted.
-  , wanted :: (Maybe ThreadId, Set t)
-  -- ^ What the music thread named plays and buffers.
+  , wanted :: (Int, Set t)
+  -- ^ What the music of this number plays and buffers.
   , clock :: Int
   -- ^ Counts uses, for least recently used.
   }
@@ -116,13 +116,17 @@ data Control t = Control
   , muted :: Bool
   , shuffles :: Word64
   -- ^ The seed of the next album's shuffle.
+  , playing :: Int
+  -- ^ Numbers each piece of music started, so that one stopping does not
+  -- clear what its successor wants. (Not the thread's id: comparing those
+  -- is missing from GHC's JavaScript runtime.)
   }
 
 -- | A player, which starts fetching the persistent sounds.
 newPlayer :: forall t clip voice. (Sound t) => Backend clip voice -> Config -> IO (Player t)
 newPlayer backend config = do
-  store <- newMVar Store {entries = mempty, pins = mempty, wanted = (Nothing, mempty), clock = 0}
-  control <- newMVar Control {music = Silence, thread = Nothing, muted = config.startMuted, shuffles = config.seed}
+  store <- newMVar Store {entries = mempty, pins = mempty, wanted = (0, mempty), clock = 0}
+  control <- newMVar Control {music = Silence, thread = Nothing, muted = config.startMuted, shuffles = config.seed, playing = 0}
   let engine = Engine {backend, config, store, control}
   unless config.startMuted (preloadPersistent engine)
   pure (Player engine)
@@ -169,26 +173,27 @@ run e c
   | c.muted = pure c
   | otherwise = case c.music of
       Silence -> pure c
-      Theme t -> start c (theme e t)
-      Album ts -> start c {shuffles = c.shuffles + 1} (album e (newOrder c.shuffles ts))
+      Theme t -> start c (\n -> theme e n t)
+      Album ts -> start c {shuffles = c.shuffles + 1} (\n -> album e n (newOrder c.shuffles ts))
   where
     start c' act = do
-      th <- forkIO (quietly act `finally` unwant e)
-      pure c' {thread = Just th}
+      let n = c'.playing + 1
+      th <- forkIO (quietly (act n) `finally` unwant e n)
+      pure c' {thread = Just th, playing = n}
 
-theme :: (Sound t) => Engine t clip voice -> t -> IO ()
-theme e t = do
-  want e [t]
+theme :: (Sound t) => Engine t clip voice -> Int -> t -> IO ()
+theme e n t = do
+  want e n [t]
   -- Fetched during the silence, if it is not at hand already.
   prefetch e t
   pause e.config.gap
   clip <- obtain e t
   for_ clip $ \x -> playVoice e x Voicing {volume = e.config.musicVolume * loudness t, looping = True}
 
-album :: (Sound t) => Engine t clip voice -> Order t -> IO ()
-album e order = for_ (nextTrack order) $ \(t, order') -> do
+album :: (Sound t) => Engine t clip voice -> Int -> Order t -> IO ()
+album e n order = for_ (nextTrack order) $ \(t, order') -> do
   let ahead = upcoming e.config.bufferAhead order'
-  want e (t : ahead)
+  want e n (t : ahead)
   prefetch e t
   pause e.config.gap
   clip <- obtain e t
@@ -198,7 +203,7 @@ album e order = for_ (nextTrack order) $ \(t, order') -> do
     Just x -> playVoice e x Voicing {volume = e.config.musicVolume * loudness t, looping = False}
     -- Not to be had: on to the next, but not in a spin should none be.
     Nothing -> pause 1
-  album e order'
+  album e n order'
 
 -- | Play a voice to its end (forever, for a loop), and stop it however
 -- this ends: a stopped thread takes its voice with it.
@@ -256,19 +261,17 @@ pin :: (Ord t) => Engine t clip voice -> t -> Int -> IO ()
 pin e t n = modifyMVar_ e.store $ \s ->
   pure s {pins = Map.filter (> 0) (Map.insertWith (+) t n s.pins)}
 
--- | What the calling thread's music plays and buffers; the rest may go.
-want :: (Sound t) => Engine t clip voice -> [t] -> IO ()
-want e ts = do
-  me <- myThreadId
-  modifyMVar_ e.store $ \s -> pure s {wanted = (Just me, Set.fromList ts)}
+-- | What the music of this number plays and buffers; the rest may go.
+want :: (Sound t) => Engine t clip voice -> Int -> [t] -> IO ()
+want e n ts = do
+  modifyMVar_ e.store $ \s -> pure s {wanted = (n, Set.fromList ts)}
   evict e
 
--- | The music on the calling thread has stopped. A thread that has replaced
--- it meanwhile keeps its own.
-unwant :: (Sound t) => Engine t clip voice -> IO ()
-unwant e = do
-  me <- myThreadId
-  modifyMVar_ e.store $ \s -> pure $ if fst s.wanted == Just me then s {wanted = (Nothing, mempty)} else s
+-- | The music of this number has stopped. Music that has replaced it
+-- meanwhile keeps its own.
+unwant :: (Sound t) => Engine t clip voice -> Int -> IO ()
+unwant e n = do
+  modifyMVar_ e.store $ \s -> pure $ if fst s.wanted == n then s {wanted = (0, mempty)} else s
   evict e
 
 -- | Let the least recently used files go, beyond 'cacheSize'.
