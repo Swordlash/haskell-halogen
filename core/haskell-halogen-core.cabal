@@ -10,6 +10,15 @@ maintainer:         mateusz.goslinowski@gmail.com
 category:           Web
 extra-source-files: CHANGELOG.md, NOTICE
 
+flag js-polyfills
+  description:
+    On the JavaScript backend, link jsbits/polyfills.js: the functions other
+    libraries import that GHC's JavaScript runtime lacks (see POLYFILLS.md).
+    Turn it off to provide them some other way, or to leave them out of a
+    bundle that does not need them.
+  default: True
+  manual: True
+
 flag trace-dom
   description: Enable tracing of DOM operations
   default: False
@@ -206,6 +215,12 @@ library
         jsbits/web_browser.js
         jsbits/web_event.js
 
+      -- What GHC's JavaScript runtime lacks and other libraries need; every
+      -- program that links core gets it, unless the flag is off (see
+      -- POLYFILLS.md at the repository root).
+      if flag(js-polyfills)
+        js-sources: jsbits/polyfills.js
+
       ghc-options: -fexpose-all-unfoldings
 
     elif arch(wasm32)
@@ -245,9 +260,6 @@ test-suite Halogen-core-test
                     Test.Storage
                     Test.SvgAttributes
                     Test.Utils
-
-    if arch(javascript)
-      js-sources:     jsbits/ghcjs_test_compat.js
 
 source-repository head
   type:     git

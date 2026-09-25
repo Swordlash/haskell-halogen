@@ -6,6 +6,12 @@
 set -eu
 
 cd "$(dirname "$0")/.."
+
+# ghcjs-test-wrapper.sh hands browser suites to the hspec-halogen executable,
+# a native program.
+HSPEC_HALOGEN=${HSPEC_HALOGEN:-$(sh toolchain/build-hspec-halogen.sh)}
+export HSPEC_HALOGEN
+
 . toolchain/ghcjs-env.sh
 
 build_dir=dist-newstyle/javascript

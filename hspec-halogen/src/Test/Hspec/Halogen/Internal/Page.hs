@@ -2,11 +2,11 @@
 
 -- | Everything "Test.Hspec.Halogen" asks of the page it runs in.
 --
--- Only the WebAssembly backend has a page to ask: the suite runs there, in
--- Chromium, through "Test.Hspec.Halogen.Internal.Wasm". Everywhere else the
--- package still builds, so that the suites using it type-check natively and
--- the Haskell language server can load them, but nothing here can run:
--- 'inBrowser' is 'False' and the rest panics.
+-- The WebAssembly and JavaScript backends have a page to ask, when the suite
+-- runs in Chromium: through "Test.Hspec.Halogen.Internal.Wasm" and
+-- "Test.Hspec.Halogen.Internal.JS". Natively the package still builds, so that
+-- the suites using it type-check and the Haskell language server can load
+-- them, but nothing here can run: 'inBrowser' is 'False' and the rest panics.
 module Test.Hspec.Halogen.Internal.Page
   ( inBrowser
   , runnerArgs
@@ -36,13 +36,17 @@ where
 
 import Test.Hspec.Halogen.Internal.Wasm
 
+#elif defined(javascript_HOST_ARCH)
+
+import Test.Hspec.Halogen.Internal.JS
+
 #else
 
 import Protolude
 import Web.DOM.Internal.Types (Element)
 
 -- | Whether there is a page to run in.
-inBrowser :: Bool
+inBrowser :: IO Bool
 
 -- | hspec's arguments, when the test runner passed some. Browser GHCi passes
 -- none: there @:main@ sets them.
@@ -97,7 +101,7 @@ sameElement :: Element -> Element -> Bool
 -- | Whether the element is still in the document.
 isConnected :: Element -> IO Bool
 
-inBrowser = False
+inBrowser = pure False
 
 runnerArgs = pure Nothing
 

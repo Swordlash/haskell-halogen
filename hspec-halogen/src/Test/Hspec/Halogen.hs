@@ -30,16 +30,17 @@
 -- needs to describe tests, and its expectations share hspec's names.
 --
 -- The suite runs inside the page it tests: its @main@ is 'runBrowserTests', it
--- is built as a WebAssembly reactor, and the @hspec-halogen@ executable, as
--- cabal's test wrapper, loads it into headless Chromium. That is what lets a
+-- is built by the WebAssembly backend (as a reactor) or the JavaScript backend,
+-- and the @hspec-halogen@ executable, as cabal's test wrapper, loads it into
+-- headless Chromium. That is what lets a
 -- test hold the component itself rather than only the DOM it renders. The
 -- runner also backs 'click' and 'typeText' with Playwright, so input arrives
 -- as trusted events, to an element Playwright has checked is visible, enabled
 -- and not covered.
 --
--- On other backends the package builds, so that a suite type-checks natively
--- and the language server can load it, but 'runBrowserTests' only reports
--- that it skipped the suite.
+-- Natively the package builds, so that a suite type-checks and the language
+-- server can load it, but 'runBrowserTests' only reports that it skipped the
+-- suite.
 --
 -- Every action waits for the component to react before it returns (see
 -- 'settle'), so a synchronous @handleAction@ has rendered by then. What
@@ -149,17 +150,21 @@ import Web.DOM.Internal.Types qualified as DOM
 -- are whatever @:main@ was given. It starts by removing whatever a run before
 -- it left behind, in case that one was interrupted.
 --
--- Off the WebAssembly backend there is no page, so it says so and returns
--- without running anything.
+-- Without a page -- natively, or a JavaScript-backend suite run as the Node
+-- script it also is -- it says so and returns without running anything.
 runBrowserTests :: Spec -> IO ()
-runBrowserTests spec
-  | not Page.inBrowser =
-      putText "hspec-halogen: skipped, this suite runs in a browser on the WebAssembly backend"
-  | otherwise = do
+runBrowserTests spec =
+  Page.inBrowser >>= \case
+    False -> putText "hspec-halogen: skipped, this suite runs in a browser (run it with hspec-halogen test)"
+    True -> do
       hSetBuffering stdout LineBuffering
       Page.removeLeftovers
       args <- Page.runnerArgs
-      summary <- maybe identity (withArgs . map toS) args $ hspecWithResult defaultConfig spec
+      -- The runner is told how it went even if the suite itself throws;
+      -- otherwise it would wait for a report until it timed out.
+      summary <-
+        (maybe identity (withArgs . map toS) args $ hspecWithResult defaultConfig spec)
+          `onException` (hFlush stdout >> Page.reportDone (-1))
       hFlush stdout
       Page.reportDone (summaryFailures summary)
 
@@ -342,7 +347,8 @@ blur (Element element) = unsafeIOToPageM (Page.blurElement element) >> settle
 -- | Let the component finish reacting to what just happened in the page.
 --
 -- A JavaScript event reaches Haskell as a callback, which the wasm runtime
--- does not run on the spot: it schedules its scheduler loop as a task of its
+-- does not run on the spot (the JavaScript backend's does, and waiting costs
+-- it only a task): it schedules its scheduler loop as a task of its
 -- own (@scheduler.postTask@ in Chromium), and this thread would otherwise be
 -- resumed before that task ran. Waiting for a background-priority task lets
 -- every task already queued at the normal priority run first. Every action

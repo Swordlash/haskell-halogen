@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- On the JavaScript backend, core defines the few functions other libraries
+  import that GHC's JavaScript runtime lacks: `splitmix_init` from splitmix,
+  and `readlink`, `geteuid`, `getpwuid_r` and `sysconf` from unix (hspec
+  reaches all of them, through QuickCheck and directory), and `realloc`. A
+  program that links core, a test suite included, no longer needs its own
+  copies. They work in a page as well as under Node, and each is defined only
+  if nothing else defines it, so a library that later ships its own keeps it.
+  The `js-polyfills` flag (on by default) leaves them out when turned off.
+  POLYFILLS.md in the repository says where each belongs upstream.
 - A property that stops being rendered is cleared from the element. It used to
   be deleted, which does nothing to a DOM property: those are accessors on the
   element's prototype, not properties of the element itself, so a `title` or

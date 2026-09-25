@@ -127,9 +127,6 @@ test-suite Halogen-hooks-test
                     Test.Storage
                     Test.Scope
 
-    if arch(javascript)
-      js-sources:     jsbits/ghcjs_test_compat.js
-
 source-repository head
   type:     git
   location: https://github.com/Swordlash/haskell-halogen.git

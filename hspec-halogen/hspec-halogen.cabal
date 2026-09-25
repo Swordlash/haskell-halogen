@@ -5,10 +5,10 @@ synopsis:           Test haskell-halogen components in a real browser with hspec
 description:
   Mount a component into a real page, find its elements, click and type into
   them with real input, and check the result with hspec. A suite built with
-  this runs in headless Chromium on the WebAssembly backend, run by this
-  package's hspec-halogen executable as cabal's test wrapper; see
-  "Test.Hspec.Halogen" and the README. It builds on every
-  backend, so a suite type-checks natively, but only runs on WebAssembly.
+  this runs in headless Chromium, built by the WebAssembly or JavaScript
+  backend, run by this package's hspec-halogen executable as cabal's test
+  wrapper; see "Test.Hspec.Halogen" and the README. It builds natively too, so
+  a suite type-checks there, but only runs in a browser.
 homepage:           https://github.com/Swordlash/haskell-halogen
 license:            Apache-2.0
 license-file:       LICENSE
@@ -49,14 +49,18 @@ library
         unliftio,
         haskell-halogen-core
 
-    -- The page is driven through the WebAssembly backend's JSFFI; elsewhere
-    -- the functions that would drive it panic (see Internal.Page).
+    -- The page is driven through the WebAssembly backend's JSFFI or the
+    -- JavaScript backend's FFI; natively the functions that would drive it
+    -- panic (see Internal.Page).
     if arch(wasm32)
         other-modules: Test.Hspec.Halogen.Internal.Wasm
         build-depends: ghc-experimental
 
+    if arch(javascript)
+        other-modules: Test.Hspec.Halogen.Internal.JS
+
 -- The host side, run with the host compiler: cabal's test wrapper for wasm
--- suites, and the opener for a suite in browser GHCi. It carries the
+-- and JavaScript-backend suites, and the opener for a suite in browser GHCi. It carries the
 -- JavaScript that drives Playwright, so a project using the library writes
 -- none.
 executable hspec-halogen
@@ -66,6 +70,7 @@ executable hspec-halogen
     ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists
     build-depends:
         base,
+        bytestring,
         file-embed,
         filepath,
         optparse-applicative,
