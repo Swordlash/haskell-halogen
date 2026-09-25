@@ -1,6 +1,7 @@
 packages:
   core
   pixi
+  sound
   material
   hooks
   hspec-halogen
