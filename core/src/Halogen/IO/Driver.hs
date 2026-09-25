@@ -96,8 +96,13 @@ runUI RenderSpec {..} c i = do
       -> m ()
     render' lchs var =
       readIORef var >>= \ds -> do
-        shouldProcessHandlers <- isNothing <$> readIORef ds.pendingHandlers
-        if not shouldProcessHandlers
+        -- Taking the lock is one atomic step: a read of the lock followed by
+        -- a separate write lets two threads both see it free (GHC's RTS,
+        -- wasm's included, preempts threads) and walk the same slots at once.
+        acquired <- atomicModifyIORef' ds.pendingHandlers $ \case
+          Nothing -> (Just [], True)
+          held -> (held, False)
+        if not acquired
           then
             -- WARN: This implementation diverges from PureScript's.
             -- Re-entrancy guard. A render is already in progress on THIS
@@ -118,7 +123,6 @@ runUI RenderSpec {..} c i = do
             -- whole walk + handler drain, so any re-entrant render observes the
             -- lock and only sets renderDirty rather than corrupting this walk.
             let renderPass = do
-                  atomicWriteIORef ds.pendingHandlers (Just [])
                   atomicWriteIORef ds.renderDirty False
                   -- Re-read for the latest state / children / rendering each pass.
                   cur <- readIORef var
@@ -164,16 +168,20 @@ runUI RenderSpec {..} c i = do
                     ds' {rendering = Just rendering, children = children}
 
                   flip loopM () $ \_ -> do
-                    handlers <- readIORef ds.pendingHandlers
-                    atomicWriteIORef ds.pendingHandlers (Just [])
+                    handlers <- atomicModifyIORef' ds.pendingHandlers (Just [],)
                     traverse_ (traverse_ fork . reverse) handlers
-                    mmore <- readIORef ds.pendingHandlers
-                    if maybe False null mmore
-                      then atomicWriteIORef ds.pendingHandlers Nothing $> Right ()
-                      else pure $ Left ()
+                    -- Let go of the lock only if nothing was queued since, in
+                    -- one step: with a read and then a write of Nothing, a
+                    -- handler queued in between would be lost.
+                    released <- atomicModifyIORef' ds.pendingHandlers $ \case
+                      Just [] -> (Nothing, True)
+                      held -> (held, False)
+                    pure $ if released then Right () else Left ()
 
+                  -- A render asked for while this one ran: take the lock
+                  -- again (or leave it to whoever took it meanwhile).
                   dirty <- readIORef ds.renderDirty
-                  when dirty renderPass
+                  when dirty (render' lchs var)
             renderPass
 
     renderChild'

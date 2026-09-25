@@ -77,14 +77,21 @@ evalM render initRef (HalogenM hm) = foldF (go initRef) hm
       -> m x
     go ref = \case
       State f -> do
-        st@DriverState {state, lifecycleHandlers} <- readIORef ref
-        case f state of
+        -- Only the state is replaced, and in one atomic step. Writing back
+        -- the whole record read before `f` ran would undo what another
+        -- thread wrote in between: a state update (lost), or a render pass's
+        -- children and rendering, after which the next render re-mints live
+        -- children and leaves the old ones running.
+        DriverState {lifecycleHandlers} <- readIORef ref
+        -- The field is taken by a pattern, not `st.state`: a selector
+        -- thunk is a new pointer, and `unsafeRefEq` would then never see
+        -- an unchanged state and render after every no-op update.
+        (a, changed) <- atomicModifyIORef' ref $ \st@DriverState {state} -> case f state of
           (a, state')
-            | unsafeRefEq state state' -> pure a
-            | otherwise -> do
-                atomicWriteIORef ref (st {state = state'})
-                handleLifecycle lifecycleHandlers (render lifecycleHandlers ref)
-                pure a
+            | unsafeRefEq state state' -> (st, (a, False))
+            | otherwise -> (st {state = state'}, (a, True))
+        when changed $ handleLifecycle lifecycleHandlers (render lifecycleHandlers ref)
+        pure a
       Subscribe fes k -> do
         sid <- fresh SubscriptionId ref
         finalize <- fmap (HS.hoistSubscription (NT liftIO)) $ withRunInIO $ \runInIO -> HS.subscribe (fes sid) $ \act ->
@@ -216,7 +223,10 @@ queueOrRun
   => IORef (Maybe [m ()])
   -> m ()
   -> m ()
-queueOrRun ref au =
-  readIORef ref >>= \case
-    Nothing -> au
-    Just p -> atomicWriteIORef ref (Just (au : p))
+queueOrRun ref au = do
+  -- Queue or not in one atomic step, so an action queued as the queue is
+  -- being emptied is neither lost nor run twice.
+  runNow <- atomicModifyIORef' ref $ \case
+    Nothing -> (Nothing, True)
+    Just p -> (Just (au : p), False)
+  when runNow au
