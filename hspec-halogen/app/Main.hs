@@ -18,14 +18,14 @@
 -- installed for Playwright. See the package's README.
 module Main (main) where
 
-import Control.Monad (replicateM)
+import Data.ByteString qualified as BS
 import Data.FileEmbed (embedStringFile, makeRelativeToProject)
 import Data.Maybe (fromMaybe)
 import Options.Applicative
 import Options.Applicative.Help.Pretty (Doc, indent, pretty, vsep)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..), exitWith)
-import System.FilePath ((</>))
+import System.FilePath (takeExtension, (</>))
 import System.IO (IOMode (..), hSetEncoding, utf8, withBinaryFile, withFile)
 import System.IO qualified as IO
 import System.IO.Temp (withSystemTempDirectory)
@@ -100,14 +100,14 @@ test suite hspecArgs = withSystemTempDirectory "hspec-halogen" $ \dir -> do
         ExitSuccess -> exitWith =<< rawSystem node (runner : suite : jsffi : hspecArgs)
         failure -> exitWith failure
 
--- | Whether a file starts with WebAssembly's magic number.
+-- | Whether the suite was built by the WebAssembly backend. Cabal names such
+-- a binary @<suite>.wasm@, and a JavaScript-backend one gets no extension;
+-- failing that (a binary renamed, say), a WebAssembly module starts with
+-- the magic number @\\0asm@.
 isWasm :: FilePath -> IO Bool
-isWasm path = withBinaryFile path ReadMode $ \handle -> (== "\0asm") <$> replicateM 4 (hGetCharOrEnd handle)
-  where
-    hGetCharOrEnd handle =
-      IO.hIsEOF handle >>= \case
-        True -> pure '\xff'
-        False -> IO.hGetChar handle
+isWasm path
+  | takeExtension path == ".wasm" = pure True
+  | otherwise = withBinaryFile path ReadMode $ \handle -> (== BS.pack [0x00, 0x61, 0x73, 0x6d]) <$> BS.hGet handle 4
 
 open :: String -> IO ()
 open url = withSystemTempDirectory "hspec-halogen" $ \dir -> do

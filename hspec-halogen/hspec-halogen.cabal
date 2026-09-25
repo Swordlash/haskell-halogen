@@ -72,6 +72,7 @@ executable hspec-halogen
     ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists
     build-depends:
         base,
+        bytestring,
         file-embed,
         filepath,
         optparse-applicative,
