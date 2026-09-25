@@ -96,93 +96,68 @@ runUI RenderSpec {..} c i = do
       -> m ()
     render' lchs var =
       readIORef var >>= \ds -> do
-        -- Taking the lock is one atomic step: a read of the lock followed by
-        -- a separate write lets two threads both see it free (GHC's RTS,
-        -- wasm's included, preempts threads) and walk the same slots at once.
-        acquired <- atomicModifyIORef' ds.pendingHandlers $ \case
-          Nothing -> (Just [], True)
-          held -> (held, False)
-        if not acquired
-          then
-            -- WARN: This implementation diverges from PureScript's.
-            -- Re-entrancy guard. A render is already in progress on THIS
-            -- DriverState (pendingHandlers is non-empty). Under the GHC-JS
-            -- cooperative scheduler the in-progress render yields at the reuse
-            -- path's `evalM (Receive)` below, letting a state-change- or
-            -- fork-triggered re-render re-enter here. Running the render body
-            -- now would walk the VDom against a half-consumed slot set and
-            -- re-mint still-live children (re-creating their DOM + restarting
-            -- their timers). Instead just flag the in-progress render to run
-            -- another pass: it re-reads the latest state, so the requested
-            -- render is never lost. PureScript's Aff driver never preempts
-            -- mid-render and so needs no such guard; the GHC-JS scheduler does.
-            atomicWriteIORef ds.renderDirty True
-          else do
-            -- Render passes repeat until no re-entrant render was requested.
-            -- Each pass holds the pendingHandlers lock (Just …) across the
-            -- whole walk + handler drain, so any re-entrant render observes the
-            -- lock and only sets renderDirty rather than corrupting this walk.
-            let renderPass = do
-                  atomicWriteIORef ds.renderDirty False
-                  -- Re-read for the latest state / children / rendering each pass.
-                  cur <- readIORef var
-                  -- Per-render scratch storage, local to this pass; never shared
-                  -- DriverState fields (a re-entrant pass would clobber them).
-                  childrenInRef <- newIORef cur.children
-                  childrenOutRef <- newIORef Slot.empty
+        -- WARN: This implementation diverges from PureScript's. Its Aff
+        -- driver never preempts a render; GHC's scheduler (wasm's and JS's
+        -- included) does, and a render re-enters itself (a child's output
+        -- renders its parent). A render asked for while another walks this
+        -- component's slots must not walk them too: it would re-create
+        -- still-live children. 'enterRender' takes the lock or, if it is
+        -- held, asks the render in progress for one more pass, which reads
+        -- the latest state, so no render is lost. See 'RenderGate'.
+        whenM (enterRender ds.renderGate) $ do
+          let renderPass = do
+                beginPass ds.renderGate
+                -- Re-read for the latest state / children / rendering each pass.
+                cur <- readIORef var
+                -- Per-render scratch storage, local to this pass; never shared
+                -- DriverState fields (a re-entrant pass would clobber them).
+                childrenInRef <- newIORef cur.children
+                childrenOutRef <- newIORef Slot.empty
 
-                  -- A ref is recorded as soon as its element is created or
-                  -- removed, not queued with the actions: queued handlers are
-                  -- forked below, and a forked thread only starts when the
-                  -- scheduler gets to it, while initialisers run on this one.
-                  -- An initialiser that looks up a ref of its own component
-                  -- (as MDC components do, to attach to their root element)
-                  -- could otherwise run first and find nothing. Recording a
-                  -- ref runs no component code, so doing it mid-render is safe;
-                  -- purescript-halogen gets the same order from Aff's fork,
-                  -- which runs a fiber at once.
-                  let handler :: Input act -> m ()
-                      handler = \case
-                        input@(Input.RefUpdate _ _) -> void $ Eval.evalF render' ds.selfRef input
-                        input -> Eval.queueOrRun ds.pendingHandlers . void $ Eval.evalF render' ds.selfRef input
+                -- A ref is recorded as soon as its element is created or
+                -- removed, not queued with the actions: queued handlers are
+                -- forked below, and a forked thread only starts when the
+                -- scheduler gets to it, while initialisers run on this one.
+                -- An initialiser that looks up a ref of its own component
+                -- (as MDC components do, to attach to their root element)
+                -- could otherwise run first and find nothing. Recording a
+                -- ref runs no component code, so doing it mid-render is safe;
+                -- purescript-halogen gets the same order from Aff's fork,
+                -- which runs a fiber at once.
+                let handler :: Input act -> m ()
+                    handler = \case
+                      input@(Input.RefUpdate _ _) -> void $ Eval.evalF render' ds.selfRef input
+                      input -> runOrQueue ds.renderGate . void $ Eval.evalF render' ds.selfRef input
 
-                      childHandler :: act -> m ()
-                      childHandler = Eval.queueOrRun ds.pendingQueries . handler . Input.Action
+                    childHandler :: act -> m ()
+                    childHandler = Eval.queueOrRun ds.pendingQueries . handler . Input.Action
 
-                  rendering <-
-                    render
-                      handler
-                      (renderChild' lchs childHandler childrenInRef childrenOutRef)
-                      (cur.component.render cur.state)
-                      cur.rendering
+                rendering <-
+                  render
+                    handler
+                    (renderChild' lchs childHandler childrenInRef childrenOutRef)
+                    (cur.component.render cur.state)
+                    cur.rendering
 
-                  children <- readIORef childrenOutRef
-                  childrenIn <- readIORef childrenInRef
+                children <- readIORef childrenOutRef
+                childrenIn <- readIORef childrenInRef
 
-                  Slot.foreachSlot childrenIn $ \(DriverStateRef childVar) -> do
-                    childDS <- DriverStateX <$> readIORef childVar
-                    renderStateX_ removeChild childDS
-                    finalize lchs childDS
+                Slot.foreachSlot childrenIn $ \(DriverStateRef childVar) -> do
+                  childDS <- DriverStateX <$> readIORef childVar
+                  renderStateX_ removeChild childDS
+                  finalize lchs childDS
 
-                  atomicModifyIORef'_ ds.selfRef $ \ds' ->
-                    ds' {rendering = Just rendering, children = children}
+                atomicModifyIORef'_ ds.selfRef $ \ds' ->
+                  ds' {rendering = Just rendering, children = children}
 
-                  flip loopM () $ \_ -> do
-                    handlers <- atomicModifyIORef' ds.pendingHandlers (Just [],)
-                    traverse_ (traverse_ fork . reverse) handlers
-                    -- Let go of the lock only if nothing was queued since, in
-                    -- one step: with a read and then a write of Nothing, a
-                    -- handler queued in between would be lost.
-                    released <- atomicModifyIORef' ds.pendingHandlers $ \case
-                      Just [] -> (Nothing, True)
-                      held -> (held, False)
-                    pure $ if released then Right () else Left ()
-
-                  -- A render asked for while this one ran: take the lock
-                  -- again (or leave it to whoever took it meanwhile).
-                  dirty <- readIORef ds.renderDirty
-                  when dirty (render' lchs var)
-            renderPass
+                -- Queued actions are forked, then another pass if one was
+                -- asked for; the lock goes only when neither is left.
+                fix $ \leave ->
+                  leaveRender ds.renderGate >>= \case
+                    Drain handlers -> traverse_ fork handlers >> leave
+                    Again -> renderPass
+                    Done -> pass
+          renderPass
 
     renderChild'
       :: forall ps act
@@ -258,13 +233,12 @@ runUI RenderSpec {..} c i = do
       -> DriverStateX m r f' o'
       -> m ()
     dispose' disposed lchs dsx@(DriverStateX DriverState {selfRef}) = Eval.handleLifecycle lchs $ do
-      readIORef disposed >>= \case
-        True -> pass
-        False -> do
-          atomicWriteIORef disposed True
-          finalize lchs dsx
-          ds <- readIORef selfRef
-          for_ ds.rendering dispose
+      -- Checked and set in one step, so two disposals cannot both go ahead.
+      wasDisposed <- atomicModifyIORef' disposed (True,)
+      unless wasDisposed $ do
+        finalize lchs dsx
+        ds <- readIORef selfRef
+        for_ ds.rendering dispose
 
 {-# INLINE newLifecycleHandlers #-}
 newLifecycleHandlers :: (MonadIO m) => m (IORef (LifecycleHandlers m))
@@ -273,8 +247,9 @@ newLifecycleHandlers = newIORef $ LifecycleHandlers {initializers = [], finalize
 {-# SPECIALIZE handlePending :: IORef (Maybe [IO ()]) -> IO () #-}
 handlePending :: (MonadIO m, MonadFork m) => IORef (Maybe [m ()]) -> m ()
 handlePending ref = do
-  queue <- readIORef ref
-  atomicWriteIORef ref Nothing
+  -- Taken and closed in one step: an action queued in between would
+  -- otherwise be dropped.
+  queue <- atomicModifyIORef' ref (Nothing,)
   for_ queue (traverse_ fork . reverse)
 
 {-# SPECIALIZE cleanupSubscriptionsAndForks :: DriverState IO r s f act ps i o -> IO () #-}
@@ -283,7 +258,8 @@ cleanupSubscriptionsAndForks
   => DriverState m r s f act ps i o
   -> m ()
 cleanupSubscriptionsAndForks ds = do
-  traverse_ (traverse_ HS.unsubscribe) =<< readIORef ds.subscriptions
-  atomicWriteIORef ds.subscriptions Nothing
-  traverse_ (kill AsyncCancelled) =<< readIORef ds.forks
-  atomicWriteIORef ds.forks mempty
+  -- Each is emptied and taken in one step, so nothing added meanwhile is
+  -- dropped without being stopped. A subscription made afterwards is
+  -- stopped at once (see 'Subscribe' in "Halogen.IO.Driver.Eval").
+  traverse_ (traverse_ HS.unsubscribe) =<< atomicModifyIORef' ds.subscriptions (Nothing,)
+  traverse_ (kill AsyncCancelled) =<< atomicModifyIORef' ds.forks (mempty,)

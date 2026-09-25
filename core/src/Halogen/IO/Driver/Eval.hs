@@ -97,7 +97,12 @@ evalM render initRef (HalogenM hm) = foldF (go initRef) hm
         finalize <- fmap (HS.hoistSubscription (NT liftIO)) $ withRunInIO $ \runInIO -> HS.subscribe (fes sid) $ \act ->
           runInIO $ evalF render ref (Input.Action act)
         DriverState {subscriptions} <- readIORef ref
-        atomicModifyIORef'_ subscriptions (map (M.insert sid finalize))
+        -- A component already finalized has no register any more; its
+        -- subscription would never be stopped, so stop it now.
+        kept <- atomicModifyIORef' subscriptions $ \case
+          Nothing -> (Nothing, False)
+          Just subs -> (Just (M.insert sid finalize subs), True)
+        unless kept $ HS.unsubscribe finalize
         pure (k sid)
       Unsubscribe sid next -> do
         unsubscribe sid ref

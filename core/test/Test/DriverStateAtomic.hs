@@ -13,8 +13,10 @@
 -- there. With the old driver the second is overwritten and the count is 1.
 module Test.DriverStateAtomic (spec) where
 
-import Control.Concurrent (forkIO, threadDelay)
+import Control.Concurrent (forkIO, threadDelay, yield)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar)
+import Control.Monad (forM_, replicateM_, void, when)
+import Data.IORef (atomicModifyIORef', newIORef, readIORef)
 import Control.Monad.State.Class (get, modify, state)
 import Data.Kind (Type)
 import Data.Row (Empty, Row)
@@ -23,7 +25,7 @@ import Halogen as H
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Core qualified as HC
 import Halogen.IO.Driver qualified as AD
-import Halogen.IO.Driver.State (RenderStateX (..))
+import Halogen.IO.Driver.State (Leave (..), RenderGate (..), RenderStateX (..), beginPass, enterRender, leaveRender, runOrQueue)
 import Halogen.Query.Input (Input)
 import Prelude
 import System.IO.Unsafe (unsafePerformIO)
@@ -110,7 +112,68 @@ test = do
   assertEqual "both updates kept" (Just 2) current
   dispose
 
+-- | The render lock, step by step.
+gateSteps :: IO ()
+gateSteps = do
+  gate <- newIORef Idle
+  ran <- newIORef []
+  let act n = atomicModifyIORef' ran (\ns -> (ns <> [n :: Int], ()))
+      leave = leaveRender gate >>= \case
+        Drain acts -> sequence_ acts >> pure "drain"
+        Again -> pure "again"
+        Done -> pure "done"
+  runOrQueue gate (act 0)
+  readIORef ran >>= assertEqual "with no render, an action runs at once" [0]
+  enterRender gate >>= assertEqual "the first render takes the lock" True
+  enterRender gate >>= assertEqual "a second render waits for the first" False
+  runOrQueue gate (act 1)
+  runOrQueue gate (act 2)
+  readIORef ran >>= assertEqual "during a render, actions wait" [0]
+  leave >>= assertEqual "the queue comes out first" ("drain" :: String)
+  readIORef ran >>= assertEqual "in the order they came" [0, 1, 2]
+  leave >>= assertEqual "then the pass asked for" "again"
+  beginPass gate
+  leave >>= assertEqual "and then the lock goes" "done"
+  enterRender gate >>= assertEqual "for the next render to take" True
+
+-- | Actions raised from many threads while renders come and go: each one
+-- runs, and runs once.
+gateStress :: IO ()
+gateStress = do
+  gate <- newIORef Idle
+  count <- newIORef (0 :: Int)
+  let threads = 8
+      each = 2000
+      bump = atomicModifyIORef' count (\n -> (n + 1, ()))
+      render = do
+        took <- enterRender gate
+        when took $ do
+          let pass' = do
+                beginPass gate
+                yield
+                leaveRender gate >>= \case
+                  Drain acts -> sequence_ acts >> pass'
+                  Again -> pass'
+                  Done -> pure ()
+          pass'
+  done <- newEmptyMVar
+  forM_ [1 .. threads] $ \_ -> forkIO $ do
+    replicateM_ each (runOrQueue gate bump >> yield)
+    putMVar done ()
+  renderer <- newEmptyMVar
+  void $ forkIO $ replicateM_ (threads * each) render >> putMVar renderer ()
+  replicateM_ threads (takeMVar done)
+  takeMVar renderer
+  -- Whatever the last render left behind.
+  render
+  readIORef count >>= assertEqual "every action ran exactly once" (threads * each)
+  readIORef gate >>= \case
+    Idle -> pure ()
+    Rendering {} -> assertEqual "the lock is let go" True False
+
 spec :: Spec
 spec =
-  describe "driver state" $
+  describe "driver state" $ do
     it "keeps an update made while another is being computed" test
+    it "queues actions during a render and hands them out in order" gateSteps
+    it "runs every action exactly once while renders come and go" gateStress
