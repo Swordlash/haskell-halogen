@@ -82,6 +82,8 @@ case "$mode" in
     [ -f "$public_dir/index.html" ] || prepare_page
     # Cabal may reuse the host ghc-pkg from this cache when switching toolchains.
     rm -f dist-newstyle/wasm-dev/cache/compiler
+    # -Wwarn undoes cabal.project's -Werror for the suite GHCi loads: an unused
+    # import halfway through an edit shouldn't stop the tests from rerunning.
     exec cabal repl --project-file=cabal-wasm.project \
       --with-compiler="$(command -v wasm32-wasi-ghc)" \
       --with-hc-pkg="$(command -v wasm32-wasi-ghc-pkg)" \
@@ -89,7 +91,7 @@ case "$mode" in
       --builddir=dist-newstyle/wasm-dev --disable-multi-repl --enable-shared \
       --constraint="$package_name +interactive" \
       "$package_name:test:$suite" \
-      --repl-options="-fghci-browser -fghci-browser-port=$port -fghci-browser-assets-dir=$public_dir"
+      --repl-options="-Wwarn -fghci-browser -fghci-browser-port=$port -fghci-browser-assets-dir=$public_dir"
     ;;
 esac
 

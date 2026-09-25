@@ -157,6 +157,12 @@ storage, …) is built only from public hooks.
   Protolude. Large `default-extensions` lists live in each `.cabal` file (`GHC2021`,
   `OverloadedRecordDot`, `NoFieldSelectors`, `DuplicateRecordFields`, `StrictData`, …).
 - Formatting is fourmolu (`fourmolu.yaml`: 2-space, leading commas/arrows).
+- Warnings are errors: every package has `-Wall -Wextra` in its `.cabal` file, and `cabal.project`
+  adds `-Werror` for the repository's own packages (not in the `.cabal` files, so a released package
+  still builds under a GHC with new warnings). CPP gives each backend different code, so a change is
+  warning-free only once native, JS and wasm all build. GHC doesn't recompile a module when only
+  `-Werror` changes, so to see every warning, delete `<builddir>/build/*/*/<package>-*` first.
+  `dev-test.sh` loads suites with `-Wwarn`.
 - Each package has its own `CHANGELOG.md` with an `Unreleased` section written as prose for users
   upgrading; releases are tagged per package (`core-v0.10.0`, `material-v0.2.0`).
 - Commit subjects are short imperative sentences in plain English ("Make a prop that goes away
