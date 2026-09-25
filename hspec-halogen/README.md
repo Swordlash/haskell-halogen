@@ -21,26 +21,30 @@ spec m = describe "counter" $
     query ui (H.mkRequest Counter.GetCount) `shouldReturn` Just 1
 ```
 
-Suites run on GHC's WebAssembly backend. You write no JavaScript: the
-`hspec-halogen` executable, used as cabal's test wrapper, starts the browser,
-serves the suite to it and relays the report.
+Suites run on GHC's WebAssembly backend or its JavaScript backend. You write no
+JavaScript: the `hspec-halogen` executable, used as cabal's test wrapper,
+starts the browser, serves the suite to it and relays the report.
 
 ## What you need
 
-- **The GHC WebAssembly toolchain**
-  ([ghc-wasm-meta](https://gitlab.haskell.org/haskell-wasm/ghc-wasm-meta)),
-  9.10 or newer. The executable calls `wasm32-wasi-ghc --print-libdir` to find
-  the post-linker. Set `HSPEC_HALOGEN_WASM_GHC` if your wasm GHC has another
-  name.
+- **A GHC for the browser**, 9.10 or newer:
+  - the WebAssembly toolchain
+    ([ghc-wasm-meta](https://gitlab.haskell.org/haskell-wasm/ghc-wasm-meta)).
+    The executable calls `wasm32-wasi-ghc --print-libdir` to find the
+    post-linker; set `HSPEC_HALOGEN_WASM_GHC` if your wasm GHC has another
+    name;
+  - or the JavaScript backend (`javascript-unknown-ghcjs-ghc`).
 - **A host GHC**, to build the `hspec-halogen` executable. It is a native
   program, like `hspec-discover`.
 - **Node.js 24 or newer** on `PATH`, or named by `HSPEC_HALOGEN_NODE`.
   ghc-wasm-meta installs one.
-- **Two npm packages in your project**, found from the directory the suite
-  runs in upwards, as Node finds packages:
+- **npm packages in your project**, found from the directory the suite runs in
+  upwards, as Node finds packages. You need `playwright`, plus
+  `@bjorn3/browser_wasi_shim` for WebAssembly or `esbuild` for JavaScript:
 
   ```sh
-  npm install --save-dev playwright @bjorn3/browser_wasi_shim
+  npm install --save-dev playwright @bjorn3/browser_wasi_shim   # WebAssembly
+  npm install --save-dev playwright esbuild                     # JavaScript
   ```
 
 - **Chromium for Playwright:**
@@ -61,8 +65,9 @@ env -u CC -u CXX -u LD -u AR cabal install hspec-halogen:exe:hspec-halogen
 
 ## Setting up a test suite
 
-A browser suite is a WebAssembly *reactor*: its entry point, `hs_start`, is
-called by the page once it has loaded. Build it that way on wasm only:
+On WebAssembly, a browser suite is a *reactor*: its entry point, `hs_start`, is
+called by the page once it has loaded. Build it that way on wasm only. On the
+JavaScript backend it is an ordinary test program, and needs nothing extra:
 
 ```cabal
 test-suite browser-test
@@ -100,9 +105,14 @@ foreign export javascript "hs_start" main :: IO ()
 Import `BrowserDOM` without its constructor, as above. `spec BrowserDOM` then
 passes the type, not the constructor.
 
-The library also builds natively and on GHC's JavaScript backend, so the
-language server can load your suite. Run there, `runBrowserTests` prints that
-it skipped the suite and succeeds. Only the WebAssembly backend runs it.
+The library also builds natively, so the language server can load your suite.
+Run natively, or run without the executable (a JavaScript-backend suite is a
+Node script), `runBrowserTests` prints that it skipped the suite and succeeds.
+
+On the JavaScript backend, the executable bundles the suite with esbuild before
+serving it, so your `js-sources` may `import` npm packages. The library also
+provides the few functions that hspec needs there and GHC's JavaScript runtime
+lacks (from `unix` and `splitmix`), so a suite doesn't carry its own.
 
 ### Your page's scripts and styles
 
@@ -117,7 +127,7 @@ loaded first goes in `test/web/`, beside the suite's package:
 
 ## Running
 
-Pass the executable to cabal as the test wrapper, with the wasm compiler:
+Pass the executable to cabal as the test wrapper, with the browser compiler:
 
 ```sh
 cabal test browser-test \
@@ -125,14 +135,19 @@ cabal test browser-test \
   --with-hc-pkg=wasm32-wasi-ghc-pkg \
   --with-hsc2hs=wasm32-wasi-hsc2hs \
   --test-wrapper="$(command -v hspec-halogen)"
+
+cabal test browser-test \
+  --with-compiler=javascript-unknown-ghcjs-ghc \
+  --with-hc-pkg=javascript-unknown-ghcjs-ghc-pkg \
+  --test-wrapper="$(command -v hspec-halogen)"
 ```
 
 (`wasm32-wasi-cabal test --test-wrapper=…` does the same, if ghc-wasm-meta
 installed that wrapper.)
 
 hspec's options pass through as usual, e.g.
-`--test-options='--match "/counter/"'`. The wrapper also runs wasm suites that
-are not browser suites, under Node, so one wrapper serves a whole project.
+`--test-options='--match "/counter/"'`. The wrapper also runs suites that are
+not browser suites, under Node, so one wrapper serves a whole project.
 
 If cabal complains of a version mismatch between `ghc` and `ghc-pkg`, it has
 cached the host compiler from an earlier build in the same build directory.
@@ -250,7 +265,8 @@ and pass it as `spec App`.
 
 ## Rerunning on every save
 
-A suite can also run in browser GHCi. The code runs in a page, so your
+A suite can also run in browser GHCi. This works only on WebAssembly, since
+browser GHCi exists only there. The code runs in a page, so your
 components render in a window you can watch and open devtools on, and
 [ghciwatch](https://github.com/MercuryTechnologies/ghciwatch) reruns the suite
 whenever you save.

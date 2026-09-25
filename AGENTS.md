@@ -33,7 +33,7 @@ npm run format                  # fourmolu over core, hooks, pixi, hspec-halogen
 
 `core` and `hooks` have test suites that run under Node (`Halogen-core-test`,
 `Halogen-hooks-test`), and `material` and `hspec-halogen` have ones that run in a browser
-(`Halogen-material-test`, `hspec-halogen-test`; wasm only, see below). `hspec-halogen-test` is also
+(`Halogen-material-test`, `hspec-halogen-test`; on wasm and JS, see below). `hspec-halogen-test` is also
 the harness's examples, and where core's browser behaviour (events, properties the page changes,
 keyed moves, refs, forks, subscriptions) is tested for real. All are hspec, `main-is: Test.hs` which aggregates `Test.*` specs. Run one suite or one test with hspec's
 `--match`:
@@ -79,11 +79,17 @@ and wired into `test/Test.hs`.
   its `click`/`typeText`/`press` through Playwright as trusted input. Its JavaScript lives in
   `hspec-halogen/js/` and is compiled into the executable. So `npm run test-wasm` needs the host
   GHC and Chromium. The suite's cabal `interactive` flag drops the reactor options, and
-  `toolchain/dev-test.sh` runs it in browser GHCi under ghciwatch, in a window
+  `toolchain/dev-test.sh` runs it in browser GHCi under ghciwatch (wasm only), in a window
   `hspec-halogen open` opened, rerunning `:main` on every save.
-  `hspec-halogen` builds on every backend (its page functions panic off wasm, see
-  `Test.Hspec.Halogen.Internal.Page`) so suites type-check natively for HLS; there
-  `runBrowserTests` only reports a skip. Material's suite is not built for the JS backend.
+  On the JS backend the same suites run in Chromium too: `ghcjs-test-wrapper.sh` recognises a
+  program that uses hspec-halogen's page functions and hands it to `hspec-halogen test`, which
+  bundles `<suite>.jsexe/all.js` with esbuild and loads it; its FFI is
+  `Test.Hspec.Halogen.Internal.JS` (`interruptible` imports for the async calls), and
+  `hspec-halogen/jsbits/compat.js` supplies what hspec needs that the JS runtime lacks. Both
+  browser suites therefore also test core's JS-backend DOM code (`core/jsbits/monad_dom.js`).
+  Natively `hspec-halogen` builds (its page functions panic, see
+  `Test.Hspec.Halogen.Internal.Page`) so suites type-check for HLS; there `runBrowserTests`
+  only reports a skip.
 - Two wasm facts the harness depends on: an async (`safe`) JSFFI import returns a *thunk*, and the
   calling thread only waits for the promise when it is forced, so an `IO ()` import must be forced
   (`evaluate`) or the test runs on while the page still acts. And a JS→Haskell callback is not run

@@ -9,7 +9,8 @@
 * `MonadMaterial` has an instance for `BrowserDOM` natively too, whose methods
   panic: code written against `BrowserDOM`, such as the browser test suite,
   type-checks natively and loads in the language server.
-* A browser test suite, `Halogen-material-test`, built with `hspec-halogen`.
+* A browser test suite, `Halogen-material-test`, built with `hspec-halogen`,
+  which runs on both the WebAssembly and JavaScript backends.
 * `tabsComponent` keeps every tab mounted and hides the ones not selected,
   where before it rendered only the selected tab. Switching tabs used to unmount
   the components in the tab being left, so a radio button picked or text typed

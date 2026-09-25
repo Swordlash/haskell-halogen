@@ -18,6 +18,7 @@
 -- installed for Playwright. See the package's README.
 module Main (main) where
 
+import Control.Monad (replicateM)
 import Data.FileEmbed (embedStringFile, makeRelativeToProject)
 import Data.Maybe (fromMaybe)
 import Options.Applicative
@@ -25,7 +26,7 @@ import Options.Applicative.Help.Pretty (Doc, indent, pretty, vsep)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..), exitWith)
 import System.FilePath ((</>))
-import System.IO (IOMode (..), hSetEncoding, utf8, withFile)
+import System.IO (IOMode (..), hSetEncoding, utf8, withBinaryFile, withFile)
 import System.IO qualified as IO
 import System.IO.Temp (withSystemTempDirectory)
 import System.Process (rawSystem, readProcess)
@@ -54,9 +55,9 @@ main =
         command
           "test"
           ( info
-              (Test <$> strArgument (metavar "SUITE.wasm") <*> many (strArgument (metavar "HSPEC-ARGS...")))
+              (Test <$> strArgument (metavar "SUITE") <*> many (strArgument (metavar "HSPEC-ARGS...")))
               -- Everything after the suite is hspec's, --match and all.
-              (progDesc "Run a wasm test suite: one built with hspec-halogen in headless Chromium, any other under Node. Use it as cabal's --test-wrapper." <> noIntersperse <> forwardOptions)
+              (progDesc "Run a test suite built by the WebAssembly or JavaScript backend: one built with hspec-halogen in headless Chromium, any other under Node. Use it as cabal's --test-wrapper." <> noIntersperse <> forwardOptions)
           )
           <> command
             "open"
@@ -79,19 +80,34 @@ environment =
         ]
     ]
 
+-- | A suite built by the WebAssembly backend is post-linked first, as any
+-- wasm test wrapper has to; one built by the JavaScript backend is a Node
+-- script, with nothing to link.
 test :: FilePath -> [String] -> IO ()
 test suite hspecArgs = withSystemTempDirectory "hspec-halogen" $ \dir -> do
-  wasmGhc <- fromEnv "HSPEC_HALOGEN_WASM_GHC" "wasm32-wasi-ghc"
   node <- fromEnv "HSPEC_HALOGEN_NODE" "node"
-  libdir <- trim <$> readProcess wasmGhc ["--print-libdir"] ""
-  let jsffi = dir </> "ghc_wasm_jsffi.mjs"
-      runner = dir </> "runner.mjs"
-  postLinked <- rawSystem node [libdir </> "post-link.mjs", "--input", suite, "--output", jsffi]
-  case postLinked of
-    ExitSuccess -> do
-      writeUtf8 runner runnerScript
-      exitWith =<< rawSystem node (runner : suite : jsffi : hspecArgs)
-    failure -> exitWith failure
+  let runner = dir </> "runner.mjs"
+  writeUtf8 runner runnerScript
+  wasm <- isWasm suite
+  if not wasm
+    then exitWith =<< rawSystem node (runner : suite : "-" : hspecArgs)
+    else do
+      wasmGhc <- fromEnv "HSPEC_HALOGEN_WASM_GHC" "wasm32-wasi-ghc"
+      libdir <- trim <$> readProcess wasmGhc ["--print-libdir"] ""
+      let jsffi = dir </> "ghc_wasm_jsffi.mjs"
+      postLinked <- rawSystem node [libdir </> "post-link.mjs", "--input", suite, "--output", jsffi]
+      case postLinked of
+        ExitSuccess -> exitWith =<< rawSystem node (runner : suite : jsffi : hspecArgs)
+        failure -> exitWith failure
+
+-- | Whether a file starts with WebAssembly's magic number.
+isWasm :: FilePath -> IO Bool
+isWasm path = withBinaryFile path ReadMode $ \handle -> (== "\0asm") <$> replicateM 4 (hGetCharOrEnd handle)
+  where
+    hGetCharOrEnd handle =
+      IO.hIsEOF handle >>= \case
+        True -> pure '\xff'
+        False -> IO.hGetChar handle
 
 open :: String -> IO ()
 open url = withSystemTempDirectory "hspec-halogen" $ \dir -> do

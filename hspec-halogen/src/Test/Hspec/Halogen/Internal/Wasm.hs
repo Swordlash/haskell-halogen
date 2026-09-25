@@ -32,7 +32,7 @@ import Protolude
 import Web.DOM.Internal.Types (Element (..))
 
 -- | Whether there is a page to run in.
-inBrowser :: Bool
+inBrowser :: IO Bool
 
 -- | hspec's arguments, when the test runner passed some. Browser GHCi passes
 -- none: there @:main@ sets them.
@@ -78,7 +78,7 @@ sameElement :: Element -> Element -> Bool
 -- | Whether the element is still in the document.
 isConnected :: Element -> IO Bool
 
-inBrowser = True
+inBrowser = js_has_document
 
 runnerArgs = do
   args <- js_test_args
@@ -140,6 +140,9 @@ fromJS = toS . fromJSString . JSString
 
 fromJSVals :: JSVal -> [JSVal]
 fromJSVals array = map (js_index array) [0 .. js_length array - 1]
+
+foreign import javascript unsafe "typeof document !== 'undefined'"
+  js_has_document :: IO Bool
 
 foreign import javascript unsafe "globalThis.__halogenTestArgs ?? null"
   js_test_args :: IO JSVal

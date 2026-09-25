@@ -1,32 +1,41 @@
-// Run a wasm test suite for the hspec-halogen executable: one built with
+// Run a test suite for the hspec-halogen executable: one built with
 // hspec-halogen in headless Chromium, any other under Node.
 //
-//   hspec-halogen test <suite.wasm> [hspec args...]
+//   hspec-halogen test <suite> [hspec args...]
 //
-// The executable post-links the suite and runs this with node, from the
-// directory cabal runs the suite in (the package's):
+// The executable runs this with node, from the directory cabal runs the suite
+// in (the package's). A suite built by the WebAssembly backend comes
+// post-linked:
 //
 //   node runner.mjs <suite.wasm> <ghc_wasm_jsffi.mjs> [hspec args...]
 //
-// A suite built with hspec-halogen is a reactor exporting hs_start. It is
-// loaded into a page and runs there, so it can mount components into the real
-// DOM; this side only serves it, relays what it prints, and performs its
-// clicks and keystrokes as trusted input through Playwright. Any other suite is
-// a WASI command, run here as it would be by a plain wasm test wrapper.
+// and one built by the JavaScript backend (a Node script, with the program
+// itself in <suite>.jsexe/all.js) does not:
+//
+//   node runner.mjs <suite> - [hspec args...]
+//
+// A browser suite is loaded into a page and runs there, so it can mount
+// components into the real DOM; this side only serves it, relays what it
+// prints, and performs its clicks and keystrokes as trusted input through
+// Playwright. On wasm that is a reactor exporting hs_start, which the page
+// calls; on the JavaScript backend it is a program using hspec-halogen's page
+// functions, bundled with esbuild and started by loading it. Any other suite
+// runs here, as it would under a plain test wrapper.
 //
 // A package's test/web/ directory is served next to a browser suite, and every
 // .css and .js file in it is loaded before the suite starts. If it holds a
 // bundle.sh, that is run first with a fresh output directory as its argument,
 // and what it writes there is served and loaded the same way.
 //
-// The npm packages it needs, playwright and @bjorn3/browser_wasi_shim, are
-// looked up from the working directory upwards, as node itself would for a
+// The npm packages it needs -- playwright, and @bjorn3/browser_wasi_shim for
+// wasm or esbuild for JavaScript -- are looked up from the working directory
+// upwards, as node itself would for a
 // script there: they belong to the project under test, not to this file.
 //
 // HSPEC_HALOGEN_HEADED=1 shows the browser; HSPEC_HALOGEN_SLOWMO=<ms> slows
 // every Playwright action down so it can be followed; HSPEC_HALOGEN_TIMEOUT is
 // how many seconds the whole suite may take (600 by default).
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
@@ -35,7 +44,7 @@ import { dirname, extname, join, normalize, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { WASI } from "node:wasi";
 
-const [wasmPath, jsffiPath, ...hspecArgs] = process.argv.slice(2);
+const [suitePath, jsffiPath, ...hspecArgs] = process.argv.slice(2);
 
 // The directory holding node_modules/<name>, from here upwards, else from
 // NODE_PATH.
@@ -50,7 +59,7 @@ const packageDir = (name) => {
   if (!found) {
     process.stderr.write(
       `hspec-halogen: cannot find the npm package ${name} from ${process.cwd()}.\n` +
-        "Install it in the project: npm install --save-dev playwright @bjorn3/browser_wasi_shim\n" +
+        `Install it in the project: npm install --save-dev ${name}\n` +
         "and a browser for it: npx playwright install chromium\n",
     );
     process.exit(1);
@@ -58,14 +67,25 @@ const packageDir = (name) => {
   return found;
 };
 
-const bytes = readFileSync(wasmPath);
-const isBrowserSuite = WebAssembly.Module.exports(new WebAssembly.Module(bytes)).some((e) => e.name === "hs_start");
+const bytes = readFileSync(suitePath);
+const isWasm = bytes.subarray(0, 4).equals(Buffer.from([0x00, 0x61, 0x73, 0x6d]));
+// A JavaScript program that uses hspec-halogen's page functions carries the
+// name of the global its arguments arrive in.
+const isBrowserSuite = isWasm
+  ? WebAssembly.Module.exports(new WebAssembly.Module(bytes)).some((e) => e.name === "hs_start")
+  : bytes.includes("__halogenTestArgs");
+
+if (!isBrowserSuite && !isWasm) {
+  // A Node script, as cabal would run it.
+  const run = spawnSync(process.execPath, [suitePath, ...hspecArgs], { stdio: "inherit" });
+  process.exit(run.status ?? 1);
+}
 
 if (!isBrowserSuite) {
   // A WASI command: run it here. Exit before the event loop runs again: a
   // JavaScript callback into Haskell can leave the RTS scheduler queued, and it
   // fails if it runs once the RTS has shut down.
-  const wasi = new WASI({ args: [wasmPath, ...hspecArgs], env: process.env, preopens: { "/": "/" }, version: "preview1", returnOnExit: true });
+  const wasi = new WASI({ args: [suitePath, ...hspecArgs], env: process.env, preopens: { "/": "/" }, version: "preview1", returnOnExit: true });
   const exports = {};
   const ghcWasmImports = (await import(pathToFileURL(resolve(jsffiPath)))).default;
   const instance = await WebAssembly.instantiate(await WebAssembly.compile(bytes), {
@@ -77,7 +97,30 @@ if (!isBrowserSuite) {
 }
 
 const { chromium } = createRequire(join(packageDir("playwright"), "package.json"))("playwright");
-const wasiShim = join(packageDir("@bjorn3/browser_wasi_shim"), "dist");
+const wasiShim = isWasm ? join(packageDir("@bjorn3/browser_wasi_shim"), "dist") : null;
+
+// A JavaScript-backend program is bundled for the page, as the repository's
+// build-ghcjs.sh bundles an app: its js-sources may import npm packages, and
+// the runtime require()s these Node modules only when it finds itself in Node.
+const suiteDir = mkdtempSync(join(tmpdir(), "hspec-halogen-suite-"));
+let suiteScript = null;
+if (!isWasm) {
+  const program = `${suitePath}.jsexe/all.js`;
+  if (!existsSync(program)) {
+    process.stderr.write(`hspec-halogen: ${program} is missing; is ${suitePath} a JavaScript-backend program?\n`);
+    process.exit(1);
+  }
+  const esbuild = createRequire(join(packageDir("esbuild"), "package.json"))("esbuild");
+  esbuild.buildSync({
+    entryPoints: [program],
+    bundle: true,
+    outfile: join(suiteDir, "suite.js"),
+    logLevel: "warning",
+    logOverride: { "direct-eval": "silent" },
+    external: ["os", "fs", "child_process", "path", "ghcjs-profiling"],
+  });
+  suiteScript = readFileSync(join(suiteDir, "suite.js"));
+}
 
 // hspec colours its report only for a terminal, and the suite writes to a page.
 const args =
@@ -100,7 +143,7 @@ const page = `<!doctype html>
     ${assets.filter((a) => a.endsWith(".js")).map((a) => `<script src="/${a}"></script>`).join("\n    ")}
   </head>
   <body>
-    <script type="module" src="/__runner/boot.js"></script>
+    ${isWasm ? '<script type="module" src="/__runner/boot.js"></script>' : '<script src="/__runner/suite.js"></script>'}
   </body>
 </html>`;
 
@@ -133,6 +176,7 @@ const routes = {
   "/__runner/boot.js": [boot, ".js"],
   "/__runner/test.wasm": [bytes, ".wasm"],
   "/__runner/ghc_wasm_jsffi.js": [() => readFileSync(jsffiPath), ".js"],
+  "/__runner/suite.js": [() => suiteScript, ".js"],
 };
 
 const server = createServer((request, response) => {
@@ -144,7 +188,7 @@ const server = createServer((request, response) => {
     body = typeof content === "function" ? content() : content;
     type = types[extension];
   } else {
-    const file = path.startsWith("/__runner/wasi/")
+    const file = path.startsWith("/__runner/wasi/") && wasiShim
       ? join(wasiShim, normalize(path.slice("/__runner/wasi/".length)))
       : assetDirs.map((dir) => join(dir, normalize(path))).find(existsSync);
     if (file && existsSync(file)) {
@@ -176,6 +220,12 @@ try {
   const pageErrors = [];
   tab.on("pageerror", (error) => pageErrors.push(error.stack ?? error.message));
   tab.on("console", (message) => {
+    // The JavaScript backend's runtime writes the suite's stdout to the
+    // console a chunk at a time, newlines and all: that is the report.
+    if (!isWasm && message.type() === "log") {
+      process.stdout.write(message.text());
+      return;
+    }
     const line = `[page ${message.type()}] ${message.text()}\n`;
     (message.type() === "error" ? process.stderr : process.stdout).write(line);
   });
@@ -189,6 +239,8 @@ try {
   await tab.exposeFunction("__halogenTestWrite", (fd, text) => (fd === 2 ? process.stderr : process.stdout).write(text));
   await tab.exposeFunction("__halogenTestDone", (count) => {
     failures = count;
+    // A JavaScript-backend suite starts itself, so its report is its end.
+    if (!isWasm) finish(null);
   });
   // The suite acts on an element through a selector the harness tagged it
   // with, so Playwright's locator does the waiting and the actionability checks.
@@ -227,5 +279,6 @@ try {
   await browser.close();
   server.close();
   rmSync(bundleDir, { recursive: true, force: true });
+  rmSync(suiteDir, { recursive: true, force: true });
 }
 process.exit(exitCode);
