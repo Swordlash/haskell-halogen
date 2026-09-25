@@ -157,12 +157,18 @@ storage, …) is built only from public hooks.
   Protolude. Large `default-extensions` lists live in each `.cabal` file (`GHC2021`,
   `OverloadedRecordDot`, `NoFieldSelectors`, `DuplicateRecordFields`, `StrictData`, …).
 - Formatting is fourmolu (`fourmolu.yaml`: 2-space, leading commas/arrows).
-- Warnings are errors: every package has `-Wall -Wextra` in its `.cabal` file, and `cabal.project`
-  adds `-Werror` for the repository's own packages (not in the `.cabal` files, so a released package
-  still builds under a GHC with new warnings). CPP gives each backend different code, so a change is
-  warning-free only once native, JS and wasm all build. GHC doesn't recompile a module when only
-  `-Werror` changes, so to see every warning, delete `<builddir>/build/*/*/<package>-*` first.
-  `dev-test.sh` loads suites with `-Wwarn`.
+- **Never commit code with warnings.** Every package has `-Wall -Wextra` in its `.cabal` file;
+  `cabal.project` (imported by `cabal-wasm.project` and `cabal-ghcjs.project`) adds `-Werror` for the
+  repository's own packages. Keep `-Werror` out of the `.cabal` files: it would ship to Hackage and
+  break users' builds when a newer GHC or dependency adds a warning. Before committing, build
+  everything you touched for all three backends (`npm run build-native`, `npm run build-js`, and for
+  wasm `npm run test-wasm`, plus `npm run build-wasm-all` if an example changed), because CPP gives
+  each backend different code and a warning in one doesn't show in the others. Fix a warning rather
+  than silencing it; if a `-Wno-…` is ever the right answer, scope it to the module with an
+  `OPTIONS_GHC` pragma and say why. GHC doesn't recompile a module when only `-Werror` changes, so after changing warning flags delete
+  `<builddir>/build/*/*/<package>-*` to see every warning. `dev-test.sh` loads suites with `-Wwarn`
+  so a half-finished edit still reruns the tests; that doesn't make those warnings acceptable to
+  commit.
 - Each package has its own `CHANGELOG.md` with an `Unreleased` section written as prose for users
   upgrading; releases are tagged per package (`core-v0.10.0`, `material-v0.2.0`).
 - Commit subjects are short imperative sentences in plain English ("Make a prop that goes away
