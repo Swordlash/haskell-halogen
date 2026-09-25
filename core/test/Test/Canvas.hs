@@ -59,6 +59,10 @@ spec = describe "canvas scenes" $ do
       assertEqual "jump to the capital" capital (followCamera (Just start) capital dragged)
     it "follows the user's camera fed back" $
       assertEqual "after the drag" dragged (followCamera (Just start) dragged dragged)
+    it "resets to the first camera once the user's camera was fed back" $
+      assertEqual "reset view" start (followCamera (Just dragged) start dragged)
+    it "does not move for the camera asked for last time (the documented limit)" $
+      assertEqual "same camera, asked again" dragged (followCamera (Just start) start dragged)
   describe "prop keys" $ do
     it "gives each kind of prop a key of its own" $ do
       let keys = map propKey everyProp

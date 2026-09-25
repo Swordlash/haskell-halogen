@@ -190,9 +190,11 @@ leaveRender gate = atomicModifyIORef' gate $ \case
   Rendering q again -> (Rendering [] again, Drain (reverse q))
 
 -- | A render failed: let the lock go, and hand back what was queued for it
--- (oldest first), so that neither the lock nor those actions are lost with
--- it. A request for another pass is dropped: it would render the same state.
-abandonRender :: (MonadIO m) => IORef (RenderGate m) -> m [m ()]
+-- (oldest first) and whether another render was asked for while it ran, so
+-- that neither the lock, those actions, nor that request are lost with it.
+-- The request came from a state newer than the one that failed, so it is
+-- worth a try; with none, retrying would fail on the same state again.
+abandonRender :: (MonadIO m) => IORef (RenderGate m) -> m ([m ()], Bool)
 abandonRender gate = atomicModifyIORef' gate $ \case
-  Idle -> (Idle, [])
-  Rendering q _ -> (Idle, reverse q)
+  Idle -> (Idle, ([], False))
+  Rendering q again -> (Idle, (reverse q, again))

@@ -110,6 +110,14 @@ defaultCamera = Camera {focus = Point 0 0, zoom = 1}
 -- where the drag began. So a view's camera is followed only when it differs
 -- from what the application asked for before: an application that wants to
 -- move the camera changes it, one that has nothing to say about it repeats it.
+--
+-- This makes the camera a value the application controls by changing it, not
+-- a command. Asking again for the camera asked for last time does nothing,
+-- even if the user has moved away since. An application that keeps the
+-- camera the renderer reports (as it should, see the renderer's camera
+-- event) never meets this: once the user's camera is fed back, a "reset
+-- view" to the starting camera is a change again. One that ignores those
+-- reports and asks for the same camera twice cannot move it the second time.
 followCamera :: Maybe Camera -> Camera -> Camera -> Camera
 followCamera asked next onScreen
   | asked == Just next = onScreen

@@ -45,10 +45,12 @@ data Rendered (s :: Type) (act :: Type) (ps :: Row Type) (o :: Type) = Rendered
 data Probe = Probe
   { texts :: IORef [Text]
   , failing :: IORef Bool
+  , beforeFailing :: IO ()
+  -- ^ Run by a render just before it throws.
   }
 
 newProbe :: IO Probe
-newProbe = Probe <$> newIORef [] <*> newIORef False
+newProbe = Probe <$> newIORef [] <*> newIORef False <*> pure (pure ())
 
 walking :: Probe -> AD.RenderSpec IO Rendered
 walking probe =
@@ -66,8 +68,9 @@ walking probe =
       -> Maybe (Rendered s act ps o)
       -> IO (Rendered s act ps o)
     render _ renderChild html _ = do
-      fails <- readIORef probe.failing
-      when fails $ throwIO (ErrorCall "render failed")
+      -- Only one render fails for each time the flag goes up.
+      fails <- atomicModifyIORef' probe.failing (False,)
+      when fails $ probe.beforeFailing >> throwIO (ErrorCall "render failed")
       let (slots, text) = walk (HC.unHTML html)
       modifyIORef' probe.texts (<> [mconcat text])
       traverse_ (\case ComponentSlot box -> void (renderChild box); ThunkSlot _ -> pure ()) slots
@@ -231,13 +234,38 @@ renderAfterFailure = do
   writeIORef probe.failing True
   failed <- try (ask (Set 1 ()))
   assertEqual "the render failed" True (either (\(ErrorCall _) -> True) (const False) failed)
-  writeIORef probe.failing False
   void $ ask (Set 2 ())
   rendered <- readIORef probe.texts
   assertEqual "the next state is rendered" (Just "two") (lastMay rendered)
   dispose
-  where
-    lastMay xs = if null xs then Nothing else Just (last xs)
+
+-- | A render asked for while another is failing is not lost with it.
+renderAskedDuringFailure :: IO ()
+renderAskedDuringFailure = do
+  entered <- newEmptyMVar
+  go <- newEmptyMVar
+  probe0 <- newProbe
+  let probe = probe0 {beforeFailing = putMVar entered () >> takeMVar go}
+  AD.HalogenSocket {AD.query = ask, AD.dispose = dispose} <- AD.runUI (walking probe) counter ()
+  writeIORef probe.failing True
+  failed <- newEmptyMVar
+  _ <- forkIO $ try (ask (Set 1 ())) >>= \(r :: Either ErrorCall (Maybe ())) -> putMVar failed r
+  takeMVar entered
+  -- The render of 1 is about to throw. A newer state asks for a render,
+  -- which the render in progress is to do.
+  void $ ask (Set 2 ())
+  putMVar go ()
+  void $ takeMVar failed
+  let wait n = do
+        rendered <- readIORef probe.texts
+        if lastMay rendered == Just "two" || n <= (0 :: Int)
+          then pure (lastMay rendered)
+          else threadDelay 10000 >> wait (n - 1)
+  wait 200 >>= assertEqual "the newer state is rendered" (Just "two")
+  dispose
+
+lastMay :: [a] -> Maybe a
+lastMay xs = if null xs then Nothing else Just (last xs)
 
 spec :: Spec
 spec =
@@ -245,3 +273,4 @@ spec =
     it "does not start a child twice when an update overlaps a render" childrenKept
     it "kills a fork registered after its component was finalized" forkAfterFinalize
     it "renders again after a render threw" renderAfterFailure
+    it "renders a state set while a render was failing" renderAskedDuringFailure

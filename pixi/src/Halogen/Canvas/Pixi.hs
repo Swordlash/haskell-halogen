@@ -76,7 +76,8 @@ data CanvasEvent i
   | -- | The user panned or zoomed. Feed it back as the next 'View' camera to
     -- keep the camera in application state. A view whose camera is the same
     -- as the previous view's leaves the camera on screen where the user put
-    -- it (see 'followCamera'), so to move it, change it.
+    -- it (see 'followCamera'), so to move it, change it. With this event fed
+    -- back, moving it back to where it was before is a change too.
     CameraChanged Camera
   deriving stock (Eq, Show, Functor)
 
