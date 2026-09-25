@@ -24,6 +24,18 @@ Each is written for a page as well as for Node. A page has no `process`, no
 file system and no users, so each function reports that the way the C
 function would.
 
+**Defined only if missing.** Each is written as
+`var h$f = typeof h$f === "function" ? h$f : function (…) {…};`. When
+`unix` or `splitmix` ships its own `function h$f`, theirs is kept, whichever
+file is linked first; this has been checked against the JavaScript backend in
+both link orders. So an upstream fix needs no change here, and the polyfill
+can be deleted at leisure.
+
+**Leaving them out.** Core's `js-polyfills` flag (on by default) links the
+file. Build with `--constraint="haskell-halogen-core -js-polyfills"` to
+provide these some other way, or to keep them out of a bundle that doesn't
+need them.
+
 | Function | Pulled in by | What ours does | Where the fix belongs |
 |---|---|---|---|
 | `h$splitmix_init` | `splitmix`'s C seed function (`cbits/`), reached through `random` and QuickCheck | seeds from `crypto.getRandomValues` | **splitmix**: `js-sources` for the JavaScript backend with this function. The wasm backend compiles the C, so only JS lacks it. |

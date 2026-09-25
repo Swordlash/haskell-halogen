@@ -11,7 +11,7 @@
 // would. POLYFILLS.md at the root of the repository lists them, and which
 // project each belongs in.
 
-function h$readlink(path, pathOffset, buffer, bufferOffset, bufferSize) {
+var h$readlink = typeof h$readlink === "function" ? h$readlink : function (path, pathOffset, buffer, bufferOffset, bufferSize) {
   if (!h$isNode()) {
     return h$unsupported(-1);
   }
@@ -27,13 +27,13 @@ function h$readlink(path, pathOffset, buffer, bufferOffset, bufferSize) {
     h$setErrno(error);
     return -1;
   }
-}
+};
 
-function h$geteuid() {
+var h$geteuid = typeof h$geteuid === "function" ? h$geteuid : function () {
   return typeof process !== "undefined" && typeof process.geteuid === "function" ? process.geteuid() : 0;
-}
+};
 
-function h$getpwuid_r(
+var h$getpwuid_r = typeof h$getpwuid_r === "function" ? h$getpwuid_r : function (
   _uid,
   _password,
   _passwordOffset,
@@ -52,21 +52,21 @@ function h$getpwuid_r(
   result.arr[resultOffset] = null;
   result.dv.setInt32(resultOffset, 0, true);
   return 0;
-}
+};
 
-function h$sysconf(_name) {
+var h$sysconf = typeof h$sysconf === "function" ? h$sysconf : function (_name) {
   // A conservative buffer size for getpwuid_r(_SC_GETPW_R_SIZE_MAX).
   return 16384;
-}
+};
 
-function h$splitmix_init() {
+var h$splitmix_init = typeof h$splitmix_init === "function" ? h$splitmix_init : function () {
   const seed = new Uint32Array(2);
   globalThis.crypto.getRandomValues(seed);
   h$ret1 = seed[1];
   return seed[0];
-}
+};
 
-function h$realloc(buffer, bufferOffset, size) {
+var h$realloc = typeof h$realloc === "function" ? h$realloc : function (buffer, bufferOffset, size) {
   const resized = h$newByteArray(size);
   if (buffer !== null) {
     const available = Math.max(0, buffer.len - bufferOffset);
@@ -74,4 +74,4 @@ function h$realloc(buffer, bufferOffset, size) {
   }
   h$ret1 = 0;
   return resized;
-}
+};
