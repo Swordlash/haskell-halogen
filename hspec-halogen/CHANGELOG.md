@@ -32,6 +32,6 @@
   open` opens a page for a suite run in browser GHCi. It carries the
   JavaScript that drives Playwright, so a project writes none; it needs Node,
   the npm packages `playwright` and `@bjorn3/browser_wasi_shim`, and Chromium.
-* On the JavaScript backend a suite runs in Chromium as it does on WebAssembly,
-  and the library supplies the functions hspec needs there that GHC's
-  JavaScript runtime does not (from `unix` and `splitmix`).
+* On the JavaScript backend a suite runs in Chromium as it does on WebAssembly.
+  The functions hspec needs there that GHC's JavaScript runtime lacks come
+  with haskell-halogen-core.

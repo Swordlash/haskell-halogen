@@ -1,8 +1,15 @@
-// A copy of core/jsbits/ghcjs_test_compat.js. The two test suites need the
-// same symbols, and a js-sources path cannot reach outside its own package,
-// so keep them in step.
-// Compatibility functions missing from GHC's JavaScript runtime. Hspec pulls
-// these symbols in through directory/unix and QuickCheck/splitmix.
+// Functions GHC's JavaScript runtime does not provide, which libraries call
+// through `foreign import ccall` and the JavaScript backend then looks for as
+// `h$<name>`: hspec, for one, reaches them through directory and unix
+// (looking up the home directory for its config files) and through QuickCheck
+// and splitmix (seeding its generator).
+//
+// They are js-sources of haskell-halogen-core, so every program that links
+// the library gets them, a test suite in a package that depends on it
+// included. Each is written for a page as well as for Node: a page has no
+// `process`, no file system and no users, and says so the way the C function
+// would. POLYFILLS.md at the root of the repository lists them, and which
+// project each belongs in.
 
 function h$readlink(path, pathOffset, buffer, bufferOffset, bufferSize) {
   if (!h$isNode()) {
@@ -23,7 +30,7 @@ function h$readlink(path, pathOffset, buffer, bufferOffset, bufferSize) {
 }
 
 function h$geteuid() {
-  return typeof process.geteuid === "function" ? process.geteuid() : 0;
+  return typeof process !== "undefined" && typeof process.geteuid === "function" ? process.geteuid() : 0;
 }
 
 function h$getpwuid_r(
@@ -36,9 +43,9 @@ function h$getpwuid_r(
   result,
   resultOffset,
 ) {
-  // Node has no getpwuid_r equivalent. Report "no matching entry" using the
-  // successful-return/null-result convention; directory normally obtains the
-  // home directory from the environment and does not need this fallback.
+  // No getpwuid_r anywhere here: report "no matching entry" with the
+  // successful-return, null-result convention. directory takes the home
+  // directory from the environment first, and needs this only as a fallback.
   if (!result.arr) {
     result.arr = [];
   }

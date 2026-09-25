@@ -20,7 +20,6 @@ extra-doc-files:    CHANGELOG.md
                     README.md
 extra-source-files: js/runner.mjs
                     js/open.mjs
-                    jsbits/compat.js
 
 flag interactive
     description: Build the test suite for browser GHCi (toolchain/dev-test.sh)
@@ -59,7 +58,6 @@ library
 
     if arch(javascript)
         other-modules: Test.Hspec.Halogen.Internal.JS
-        js-sources:    jsbits/compat.js
 
 -- The host side, run with the host compiler: cabal's test wrapper for wasm
 -- and JavaScript-backend suites, and the opener for a suite in browser GHCi. It carries the

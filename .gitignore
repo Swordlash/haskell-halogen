@@ -25,5 +25,3 @@ cabal.project.local~
 node_modules
 .parcel-cache/
 .vscode
-# Notes on fixes to send to other projects; kept out of the repository.
-EXTERNAL.md

@@ -201,10 +201,14 @@ library
     if arch(javascript)
       exposed-modules: Halogen.VDom.DOM.Monad.JS
 
+      -- polyfills.js is what GHC's JavaScript runtime lacks and other
+      -- libraries need; every program that links core gets it (see
+      -- POLYFILLS.md at the repository root).
       js-sources:
         jsbits/monad_dom.js
         jsbits/web_browser.js
         jsbits/web_event.js
+        jsbits/polyfills.js
 
       ghc-options: -fexpose-all-unfoldings
 
@@ -245,9 +249,6 @@ test-suite Halogen-core-test
                     Test.Storage
                     Test.SvgAttributes
                     Test.Utils
-
-    if arch(javascript)
-      js-sources:     jsbits/ghcjs_test_compat.js
 
 source-repository head
   type:     git

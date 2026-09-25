@@ -84,12 +84,15 @@ and wired into `test/Test.hs`.
   On the JS backend the same suites run in Chromium too: `ghcjs-test-wrapper.sh` recognises a
   program that uses hspec-halogen's page functions and hands it to `hspec-halogen test`, which
   bundles `<suite>.jsexe/all.js` with esbuild and loads it; its FFI is
-  `Test.Hspec.Halogen.Internal.JS` (`interruptible` imports for the async calls), and
-  `hspec-halogen/jsbits/compat.js` supplies what hspec needs that the JS runtime lacks. Both
+  `Test.Hspec.Halogen.Internal.JS` (`interruptible` imports for the async calls). Both
   browser suites therefore also test core's JS-backend DOM code (`core/jsbits/monad_dom.js`).
   Natively `hspec-halogen` builds (its page functions panic, see
   `Test.Hspec.Halogen.Internal.Page`) so suites type-check for HLS; there `runBrowserTests`
   only reports a skip.
+- `core/jsbits/polyfills.js`, one of core's `js-sources`, defines the `h$` functions other
+  libraries import that GHC's JS runtime lacks (from `unix` and `splitmix`, which hspec pulls in),
+  so every JS program linking core has them, test suites included. `POLYFILLS.md` lists each one
+  with where its real fix belongs upstream; add a polyfill there, not in a package's own jsbits.
 - Two wasm facts the harness depends on: an async (`safe`) JSFFI import returns a *thunk*, and the
   calling thread only waits for the promise when it is forced, so an `IO ()` import must be forced
   (`evaluate`) or the test runs on while the page still acts. And a JS→Haskell callback is not run

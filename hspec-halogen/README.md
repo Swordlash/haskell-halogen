@@ -110,9 +110,9 @@ Run natively, or run without the executable (a JavaScript-backend suite is a
 Node script), `runBrowserTests` prints that it skipped the suite and succeeds.
 
 On the JavaScript backend, the executable bundles the suite with esbuild before
-serving it, so your `js-sources` may `import` npm packages. The library also
-provides the few functions that hspec needs there and GHC's JavaScript runtime
-lacks (from `unix` and `splitmix`), so a suite doesn't carry its own.
+serving it, so your `js-sources` may `import` npm packages. The few functions
+that hspec needs there and GHC's JavaScript runtime lacks (from `unix` and
+`splitmix`) come with `haskell-halogen-core`, so a suite doesn't carry its own.
 
 ### Your page's scripts and styles
 
