@@ -74,7 +74,9 @@ data CanvasEvent i
   = -- | An action from a handler on some element in the scene.
     Fired i
   | -- | The user panned or zoomed. Feed it back as the next 'View' camera to
-    -- keep the camera in application state.
+    -- keep the camera in application state. A view whose camera is the same
+    -- as the previous view's leaves the camera on screen where the user put
+    -- it (see 'followCamera'), so to move it, change it.
     CameraChanged Camera
   deriving stock (Eq, Show, Functor)
 
@@ -168,6 +170,9 @@ data Runtime i = Runtime
   , pending :: IORef (Maybe (View i))
   , scene :: IORef (Maybe (SceneStep i))
   , camera :: IORef Camera
+  -- ^ The camera on screen.
+  , asked :: IORef (Maybe Camera)
+  -- ^ The camera the last view asked for (see 'followCamera').
   , drag :: IORef (Maybe Drag)
   , callbacks :: IORef [FFI.Callback]
   , wheelCallback :: IORef (Maybe FFI.Callback)
@@ -184,12 +189,13 @@ rendererWith Config {moduleUrl} = Canvas.Renderer {mount}
       pending <- newIORef Nothing
       scene <- newIORef Nothing
       camera <- newIORef defaultCamera
+      asked <- newIORef Nothing
       drag <- newIORef Nothing
       callbacks <- newIORef []
       wheelCallback <- newIORef Nothing
       cameraTimer <- newIORef Nothing
       lifecycle <- newIORef Loading
-      let runtime = Runtime {app, canvas, emit = runInIO . emit, pending, scene, camera, drag, callbacks, wheelCallback, cameraTimer, lifecycle}
+      let runtime = Runtime {app, canvas, emit = runInIO . emit, pending, scene, camera, asked, drag, callbacks, wheelCallback, cameraTimer, lifecycle}
       onReady <- registerPermanent runtime $ \_ -> rendererReady runtime
       FFI.initializeApplication app moduleUrl canvas onReady
       pure
@@ -245,7 +251,11 @@ pixiSpec runtime =
 -- | The scene is wrapped in one container, which is also what the camera
 -- transform is applied to: panning and zooming move the world, not the stage.
 renderView :: Runtime i -> View i -> IO ()
-renderView runtime View {camera = nextCamera, nodes} = do
+renderView runtime View {camera = viewCamera, nodes} = do
+  -- A view rendered mid-drag still carries the camera from before the drag;
+  -- only a camera the application changed moves the one on screen.
+  previous <- atomicModifyIORef' runtime.asked (Just viewCamera,)
+  nextCamera <- followCamera previous viewCamera <$> readIORef runtime.camera
   writeIORef runtime.camera nextCamera
   let world = unCanvasNode (group_ nodes)
   existing <- readIORef runtime.scene

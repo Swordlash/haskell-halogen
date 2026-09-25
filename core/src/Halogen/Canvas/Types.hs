@@ -15,6 +15,7 @@ module Halogen.Canvas.Types
   , Texture (..)
   , Camera (..)
   , defaultCamera
+  , followCamera
   , Interaction (..)
   , defaultInteraction
   , Shape (..)
@@ -97,6 +98,22 @@ data Camera = Camera
 
 defaultCamera :: Camera
 defaultCamera = Camera {focus = Point 0 0, zoom = 1}
+
+-- | Which camera a renderer should show, given the one the application asked
+-- for last time, the one it asks for now, and the one on screen.
+--
+-- The camera in a view is the application's to set, but the user moves the
+-- one on screen, and a renderer only tells the application where it went once
+-- the gesture is over. Until then the application still holds the camera from
+-- before, and a view rendered meanwhile for any other reason (a hover, a
+-- timer) carries that one. Taken at its word, it would put the camera back
+-- where the drag began. So a view's camera is followed only when it differs
+-- from what the application asked for before: an application that wants to
+-- move the camera changes it, one that has nothing to say about it repeats it.
+followCamera :: Maybe Camera -> Camera -> Camera -> Camera
+followCamera asked next onScreen
+  | asked == Just next = onScreen
+  | otherwise = next
 
 data Interaction = Interaction
   { pan :: Bool
