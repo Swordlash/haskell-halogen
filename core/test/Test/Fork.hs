@@ -15,7 +15,7 @@ import Data.IORef
 import Data.Kind (Type)
 import Data.Row (Empty, Row)
 import Data.Void (Void)
-import Halogen as H
+import Halogen as H hiding (query)
 import Halogen.HTML qualified as HH
 import Halogen.IO.Driver qualified as AD
 import Prelude
