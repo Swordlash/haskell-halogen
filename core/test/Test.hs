@@ -10,6 +10,8 @@ import Test.GHCJS qualified as GHCJS
 import Test.Canvas qualified as Canvas
 import Test.Cookie qualified as Cookie
 import Test.DriverReentrancy qualified as DriverReentrancy
+import Test.DriverLifecycleRaces qualified as DriverLifecycleRaces
+import Test.DriverStateAtomic qualified as DriverStateAtomic
 import Test.Fork qualified as Fork
 import Test.Hspec (hspec)
 import Test.NativeDom qualified as NativeDom
@@ -24,6 +26,8 @@ main = hspec $ do
   Canvas.spec
   Cookie.spec
   DriverReentrancy.spec
+  DriverStateAtomic.spec
+  DriverLifecycleRaces.spec
   Fork.spec
   NativeDom.spec
   Storage.spec

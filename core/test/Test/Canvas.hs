@@ -47,6 +47,22 @@ unwrap = unCanvasNode
 
 spec :: Spec
 spec = describe "canvas scenes" $ do
+  describe "the camera" $ do
+    let start = Camera {focus = Point 0 0, zoom = 1}
+        dragged = Camera {focus = Point 40 10, zoom = 1}
+        capital = Camera {focus = Point 300 200, zoom = 0.6}
+    it "takes the first camera it is given" $
+      assertEqual "first view" capital (followCamera Nothing capital start)
+    it "keeps where the user moved it when a view repeats the camera" $
+      assertEqual "a render mid-drag" dragged (followCamera (Just start) start dragged)
+    it "follows a camera the application changed" $
+      assertEqual "jump to the capital" capital (followCamera (Just start) capital dragged)
+    it "follows the user's camera fed back" $
+      assertEqual "after the drag" dragged (followCamera (Just start) dragged dragged)
+    it "resets to the first camera once the user's camera was fed back" $
+      assertEqual "reset view" start (followCamera (Just dragged) start dragged)
+    it "does not move for the camera asked for last time (the documented limit)" $
+      assertEqual "same camera, asked again" dragged (followCamera (Just start) start dragged)
   describe "prop keys" $ do
     it "gives each kind of prop a key of its own" $ do
       let keys = map propKey everyProp
