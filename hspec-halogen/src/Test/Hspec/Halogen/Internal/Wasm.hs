@@ -22,6 +22,8 @@ module Test.Hspec.Halogen.Internal.Wasm
   , attributeOf
   , outerHTMLOf
   , checkVisibility
+  , sameElement
+  , isConnected
   )
 where
 
@@ -70,6 +72,12 @@ attributeOf :: Element -> Text -> IO (Maybe Text)
 outerHTMLOf :: Element -> IO Text
 checkVisibility :: Element -> IO Bool
 
+-- | Whether two handles are the same node (JavaScript's @===@).
+sameElement :: Element -> Element -> Bool
+
+-- | Whether the element is still in the document.
+isConnected :: Element -> IO Bool
+
 inBrowser = True
 
 runnerArgs = do
@@ -113,6 +121,10 @@ attributeOf element name = do
 outerHTMLOf element = fromJS <$> js_outer_html element
 
 checkVisibility = js_is_visible
+
+sameElement = js_same_element
+
+isConnected = js_is_connected
 
 -- | Wait for an async ("safe") import to finish. Its result comes back as a
 -- thunk, and the thread only blocks on the promise when that is forced, so a
@@ -206,6 +218,12 @@ foreign import javascript unsafe "$1.outerHTML"
 
 foreign import javascript unsafe "$1.checkVisibility()"
   js_is_visible :: Element -> IO Bool
+
+foreign import javascript unsafe "$1 === $2"
+  js_same_element :: Element -> Element -> Bool
+
+foreign import javascript unsafe "$1.isConnected"
+  js_is_connected :: Element -> IO Bool
 
 foreign import javascript unsafe "$1 == null"
   js_is_null :: JSVal -> Bool

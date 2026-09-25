@@ -17,6 +17,14 @@
   keyboard and focus, so tests marked `parallel` still run in turn. It builds on every
   backend, so a suite type-checks natively, but runs only on WebAssembly;
   elsewhere `runBrowserTests` reports that it skipped.
+* A test suite that is also a set of examples: a counter, a checkbox and a
+  digits-only input, a todo list with keyed rows, a parent with child
+  components, a loader that forks and a clock that subscribes to a timer,
+  each with its spec, and a component for checking reconciliation: what a
+  render keeps, patches and replaces. `unmount` takes a component down before
+  its test ends, to check what happens once it is gone; elements compare with
+  `==` as JavaScript's `===` does, `shouldBeSameElement` checks a render kept
+  one, and `isAttached` whether it is still in the page.
 * The `hspec-halogen` executable is the host side: `hspec-halogen test`, as
   cabal's `--test-wrapper`, post-links a wasm suite and runs it in headless
   Chromium (or under Node, if it is not a browser suite), and `hspec-halogen

@@ -21,6 +21,11 @@ extra-doc-files:    CHANGELOG.md
 extra-source-files: js/runner.mjs
                     js/open.mjs
 
+flag interactive
+    description: Build the test suite for browser GHCi (toolchain/dev-test.sh)
+    default:     False
+    manual:      True
+
 library
     default-language: GHC2024
     hs-source-dirs:   src
@@ -69,6 +74,56 @@ executable hspec-halogen
 
     if arch(wasm32) || arch(javascript)
         buildable: False
+
+-- The package's own suite, and its examples: test/Example holds components
+-- as a project would write them, test/Test the specs for them. Set up as the
+-- README says a browser suite should be: a reactor on wasm, with a flag for
+-- browser GHCi; elsewhere it builds and reports that it skipped.
+test-suite hspec-halogen-test
+    type:             exitcode-stdio-1.0
+    default-language: GHC2024
+    hs-source-dirs:   test
+    main-is:          Test.hs
+    other-modules:    Example.Agreement
+                      Example.Clock
+                      Example.Counter
+                      Example.Digits
+                      Example.Family
+                      Example.Loader
+                      Example.Reconcile
+                      Example.Todo
+                      Test.Agreement
+                      Test.Async
+                      Test.Counter
+                      Test.Digits
+                      Test.Family
+                      Test.Reconcile
+                      Test.Todo
+    ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists
+    default-extensions:
+        OverloadedStrings
+        OverloadedRecordDot
+        NoImplicitPrelude
+        RequiredTypeArguments
+        DuplicateRecordFields
+    build-depends:
+        base,
+        protolude,
+        text,
+        containers,
+        row-types,
+        unliftio,
+        haskell-halogen-core,
+        hspec-halogen
+
+    if arch(wasm32) && !flag(interactive)
+        ghc-options:
+            -no-hs-main
+            -optl-mexec-model=reactor
+            "-optl-Wl,--export=hs_start"
+
+    if flag(interactive)
+        cpp-options: -DINTERACTIVE
 
 source-repository head
   type:     git

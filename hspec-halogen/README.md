@@ -149,6 +149,14 @@ wasm (`--builddir=dist-newstyle/wasm`).
 
 ## Writing tests
 
+The package's own test suite doubles as a set of worked examples. Each
+component in [`test/Example`](test/Example) has a spec beside it in
+[`test/Test`](test/Test). They start with the counter above and a couple of
+small forms, and go on to a todo list with keyed rows, a parent adding and
+removing child components, and components that load in a forked action or tick
+from a subscription. `Reconcile` checks what a render keeps, patches and
+replaces in the page.
+
 Import `Test.Hspec.Halogen` instead of `Test.Hspec`. It re-exports `Spec`,
 `describe`, `it` and the other names a spec is built from, and has its own
 expectations under hspec's names.
@@ -174,6 +182,7 @@ other `IO`, there is `unsafeIOToPageM`, unsafe in the same way as
 
 - `mount m component input`: mount into the page. The component has
   rendered and run its initialisers when this returns.
+- `unmount ui`: take it down before the test ends, running its finalisers.
 - `query ui q`: send a query, as a parent would.
 - `outputs ui`: everything the component has raised, oldest first.
 
@@ -200,6 +209,9 @@ Every action returns once the component has reacted, so a synchronous
 
 - `textContent`, `getProperty element "value"` (as JavaScript's `String()`
   renders it), `getAttribute`, `classes`, `outerHTML` and `isVisible`.
+- `isAttached`: whether the element is still in the page. Elements compare
+  with `==` as JavaScript's `===` does, and `shouldBeSameElement` checks that
+  a render kept an element rather than replacing it.
 - `shouldBe`, `shouldNotBe`, `shouldSatisfy`, `shouldContain`, `shouldReturn`
   and `expectationFailure` work as hspec's do, in `PageM`. A failure points at
   the test's line.

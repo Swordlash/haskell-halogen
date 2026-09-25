@@ -32,8 +32,10 @@ npm run format                  # fourmolu over core, hooks, pixi, hspec-halogen
 ```
 
 `core` and `hooks` have test suites that run under Node (`Halogen-core-test`,
-`Halogen-hooks-test`), and `material` has one that runs in a browser (`Halogen-material-test`,
-wasm only; see below). All are hspec, `main-is: Test.hs` which aggregates `Test.*` specs. Run one suite or one test with hspec's
+`Halogen-hooks-test`), and `material` and `hspec-halogen` have ones that run in a browser
+(`Halogen-material-test`, `hspec-halogen-test`; wasm only, see below). `hspec-halogen-test` is also
+the harness's examples, and where core's browser behaviour (events, properties the page changes,
+keyed moves, refs, forks, subscriptions) is tested for real. All are hspec, `main-is: Test.hs` which aggregates `Test.*` specs. Run one suite or one test with hspec's
 `--match`:
 
 ```sh

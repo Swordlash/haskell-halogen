@@ -27,6 +27,8 @@ module Test.Hspec.Halogen.Internal.Page
   , attributeOf
   , outerHTMLOf
   , checkVisibility
+  , sameElement
+  , isConnected
   )
 where
 
@@ -89,6 +91,12 @@ outerHTMLOf :: Element -> IO Text
 
 checkVisibility :: Element -> IO Bool
 
+-- | Whether two handles are the same node (JavaScript's @===@).
+sameElement :: Element -> Element -> Bool
+
+-- | Whether the element is still in the document.
+isConnected :: Element -> IO Bool
+
 inBrowser = False
 
 runnerArgs = pure Nothing
@@ -126,6 +134,10 @@ attributeOf _ _ = needsBrowser
 outerHTMLOf _ = needsBrowser
 
 checkVisibility _ = needsBrowser
+
+sameElement _ _ = needsBrowser
+
+isConnected _ = needsBrowser
 
 needsBrowser :: (HasCallStack) => a
 needsBrowser = panic "hspec-halogen needs a browser: run the suite on the WebAssembly backend (npm run test-wasm)"

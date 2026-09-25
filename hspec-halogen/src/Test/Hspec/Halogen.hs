@@ -70,6 +70,7 @@ module Test.Hspec.Halogen
   , MonadBrowserTest (..)
   , Mounted
   , mount
+  , unmount
   , query
   , outputs
   , root
@@ -97,6 +98,7 @@ module Test.Hspec.Halogen
   , classes
   , outerHTML
   , isVisible
+  , isAttached
 
     -- * Expecting
   , shouldBe
@@ -110,6 +112,7 @@ module Test.Hspec.Halogen
   , shouldHaveText
   , shouldBeVisible
   , shouldBeHidden
+  , shouldBeSameElement
 
     -- * Waiting
   , eventually
@@ -238,6 +241,11 @@ data Mounted s q o m = Mounted
 -- | An element of the page a test works in.
 newtype Element s = Element DOM.Element
 
+-- | The same node, as JavaScript's @===@ has it: what a test compares to see
+-- that a render patched an element rather than replacing it.
+instance Eq (Element s) where
+  Element a == Element b = Page.sameElement a b
+
 -- | Mount a component into a container of its own on the page. It is
 -- unmounted when the page is torn down.
 --
@@ -257,6 +265,13 @@ mount _ component input = do
     let teardown = runTest $ HS.unsubscribe subscription >> socket.dispose
     atomicModifyIORef' env.teardowns (\ts -> (teardown : ts, ()))
     pure Mounted {container = element, socket, raised}
+
+-- | Unmount a component before the test ends, running its finalisers and
+-- removing what it rendered, to check what happens once it is gone.
+unmount :: (MonadBrowserTest m) => Mounted s q o m -> PageM s ()
+unmount ui = unsafeIOToPageM $ do
+  runTest ui.socket.dispose
+  Page.removeElement ui.container
 
 -- | Send the component a query, as a parent would.
 query :: (MonadBrowserTest m) => Mounted s q o m -> q a -> PageM s (Maybe a)
@@ -366,6 +381,11 @@ outerHTML (Element element) = unsafeIOToPageM $ Page.outerHTMLOf element
 isVisible :: Element s -> PageM s Bool
 isVisible (Element element) = unsafeIOToPageM $ Page.checkVisibility element
 
+-- | Whether the element is still in the page: a render that replaced it, or
+-- removed it, has taken it out.
+isAttached :: Element s -> PageM s Bool
+isAttached (Element element) = unsafeIOToPageM $ Page.isConnected element
+
 --------------------------------------------------------------------------------
 -- Expecting
 --------------------------------------------------------------------------------
@@ -418,6 +438,21 @@ shouldBeHidden :: (HasCallStack) => Element s -> PageM s ()
 shouldBeHidden element = eventually $ do
   visible <- isVisible element
   when visible $ outerHTML element >>= \html -> expectationFailure ("expected to be hidden:\n" <> html)
+
+-- | Both are the same node: a render kept the element, patching it where it
+-- stood, rather than building a new one.
+shouldBeSameElement :: (HasCallStack) => Element s -> Element s -> PageM s ()
+shouldBeSameElement actual expected =
+  unless (actual == expected) $ do
+    now <- outerHTML actual
+    before <- outerHTML expected
+    attached <- isAttached expected
+    expectationFailure $
+      "expected the same element, found another:\n"
+        <> now
+        <> "\nwhere there was"
+        <> (if attached then ":\n" else ", now out of the page:\n")
+        <> before
 
 --------------------------------------------------------------------------------
 -- Waiting
