@@ -25,6 +25,8 @@ stopMusic player
 setMuted player True                                -- and nothing is fetched while muted
 ```
 
+- A type whose sounds are not all known in advance (an album read from a
+  server) is not an enumeration: it says `persistentSounds` itself.
 - There is one piece of music at a time; `playTheme`, `playAlbum` and
   `stopMusic` replace it at once, from any thread.
 - An album plays every track once a round, each round shuffled, never the

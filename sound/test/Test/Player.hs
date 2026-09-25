@@ -19,6 +19,17 @@ instance Sound Snd where
   soundUrl = T.pack . show
   persistent = (`elem` [Menu, Click])
 
+-- | An album known only when the program runs (read from a server, say).
+data Open = Title | Track Int
+  deriving stock (Eq, Ord, Show)
+
+instance Sound Open where
+  soundUrl = \case
+    Title -> "Title"
+    Track n -> T.pack ("track-" <> show n)
+  persistentSounds = [Title]
+  persistent = (== Title)
+
 album :: [Snd]
 album = [T1, T2, T3, T4]
 
@@ -160,6 +171,15 @@ spec = describe "player" $ do
     es <- eventually fake (Started "Click" False `elem`)
     Started "Click" False `elem` es `shouldBe` True
     Stopped "Menu" `elem` es `shouldBe` False
+    stopMusic player
+
+  it "plays an album of a type that is not an enumeration" $ do
+    (fake, backend) <- newFake
+    player <- newPlayer backend config
+    _ <- eventually fake (Fetched "Title" `elem`)
+    playAlbum player (map Track [1 .. 3])
+    starts <- playTracks fake 3
+    sort starts `shouldBe` ["track-1", "track-2", "track-3"]
     stopMusic player
 
   it "while muted fetches and plays nothing, then brings the music back" $ do

@@ -36,7 +36,11 @@ import Halogen.Sound.Order
 import Protolude
 
 -- | An application's sounds.
-class (Ord t, Enum t, Bounded t) => Sound t where
+--
+-- Usually an enumeration, and then only 'soundUrl' and 'persistent' need
+-- saying. A type with values not known in advance (an album read from a
+-- server: @Track 1@, @Track 2@, …) says 'persistentSounds' instead.
+class (Ord t) => Sound t where
   -- | Where the file is.
   soundUrl :: t -> Text
 
@@ -44,6 +48,11 @@ class (Ord t, Enum t, Bounded t) => Sound t where
   -- play at once when asked (a menu theme, the effects).
   persistent :: t -> Bool
   persistent _ = False
+
+  -- | Every persistent sound.
+  persistentSounds :: [t]
+  default persistentSounds :: (Enum t, Bounded t) => [t]
+  persistentSounds = filter persistent [minBound .. maxBound]
 
   -- | A factor on the music or effects volume, to even out loud files.
   loudness :: t -> Double
@@ -241,7 +250,7 @@ preloadPersistent :: (Sound t) => Engine t clip voice -> IO ()
 preloadPersistent e =
   -- One at a time, so that they share the connection with the rest of the
   -- page rather than take it over.
-  void $ forkIO $ quietly $ for_ (filter persistent [minBound .. maxBound]) (obtain e)
+  void $ forkIO $ quietly $ for_ persistentSounds (obtain e)
 
 pin :: (Ord t) => Engine t clip voice -> t -> Int -> IO ()
 pin e t n = modifyMVar_ e.store $ \s ->
