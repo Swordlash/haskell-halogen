@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A property that stops being rendered is cleared from the element. It used to
+  be deleted, which does nothing to a DOM property: those are accessors on the
+  element's prototype, not properties of the element itself, so a `title` or
+  `disabled` rendered once stayed on the element after its prop was gone. It is
+  now set back as purescript-halogen-vdom does: to `""` if it holds a string,
+  to `1` for `rowSpan` and `colSpan`, and to `undefined` otherwise.
 - `Halogen.newRefLabel` makes a ref label from a name and a fresh UUID, for a
   component to generate in `initialState` and keep in its state. A fixed label
   can collide: refs are looked up in the component that rendered them, and a

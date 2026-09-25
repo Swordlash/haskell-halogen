@@ -138,7 +138,12 @@ function js_remove_property(propName, element) {
 #ifdef HALOGEN_TRACE_DOM
   console.log("Removing property: " + propName + " from element type: " + getNodeType(element));
 #endif
-  delete element[propName];
+  // A DOM property is an accessor inherited from the element's prototype, so
+  // deleting it from the element does nothing. Set it back instead, as
+  // purescript-halogen-vdom does.
+  if (typeof element[propName] === "string") element[propName] = "";
+  else if (propName === "rowSpan" || propName === "colSpan") element[propName] = 1;
+  else element[propName] = undefined;
 }
 
 function js_remove_attribute(namespace, attrName, element) {
