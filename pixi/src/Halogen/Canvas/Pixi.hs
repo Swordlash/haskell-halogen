@@ -254,8 +254,8 @@ renderView :: Runtime i -> View i -> IO ()
 renderView runtime View {camera = viewCamera, nodes} = do
   -- A view rendered mid-drag still carries the camera from before the drag;
   -- only a camera the application changed moves the one on screen.
-  previous <- atomicModifyIORef' runtime.asked (Just viewCamera,)
-  nextCamera <- followCamera previous viewCamera <$> readIORef runtime.camera
+  lastAsked <- atomicModifyIORef' runtime.asked (Just viewCamera,)
+  nextCamera <- followCamera lastAsked viewCamera <$> readIORef runtime.camera
   writeIORef runtime.camera nextCamera
   let world = unCanvasNode (group_ nodes)
   existing <- readIORef runtime.scene
