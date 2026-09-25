@@ -81,6 +81,7 @@ test-suite Halogen-sound-test
     main-is:          Test.hs
     build-depends:    base >= 4.20,
                       containers,
+                      haskell-halogen-core,
                       haskell-halogen-sound,
                       hspec >= 2,
                       text
