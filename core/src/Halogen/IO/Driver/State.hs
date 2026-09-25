@@ -17,6 +17,7 @@ module Halogen.IO.Driver.State
   , beginPass
   , runOrQueue
   , leaveRender
+  , abandonRender
   )
 where
 
@@ -49,7 +50,9 @@ data DriverState m r s f act ps i o = DriverState
   , rendering :: Maybe (r s act ps o)
   , fresh :: IORef Int
   , subscriptions :: IORef (Maybe (Map SubscriptionId (HS.Subscription m)))
-  , forks :: IORef (Map ForkId (Fork m ()))
+  , forks :: IORef (Maybe (Map ForkId (Fork m ())))
+  -- ^ 'Nothing' once the component is finalized: a fork registered after
+  -- that is killed at once rather than left running.
   , lifecycleHandlers :: IORef (LifecycleHandlers m)
   }
 
@@ -101,7 +104,7 @@ initDriverState component input handler lchs = do
   renderGate <- newIORef Idle
   fresh <- newIORef 1
   subscriptions <- newIORef (Just mempty)
-  forks <- newIORef mempty
+  forks <- newIORef (Just mempty)
   state <- component.initialState input
   let ds =
         DriverState
@@ -185,3 +188,11 @@ leaveRender gate = atomicModifyIORef' gate $ \case
   Rendering [] False -> (Idle, Done)
   Rendering [] True -> (Rendering [] True, Again)
   Rendering q again -> (Rendering [] again, Drain (reverse q))
+
+-- | A render failed: let the lock go, and hand back what was queued for it
+-- (oldest first), so that neither the lock nor those actions are lost with
+-- it. A request for another pass is dropped: it would render the same state.
+abandonRender :: (MonadIO m) => IORef (RenderGate m) -> m [m ()]
+abandonRender gate = atomicModifyIORef' gate $ \case
+  Idle -> (Idle, [])
+  Rendering q _ -> (Idle, reverse q)

@@ -104,7 +104,11 @@ runUI RenderSpec {..} c i = do
         -- still-live children. 'enterRender' takes the lock or, if it is
         -- held, asks the render in progress for one more pass, which reads
         -- the latest state, so no render is lost. See 'RenderGate'.
-        whenM (enterRender ds.renderGate) $ do
+        -- A render that throws lets the lock go on its way out; otherwise
+        -- every later render would only ask it for another pass, and none
+        -- would come. What was queued for it is forked all the same.
+        let abandon = abandonRender ds.renderGate >>= traverse_ fork
+        Control.Exception.Safe.mask $ \restore -> whenM (enterRender ds.renderGate) $ flip Control.Exception.Safe.onException abandon $ restore $ do
           let renderPass = do
                 beginPass ds.renderGate
                 -- Re-read for the latest state / children / rendering each pass.
@@ -258,8 +262,9 @@ cleanupSubscriptionsAndForks
   => DriverState m r s f act ps i o
   -> m ()
 cleanupSubscriptionsAndForks ds = do
-  -- Each is emptied and taken in one step, so nothing added meanwhile is
-  -- dropped without being stopped. A subscription made afterwards is
-  -- stopped at once (see 'Subscribe' in "Halogen.IO.Driver.Eval").
+  -- Each register is taken and closed in one step, so nothing added
+  -- meanwhile is dropped without being stopped, and a subscription or fork
+  -- made afterwards is stopped at once (see 'Subscribe' and 'Fork' in
+  -- "Halogen.IO.Driver.Eval").
   traverse_ (traverse_ HS.unsubscribe) =<< atomicModifyIORef' ds.subscriptions (Nothing,)
-  traverse_ (kill AsyncCancelled) =<< atomicModifyIORef' ds.forks (mempty,)
+  traverse_ (traverse_ (kill AsyncCancelled)) =<< atomicModifyIORef' ds.forks (Nothing,)

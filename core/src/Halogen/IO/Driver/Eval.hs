@@ -136,12 +136,17 @@ evalM render initRef (HalogenM hm) = foldF (go initRef) hm
                   -- The flag goes up before the entry comes out, which is what
                   -- makes the pair of checks below exhaustive.
                   atomicWriteIORef doneRef True
-                  atomicModifyIORef'_ forks (M.delete fid)
+                  atomicModifyIORef'_ forks (map (M.delete fid))
               )
         -- Already finished, so there is nothing to register: the finalizer has
         -- run and would not remove an entry added now.
         unlessM (readIORef doneRef) $ do
-          atomicModifyIORef'_ forks (M.insert fid fiber)
+          -- The component may have been finalized since this fork began:
+          -- then its forks were killed already, and this one has to be too.
+          registered <- atomicModifyIORef' forks $ \case
+            Nothing -> (Nothing, False)
+            Just forkMap -> (Just (M.insert fid fiber forkMap), True)
+          unless registered $ kill AsyncCancelled fiber
           -- It can also finish in the gap between that check and this
           -- insert, and then either its removal runs after the insert and
           -- takes this entry with it, or it ran before the insert -- in which
@@ -151,17 +156,17 @@ evalM render initRef (HalogenM hm) = foldF (go initRef) hm
           -- the map. (With the finalizer's two writes the other way round
           -- there is one: remove, be read as unfinished, be inserted, be read
           -- as unfinished again, and only then raise the flag.)
-          whenM (readIORef doneRef) $ atomicModifyIORef'_ forks (M.delete fid)
+          whenM (readIORef doneRef) $ atomicModifyIORef'_ forks (map (M.delete fid))
         pure (k fid)
       Join fid a -> do
         DriverState {forks} <- readIORef ref
         forkMap <- readIORef forks
-        traverse_ join (M.lookup fid forkMap)
+        traverse_ join (M.lookup fid =<< forkMap)
         pure a
       Kill fid a -> do
         DriverState {forks} <- readIORef ref
         forkMap <- readIORef forks
-        traverse_ (kill AsyncCancelled) (M.lookup fid forkMap)
+        traverse_ (kill AsyncCancelled) (M.lookup fid =<< forkMap)
         pure a
       GetRef (Input.RefLabel p) k -> do
         DriverState {refs} <- readIORef ref

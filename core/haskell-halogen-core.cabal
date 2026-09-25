@@ -253,6 +253,7 @@ test-suite Halogen-core-test
     
     other-modules:  Test.Canvas
                     Test.Cookie
+                    Test.DriverLifecycleRaces
                     Test.DriverReentrancy
                     Test.DriverStateAtomic
                     Test.Fork
