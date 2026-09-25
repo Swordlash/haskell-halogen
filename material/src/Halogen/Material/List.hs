@@ -12,6 +12,7 @@ where
 
 import Clay (Css)
 import Control.Monad.Extra (pureIf)
+import Control.Monad.UUID (MonadUUID)
 import Data.Row (HasType)
 import Halogen qualified as H hiding (Initialize)
 import Halogen.Component
@@ -53,6 +54,7 @@ data ListSpec a slots i m = ListSpec
 
 data ListState a slots i m = ListState
   { mdcList :: Maybe MDCList
+  , ref :: H.RefLabel
   , mdcItems :: [MDCRipple]
   , items :: [ListElem a]
   , elemRenderer :: ElemRenderer a slots i m
@@ -78,18 +80,18 @@ data ListOutput i
 
 list
   :: forall a q slots i m
-   . (MonadMaterial m)
+   . (MonadMaterial m, MonadUUID m)
   => H.Component (ListQuery slots q) (ListSpec a slots i m) (ListOutput i) m
 list =
   H.mkComponent $
     H.ComponentSpec
-      { initialState = \ListSpec {..} -> pure ListState {mdcList = Nothing, mdcItems = [], ..}
+      { initialState = \ListSpec {..} -> do
+          ref <- H.newRefLabel "list"
+          pure ListState {mdcList = Nothing, mdcItems = [], ..}
       , render
       , eval = H.mkEval $ H.defaultEval {handleAction, handleQuery, initialize = Just Initialize, receive = const $ Just InitRipples, finalize = Just DestroyRipples}
       }
   where
-    ref = H.RefLabel "list"
-
     render :: ListState a slots i m -> HH.ComponentHTML (ListAction i) slots m
     render ListState {elemRenderer = ElemRenderer {..}, ..} =
       HH.ul
@@ -139,7 +141,7 @@ list =
 
     handleAction = \case
       Initialize ->
-        H.getHTMLElementRef ref >>= \case
+        gets (.ref) >>= H.getHTMLElementRef >>= \case
           Just el -> do
             mdcList <- lift $ initList el
             modify $ \s -> s {mdcList = Just mdcList}

@@ -10,13 +10,16 @@ module Halogen.Query
   , request
   , requestAll
   , getHTMLElementRef
+  , newRefLabel
   , module Halogen.Query.Input
   , module Halogen.Query.HalogenM
   , module Halogen.Query.HalogenQ
   )
 where
 
+import Control.Monad.UUID (MonadUUID (..))
 import Data.Row as Row
+import Data.UUID.Types qualified as UUID
 import HPrelude
 import Halogen.Data.Slot (Slot)
 import Halogen.Query.HalogenM (ForkId, HalogenF (..), HalogenM (..), SubscriptionId, fork, getRef, join, kill, query, queryAll, raise, subscribe, subscribe', unsubscribe)
@@ -131,3 +134,13 @@ getHTMLElementRef
   => RefLabel
   -> HalogenM state action slots output m (Maybe HTMLElement)
 getHTMLElementRef = map (fromElement =<<) . getRef
+
+-- | A ref label no other can share, named after what it labels.
+--
+-- Refs are looked up by label in the component that rendered them, and that
+-- includes HTML a component renders on its parent's behalf: a tab bar or a
+-- list shows markup it was handed, and a ref in that markup lands among the
+-- tab bar's own. A fixed label can therefore collide with one it has never
+-- seen. Generate one in @initialState@ and keep it in the state.
+newRefLabel :: (MonadUUID m) => Text -> m RefLabel
+newRefLabel name = RefLabel . ((name <> "-") <>) . UUID.toText <$> generateV4

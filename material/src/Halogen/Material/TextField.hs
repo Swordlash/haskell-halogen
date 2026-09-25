@@ -71,6 +71,7 @@ emptyTextFieldSpec =
 
 data TextFieldState = TextFieldState
   { mdcTextField :: Maybe MDCTextField
+  , ref :: H.RefLabel
   , text :: Text
   , label :: Maybe Text
   , enabled :: Bool
@@ -98,6 +99,7 @@ textField =
   H.mkComponent $
     H.ComponentSpec
       { initialState = \TextFieldSpec {..} -> do
+          ref <- H.newRefLabel "text-field"
           labelId <- generateV4
           helperId <- generateV4
           pure $
@@ -109,8 +111,6 @@ textField =
       , eval = H.mkEval $ H.defaultEval {H.initialize = Just Initialize, H.finalize = Just Finalize, H.handleAction = handleAction, H.handleQuery = handleQuery}
       }
   where
-    ref = H.RefLabel "text-field"
-
     render TextFieldState {..} = case helperLine of
       NoHelperLine -> tf
       HelperLine t ->
@@ -218,7 +218,7 @@ textField =
 
     handleAction = \case
       Initialize ->
-        H.getHTMLElementRef ref >>= \case
+        gets (.ref) >>= H.getHTMLElementRef >>= \case
           Just el -> do
             mdcTextField <- lift $ initTextField el
             modify $ \s -> s {mdcTextField = Just mdcTextField}

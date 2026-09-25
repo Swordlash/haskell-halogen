@@ -7,6 +7,13 @@
 set -eu
 
 cd "$(dirname "$0")/.."
+
+# wasm-test-wrapper.sh hands browser suites to the hspec-halogen executable,
+# a native program, so build it before the wasm toolchain takes over the
+# environment.
+HSPEC_HALOGEN=${HSPEC_HALOGEN:-$(sh toolchain/build-hspec-halogen.sh)}
+export HSPEC_HALOGEN
+
 . "$HOME/.ghc-wasm/env"
 
 wasm_ghc=$(command -v wasm32-wasi-ghc)

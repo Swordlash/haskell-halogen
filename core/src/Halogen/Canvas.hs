@@ -51,8 +51,8 @@ component renderer =
   H.mkComponent $
     H.ComponentSpec
       { initialState = \scene -> do
-          uuid <- show <$> generateV4
-          pure CanvasState {scene, mounted = Nothing, canvasRef = H.RefLabel $ "canvas-" <> uuid}
+          canvasRef <- H.newRefLabel "canvas"
+          pure CanvasState {scene, mounted = Nothing, canvasRef}
       , render
       , eval =
           H.mkEval $

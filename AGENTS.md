@@ -6,8 +6,10 @@ This file provides guidance to AI coding agents working with code in this reposi
 
 A port of purescript-halogen to GHC Haskell, as a multi-package cabal project: `core`
 (`haskell-halogen-core`, the port itself), `hooks` (`purescript-halogen-hooks` port), `material`
-(Material Components bindings), `pixi` (PixiJS v8 canvas backend), and `examples/*` (one browser app
-each, plus `examples/all`, the gallery that mounts the others and is what Pages deploys). `hooks`, `material` and `pixi` depend only on `core`. Everything builds from the root
+(Material Components bindings), `pixi` (PixiJS v8 canvas backend), `hspec-halogen`
+(an hspec harness that tests components in a real browser), and
+`examples/*` (one browser app each, plus `examples/all`, the gallery that mounts the others and is what
+Pages deploys). `hooks`, `material`, `pixi` and `hspec-halogen` depend only on `core`. Everything builds from the root
 `cabal.project`, so a `core` change is type-checked against every dependent and example.
 
 Every package is compiled for three targets: native GHC, the GHC JavaScript backend, and GHC
@@ -25,11 +27,15 @@ npm run serve-wasm -- <example> # build one example to wasm and serve it on :808
 npm run build-wasm-all          # every example, wasm-opt'd; Pages deploys only public/all
 npm run test-gallery            # the built `all` gallery in headless Chromium (Playwright)
 npm run build-js                # JS backend: build all, bundle the material example into dist/
-npm run format                  # fourmolu over core, hooks, pixi, examples
+npm run dev-test -- <package>   # a package's browser test suite in browser GHCi, rerun on save
+npm run format                  # fourmolu over core, hooks, pixi, hspec-halogen, material/test, examples
 ```
 
-Only `core` and `hooks` have test suites (`Halogen-core-test`, `Halogen-hooks-test`, both hspec,
-`main-is: Test.hs` which aggregates `Test.*` specs). Run one suite or one test with hspec's
+`core` and `hooks` have test suites that run under Node (`Halogen-core-test`,
+`Halogen-hooks-test`), and `material` and `hspec-halogen` have ones that run in a browser
+(`Halogen-material-test`, `hspec-halogen-test`; wasm only, see below). `hspec-halogen-test` is also
+the harness's examples, and where core's browser behaviour (events, properties the page changes,
+keyed moves, refs, forks, subscriptions) is tested for real. All are hspec, `main-is: Test.hs` which aggregates `Test.*` specs. Run one suite or one test with hspec's
 `--match`:
 
 ```sh
@@ -65,7 +71,25 @@ and wired into `test/Test.hs`.
 - `wasm-test-runner.mjs` must `process.exit` as soon as `wasi.start` returns: a JS→Haskell callback
   can leave `rts_schedulerLoop` queued on `setImmediate`, which crashes with "RTS is not initialised"
   if it runs after the RTS has shut down. `toolchain/test-wasm-runner.sh` checks exit codes survive.
-- `toolchain/test-gallery.mjs` is the one real-browser test: it serves the built
+- A browser test suite (built with `hspec-halogen`, e.g. material's) is a wasm *reactor* exporting
+  `hs_start`, whose `main` is `runBrowserTests spec`. `wasm-test-wrapper.sh` recognises the export
+  and hands the binary to the native `hspec-halogen` executable (`hspec-halogen test`, built by
+  `toolchain/build-hspec-halogen.sh`), which loads it into headless Chromium with the package's
+  `test/web/` assets (and whatever `test/web/bundle.sh` builds), relays its output, and performs
+  its `click`/`typeText`/`press` through Playwright as trusted input. Its JavaScript lives in
+  `hspec-halogen/js/` and is compiled into the executable. So `npm run test-wasm` needs the host
+  GHC and Chromium. The suite's cabal `interactive` flag drops the reactor options, and
+  `toolchain/dev-test.sh` runs it in browser GHCi under ghciwatch, in a window
+  `hspec-halogen open` opened, rerunning `:main` on every save.
+  `hspec-halogen` builds on every backend (its page functions panic off wasm, see
+  `Test.Hspec.Halogen.Internal.Page`) so suites type-check natively for HLS; there
+  `runBrowserTests` only reports a skip. Material's suite is not built for the JS backend.
+- Two wasm facts the harness depends on: an async (`safe`) JSFFI import returns a *thunk*, and the
+  calling thread only waits for the promise when it is forced, so an `IO ()` import must be forced
+  (`evaluate`) or the test runs on while the page still acts. And a JS→Haskell callback is not run
+  on the spot: the glue schedules the RTS scheduler loop as a task (`scheduler.postTask` in
+  Chromium), which is why every harness action ends with `settle`.
+- `toolchain/test-gallery.mjs` tests the deployed artefact rather than a component: it serves the built
   `dist-newstyle/wasm/public/all` and checks that each route mounts its example and unmounts the
   previous one, through clicks, back, forward and a reload. It runs in CI and gates the Pages deploy;
   both install Chromium with
@@ -129,6 +153,14 @@ storage, …) is built only from public hooks.
 - Commit subjects are short imperative sentences in plain English ("Make a prop that goes away
   actually go away"), sometimes prefixed with the package (`core: …`, `hooks: …`); bodies explain why.
 - Haddocks and comments explain reasoning in full sentences rather than restating the code.
+- Don't hardcode a monad: components, specs and helpers are polymorphic in `m` with class
+  constraints (`MonadMaterial m`, `MonadUUID m`, `MonadBrowserTest m`, …), and only an entry point
+  picks one: `Main.hs`, or a test suite's `main`. A spec takes the monad as a required type argument
+  (`spec :: forall m -> (MonadBrowserTest m) => Spec`, called as `spec BrowserDOM`), not through
+  `AllowAmbiguousTypes`, a `Proxy` or a type application.
+- Never hardcode a `RefLabel`: generate it with `H.newRefLabel "<name>"` in `initialState` and keep
+  it in the state. Refs are looked up in the component that rendered them, which includes HTML a
+  component renders for its parent (Tabs, List), so a fixed label can collide with a parent's.
 - A new example needs only `examples/<name>/` with `halogen-example-<name>.cabal`, `Main.hs` and
   `web/` (`index.html` + `index.js` fetching `./app.wasm`); the `examples/*` glob and
   `build-wasm-all.sh` pick it up. An optional `bundle.sh` beside it is run with the output directory

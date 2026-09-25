@@ -65,7 +65,10 @@ foreign import javascript unsafe "$3[$1] !== $2 && ($3[$1] = $2)" js_set_propert
 
 foreign import javascript unsafe "$3[$1] === $2" js_property_equals :: JSVal -> JSVal -> Element -> IO Bool
 
-foreign import javascript unsafe "delete $2[$1]" js_remove_property :: JSVal -> Element -> IO ()
+-- A DOM property is an accessor inherited from the element's prototype, so
+-- deleting it from the element does nothing. Set it back instead, as
+-- purescript-halogen-vdom does.
+foreign import javascript unsafe "typeof $2[$1] === 'string' ? ($2[$1] = '') : ($1 === 'rowSpan' || $1 === 'colSpan') ? ($2[$1] = 1) : ($2[$1] = undefined)" js_remove_property :: JSVal -> Element -> IO ()
 
 foreign import javascript unsafe "$1 == null ? $3.removeAttribute($2) : $3.removeAttributeNS($1, $2)" js_remove_attribute :: JSVal -> JSVal -> Element -> IO ()
 

@@ -11,6 +11,11 @@ category:           Web
 build-type:         Simple
 extra-doc-files:    CHANGELOG.md
 
+flag interactive
+    description: Build the browser test suite for browser GHCi (toolchain/dev-test.sh)
+    default:     False
+    manual:      True
+
 common warnings
     ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists -Wno-ambiguous-fields
     default-extensions:
@@ -56,6 +61,36 @@ library
 
     if arch(javascript)
         js-sources: jsbits/material.js
+
+-- Runs in headless Chromium: the wasm binary is a reactor that the browser
+-- test runner loads into a page with the components' JavaScript and CSS (see
+-- test/web/bundle.sh and hspec-halogen). Natively it builds, for the language
+-- server, and reports that it skipped. Not on the JavaScript backend, whose
+-- test binaries run under Node, where the components' ES imports cannot load.
+test-suite Halogen-material-test
+    import:           warnings
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          Test.hs
+    other-modules:    Test.Tabs
+                      Test.TextField
+    default-language: GHC2024
+    build-depends:
+        haskell-halogen-material,
+        hspec-halogen,
+        hspec
+
+    if arch(javascript)
+        buildable: False
+
+    if arch(wasm32) && !flag(interactive)
+        ghc-options:
+            -no-hs-main
+            -optl-mexec-model=reactor
+            "-optl-Wl,--export=hs_start"
+
+    if flag(interactive)
+        cpp-options: -DINTERACTIVE
 
 source-repository head
   type:     git

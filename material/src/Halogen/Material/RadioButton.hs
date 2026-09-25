@@ -39,6 +39,7 @@ emptyRadioButtonSpec =
 
 data RadioButtonState = RadioButtonState
   { mdcFormField :: Maybe MDCFormField
+  , ref :: H.RefLabel
   , label :: Text
   , enabled :: Bool
   , extraStyle :: Css
@@ -59,14 +60,13 @@ radio =
   H.mkComponent $
     H.ComponentSpec
       { initialState = \RadioButtonSpec {..} -> do
+          ref <- H.newRefLabel "radio"
           id <- generateV4
           pure $ RadioButtonState {mdcFormField = Nothing, ..}
       , render
       , eval = H.mkEval $ H.defaultEval {H.handleAction = handleAction, H.initialize = Just Initialize, H.finalize = Just Finalize}
       }
   where
-    ref = H.RefLabel "radio"
-
     render RadioButtonState {..} =
       HH.div
         [HP.class_ (HH.ClassName "mdc-touch-target-wrapper")]
@@ -98,7 +98,7 @@ radio =
 
     handleAction = \case
       Initialize -> do
-        H.getHTMLElementRef ref >>= \case
+        gets (.ref) >>= H.getHTMLElementRef >>= \case
           Just el -> do
             mdcFormField <- lift $ initRadioButton el
             modify $ \s -> s {mdcFormField = Just mdcFormField}

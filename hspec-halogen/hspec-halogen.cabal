@@ -1,0 +1,131 @@
+cabal-version:      3.4
+name:               hspec-halogen
+version:            0.1.0.0
+synopsis:           Test haskell-halogen components in a real browser with hspec
+description:
+  Mount a component into a real page, find its elements, click and type into
+  them with real input, and check the result with hspec. A suite built with
+  this runs in headless Chromium on the WebAssembly backend, run by this
+  package's hspec-halogen executable as cabal's test wrapper; see
+  "Test.Hspec.Halogen" and the README. It builds on every
+  backend, so a suite type-checks natively, but only runs on WebAssembly.
+homepage:           https://github.com/Swordlash/haskell-halogen
+license:            Apache-2.0
+license-file:       LICENSE
+author:             Mateusz Goślinowski
+maintainer:         mateusz.goslinowski@gmail.com
+category:           Web, Testing
+build-type:         Simple
+extra-doc-files:    CHANGELOG.md
+                    README.md
+extra-source-files: js/runner.mjs
+                    js/open.mjs
+
+flag interactive
+    description: Build the test suite for browser GHCi (toolchain/dev-test.sh)
+    default:     False
+    manual:      True
+
+library
+    default-language: GHC2024
+    hs-source-dirs:   src
+    ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists
+    default-extensions:
+        OverloadedStrings
+        OverloadedRecordDot
+        NoImplicitPrelude
+        RequiredTypeArguments
+        DuplicateRecordFields
+    exposed-modules:  Test.Hspec.Halogen
+    other-modules:    Test.Hspec.Halogen.Internal.Monad
+                      Test.Hspec.Halogen.Internal.Page
+    build-depends:
+        base,
+        protolude,
+        text,
+        HUnit,
+        hspec,
+        exceptions,
+        unliftio,
+        haskell-halogen-core
+
+    -- The page is driven through the WebAssembly backend's JSFFI; elsewhere
+    -- the functions that would drive it panic (see Internal.Page).
+    if arch(wasm32)
+        other-modules: Test.Hspec.Halogen.Internal.Wasm
+        build-depends: ghc-experimental
+
+-- The host side, run with the host compiler: cabal's test wrapper for wasm
+-- suites, and the opener for a suite in browser GHCi. It carries the
+-- JavaScript that drives Playwright, so a project using the library writes
+-- none.
+executable hspec-halogen
+    default-language: GHC2024
+    hs-source-dirs:   app
+    main-is:          Main.hs
+    ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists
+    build-depends:
+        base,
+        file-embed,
+        filepath,
+        optparse-applicative,
+        process,
+        temporary
+
+    if arch(wasm32) || arch(javascript)
+        buildable: False
+
+-- The package's own suite, and its examples: test/Example holds components
+-- as a project would write them, test/Test the specs for them. Set up as the
+-- README says a browser suite should be: a reactor on wasm, with a flag for
+-- browser GHCi; elsewhere it builds and reports that it skipped.
+test-suite hspec-halogen-test
+    type:             exitcode-stdio-1.0
+    default-language: GHC2024
+    hs-source-dirs:   test
+    main-is:          Test.hs
+    other-modules:    Example.Agreement
+                      Example.Clock
+                      Example.Counter
+                      Example.Digits
+                      Example.Family
+                      Example.Loader
+                      Example.Reconcile
+                      Example.Todo
+                      Test.Agreement
+                      Test.Async
+                      Test.Counter
+                      Test.Digits
+                      Test.Family
+                      Test.Reconcile
+                      Test.Todo
+    ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists
+    default-extensions:
+        OverloadedStrings
+        OverloadedRecordDot
+        NoImplicitPrelude
+        RequiredTypeArguments
+        DuplicateRecordFields
+    build-depends:
+        base,
+        protolude,
+        text,
+        containers,
+        row-types,
+        unliftio,
+        haskell-halogen-core,
+        hspec-halogen
+
+    if arch(wasm32) && !flag(interactive)
+        ghc-options:
+            -no-hs-main
+            -optl-mexec-model=reactor
+            "-optl-Wl,--export=hs_start"
+
+    if flag(interactive)
+        cpp-options: -DINTERACTIVE
+
+source-repository head
+  type:     git
+  location: https://github.com/Swordlash/haskell-halogen.git
+  subdir:   hspec-halogen

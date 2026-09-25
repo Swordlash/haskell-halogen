@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- A property that stops being rendered is cleared from the element. It used to
+  be deleted, which does nothing to a DOM property: those are accessors on the
+  element's prototype, not properties of the element itself, so a `title` or
+  `disabled` rendered once stayed on the element after its prop was gone. It is
+  now set back as purescript-halogen-vdom does: to `""` if it holds a string,
+  to `1` for `rowSpan` and `colSpan`, and to `undefined` otherwise.
+- `Halogen.newRefLabel` makes a ref label from a name and a fresh UUID, for a
+  component to generate in `initialState` and keep in its state. A fixed label
+  can collide: refs are looked up in the component that rendered them, and a
+  component that renders HTML handed to it by its parent (a tab bar, a list)
+  registers that HTML's refs among its own. `Halogen.Canvas` uses it.
+- A component's refs are recorded as soon as their elements are created or
+  removed, rather than queued with its actions. Queued handlers are forked,
+  and a forked thread starts only when the scheduler gets to it, while
+  initialisers run straight away, so an initialiser that looked up one of its
+  own refs could run first and find nothing. Material's components look up
+  their root element that way, and failed with "no HTMLElement found" when
+  mounted after another component had just been disposed. purescript-halogen
+  gets this order from Aff's `fork`, which starts a fiber at once.
 - A patch writes a property only when its rendered value has changed, as
   purescript-halogen-vdom does. Old and new values were compared by pointer, and
   a render builds every value afresh, so each patch wrote every property back

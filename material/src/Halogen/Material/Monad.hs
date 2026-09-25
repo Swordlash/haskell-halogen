@@ -16,6 +16,8 @@ where
 -- BrowserDOM to IO means seeing through both newtypes.
 import GHC.IO (IO (..))
 import Halogen.VDom.DOM.Monad (BrowserDOM (..))
+#else
+import Halogen.VDom.DOM.Monad (BrowserDOM)
 #endif
 import Data.Foreign
 import Protolude
@@ -127,5 +129,29 @@ unHTMLElement (HTMLElement element) = element
 
 -- The browser backend is a newtype over IO, so it gets the instance above.
 deriving newtype instance MonadMaterial BrowserDOM
+
+#else
+
+-- Natively there are no Material Components to drive, but code written
+-- against BrowserDOM -- a browser test suite, say -- should still type-check,
+-- so the language server can load it. Nothing reaches these at run time: a
+-- native build has no page to render into.
+instance MonadMaterial BrowserDOM where
+  initRipple _ = noMaterial
+  destroyRipple _ = noMaterial
+  initList _ = noMaterial
+  destroyList _ = noMaterial
+  initListItems _ = noMaterial
+  initTabBar _ = noMaterial
+  destroyTabBar _ = noMaterial
+  initTextField _ = noMaterial
+  destroyTextField _ = noMaterial
+  initRadioButton _ = noMaterial
+  destroyRadioButton _ = noMaterial
+  initCheckbox _ = noMaterial
+  destroyCheckbox _ = noMaterial
+
+noMaterial :: (HasCallStack) => a
+noMaterial = panic "Material Components need a browser: build for the WebAssembly or JavaScript backend"
 
 #endif

@@ -291,14 +291,30 @@ jobs:
     - name: Build every example
       run: npm run build-wasm-all
 
+    # Before the tests: the suites built with hspec-halogen (material's) run
+    # in headless Chromium, driven by the hspec-halogen executable, which is a
+    # native program and so needs the host GHC as well as the wasm one.
+    - name: Install Chromium
+      run: npx playwright install --with-deps --only-shell chromium
+
+    - name: Cache host GHC
+      uses: actions/cache@v5
+      with:
+        path: /usr/local/.ghcup/ghc/${{ env.GHC_VERSION }}
+        key: ${{ runner.os }}-ghcup-ghc-${{ env.GHC_VERSION }}
+
+    - name: Install host GHC
+      run: |
+        if ! ghcup whereis ghc "$GHC_VERSION" >/dev/null 2>&1; then
+          ghcup install ghc "$GHC_VERSION"
+        fi
+        ghcup set ghc "$GHC_VERSION"
+
     - name: Test
       run: npm run test-wasm
 
     # The gallery Pages deploys, in a real browser: the size-optimised binary
     # loading, every example mounting and unmounting, and the routing through
     # back, forward and a reload.
-    - name: Install Chromium
-      run: npx playwright install --with-deps --only-shell chromium
-
     - name: Test the examples gallery in a browser
       run: npm run test-gallery

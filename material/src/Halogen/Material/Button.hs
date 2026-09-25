@@ -9,6 +9,7 @@ module Halogen.Material.Button
 where
 
 import Clay (Css)
+import Control.Monad.UUID (MonadUUID)
 import Data.Text qualified as T
 import Halogen qualified as H hiding (Initialize)
 import Halogen.Component
@@ -45,6 +46,7 @@ emptyButtonSpec =
 
 data ButtonState = ButtonState
   { mdcRipple :: Maybe MDCRipple
+  , ref :: H.RefLabel
   , label :: Text
   , style :: Maybe ButtonStyle
   , icon :: Maybe (Icon, IconPosition)
@@ -58,18 +60,18 @@ data ButtonAction
   | Clicked
 
 button
-  :: (MonadMaterial m)
+  :: (MonadMaterial m, MonadUUID m)
   => H.Component q ButtonSpec ButtonClicked m
 button =
   H.mkComponent $
     H.ComponentSpec
-      { initialState = \ButtonSpec {..} -> pure ButtonState {mdcRipple = Nothing, ..}
+      { initialState = \ButtonSpec {..} -> do
+          ref <- H.newRefLabel "button"
+          pure ButtonState {mdcRipple = Nothing, ..}
       , render
       , eval = H.mkEval $ H.defaultEval {handleAction, initialize = Just Initialize, finalize = Just Finalize}
       }
   where
-    ref = H.RefLabel "elem"
-
     render ButtonState {..} =
       HH.div [HP.class_ (HH.ClassName "mdc-touch-target-wrapper")]
         $ pure
@@ -111,7 +113,7 @@ button =
 
     handleAction = \case
       Initialize ->
-        H.getHTMLElementRef ref >>= \case
+        gets (.ref) >>= H.getHTMLElementRef >>= \case
           Nothing -> panic "Cannot initialize button Ripple, no HTML element found"
           Just e -> do
             ripple <- lift $ initRipple e
