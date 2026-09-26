@@ -258,6 +258,7 @@ test-suite Halogen-core-test
                       transformers
     
     other-modules:  Test.Canvas
+                    Test.CanvasMachine
                     Test.Cookie
                     Test.DriverContract
                     Test.DriverLifecycleRaces

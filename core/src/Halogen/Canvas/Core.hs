@@ -25,7 +25,7 @@ where
 import HPrelude
 import Halogen.Canvas.Types
 import Data.Foreign (unsafeRefEq)
-import Halogen.VDom.Thunk (Thunk (..), unsafeThunkId)
+import Halogen.VDom.Thunk (Thunk, mkThunk, unsafeThunkId)
 import Halogen.VDom.Types (ElemName (..), VDom (..))
 
 -- | The events a canvas element can raise.
@@ -115,16 +115,22 @@ unCanvasNode (CanvasNode vdom) = vdom
 instance Functor (CanvasNode event) where
   fmap f (CanvasNode vdom) = CanvasNode (bimap (map (fmap f)) (fmap f) vdom)
 
--- | A part of the scene rendered from @a@, and compared again only when
--- @a@ changes by the given equality: until then the render is not run,
--- and the part is neither diffed nor redrawn. As with
--- 'Halogen.HTML.memoized', partially apply it once (the function's
+-- | A part of the scene rendered from @a@. While @a@ is equal by the given
+-- equality, a render skips the part: its nodes are not built, not diffed,
+-- and their props are not updated (what the backend then draws each frame
+-- is up to the backend). The equality runs on every render, so it should
+-- be cheaper than the part it spares, and @a@ should hold everything the
+-- part depends on.
+--
+-- As with 'Halogen.HTML.memoized', partially apply it once (the function's
 -- identity is part of what is compared) rather than build it anew in a
--- render.
+-- render. Mapping the part's actions ('fmap') is part of what is compared
+-- too, by reference: map it by a function that stays the same, or it is
+-- built again in each render (see 'Halogen.VDom.Thunk.Thunk').
 memoized :: (a -> a -> Bool) -> (a -> CanvasNode event i) -> a -> CanvasNode event i
 memoized eqFn f =
   -- Not eta-expanded: the partial application is what keeps @f@'s identity.
-  CanvasNode . Widget <$> Thunk (unsafeThunkId f) eqFn f
+  CanvasNode . Widget <$> mkThunk (unsafeThunkId f) eqFn f
 
 -- | 'memoized' by reference: skipped while the very same value comes back.
 lazy :: (a -> CanvasNode event i) -> a -> CanvasNode event i

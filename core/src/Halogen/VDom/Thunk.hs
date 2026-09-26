@@ -4,6 +4,7 @@
 module Halogen.VDom.Thunk where
 
 import Data.Foreign
+import Data.Functor.Classes (liftEq)
 import GHC.Exts qualified as GHC
 import HPrelude hiding (state)
 import Halogen.VDom qualified as V
@@ -15,14 +16,32 @@ newtype ThunkId = ThunkId GHC.Any
 unsafeThunkId :: a -> ThunkId
 unsafeThunkId = unsafeCoerce
 
-data Thunk f i = forall a. Thunk ThunkId (a -> a -> Bool) (a -> f i) a
+-- | A render put off until its input changes: an identity, an equality on
+-- the input, the render and the input. The last field holds the mappings
+-- applied to what it renders since ('mapThunk'), outermost first.
+--
+-- A thunk that compares equal keeps what the last one built, event
+-- handlers and all, so a mapping is part of what is compared: two thunks
+-- mapped by different functions are different thunks, whatever their
+-- input. Mappings are compared by reference, so a thunk mapped anew by a
+-- function built in each render (a lambda over a changing value) is built
+-- again in each render. Map by a function that stays the same (a
+-- constructor, a top-level function) to keep what memoizing saves.
+data Thunk f i = forall a. Thunk ThunkId (a -> a -> Bool) (a -> f i) a [GHC.Any]
 
-deriving instance (Functor f) => Functor (Thunk f)
+-- | A thunk of @render@ at @arg@, compared by @eq@ while its identity is
+-- the same.
+mkThunk :: ThunkId -> (a -> a -> Bool) -> (a -> f i) -> a -> Thunk f i
+mkThunk tid eq render arg = Thunk tid eq render arg []
+
+instance (Functor f) => Functor (Thunk f) where
+  fmap f = mapThunkBy f (fmap f)
 
 unsafeEqThunk :: forall f i. Thunk f i -> Thunk f i -> Bool
-unsafeEqThunk (Thunk a1 b1 _ d1) (Thunk a2 b2 _ d2) =
+unsafeEqThunk (Thunk a1 b1 _ d1 m1) (Thunk a2 b2 _ d2 m2) =
   unsafeRefEq a1 a2
     && unsafeRefEq' b1 b2
+    && liftEq unsafeRefEq m1 m2
     && b1 d1 (unsafeCoerce d2)
 
 data ThunkState m f i a w = ThunkState
@@ -31,13 +50,21 @@ data ThunkState m f i a w = ThunkState
   }
 
 hoist :: forall f g a. (forall x. f x -> g x) -> Thunk f a -> Thunk g a
-hoist f = mapThunk f
+hoist f = mapThunkBy f f
 
+-- | Map what a thunk renders. The mapping becomes part of the thunk's
+-- identity (see 'Thunk').
 mapThunk :: forall f g i j. (f i -> g j) -> Thunk f i -> Thunk g j
-mapThunk k (Thunk a b c d) = Thunk a b (k . c) d
+mapThunk k = mapThunkBy k k
+
+-- | 'mapThunk' by a function built from @key@, which stands for it in the
+-- thunk's identity: the function may be built anew each time, as long as
+-- the same key means the same mapping.
+mapThunkBy :: forall key f g i j. key -> (f i -> g j) -> Thunk f i -> Thunk g j
+mapThunkBy key k (Thunk a b c d ms) = key `seq` Thunk a b (k . c) d (unsafeCoerce key : ms)
 
 runThunk :: forall f i. Thunk f i -> f i
-runThunk (Thunk _ _ render arg) = render arg
+runThunk (Thunk _ _ render arg _) = render arg
 
 {-# INLINEABLE buildThunk #-}
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)

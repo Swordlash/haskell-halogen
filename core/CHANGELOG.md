@@ -3,10 +3,19 @@
 ## Unreleased
 
 - Canvas scenes have `Halogen.Canvas.Elements.memoized` and `lazy`, as HTML
-  has: a part of a scene rendered from a value is neither rendered, diffed
-  nor redrawn again until the value changes. A scene's widget type is now
-  that thunk (`Thunk (CanvasNode event) i`) instead of `Void`; code that
-  matched on `unCanvasNode`'s type names it.
+  has: while the value a part of a scene is rendered from stays equal, a
+  render skips building and diffing the part and updating its props. A
+  scene's widget type is now that thunk (`Thunk (CanvasNode event) i`)
+  instead of `Void`; code that matched on `unCanvasNode`'s type names it.
+- Fix: mapping the actions of a memoized part (`fmap` on HTML or a canvas
+  node holding it, or `hoist`) is part of the part's identity. A part whose
+  input stayed equal kept the handlers built under the old mapping, and
+  went on sending the old actions. Mappings are compared by reference, so a
+  memoized part mapped by a function built anew in each render is built
+  again in each render. **Breaking:** `Thunk` has a field for the mappings;
+  build one with `Halogen.VDom.Thunk.mkThunk`, and map it with `mapThunk`,
+  or `mapThunkBy` to name the mapping by something stabler than the
+  function.
 - **Breaking: `lift` and `liftIO` in `HalogenM` now suspend the program.** A
   tree's components run on one loop per tree
   (`Halogen.IO.Driver.Runtime`), as purescript-halogen's run on `Aff`: the
