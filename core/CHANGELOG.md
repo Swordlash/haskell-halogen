@@ -2,6 +2,43 @@
 
 ## Unreleased
 
+- **Breaking: `lift` and `liftIO` in `HalogenM` now suspend the program.** A
+  tree's components run on one loop per tree
+  (`Halogen.IO.Driver.Runtime`), as purescript-halogen's run on `Aff`: the
+  synchronous parts of a program run there one piece at a time, and `lift`
+  / `liftIO` is where a program waits, as `liftAff` is. The action runs on
+  a worker thread while the rest of the tree goes on, and the program
+  resumes through the loop afterwards. Anything that must happen at once
+  (`preventDefault`, `stopPropagation`, focusing an element, reading the
+  DOM as it is now, `localStorage`, handing a scene to a canvas in order)
+  has to move to the new `Halogen.liftEffect` (hooks: `Hooks.liftEffect`),
+  which runs synchronously on the loop and must not wait. Code that used
+  `liftIO` for these still compiles, but now runs after the event handler
+  has returned to the browser, too late to cancel anything.
+- A program stops the moment it is cancelled: killed (by `kill`, its own
+  fork's included), or its component removed, also by the program's own
+  synchronous work. Nothing after that point runs, not even an error
+  handler. A cancelled program's `lift` worker is killed.
+- Parallel branches (`parallel`/`sequential` in `HalogenM`) are cancelled
+  with the program they belong to, each with its own worker; the first
+  branch to fail cancels the others, and one not started yet never starts.
+- An event a component dispatches from `liftEffect` (`element.click()`,
+  `dispatchEvent`) is handled before the dispatch returns, as in the
+  browser, so its handler can still cancel it or stop its propagation.
+  On the wasm backend DOM event listeners are sync exports (`"wrapper
+  sync"`), which is what re-entering Haskell from a synchronous JavaScript
+  call needs; a listener runs until it ends or waits, and the rest of it
+  runs after it has returned, as on the JavaScript backend.
+- A render pass that fails commits nothing and takes back the children it
+  made, whatever fails before its commit. The DOM backend rebuilds a
+  component's HTML after a patch of it failed, instead of diffing against
+  a record the failed patch made untrue.
+- `HalogenM` has `MonadThrow` and `MonadCatch` instances; a failure after a
+  suspension reaches the handler too.
+- `runUI` returns once the tree's components are initialized, and a state
+  change waits for the initializers of the children its render created,
+  as in purescript-halogen.
+
 - On the JavaScript backend, core defines the few functions other libraries
   import that GHC's JavaScript runtime lacks: `splitmix_init` from splitmix,
   and `readlink`, `geteuid`, `getpwuid_r` and `sysconf` from unix (hspec

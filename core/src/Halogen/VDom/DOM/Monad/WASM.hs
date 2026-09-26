@@ -9,6 +9,7 @@
 module Halogen.VDom.DOM.Monad.WASM () where
 
 import Data.Foreign
+import GHC.Conc (ThreadStatus (..), threadStatus)
 import GHC.Wasm.Prim
 import HPrelude
 import Halogen.VDom.DOM.Monad.Browser
@@ -90,7 +91,26 @@ foreign import javascript unsafe "$1" js_toJSBool :: Bool -> JSVal
 
 foreign import javascript unsafe "$1" js_toJSNum :: Double -> JSVal
 
-foreign import javascript "wrapper" js_mk_event_listener :: (JSVal -> IO ()) -> IO JSVal
+-- A listener is a sync export: the browser runs listeners while it
+-- dispatches an event, and re-entering Haskell from a synchronous JSFFI
+-- import (a component that dispatches an event from 'liftEffect') is only
+-- supported for sync exports. See 'continueAsync' for a listener that waits.
+foreign import javascript "wrapper sync" js_mk_event_listener :: (JSVal -> IO ()) -> IO JSVal
+
+-- | Run a listener on a thread of its own until it ends or waits, and
+-- return to the browser then: what it does before it first waits happens
+-- during the dispatch ('preventDefault' counts), and the rest afterwards, as
+-- with the JavaScript backend's 'ContinueAsync' callbacks. A sync export
+-- itself must not wait for the page's event loop, which cannot run until it
+-- returns.
+continueAsync :: IO () -> IO ()
+continueAsync io = do
+  t <- forkIO io
+  let untilWaiting =
+        threadStatus t >>= \case
+          ThreadRunning -> yield >> untilWaiting
+          _ -> pass
+  untilWaiting
 
 jsStringVal :: Text -> JSVal
 jsStringVal value = case toJSString (toS value) of
@@ -106,7 +126,7 @@ instance MonadDOM BrowserDOM where
   elementToNode el = pure (coerce el)
   elementToEventTarget el = pure (coerce el)
 
-  mkEventListener f = liftIO $ EventListener <$> js_mk_event_listener (runBrowserDOM . f . Event)
+  mkEventListener f = liftIO $ EventListener <$> js_mk_event_listener (continueAsync . runBrowserDOM . f . Event)
 
   createTextNode txt doc = liftIO $ js_create_text_node (jsStringVal txt) doc
   setTextContent txt node = liftIO $ js_set_text_content (jsStringVal txt) node

@@ -136,9 +136,14 @@ whichever thread brings it work while it is idle. A component's program is a fib
 synchronous parts run on the loop, and it waits only in `lift`/`liftIO`, which run on a worker
 thread while the rest of the tree goes on (as `liftAff`). What must happen at once — `preventDefault`,
 focusing, reading the DOM as it is, a synchronous API such as `localStorage`, a scene handed to a
-canvas in order — goes through `H.liftEffect` (hooks: `Hooks.liftEffect`), which must not wait. A
-component that goes away cancels its fibers (their workers are killed); a render pass that fails
-takes back the children it made. `core/test/Test/DriverContract.hs` states the contract as tests.
+canvas in order — goes through `H.liftEffect` (hooks: `Hooks.liftEffect`), which must not wait. An
+event such an effect dispatches is handled before the dispatch returns, nested in it
+(`enterCallback`), as the browser does. A cancelled fiber runs nothing more, not even the rest of
+the synchronous work that cancelled it; its worker, and the fibers of its parallel branches, go with
+it. A component that goes away cancels its fibers; a render pass that fails takes back the children
+it made, and the VDom backend rebuilds a machine whose patch failed. The loop and a fiber's worker
+change hands masked. `core/test/Test/DriverContract.hs` and `core/test/Test/Runtime.hs` state the
+contract as tests.
 
 The canvas layer reuses this: a scene (`Halogen.Canvas.Elements`/`Properties`, in core) is an
 ordinary `VDom` whose nodes, in `pixi`, are Pixi display objects — so HTML and canvas share one
