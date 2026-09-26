@@ -547,7 +547,9 @@ failedRemoval = do
   readIORef counts.started >>= assertEqual "and was never initialized" 1
   readIORef counts.stopped >>= assertEqual "nor finalized" 0
   writeIORef refuse Nothing
-  void $ ask socket (H.mkTell (Set 1))
+  -- Another key: the failed update did change the state, and on the
+  -- JavaScript backend a 1 put again is the same value, not a new one.
+  void $ ask socket (H.mkTell (Set 2))
   readIORef live >>= assertEqual "the new row replaced the old" [1, 3]
   readIORef counts.started >>= assertEqual "the new row started" 2
   readIORef counts.stopped >>= assertEqual "the old row stopped" 1
