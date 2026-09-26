@@ -37,9 +37,10 @@ setEffectsVolume player 0.8
   persistent are let go, least recently used first, beyond `cacheSize`
   (besides those playing or buffered), so an album is never held whole.
 - The music and the effects each have a volume, from 0 to 1 (the initial
-  ones in `Config`). A change reaches the music playing at once; at 0 the
-  music stops and nothing of it is fetched, until the volume is raised, and
-  effects at 0 are not played.
+  ones in `Config`). A change reaches the music playing at once. At zero
+  music volume, playback stops and the music makes no further track
+  requests until the volume is raised; persistent sounds continue to
+  preload and remain cached. Effects at 0 are not played.
 - `browser` fetches whole files at low priority into blob URLs and plays them
   with HTML audio. A page may not play before its first click or key; a voice
   started earlier waits for one. Natively it plays nothing.

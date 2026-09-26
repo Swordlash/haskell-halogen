@@ -19,9 +19,11 @@
 --
 -- The music and the effects have a volume each ('setMusicVolume',
 -- 'setEffectsVolume'), which a page can offer as two sliders: a change
--- reaches the music playing at once. At 0 the music stops and is not
--- fetched, as if muted, and comes back where it was asked for when the
--- volume is raised; effects at 0 are not played.
+-- reaches the music playing at once. At zero music volume, playback stops
+-- and the music makes no further track requests, and it comes back as it
+-- was asked for when the volume is raised; persistent sounds go on
+-- preloading and stay cached, whatever the volume (persistence is about
+-- the cache, the volume about playing). Effects at 0 are not played.
 module Halogen.Sound
   ( Sound (..)
   , Config (..)
@@ -183,7 +185,8 @@ setMuted (Player e) m = modifyMVar_ e.control $ \c -> case (m, c.muted) of
   _ -> pure c
 
 -- | The music's volume, from 0 to 1, for the music playing too. At 0 the
--- music stops, and starts again when the volume is raised.
+-- music stops and asks for no further tracks, and starts again when the
+-- volume is raised. Persistent sounds are preloaded and kept regardless.
 setMusicVolume :: (Sound t) => Player t -> Double -> IO ()
 setMusicVolume (Player e) v = modifyMVar_ e.control $ \c -> do
   let new = clamp v
@@ -270,11 +273,18 @@ playMusicVoice e n clip louder looping = do
         voice <- e.backend.startVoice clip Voicing {volume = level * louder, looping} (void (tryPutMVar done ()))
         pure (Just (n, voice, louder), voice)
     )
+    -- Retired under the same lock a volume change takes: the voice leaves
+    -- the registration and is stopped with no change in between, and the
+    -- registration goes even if the stop fails. A successor's registration
+    -- (another number) stays.
     ( \voice -> do
-        e.backend.stopVoice voice
-        modifyMVar_ e.musicVoice $ pure . \case
-          Just (m, _, _) | m == n -> Nothing
-          other -> other
+        stopped <- modifyMVar e.musicVoice $ \current -> do
+          r <- try (e.backend.stopVoice voice)
+          let rest = case current of
+                Just (m, _, _) | m == n -> Nothing
+                other -> other
+          pure (rest, r)
+        either (throwIO :: SomeException -> IO ()) pure stopped
     )
     (\_ -> takeMVar done)
 
