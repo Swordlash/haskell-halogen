@@ -33,7 +33,7 @@ instance Sound Open where
 album :: [Snd]
 album = [T1, T2, T3, T4]
 
-data Event = Fetched Text | Released Text | Started Text Bool | Stopped Text
+data Event = Fetched Text | Released Text | Started Text Bool | Stopped Text | Volume Text Double
   deriving stock (Eq, Show)
 
 data Fake = Fake
@@ -50,14 +50,18 @@ newFake = do
         Backend
           { fetchClip = \url -> threadDelay 1000 >> note (Fetched url) >> pure (Just url)
           , releaseClip = note . Released
-          , startVoice = \clip Voicing {looping} ended -> do
+          , startVoice = \clip Voicing {volume, looping} ended -> do
               n <- atomicModifyIORef' fake.counter (\i -> (i + 1, i))
               atomicModifyIORef' fake.voices (\vs -> (Map.insert n (clip, ended) vs, ()))
               note (Started clip looping)
+              note (Volume clip volume)
               pure n
           , stopVoice = \n -> do
               v <- atomicModifyIORef' fake.voices (\vs -> (Map.delete n vs, Map.lookup n vs))
               mapM_ (note . Stopped . fst) v
+          , setVolume = \n volume -> do
+              v <- Map.lookup n <$> readIORef fake.voices
+              mapM_ (\(clip, _) -> note (Volume clip volume)) v
           }
   pure (fake, backend)
 
@@ -195,3 +199,47 @@ spec = describe "player" $ do
     setMuted player True
     es' <- eventually fake (Stopped "Menu" `elem`)
     Stopped "Menu" `elem` es' `shouldBe` True
+
+  it "changes the music's volume while it plays, and plays effects at theirs" $ do
+    (fake, backend) <- newFake
+    player <- newPlayer backend config {musicVolume = 0.5, effectsVolume = 0.8}
+    playTheme player Menu
+    _ <- eventually fake (Volume "Menu" 0.5 `elem`)
+    setMusicVolume player 0.25
+    es <- eventually fake (Volume "Menu" 0.25 `elem`)
+    Volume "Menu" 0.25 `elem` es `shouldBe` True
+    Stopped "Menu" `elem` es `shouldBe` False
+    setEffectsVolume player 0.4
+    playEffect player Click
+    es' <- eventually fake (Volume "Click" 0.4 `elem`)
+    Volume "Click" 0.4 `elem` es' `shouldBe` True
+    -- The effects' volume leaves the music alone.
+    [v | Volume "Menu" v <- es'] `shouldBe` [0.5, 0.25]
+    stopMusic player
+
+  it "at no music volume stops the music and fetches none, until it is raised" $ do
+    (fake, backend) <- newFake
+    player <- newPlayer backend config
+    playTheme player Menu
+    _ <- eventually fake (Started "Menu" True `elem`)
+    setMusicVolume player 0
+    _ <- eventually fake (Stopped "Menu" `elem`)
+    playAlbum player album
+    threadDelay 50000
+    es <- readIORef fake.events
+    [t | Fetched t <- es, t `notElem` ["Menu", "Click"]] `shouldBe` []
+    startsOf es `shouldBe` ["Menu"]
+    setMusicVolume player 0.3
+    es' <- eventually fake (\xs -> length (startsOf xs) > 1)
+    drop 1 (startsOf es') `shouldSatisfy` all (`elem` ["T1", "T2", "T3", "T4"])
+    [v | Volume t v <- es', t /= "Menu"] `shouldBe` [0.3]
+    stopMusic player
+
+  it "plays no effect at no effects volume" $ do
+    (fake, backend) <- newFake
+    player <- newPlayer backend config
+    _ <- eventually fake (Fetched "Click" `elem`)
+    setEffectsVolume player 0
+    playEffect player Click
+    threadDelay 50000
+    readIORef fake.events >>= (`shouldBe` []) . startsOf
