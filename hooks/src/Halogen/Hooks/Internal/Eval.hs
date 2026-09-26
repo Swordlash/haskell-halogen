@@ -21,7 +21,6 @@ module Halogen.Hooks.Internal.Eval
   )
 where
 
-import Control.Exception qualified as Exception
 import Control.Monad.Free.Church (foldF, liftF)
 import Control.Monad.State.Class qualified as State
 import Data.Foreign (unsafeRefEq)
@@ -36,7 +35,7 @@ import Halogen.Hooks.Internal.Types (StateId (..))
 import Halogen.Query.HalogenM qualified as HM
 import Halogen.Query.HalogenQ (HalogenQ (..))
 import Protolude hiding (get, gets, modify, put, state)
-import UnliftIO (UnliftIO (..))
+import Control.Monad.Catch qualified as Catch
 
 -- | The handler a 'Halogen.Hooks.useQuery' installed, kept under a newtype
 -- because it is a rank-2 function. Its @q@ is the component's own query
@@ -113,7 +112,7 @@ evalHook = NT $ \case
   Finalize a -> do
     int <- readInternal
     for_ int.cells $ \cs ->
-      traverse_ interpretHookM =<< liftIO (cleanups cs)
+      traverse_ interpretHookM =<< atOnce (cleanups cs)
     pure a
 
 -- | Run the hook program: build or step the cells, render what it produced,
@@ -134,24 +133,32 @@ runHooks int = do
   sequence_ effects
 
 -- | Run the program again if anything it or its effects did asked for it.
+--
+-- One pass at a time: a pass whose effects wait (in 'liftIO') lets the tree
+-- go on, and a request made meanwhile marks the program dirty for the pass
+-- in progress to run again rather than start one of its own.
 settle :: forall scope q input slots output m hooks. (MonadIO m) => Eval scope q input slots output m hooks ()
-settle = HM.HalogenM $ liftF $ HM.Unlift $ \(UnliftIO run) -> Exception.mask $ \restore -> do
-  st <- run State.get
-  firstPass <- atomicModifyIORef' st.internal $ \int ->
+settle = do
+  st <- State.get
+  firstPass <- atOnce $ atomicModifyIORef' st.internal $ \int ->
     if int.running || not int.dirty
       then (int, Nothing)
       else (int {running = True, dirty = False}, Just int)
   let loop int = do
-        restore $ run (runHooks int)
+        runHooks int
         -- Release ownership and check for another request in the same atomic
         -- operation: a fork must not lose a write at the end of a pass.
-        next <- atomicModifyIORef' st.internal $ \current ->
+        next <- atOnce $ atomicModifyIORef' st.internal $ \current ->
           if current.dirty
             then (current {dirty = False}, Just current)
             else (current {running = False}, Nothing)
         traverse_ loop next
+  -- A pass that fails gives the program up; what was asked for meanwhile
+  -- gets a pass of its own, and the failure goes on to be reported.
   for_ firstPass $ \int ->
-    loop int `Exception.onException` atomicModifyIORef' st.internal (\current -> (current {running = False, dirty = True}, ()))
+    loop int `Catch.onException` do
+      pending <- atOnce $ atomicModifyIORef' st.internal $ \current -> (current {running = False}, current.dirty)
+      when pending $ void $ HM.fork settle
 
 -- | The first pass: the cells do not exist yet, so each hook makes its own.
 --
@@ -170,17 +177,17 @@ buildHooks = \case
     (b, cellsB, effectsB) <- buildHooks (k a)
     pure (b, cellsA . cellsB, effectsA <> effectsB)
   HState s -> do
-    ref <- liftIO $ newIORef s
+    ref <- atOnce $ newIORef s
     pure ((s, StateId ref), CState ref, [])
   HEffect _same deps effect -> do
-    ref <- liftIO $ newIORef EffectCell {deps, cleanup = Nothing}
+    ref <- atOnce $ newIORef EffectCell {deps, cleanup = Nothing}
     pure ((), CEffect ref, [runEffect ref deps effect])
   HMemo _same deps f -> do
     let a = f deps
-    ref <- liftIO $ newIORef (deps, a)
+    ref <- atOnce $ newIORef (deps, a)
     pure (a, CMemo ref, [])
   HRef a -> do
-    ref <- liftIO $ newIORef a
+    ref <- atOnce $ newIORef a
     pure ((a, ref), CRef ref, [])
   HQuery handler -> do
     modifyInternal $ \i -> i {queryHandler = Just (QueryHandler handler)}
@@ -205,26 +212,26 @@ stepHooks cs = \case
     pure (b, cs'', effectsA <> effectsB)
   HState _ -> case cs of
     CState ref rest -> do
-      s <- liftIO $ readIORef ref
+      s <- atOnce $ readIORef ref
       pure ((s, StateId ref), rest, [])
   -- The comparison comes from this render's hook, not the cell: what a cell
   -- remembers is the dependencies it last ran on.
   HEffect same deps effect -> case cs of
     CEffect ref rest -> do
-      cell <- liftIO $ readIORef ref
+      cell <- atOnce $ readIORef ref
       pure ((), rest, [runEffect ref deps effect | not (same cell.deps deps)])
   HMemo same deps f -> case cs of
     CMemo ref rest -> do
-      (deps', a') <- liftIO $ readIORef ref
+      (deps', a') <- atOnce $ readIORef ref
       if same deps' deps
         then pure (a', rest, [])
         else do
           let a = f deps
-          liftIO $ writeIORef ref (deps, a)
+          atOnce $ writeIORef ref (deps, a)
           pure (a, rest, [])
   HRef _ -> case cs of
     CRef ref rest -> do
-      a <- liftIO $ readIORef ref
+      a <- atOnce $ readIORef ref
       pure ((a, ref), rest, [])
   HQuery handler -> case cs of
     CQuery rest -> do
@@ -241,10 +248,10 @@ runEffect
   -> HookM scope slots output m (Maybe (HookAction scope slots output m))
   -> Eval scope q input slots output m hooks ()
 runEffect ref deps effect = do
-  cell <- liftIO $ readIORef ref
+  cell <- atOnce $ readIORef ref
   traverse_ interpretHookM cell.cleanup
   cleanup <- interpretHookM effect
-  liftIO $ writeIORef ref EffectCell {deps, cleanup}
+  atOnce $ writeIORef ref EffectCell {deps, cleanup}
 
 -- | Interpret a hook program's instructions as the component's @HalogenM@.
 --
@@ -262,8 +269,9 @@ interpretHookMWith settleWrites (HookM program) = foldF go program
     go :: forall x. HookF scope slots output m x -> Eval scope q input slots output m hooks x
     go = \case
       Lift mx k -> map k (lift mx)
+      LiftEffect mx k -> map k (HM.liftEffect mx)
       State (StateId ref) f k -> do
-        (x, changed) <- liftIO $ atomicModifyIORef' ref $ \s ->
+        (x, changed) <- atOnce $ atomicModifyIORef' ref $ \s ->
           let (x, s') = f s in (s', (x, not (unsafeRefEq s s')))
         when changed $ do
           modifyInternal $ \i -> i {dirty = True}
@@ -282,7 +290,7 @@ interpretHookMWith settleWrites (HookM program) = foldF go program
 readInternal :: forall scope q input slots output m hooks. (MonadIO m) => Eval scope q input slots output m hooks (Internal scope q input slots output m hooks)
 readInternal = do
   st <- State.get
-  liftIO $ readIORef st.internal
+  atOnce $ readIORef st.internal
 
 modifyInternal
   :: forall scope q input slots output m hooks
@@ -291,4 +299,9 @@ modifyInternal
   -> Eval scope q input slots output m hooks ()
 modifyInternal f = do
   st <- State.get
-  liftIO $ atomicModifyIORef' st.internal (\int -> (f int, ()))
+  atOnce $ atomicModifyIORef' st.internal (\int -> (f int, ()))
+
+-- | The hooks' own bookkeeping: at once, not a place where the program may
+-- wait (see 'HM.liftEffect').
+atOnce :: forall state action slots output m a. (MonadIO m) => IO a -> HM.HalogenM state action slots output m a
+atOnce = HM.liftEffect . liftIO

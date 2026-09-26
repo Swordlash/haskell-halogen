@@ -85,11 +85,13 @@ component renderer =
           events <- liftIO HS.create
           void $ H.subscribe $ Emit <$> events.emitter
           mounted <- lift $ renderer.mount element (liftIO . HS.notify events.listener)
+          -- Mounting may wait (a backend can set up asynchronously); a
+          -- scene is handed over at once, so that scenes arrive in order.
           current <- gets (.scene)
-          lift $ mounted.update current
+          H.liftEffect $ mounted.update current
           modify $ \currentState -> currentState {mounted = Just mounted}
       Receive scene -> do
         modify $ \currentState -> currentState {scene}
-        gets (.mounted) >>= traverse_ (\mounted -> lift $ mounted.update scene)
+        gets (.mounted) >>= traverse_ (\mounted -> H.liftEffect $ mounted.update scene)
       Emit event -> H.raise event
       Unmount -> gets (.mounted) >>= traverse_ (lift . (.destroy))

@@ -19,6 +19,7 @@ where
 
 import Data.IORef (readIORef, writeIORef)
 import Halogen.Hooks qualified as Hooks
+import Halogen.Hooks.Internal.HookM (effectIO)
 import Halogen.Hooks.Types (Hook, HookK (..), HookM)
 import Protolude
 
@@ -36,7 +37,7 @@ useGet value = Hooks.do
   (_, ref) <- Hooks.useRef value
 
   Hooks.useTickEffect value $ do
-    liftIO $ writeIORef ref value
+    effectIO $ writeIORef ref value
     pure Nothing
 
-  Hooks.pure $ liftIO $ readIORef ref
+  Hooks.pure $ effectIO $ readIORef ref

@@ -86,6 +86,7 @@ common commons
       uuid-types,
       unliftio,
       safe-exceptions,
+      exceptions,
       clay >= 0.16.0,
       data-default
 
@@ -119,6 +120,7 @@ library
 
       Halogen.IO.Driver
       Halogen.IO.Driver.Eval
+      Halogen.IO.Driver.Runtime
       Halogen.IO.Driver.State
       Halogen.IO.Util
 
@@ -239,10 +241,14 @@ test-suite Halogen-core-test
     type:             exitcode-stdio-1.0
     hs-source-dirs:   test
     main-is:          Test.hs
+    -- Natively, the driver's tests run on several capabilities too.
+    if !arch(wasm32) && !arch(javascript)
+      ghc-options:    -threaded -rtsopts
     build-depends:    base >= 4.20,
                       aeson,
                       clay >= 0.16.0,
                       containers,
+                      exceptions,
                       haskell-halogen-core,
                       hspec >= 2,
                       mtl,
@@ -253,12 +259,15 @@ test-suite Halogen-core-test
     
     other-modules:  Test.Canvas
                     Test.Cookie
+                    Test.DriverContract
                     Test.DriverLifecycleRaces
                     Test.DriverReentrancy
                     Test.DriverStateAtomic
                     Test.Fork
                     Test.GHCJS
                     Test.NativeDom
+                    Test.RenderRecovery
+                    Test.Runtime
                     Test.Storage
                     Test.SvgAttributes
                     Test.Utils
