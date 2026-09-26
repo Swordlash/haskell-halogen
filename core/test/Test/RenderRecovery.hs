@@ -20,7 +20,7 @@ spec = xdescribe "render recovery" $ pure ()
 import Control.Exception (ErrorCall (..), SomeException, throw, try)
 import Control.Monad.State.Class (put)
 import Data.Foldable (for_)
-import Data.Row (Empty)
+import Data.Row (Empty, type (.==))
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Void (Void)
@@ -70,7 +70,10 @@ recovers = do
   -- The class is changed on the page, then the text fails.
   failed <- try (set "b" True)
   assertWith "the render failed" (either (\(_ :: SomeException) -> True) (const False) failed)
-  page >>= \during -> assertWith ("the failed render changed the class: " <> T.unpack during) ("\"b\"" `T.isInfixOf` during)
+  -- What the failed render left is off the page, an empty placeholder in
+  -- its place.
+  N.renderToText container >>= assertEqual "nothing of the broken render shows" "<div></div>"
+  (length <$> N.childNodes container) >>= assertEqual "one placeholder" 1
   -- Back to what the last good render had: the page must say so too.
   _ <- set "a" False
   page >>= assertEqual "the page is what was rendered" before
@@ -82,11 +85,11 @@ data Shape a = Shape Text Text Bool a
 
 -- | A root element of the given tag, holding a text that fails to render
 -- when asked to.
-shaped :: H.Component Shape () Void MemDOM
+shaped :: H.Component Shape Text Void MemDOM
 shaped =
   H.mkComponent
     H.ComponentSpec
-      { initialState = \_ -> pure ("div", "first", False)
+      { initialState = \label -> pure ("div", label, False)
       , render = \(tag, label, bad) ->
           (if tag == "section" then HH.section_ else HH.div_)
             [HH.text (if bad then throw (ErrorCall "no text") else label)]
@@ -102,7 +105,7 @@ betweenSiblings steps = do
   before <- N.newElement Nothing (ElemName "b")
   after <- N.newElement Nothing (ElemName "i")
   runMemDOM (appendChild (N.fromNative before) (N.fromNative container))
-  H.HalogenSocket {H.query = ask, H.dispose = dispose} <- runMemDOM (VD.runUI shaped () (N.fromNative container))
+  H.HalogenSocket {H.query = ask, H.dispose = dispose} <- runMemDOM (VD.runUI shaped "first" (N.fromNative container))
   runMemDOM (appendChild (N.fromNative after) (N.fromNative container))
   N.renderToText container >>= assertEqual "mounted between its siblings" "<div><b></b><div>first</div><i></i></div>"
   for_ steps $ \(tag, label, bad) -> do
@@ -126,9 +129,82 @@ failedRebuild = do
   betweenSiblings [("section", "broken", True), ("section", "still broken", True), ("div", "back", False), ("section", "patched", False)]
     >>= assertEqual "and is patched in place afterwards" "<div><b></b><section>patched</section><i></i></div>"
 
+data RowQuery a
+  = Order [Text] a
+  | Poke Text Text Text Bool a
+
+-- | 'shaped' components in a keyed row, in the order it is told.
+row :: H.Component RowQuery () Void MemDOM
+row =
+  H.mkComponent
+    H.ComponentSpec
+      { initialState = \_ -> pure ["B", "A"]
+      , render = \order ->
+          HH.keyed (ElemName "p") [] [(k, HH.slot_ "cell" k shaped k) | k <- order]
+          :: H.ComponentHTML () ("cell" .== H.Slot Shape Void Text) MemDOM
+      , eval =
+          H.mkEval
+            H.defaultEval
+              { H.handleQuery = \case
+                  Order order a -> put order >> pure (Just a)
+                  Poke k tag label bad a -> H.query "cell" k (Shape tag label bad ()) >> pure (Just a)
+              }
+      }
+
+-- | Mount 'row', run the steps (each says whether it fails), and hand back
+-- the markup and how many nodes the row holds, empty ones included.
+inRow :: [(RowQuery (), Bool)] -> IO (Text, Int)
+inRow steps = do
+  container <- N.newElement Nothing (ElemName "div")
+  H.HalogenSocket {H.query = ask, H.dispose = dispose} <- runMemDOM (VD.runUI row () (N.fromNative container))
+  N.renderToText container >>= assertEqual "the row as mounted" "<div><p><div>B</div><div>A</div></p></div>"
+  for_ steps $ \(q, bad) -> do
+    result <- try (runMemDOM (ask q))
+    assertEqual "the step failed as it should" bad (either (\(_ :: SomeException) -> True) (const False) result)
+  html <- N.renderToText container
+  [p] <- N.childNodes container
+  nodes <- length <$> N.childNodes p
+  runMemDOM dispose
+  pure (html, nodes)
+
+-- | The parent moves a broken child: what stands for the child moves, and
+-- the child comes back where the parent last put it.
+movedWhileBroken :: IO ()
+movedWhileBroken =
+  inRow
+    [ (Poke "A" "section" "broken" True (), True)
+    , (Order ["A", "B"] (), False)
+    , (Poke "A" "div" "back" False (), False)
+    ]
+    >>= assertEqual "in the parent's order, and nothing left over" ("<div><p><div>back</div><div>B</div></p></div>", 2)
+
+-- | The parent removes a broken child: its placeholder goes with it.
+removedWhileBroken :: IO ()
+removedWhileBroken = do
+  inRow [(Poke "A" "section" "broken" True (), True), (Order ["B"] (), False)]
+    >>= assertEqual "the broken child is gone, placeholder and all" ("<div><p><div>B</div></p></div>", 1)
+  inRow [(Poke "A" "div" "broken" True (), True), (Order ["B"] (), False)]
+    >>= assertEqual "also when its patch failed without replacing its root" ("<div><p><div>B</div></p></div>", 1)
+
+-- | A broken root component disposed of leaves nothing behind.
+disposedWhileBroken :: IO ()
+disposedWhileBroken = do
+  container <- N.newElement Nothing (ElemName "div")
+  before <- N.newElement Nothing (ElemName "b")
+  runMemDOM (appendChild (N.fromNative before) (N.fromNative container))
+  H.HalogenSocket {H.query = ask, H.dispose = dispose} <- runMemDOM (VD.runUI shaped "first" (N.fromNative container))
+  failed <- try (runMemDOM (ask (H.mkTell (Shape "section" "broken" True))))
+  assertEqual "the render failed" True (either (\(_ :: SomeException) -> True) (const False) failed)
+  runMemDOM dispose
+  N.renderToText container >>= assertEqual "only the sibling" "<div><b></b></div>"
+  (length <$> N.childNodes container) >>= assertEqual "and no placeholder" 1
+
 spec :: Spec
 spec =
   describe "render recovery" $ do
+    it "moves what stands for a broken child when its parent reorders it" movedWhileBroken
+    it "removes a broken child's placeholder with it" removedWhileBroken
+    it "leaves nothing of a broken root once it is disposed of" disposedWhileBroken
     it "brings the page to what is rendered after a render that failed part way" recovers
     it "puts a root back where it was when the failed patch had taken it off the page" replacedRoot
     it "keeps the place through a rebuild that fails too" failedRebuild

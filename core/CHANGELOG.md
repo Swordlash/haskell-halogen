@@ -30,9 +30,11 @@
   call needs; a listener runs until it ends or waits, and the rest of it
   runs after it has returned, as on the JavaScript backend.
 - A render pass that fails commits nothing and takes back the children it
-  made, whatever fails before its commit. The DOM backend rebuilds a
-  component's HTML after a patch of it failed, instead of diffing against
-  a record the failed patch made untrue.
+  made, whatever fails before its commit. In the DOM backend, what a
+  failed patch of a component left is taken off the page at once, an empty
+  text node holding its place (which the parent moves and removes as it
+  would the component's root), and the next render builds the HTML afresh
+  there, instead of diffing against a record the failed patch made untrue.
 - `HalogenM` has `MonadThrow` and `MonadCatch` instances; a failure after a
   suspension reaches the handler too.
 - `runUI` returns once the tree's components are initialized, and a state
