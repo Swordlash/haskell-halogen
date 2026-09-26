@@ -137,12 +137,17 @@ enterWith callback loop@(Loop ref) work = do
     entry <- atomicModifyIORef' ref $ \s ->
       if
         | not s.running -> (s {running = True, runner = Just me}, Claimed)
-        | s.runner == Just me || (callback && s.effects > 0) -> (s, Nested)
+        | maybe False (sameThread me) s.runner || (callback && s.effects > 0) -> (s, Nested)
         | otherwise -> (s {queue = s.queue |> work}, Queued)
     case entry of
       Claimed -> runLoop loop restore work
       Nested -> restore work
       Queued -> pure ()
+
+-- | 'compare', not '==': GHC's JavaScript runtime has the @cmp_thread@ that
+-- 'Ord' 'ThreadId' calls, but not the @eq_thread@ that 'Eq' calls.
+sameThread :: ThreadId -> ThreadId -> Bool
+sameThread a b = compare a b == EQ
 
 -- | Run a component's synchronous effect, on the loop.
 withinEffect :: Loop -> IO a -> IO a
