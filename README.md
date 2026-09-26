@@ -20,10 +20,12 @@ AI usage disclaimer: All code until tag `0.9.0` was hand-written. Any later comm
 | [hooks/](hooks/) | `haskell-halogen-hooks` | A port of `purescript-halogen-hooks`: a component as one function. |
 | [material/](material/) | `haskell-halogen-material` | Google Material Components bindings. |
 | [pixi/](pixi/) | `haskell-halogen-pixi` | A PixiJS v8 canvas rendering backend. |
+| [sound/](sound/) | `haskell-halogen-sound` | Music and sound effects for a page: a theme to loop, a shuffled album fetched ahead, effects on top. |
+| [hspec-halogen/](hspec-halogen/) | `hspec-halogen` | Test components in a real browser with hspec: mount, click, type, check. |
 | [examples/](examples/) | `halogen-example-*` | One runnable browser app per library, and `all`, which mounts them in one page. |
 
-`core` is dependency-free with respect to the others; `hooks`, `material` and `pixi` each depend
-only on `core`. Every package builds from the one `cabal.project` at the repository root, so a change to
+`core` is dependency-free with respect to the others; `hooks`, `material`, `pixi` and
+`hspec-halogen` each depend only on `core`, and `sound` depends on none of them. Every package builds from the one `cabal.project` at the repository root, so a change to
 `core` is type-checked against every dependent and every example in the same build.
 
 ## The monad a component runs in
