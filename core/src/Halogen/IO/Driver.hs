@@ -106,12 +106,12 @@ runUI RenderSpec {..} c i = do
         -- the latest state, so no render is lost. See 'RenderGate'.
         -- A render that throws lets the lock go on its way out; otherwise
         -- every later render would only ask it for another pass, and none
-        -- would come. What was queued for it is forked all the same, and a
+        -- would come. What was queued for it is started all the same, and a
         -- render asked for meanwhile (of a newer state) is tried again, on
         -- its own thread, since this one is on its way out with the error.
         let abandon = do
               (queued, again) <- abandonRender ds.renderGate
-              traverse_ fork queued
+              for_ queued $ \batch -> void $ fork (drainQueue ds.renderGate batch)
               when again $ void $ fork (render' lchs var)
         Control.Exception.Safe.mask $ \restore -> whenM (enterRender ds.renderGate) $ flip Control.Exception.Safe.onException abandon $ restore $ do
           let renderPass = do
@@ -159,11 +159,12 @@ runUI RenderSpec {..} c i = do
                 atomicModifyIORef'_ ds.selfRef $ \ds' ->
                   ds' {rendering = Just rendering, children = children}
 
-                -- Queued actions are forked, then another pass if one was
-                -- asked for; the lock goes only when neither is left.
+                -- Queued actions are started, in order, on a thread of
+                -- their own; then another pass if one was asked for. The
+                -- lock goes only when neither is left.
                 fix $ \leave ->
                   leaveRender ds.renderGate >>= \case
-                    Drain handlers -> traverse_ fork handlers >> leave
+                    Drain handlers -> void (fork (drainQueue ds.renderGate handlers)) >> leave
                     Again -> renderPass
                     Done -> pass
           renderPass

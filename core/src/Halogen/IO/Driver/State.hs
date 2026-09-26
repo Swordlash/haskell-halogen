@@ -12,12 +12,15 @@ module Halogen.IO.Driver.State
   -- , unRenderStateX
   , initDriverState
   , RenderGate (..)
+  , idleGate
   , Leave (..)
   , enterRender
   , beginPass
   , runOrQueue
   , leaveRender
   , abandonRender
+  , nextToDrain
+  , drainQueue
   )
 where
 
@@ -101,7 +104,7 @@ initDriverState component input handler lchs = do
   handlerRef <- newIORef handler
   pendingQueries <- newIORef (Just [])
   pendingOuts <- newIORef (Just [])
-  renderGate <- newIORef Idle
+  renderGate <- newIORef idleGate
   fresh <- newIORef 1
   subscriptions <- newIORef (Just mempty)
   forks <- newIORef (Just mempty)
@@ -126,7 +129,7 @@ initDriverState component input handler lchs = do
   atomicWriteIORef selfRef ds
   pure ds
 
--- | The render lock of one component, and everything that has to wait for it.
+-- | The render lock of a component, and the actions waiting for it.
 --
 -- Only one render pass may walk a component's slots at a time: a second one
 -- would pop children the first is still matching and re-create live ones
@@ -135,45 +138,59 @@ initDriverState component input handler lchs = do
 -- renders the child), so a thread that blocked on it could be waiting for
 -- itself. A render asked for while one is in progress is marked instead, and
 -- the render in progress does one more pass; an action raised during a render
--- is queued, and forked once the pass is over.
+-- is queued, and started once the pass is over.
 --
--- The lock, the queue and the mark are one value, and every change to it is
--- one 'atomicModifyIORef'' below. Kept apart, a handler queued just as the
--- lock is let go, or a render asked for just then, could be lost.
-data RenderGate m
-  = Idle
-  | Rendering
-      { queued :: [m ()]
-      -- ^ Newest first.
-      , again :: Bool
-      -- ^ A render was asked for during this pass.
-      }
+-- Queued actions start in the order they came, one after another, each
+-- running until it first waits (as purescript-halogen's Aff fibers do), on
+-- a thread of its own so that one waiting long holds up no other. While any
+-- of them has yet to start, a new action queues behind them too: run at
+-- once, it would overtake them, and an input's handler, say, would see the
+-- keys typed in another order.
+--
+-- The lock, the queue and the marks are one value, and every change to it
+-- is one 'atomicModifyIORef'' below. Kept apart, a handler queued just as
+-- the lock is let go, or a render asked for just then, could be lost.
+data RenderGate m = RenderGate
+  { held :: Bool
+  -- ^ A render holds the lock.
+  , again :: Bool
+  -- ^ A render was asked for during this pass.
+  , queued :: [m ()]
+  -- ^ Newest first.
+  , draining :: Bool
+  -- ^ A thread is starting queued actions; it takes the ones queued
+  -- meanwhile too.
+  }
+
+-- | Nothing rendering, nothing waiting.
+idleGate :: RenderGate m
+idleGate = RenderGate False False [] False
 
 -- | Take the lock, or, if a render holds it, ask that render for another
 -- pass. 'True' when the caller now holds the lock and has to render.
 enterRender :: (MonadIO m) => IORef (RenderGate m) -> m Bool
-enterRender gate = atomicModifyIORef' gate $ \case
-  Idle -> (Rendering [] False, True)
-  Rendering q _ -> (Rendering q True, False)
+enterRender gate = atomicModifyIORef' gate $ \g ->
+  if g.held then (g {again = True}, False) else (g {held = True, again = False}, True)
 
 -- | Start a pass: it renders the latest state, so earlier requests for
 -- another pass are answered by it.
 beginPass :: (MonadIO m) => IORef (RenderGate m) -> m ()
-beginPass gate = atomicModifyIORef'_ gate $ \case
-  Idle -> Idle
-  Rendering q _ -> Rendering q False
+beginPass gate = atomicModifyIORef'_ gate $ \g -> if g.held then g {again = False} else g
 
--- | Run an action now, or queue it if a render holds the lock.
+-- | Run an action now, or queue it if a render holds the lock or queued
+-- actions have yet to start.
 runOrQueue :: (MonadIO m) => IORef (RenderGate m) -> m () -> m ()
 runOrQueue gate act = do
-  runNow <- atomicModifyIORef' gate $ \case
-    Idle -> (Idle, True)
-    Rendering q again -> (Rendering (act : q) again, False)
+  runNow <- atomicModifyIORef' gate $ \g ->
+    if g.held || g.draining || not (null g.queued)
+      then (g {queued = act : g.queued}, False)
+      else (g, True)
   when runNow act
 
 -- | What the holder of the lock does next.
 data Leave m
-  = -- | Run these (oldest first) and try to leave again.
+  = -- | Start these (oldest first) with 'drainQueue', then try to leave
+    -- again. The caller is now the one draining the queue.
     Drain [m ()]
   | -- | Render another pass, still holding the lock.
     Again
@@ -181,20 +198,43 @@ data Leave m
     Done
 
 -- | Let the lock go, unless something still waits for it: queued actions
--- come out first, then another pass if one was asked for.
+-- come out first (unless a thread is already starting queued actions,
+-- which will take these too), then another pass if one was asked for.
 leaveRender :: (MonadIO m) => IORef (RenderGate m) -> m (Leave m)
-leaveRender gate = atomicModifyIORef' gate $ \case
-  Idle -> (Idle, Done)
-  Rendering [] False -> (Idle, Done)
-  Rendering [] True -> (Rendering [] True, Again)
-  Rendering q again -> (Rendering [] again, Drain (reverse q))
+leaveRender gate = atomicModifyIORef' gate leave
+  where
+    leave g
+      | not g.held = (g, Done)
+      | not g.draining && not (null g.queued) = (g {queued = [], draining = True}, Drain (reverse g.queued))
+      | g.again = (g, Again)
+      | otherwise = (g {held = False}, Done)
+
+-- | The actions queued while a batch was being started (oldest first), to
+-- start next; or, when there are none or a render holds the lock (it hands
+-- them out as it leaves), 'Nothing', and the draining is over.
+nextToDrain :: (MonadIO m) => IORef (RenderGate m) -> m (Maybe [m ()])
+nextToDrain gate = atomicModifyIORef' gate $ \g ->
+  if not g.held && not (null g.queued)
+    then (g {queued = []}, Just (reverse g.queued))
+    else (g {draining = False}, Nothing)
+
+-- | Start queued actions in order, each on its own thread and each given
+-- the processor until it first waits, then the ones queued meanwhile. For
+-- whoever was handed a 'Drain' (or a batch by 'abandonRender').
+drainQueue :: (MonadIO m, MonadFork m) => IORef (RenderGate m) -> [m ()] -> m ()
+drainQueue gate = fix $ \go batch -> do
+  for_ batch $ \act -> Control.Monad.Fork.fork act >> liftIO yield
+  nextToDrain gate >>= traverse_ go
 
 -- | A render failed: let the lock go, and hand back what was queued for it
--- (oldest first) and whether another render was asked for while it ran, so
--- that neither the lock, those actions, nor that request are lost with it.
--- The request came from a state newer than the one that failed, so it is
--- worth a try; with none, retrying would fail on the same state again.
-abandonRender :: (MonadIO m) => IORef (RenderGate m) -> m ([m ()], Bool)
-abandonRender gate = atomicModifyIORef' gate $ \case
-  Idle -> (Idle, ([], False))
-  Rendering q again -> (Idle, (reverse q, again))
+-- (oldest first; to start with 'drainQueue', unless a thread already
+-- drains the queue) and whether another render was asked for while it ran,
+-- so that neither the lock, those actions, nor that request are lost with
+-- it. The request came from a state newer than the one that failed, so it
+-- is worth a try; with none, retrying would fail on the same state again.
+abandonRender :: (MonadIO m) => IORef (RenderGate m) -> m (Maybe [m ()], Bool)
+abandonRender gate = atomicModifyIORef' gate $ \g ->
+  let g' = g {held = False, again = False}
+   in if not g.draining && not (null g.queued)
+        then (g' {queued = [], draining = True}, (Just (reverse g.queued), g.again))
+        else (g', (Nothing, g.again))

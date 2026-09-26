@@ -25,7 +25,7 @@ import Halogen as H
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Core qualified as HC
 import Halogen.IO.Driver qualified as AD
-import Halogen.IO.Driver.State (Leave (..), RenderGate (..), RenderStateX (..), beginPass, enterRender, leaveRender, runOrQueue)
+import Halogen.IO.Driver.State (Leave (..), RenderGate (..), RenderStateX (..), beginPass, enterRender, idleGate, leaveRender, nextToDrain, runOrQueue)
 import Halogen.Query.Input (Input)
 import Prelude
 import System.IO.Unsafe (unsafePerformIO)
@@ -115,11 +115,12 @@ test = do
 -- | The render lock, step by step.
 gateSteps :: IO ()
 gateSteps = do
-  gate <- newIORef Idle
+  gate <- newIORef idleGate
   ran <- newIORef []
   let act n = atomicModifyIORef' ran (\ns -> (ns <> [n :: Int], ()))
+      drain acts = sequence_ acts >> nextToDrain gate >>= mapM_ drain
       leave = leaveRender gate >>= \case
-        Drain acts -> sequence_ acts >> pure "drain"
+        Drain acts -> drain acts >> pure "drain"
         Again -> pure "again"
         Done -> pure "done"
   runOrQueue gate (act 0)
@@ -136,15 +137,47 @@ gateSteps = do
   leave >>= assertEqual "and then the lock goes" "done"
   enterRender gate >>= assertEqual "for the next render to take" True
 
+-- | An action raised while queued ones have yet to start waits behind them,
+-- and actions come out in the order they were raised.
+gateOrder :: IO ()
+gateOrder = do
+  gate <- newIORef idleGate
+  ran <- newIORef []
+  let act n = atomicModifyIORef' ran (\ns -> (ns <> [n :: Int], ()))
+  _ <- enterRender gate
+  runOrQueue gate (act 1)
+  batch <-
+    leaveRender gate >>= \case
+      Drain acts -> pure acts
+      _ -> pure []
+  length batch `shouldBe'` 1
+  leaveRender gate >>= \case
+    Done -> pure ()
+    _ -> assertEqual "the render lets the lock go" True False
+  -- The render is over, but the first action has not started yet.
+  runOrQueue gate (act 2)
+  readIORef ran >>= assertEqual "the second waits for the first" []
+  sequence_ batch
+  nextToDrain gate >>= \case
+    Just next -> sequence_ next
+    Nothing -> assertEqual "the second is handed to the thread draining" True False
+  nextToDrain gate >>= assertEqual "and then the draining is over" Nothing . fmap length
+  readIORef ran >>= assertEqual "in the order they were raised" [1, 2]
+  runOrQueue gate (act 3)
+  readIORef ran >>= assertEqual "with nothing waiting, an action runs at once" [1, 2, 3]
+  where
+    shouldBe' a b = assertEqual "one action queued" b a
+
 -- | Actions raised from many threads while renders come and go: each one
 -- runs, and runs once.
 gateStress :: IO ()
 gateStress = do
-  gate <- newIORef Idle
+  gate <- newIORef idleGate
   count <- newIORef (0 :: Int)
   let threads = 8
       each = 2000
       bump = atomicModifyIORef' count (\n -> (n + 1, ()))
+      drain acts = sequence_ acts >> nextToDrain gate >>= mapM_ drain
       render = do
         took <- enterRender gate
         when took $ do
@@ -152,7 +185,7 @@ gateStress = do
                 beginPass gate
                 yield
                 leaveRender gate >>= \case
-                  Drain acts -> sequence_ acts >> pass'
+                  Drain acts -> drain acts >> pass'
                   Again -> pass'
                   Done -> pure ()
           pass'
@@ -167,13 +200,12 @@ gateStress = do
   -- Whatever the last render left behind.
   render
   readIORef count >>= assertEqual "every action ran exactly once" (threads * each)
-  readIORef gate >>= \case
-    Idle -> pure ()
-    Rendering {} -> assertEqual "the lock is let go" True False
+  readIORef gate >>= \g -> assertEqual "the lock is let go, and nothing waits" (False, False, 0) (g.held, g.draining, length g.queued)
 
 spec :: Spec
 spec =
   describe "driver state" $ do
     it "keeps an update made while another is being computed" test
     it "queues actions during a render and hands them out in order" gateSteps
+    it "queues an action behind queued ones that have yet to start" gateOrder
     it "runs every action exactly once while renders come and go" gateStress
