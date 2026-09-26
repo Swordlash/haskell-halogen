@@ -45,6 +45,8 @@ import Halogen.Canvas.Pixi.Prop (buildCanvasProp)
 import Halogen.Canvas.Types
 import Halogen.VDom.DOM qualified as V
 import Halogen.VDom.Machine qualified as V
+import Halogen.VDom.Thunk (Thunk)
+import Halogen.VDom.Thunk qualified as Thunk
 import Halogen.VDom.Types qualified as V
 import Protolude
 
@@ -162,7 +164,7 @@ data Drag = Drag
   -- not raise a spurious 'CameraChanged'.
   }
 
-type SceneStep i = V.Step PixiDOM (V.VDom [PixiProp i] Void) FFI.Object
+type SceneStep i = V.Step PixiDOM (V.VDom [PixiProp i] (Thunk (CanvasNode PixiEvent) i)) FFI.Object
 
 data Runtime i = Runtime
   { app :: FFI.Application
@@ -238,13 +240,13 @@ updateRuntime runtime scene = liftIO $ do
 
 -- | The vdom spec the scene reconciles through.
 --
--- All of it in 'PixiDOM': a canvas scene has no component slots — its widget
--- type is 'Void' — so there is nothing below here that needs the monad the
--- application chose.
-pixiSpec :: Runtime i -> V.VDomSpec PixiDOM [PixiProp i] Void
+-- All of it in 'PixiDOM': a canvas scene has no component slots — its only
+-- widgets are thunks — so there is nothing below here that needs the monad
+-- the application chose.
+pixiSpec :: Runtime i -> V.VDomSpec PixiDOM [PixiProp i] (Thunk (CanvasNode PixiEvent) i)
 pixiSpec runtime =
   V.VDomSpec
-    { buildWidget = \_ -> absurd
+    { buildWidget = Thunk.buildThunk unCanvasNode
     , buildAttributes = buildCanvasProp (liftIO . runtime.emit . Fired) runtime.app
     , document = runtime.app
     }

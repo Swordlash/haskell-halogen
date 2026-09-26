@@ -8,6 +8,7 @@ import Prelude
 import Test.GHCJS qualified as GHCJS
 #endif
 import Test.Canvas qualified as Canvas
+import Test.CanvasMachine qualified as CanvasMachine
 import Test.Cookie qualified as Cookie
 import Test.DriverContract qualified as DriverContract
 import Test.DriverReentrancy qualified as DriverReentrancy
@@ -27,6 +28,7 @@ main = hspec $ do
   GHCJS.spec
 #endif
   Canvas.spec
+  CanvasMachine.spec
   Cookie.spec
   DriverContract.spec
   DriverReentrancy.spec

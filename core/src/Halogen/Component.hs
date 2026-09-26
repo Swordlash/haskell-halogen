@@ -31,7 +31,7 @@ data ComponentSlot (slots :: Row Type) m msg
 instance Functor (ComponentSlot slots' m) where
   fmap f = \case
     ComponentSlot box -> ComponentSlot $ map f box
-    ThunkSlot t -> ThunkSlot $ mapThunk (bimap (fmap f) f) t
+    ThunkSlot t -> ThunkSlot $ mapThunkBy f (bimap (fmap f) f) t
 
 data ComponentSpec' state query action slots input output m n = ComponentSpec
   { initialState :: input -> m state
@@ -179,4 +179,4 @@ hoistSlot
 hoistSlot nat = \case
   ComponentSlot ComponentSlotBox {..} -> ComponentSlot $ ComponentSlotBox {component = hoist nat component, ..}
   ThunkSlot t ->
-    ThunkSlot $ Thunk.hoist (first (hoistSlot nat)) t
+    ThunkSlot $ Thunk.mapThunkBy nat (first (hoistSlot nat)) t

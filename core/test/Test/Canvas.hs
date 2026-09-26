@@ -8,12 +8,12 @@ import Clay.Render qualified as CR
 import Data.List (nub, sort)
 import Data.Text (Text)
 import Data.Text.Lazy (toStrict)
-import Data.Void (Void)
 import Halogen.Canvas.Core
 import Halogen.Canvas.Elements qualified as CE
 import Halogen.Canvas.Properties qualified as CP
 import Halogen.Canvas.Types
 import Halogen.Svg.Attributes qualified as SA
+import Halogen.VDom.Thunk (Thunk, runThunk, unsafeEqThunk)
 import Halogen.VDom.Types (ElemName (..), VDom (..))
 import Prelude
 import Test.Hspec (Spec, describe, it)
@@ -42,11 +42,54 @@ everyProp =
   , Hit (CircleHit (Point 0 0) 1)
   ]
 
-unwrap :: CanvasNode event i -> VDom [CanvasProp event i] Void
+unwrap :: CanvasNode event i -> VDom [CanvasProp event i] (Thunk (CanvasNode event) i)
 unwrap = unCanvasNode
+
+-- | A part of a scene drawn from a number, memoized by equality.
+disc :: Int -> CanvasNode () Action
+disc = CE.memoized (==) (\n -> CE.circle_ (Point 0 0) (fromIntegral n) Nothing Nothing)
+
+data Tap = Tap
+
+-- Top-level, so that each is the same function wherever it is used.
+asClicked, asHovered :: Tap -> Action
+asClicked Tap = Clicked
+asHovered Tap = Hovered
+
+-- | A memoized part that sends 'Tap' when tapped.
+tapped :: Int -> CanvasNode () Tap
+tapped = CE.memoized (==) (\n -> CE.circle (Point 0 0) (fromIntegral n) Nothing Nothing [Handler PointerTap (const (Just Tap))])
+
+-- | What the tap handlers of a node's own props send.
+tapsOf :: CanvasNode () Action -> [Maybe Action]
+tapsOf node = case unwrap node of
+  Elem _ _ props _ -> [f () | Handler PointerTap f <- props]
+  _ -> []
+
+thunkOf :: CanvasNode () Action -> Maybe (Thunk (CanvasNode ()) Action)
+thunkOf node = case unwrap node of
+  Widget t -> Just t
+  _ -> Nothing
 
 spec :: Spec
 spec = describe "canvas scenes" $ do
+  describe "memoized parts" $ do
+    it "is the same part while its input is equal, and another once it is not" $ do
+      case (thunkOf (disc 3), thunkOf (disc 3), thunkOf (disc 4)) of
+        (Just a, Just b, Just c) -> do
+          assertWith "equal inputs: skipped" (unsafeEqThunk a b)
+          assertWith "another input: drawn again" (not (unsafeEqThunk a c))
+          case unwrap (runThunk c) of
+            Elem _ (ElemName n) _ _ -> assertEqual "renders what it wraps" "graphics" n
+            _ -> assertWith "renders an element" False
+        _ -> assertWith "a memoized part is a thunk" False
+    it "maps the actions of what it renders, and is another part under another mapping" $
+      case (thunkOf (fmap asClicked (tapped 3)), thunkOf (fmap asClicked (tapped 3)), thunkOf (fmap asHovered (tapped 3))) of
+        (Just a, Just b, Just c) -> do
+          assertWith "same input, same mapping: skipped" (unsafeEqThunk a b)
+          assertWith "same input, another mapping: rendered again" (not (unsafeEqThunk a c))
+          assertEqual "the handler sends the mapped action" [Just Hovered] (tapsOf (runThunk c))
+        _ -> assertWith "a memoized part is a thunk" False
   describe "the camera" $ do
     let start = Camera {focus = Point 0 0, zoom = 1}
         dragged = Camera {focus = Point 40 10, zoom = 1}
