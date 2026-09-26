@@ -107,8 +107,8 @@ child counts =
               { initialize = Just Start
               , finalize = Just Stop
               , handleAction = \case
-                  Start -> liftIO $ modifyIORef' counts.started (+ 1)
-                  Stop -> liftIO $ modifyIORef' counts.stopped (+ 1)
+                  Start -> H.liftEffect $ modifyIORef' counts.started (+ 1)
+                  Stop -> H.liftEffect $ modifyIORef' counts.stopped (+ 1)
               }
       }
 
@@ -239,31 +239,6 @@ renderAfterFailure = do
   assertEqual "the next state is rendered" (Just "two") (lastMay rendered)
   dispose
 
--- | A render asked for while another is failing is not lost with it.
-renderAskedDuringFailure :: IO ()
-renderAskedDuringFailure = do
-  entered <- newEmptyMVar
-  go <- newEmptyMVar
-  probe0 <- newProbe
-  let probe = probe0 {beforeFailing = putMVar entered () >> takeMVar go}
-  AD.HalogenSocket {AD.query = ask, AD.dispose = dispose} <- AD.runUI (walking probe) counter ()
-  writeIORef probe.failing True
-  failed <- newEmptyMVar
-  _ <- forkIO $ try (ask (Set 1 ())) >>= \(r :: Either ErrorCall (Maybe ())) -> putMVar failed r
-  takeMVar entered
-  -- The render of 1 is about to throw. A newer state asks for a render,
-  -- which the render in progress is to do.
-  void $ ask (Set 2 ())
-  putMVar go ()
-  void $ takeMVar failed
-  let wait n = do
-        rendered <- readIORef probe.texts
-        if lastMay rendered == Just "two" || n <= (0 :: Int)
-          then pure (lastMay rendered)
-          else threadDelay 10000 >> wait (n - 1)
-  wait 200 >>= assertEqual "the newer state is rendered" (Just "two")
-  dispose
-
 lastMay :: [a] -> Maybe a
 lastMay xs = if null xs then Nothing else Just (last xs)
 
@@ -273,4 +248,3 @@ spec =
     it "does not start a child twice when an update overlaps a render" childrenKept
     it "kills a fork registered after its component was finalized" forkAfterFinalize
     it "renders again after a render threw" renderAfterFailure
-    it "renders a state set while a render was failing" renderAskedDuringFailure

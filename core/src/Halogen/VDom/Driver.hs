@@ -11,7 +11,7 @@ import Control.Monad.Parallel
 import Control.Monad.UUID
 import Data.Coerce
 import Data.Foreign
-import HPrelude
+import HPrelude hiding (onException)
 import Halogen.Component
 import Halogen.HTML.Core (HTML (..))
 import Halogen.IO.Driver (HalogenSocket)
@@ -44,9 +44,17 @@ type ChildRenderer m action slots = ComponentSlotBox slots m action -> m (Render
 
 data RenderState m state action slots output
   = RenderState
-  { node :: DOM.Node
-  , machine :: V.Step m (VHTML m action slots) DOM.Node
+  { machine :: V.Step m (VHTML m action slots) DOM.Node
   , renderChildRef :: IORef (ChildRenderer m action slots)
+  , shown :: IORef DOM.Node
+  -- ^ What stands for the component on the page, and to its parent (which
+  -- moves and removes it): the root of its HTML, or, while it is broken, a
+  -- placeholder.
+  , broken :: IORef Bool
+  -- ^ A patch failed part way. What it left was taken off the page, an
+  -- empty text node was put in its place, and the next render builds the
+  -- HTML afresh there rather than patch a machine that no longer says what
+  -- the page holds.
   }
 
 type HTMLThunk m slots action =
@@ -112,15 +120,14 @@ mkSpec handler renderChildRef document =
           -> m (V.Step m (ComponentSlot slots m action) DOM.Node)
         renderComponentSlot cs = do
           renderChild <- readIORef renderChildRef
-          rsx <- renderChild cs
-          let node = getNode rsx
+          node <- getNode =<< renderChild cs
           pure $ V.Step node Nothing patch done
 
     done :: WidgetState m slots action -> m ()
     done = traverse_ V.halt
 
-    getNode :: RenderStateX (RenderState m) -> DOM.Node
-    getNode (RenderStateX (RenderState {node})) = node
+    getNode :: RenderStateX (RenderState m) -> m DOM.Node
+    getNode (RenderStateX (RenderState {shown})) = readIORef shown
 
 -- | Run a component against the DOM its own monad speaks.
 --
@@ -141,7 +148,7 @@ runUI component i element = do
 
 renderSpec
   :: forall m
-   . (DOM.MonadBrowserDOM m, MonadIO m)
+   . (DOM.MonadBrowserDOM m, MonadIO m, MonadMask m)
   => DOM.Document
   -> DOM.HTMLElement
   -> AD.RenderSpec m (RenderState m)
@@ -163,28 +170,61 @@ renderSpec document container =
     render handler child (HTML vdom) =
       \case
         Nothing -> do
+          (machine, renderChildRef) <- build
+          let node = V.extract machine
+          void $ DOM.appendChild node $ toNode container
+          shown <- newIORef node
+          broken <- newIORef False
+          pure $ RenderState {machine, renderChildRef, shown, broken}
+        Just st@(RenderState {machine, renderChildRef, shown, broken}) -> do
+          node <- readIORef shown
+          parent <- DOM.parentNode node
+          nextSib <- DOM.nextSibling node
+          readIORef broken >>= \case
+            False -> do
+              atomicWriteIORef renderChildRef child
+              machine' <- V.step machine vdom `onException` tearDown st node parent nextSib
+              let newNode = V.extract machine'
+              unless (node `unsafeRefEq` newNode) $ do
+                substInParent newNode nextSib parent
+                writeIORef shown newNode
+              pure st {machine = machine'}
+            True -> do
+              -- Built where the placeholder is, which the parent may have
+              -- moved meanwhile; until a build succeeds it stays.
+              (machine', renderChildRef') <- build
+              let newNode = V.extract machine'
+              for_ parent $ \pn -> do
+                DOM.insertBefore newNode node pn
+                DOM.removeChild node pn
+              writeIORef shown newNode
+              writeIORef broken False
+              pure $ RenderState {machine = machine', renderChildRef = renderChildRef', shown, broken}
+      where
+        -- A patch that failed has changed part of the page already. What it
+        -- left goes (the old machine is halted, which lets its refs go, and
+        -- its root is taken off the page if the patch had not), and an
+        -- empty text node holds the place where the root was before it.
+        tearDown RenderState {machine, shown, broken} node parent nextSib = do
+          placeholder <- DOM.createTextNode "" document
+          substInParent placeholder nextSib parent
+          void $ tryAny (V.halt machine)
+          DOM.parentNode node >>= traverse_ (DOM.removeChild node)
+          writeIORef shown placeholder
+          writeIORef broken True
+        build = do
           renderChildRef <- newIORef child
           let spec = mkSpec handler renderChildRef document
           machine <- V.buildVDom spec vdom
-          let node = V.extract machine
-          void $ DOM.appendChild node $ toNode container
-          pure $ RenderState {machine, node, renderChildRef}
-        Just (RenderState {machine, node, renderChildRef}) -> do
-          atomicWriteIORef renderChildRef child
-          parent <- DOM.parentNode node
-          nextSib <- DOM.nextSibling node
-          machine' <- V.step machine vdom
-          let newNode = V.extract machine'
-          unless (node `unsafeRefEq` newNode)
-            $ substInParent newNode nextSib parent
-          pure $ RenderState {machine = machine', node = newNode, renderChildRef}
+          pure (machine, renderChildRef)
 
 removeChild
   :: forall m state action slots output
-   . (DOM.MonadBrowserDOM m)
+   . (DOM.MonadBrowserDOM m, MonadIO m)
   => RenderState m state action slots output
   -> m ()
-removeChild (RenderState {node}) = do
+removeChild (RenderState {shown}) = do
+  node <- readIORef shown
   npn <- DOM.parentNode node
   traverse_ (DOM.removeChild node) npn
 

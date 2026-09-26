@@ -18,7 +18,7 @@ import Protolude
 import System.IO.Error (userError)
 import System.IO.Unsafe (unsafePerformIO)
 import Test.Harness (Harness (..), dispose, eventually, lastRender, query, start)
-import Test.Hspec (Spec, anyIOException, describe, it, shouldBe, shouldThrow)
+import Test.Hspec (Spec, describe, it, shouldBe)
 
 ----------------------------------------------------------------------
 -- A component that reports on itself.
@@ -73,12 +73,12 @@ probeComponent probe = Hooks.component @Empty $ \_input -> Hooks.do
   memoed <- Hooks.useMemo count (countedMemo probe.memoRuns)
 
   Hooks.useLifecycleEffect $ do
-    liftIO $ modifyIORef' probe.lifecycleRuns (+ 1)
-    pure $ Just $ liftIO $ modifyIORef' probe.cleanupRuns (+ 1)
+    Hooks.liftEffect $ modifyIORef' probe.lifecycleRuns (+ 1)
+    pure $ Just $ Hooks.liftEffect $ modifyIORef' probe.cleanupRuns (+ 1)
 
   Hooks.useTickEffect count $ do
-    liftIO $ modifyIORef' probe.tickLog (<> [Ran count])
-    pure $ Just $ liftIO $ modifyIORef' probe.tickLog (<> [Cleaned count])
+    Hooks.liftEffect $ modifyIORef' probe.tickLog (<> [Ran count])
+    pure $ Just $ Hooks.liftEffect $ modifyIORef' probe.tickLog (<> [Cleaned count])
 
   Hooks.useQuery $ \case
     Bump a -> do
@@ -101,8 +101,8 @@ probeComponent probe = Hooks.component @Empty $ \_input -> Hooks.do
       pure (Just a)
     BumpOther a -> Hooks.modify_ otherId (+ 1) $> Just a
     CurrentCount k -> Just . k <$> Hooks.get countId
-    WriteRef v a -> liftIO (writeIORef ref v) $> Just a
-    ReadRef k -> Just . k <$> liftIO (readIORef ref)
+    WriteRef v a -> Hooks.liftEffect (writeIORef ref v) $> Just a
+    ReadRef k -> Just . k <$> Hooks.liftEffect (readIORef ref)
 
   Hooks.pure $
     HH.div_
@@ -173,9 +173,9 @@ reentrantComponent logRef source = Hooks.component @Empty $ \_ -> Hooks.do
     void $ Hooks.subscribe $ map (\() -> Hooks.put countId 1) source.emitter
     pure Nothing
   Hooks.useTickEffect count $ do
-    liftIO $ modifyIORef' logRef (<> [Ran count])
-    when (count == 0) $ liftIO $ HS.notify source.listener ()
-    pure $ Just $ liftIO $ modifyIORef' logRef (<> [Cleaned count])
+    Hooks.liftEffect $ modifyIORef' logRef (<> [Ran count])
+    when (count == 0) $ Hooks.liftEffect $ HS.notify source.listener ()
+    pure $ Just $ Hooks.liftEffect $ modifyIORef' logRef (<> [Cleaned count])
   Hooks.pure $ HH.text (show count)
 
 throwingComponent :: IORef [Int] -> HS.Emitter IO Int -> H.Component H.VoidF () Void IO
@@ -185,8 +185,8 @@ throwingComponent logRef source = Hooks.component @Empty $ \_ -> Hooks.do
     void $ Hooks.subscribe $ map (Hooks.put countId) source
     pure Nothing
   Hooks.useTickEffect count $ do
-    when (count == 1) $ liftIO $ throwIO (userError "effect failed")
-    liftIO $ modifyIORef' logRef (<> [count])
+    when (count == 1) $ Hooks.liftEffect $ throwIO (userError "effect failed")
+    Hooks.liftEffect $ modifyIORef' logRef (<> [count])
     pure Nothing
   Hooks.pure $ HH.text (show count)
 
@@ -243,7 +243,8 @@ spec = describe "hooks" $ do
     runs <- newIORef []
     source <- HS.create
     harness <- start (throwingComponent runs source.emitter) ()
-    HS.notify source.listener 1 `shouldThrow` anyIOException
+    -- The failing action ends alone (and is reported); the next pass runs.
+    HS.notify source.listener 1
     HS.notify source.listener 2
     lastRender harness >>= (`shouldBe` "2")
     readIORef runs >>= (`shouldBe` [0, 2])

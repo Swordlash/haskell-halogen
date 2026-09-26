@@ -1,242 +1,257 @@
+-- | A component's programs, run as fibers on its tree's loop (see
+-- "Halogen.IO.Driver.Runtime").
 module Halogen.IO.Driver.Eval
-  ( Renderer
-  , evalF
+  ( evalM
   , evalQ
-  , evalM
-  , handleLifecycle
+  , launchOwned
+  , launchAction
+  , launchFree
+  , spawnAwait
+  , awaitAll
   , queueOrRun
-  -- , handleIO
+  , runHandler
+  , handlePending
+  , report
+  , ComponentGone (..)
   )
 where
 
-import Control.Applicative.Free.Fast
-import Control.Exception.Safe qualified as Safe
-import Control.Monad.Fork
+import Control.Applicative.Free.Fast (runAp)
+import Control.Exception (throwIO)
 import Control.Monad.Free.Church (foldF)
-import Control.Monad.Parallel
 import Data.Foreign
 import Data.Functor.Coyoneda
+import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict qualified as M
 import Data.NT
-import HPrelude hiding (Concurrently, finally, join, runConcurrently, state)
+import HPrelude hiding (Concurrently, finally, join, runConcurrently, state, throwIO)
 import Halogen.Component
+import Halogen.IO.Driver.Runtime
 import Halogen.IO.Driver.State
 import Halogen.Query.ChildQuery qualified as CQ
 import Halogen.Query.HalogenM hiding (fork, join, kill, query, unsubscribe)
 import Halogen.Query.HalogenQ qualified as HQ
-import Halogen.Query.Input
 import Halogen.Query.Input qualified as Input
 import Halogen.Subscription qualified as HS
 
-type Renderer m r =
-  forall s f act ps i o
-   . IORef (LifecycleHandlers m)
-  -> IORef (DriverState m r s f act ps i o)
-  -> m ()
+-- | Thrown by the runner 'withRunInIO' hands out when the component went
+-- away before the program it was given could finish.
+data ComponentGone = ComponentGone
+  deriving stock (Show)
 
-{-# SPECIALIZE evalF :: Renderer IO r -> IORef (DriverState IO r s f act ps i o) -> Input act -> IO () #-}
-evalF
-  :: (MonadUnliftIO m, MonadParallel m, MonadMask m, MonadFork m, MonadKill m)
-  => Renderer m r
-  -> IORef (DriverState m r s f act ps i o)
-  -> Input act
-  -> m ()
-evalF render ref = \case
-  Input.RefUpdate (Input.RefLabel p) el -> do
-    atomicModifyIORef'_ ref $ \st ->
-      st {refs = M.alter (const el) p st.refs}
-  Input.Action act -> do
-    st <- readIORef ref
-    evalM render ref (runNT st.component.eval (HQ.Action act ()))
+instance Exception ComponentGone
 
-{-# SPECIALIZE evalQ :: Renderer IO r -> IORef (DriverState IO r s f act ps i o) -> f a -> IO (Maybe a) #-}
-evalQ
-  :: (MonadUnliftIO m, MonadParallel m, MonadMask m, MonadFork m, MonadKill m)
-  => Renderer m r
-  -> IORef (DriverState m r s f act ps i o)
-  -> f a
-  -> m (Maybe a)
-evalQ render ref q = do
-  st <- readIORef ref
-  evalM render ref (runNT st.component.eval (HQ.Query (Just <$> liftCoyoneda q) (const Nothing)))
-
-{-# SPECIALIZE evalM :: Renderer IO r -> IORef (DriverState IO r s f act ps i o) -> HalogenM s act ps o IO a -> IO a #-}
+-- | A program of the component, as a fiber's steps. Everything but 'Lift'
+-- (and 'Unlift', whose body is arbitrary 'IO') is synchronous work on the
+-- loop.
 evalM
   :: forall m r s f act ps i o a
-   . (MonadUnliftIO m, MonadParallel m, MonadMask m, MonadFork m, MonadKill m)
-  => Renderer m r
-  -> IORef (DriverState m r s f act ps i o)
+   . IORef (DriverState m r s f act ps i o)
   -> HalogenM s act ps o m a
-  -> m a
-evalM render initRef (HalogenM hm) = foldF (go initRef) hm
+  -> Turn a
+evalM var (HalogenM hm) = foldF go hm
   where
-    go
-      :: forall x
-       . IORef (DriverState m r s f act ps i o)
-      -> HalogenF s act ps o m x
-      -> m x
-    go ref = \case
+    go :: forall x. HalogenF s act ps o m x -> Turn x
+    go = \case
       State f -> do
-        -- Only the state is replaced, and in one atomic step. Writing back
-        -- the whole record read before `f` ran would undo what another
-        -- thread wrote in between: a state update (lost), or a render pass's
-        -- children and rendering, after which the next render re-mints live
-        -- children and leaves the old ones running.
-        DriverState {lifecycleHandlers} <- readIORef ref
-        -- The field is taken by a pattern, not `st.state`: a selector
-        -- thunk is a new pointer, and `unsafeRefEq` would then never see
-        -- an unchanged state and render after every no-op update.
-        (a, changed) <- atomicModifyIORef' ref $ \st@DriverState {state} -> case f state of
-          (a, state')
-            | unsafeRefEq state state' -> (st, (a, False))
-            | otherwise -> (st {state = state'}, (a, True))
-        when changed $ handleLifecycle lifecycleHandlers (render lifecycleHandlers ref)
+        (a, initializers) <- sync (update f)
+        -- As in purescript-halogen, the program goes on once the children
+        -- the render made are initialized (they may wait, and it with them).
+        awaitAll initializers
         pure a
-      Subscribe fes k -> do
-        sid <- fresh SubscriptionId ref
-        finalize <- fmap (HS.hoistSubscription (NT liftIO)) $ withRunInIO $ \runInIO -> HS.subscribe (fes sid) $ \act ->
-          runInIO $ evalF render ref (Input.Action act)
-        DriverState {subscriptions} <- readIORef ref
-        -- A component already finalized has no register any more; its
-        -- subscription would never be stopped, so stop it now.
-        kept <- atomicModifyIORef' subscriptions $ \case
-          Nothing -> (Nothing, False)
-          Just subs -> (Just (M.insert sid finalize subs), True)
-        unless kept $ HS.unsubscribe finalize
+      Subscribe fes k -> sync $ do
+        ds <- readIORef var
+        sid <- fresh SubscriptionId ds
+        life <- readIORef ds.life
+        -- None while the component is being finalized.
+        when (life == Alive) $ do
+          sub <- HS.subscribe (fes sid) $ \act -> enter ds.tree.loop (launchAction var act)
+          modifyIORef' ds.subscriptions (M.insert sid sub)
         pure (k sid)
-      Unsubscribe sid next -> do
-        unsubscribe sid ref
+      Unsubscribe sid next -> sync $ do
+        ds <- readIORef var
+        sub <- atomicModifyIORef' ds.subscriptions (\subs -> (M.delete sid subs, M.lookup sid subs))
+        traverse_ HS.unsubscribe sub
         pure next
-      Lift aff ->
-        aff
-      Unlift q -> withRunInIO $ \runInIO -> q (UnliftIO $ runInIO . evalM render initRef)
-      ChildQuery cq ->
-        evalChildQuery ref cq
-      Raise o a -> do
-        DriverState {handlerRef, pendingOuts} <- readIORef ref
-        handler <- readIORef handlerRef
-        queueOrRun pendingOuts (handler o)
+      Lift aff -> do
+        ds <- sync (readIORef var)
+        await (treeRunM ds.tree aff)
+      LiftEffect eff -> do
+        ds <- sync (readIORef var)
+        sync (withinEffect ds.tree.loop (treeRunM ds.tree eff))
+      Unlift q -> do
+        ds <- sync (readIORef var)
+        -- The body is arbitrary IO, run on a worker; each program it runs
+        -- is a fiber of this component, handed to the loop, and waited for.
+        await $ q $ UnliftIO $ \program -> do
+          result <- newEmptyMVar
+          post ds.tree.loop $ launchOwned var False (const pass) (evalM var program) (putMVar result)
+          takeMVar result >>= \case
+            Done a -> pure a
+            Failed e -> throwIO e
+            Cancelled -> throwIO ComponentGone
+      ChildQuery (CQ.ChildQuery unpack query reply) -> do
+        ds <- sync (readIORef var)
+        reply <$> sequentialTurn (unpack (\(DriverStateRef child) -> ParTurn (queryChild child query)) ds.children)
+      Raise o a -> sync $ do
+        ds <- readIORef var
+        handler <- readIORef ds.handlerRef
+        queueOrRun ds.pendingOuts (handler o)
         pure a
-      Par (HalogenAp p) -> sequential $ retractAp $ hoistAp (parallel . evalM render ref) p
+      Par (HalogenAp p) -> sequentialTurn $ runAp (ParTurn . evalM var) p
       Fork hmu k -> do
-        fid <- fresh ForkId ref
-        DriverState {forks} <- readIORef ref
-        doneRef <- newIORef False
-        -- The bookkeeping is the finalizer, not the action: a fork has to stay
-        -- in `forks` for as long as it runs, because that map is what `Join`,
-        -- `Kill` and finalization look it up in. With the two the other way
-        -- round the fork struck itself off the register before doing any work,
-        -- which left `kill` and `join` as no-ops and let a component's forks
-        -- outlive it.
-        fiber <-
-          fork
-            $ Safe.finally
-              (evalM render ref hmu)
-              ( do
-                  -- The flag goes up before the entry comes out, which is what
-                  -- makes the pair of checks below exhaustive.
-                  atomicWriteIORef doneRef True
-                  atomicModifyIORef'_ forks (map (M.delete fid))
-              )
-        -- Already finished, so there is nothing to register: the finalizer has
-        -- run and would not remove an entry added now.
-        unlessM (readIORef doneRef) $ do
-          -- The component may have been finalized since this fork began:
-          -- then its forks were killed already, and this one has to be too.
-          registered <- atomicModifyIORef' forks $ \case
-            Nothing -> (Nothing, False)
-            Just forkMap -> (Just (M.insert fid fiber forkMap), True)
-          unless registered $ kill AsyncCancelled fiber
-          -- It can also finish in the gap between that check and this
-          -- insert, and then either its removal runs after the insert and
-          -- takes this entry with it, or it ran before the insert -- in which
-          -- case the flag was already up, because the finalizer raises it
-          -- first, and so is up when it is read here. Between them the two
-          -- readings leave no interleaving in which a finished fork stays in
-          -- the map. (With the finalizer's two writes the other way round
-          -- there is one: remove, be read as unfinished, be inserted, be read
-          -- as unfinished again, and only then raise the flag.)
-          whenM (readIORef doneRef) $ atomicModifyIORef'_ forks (map (M.delete fid))
-        pure (k fid)
+        me <- currentFiber
+        sync $ do
+          ds <- readIORef var
+          fid <- fresh ForkId ds
+          -- Registered before it starts: it may end, and strike itself off,
+          -- before 'launchOwned' returns.
+          launchOwned
+            var
+            (fiberClosingOk me)
+            (\fb -> modifyIORef' ds.forks (M.insert fid fb))
+            (evalM var hmu)
+            (\outcome -> modifyIORef' ds.forks (M.delete fid) >> report "A fork" outcome)
+          pure (k fid)
       Join fid a -> do
-        DriverState {forks} <- readIORef ref
-        forkMap <- readIORef forks
-        traverse_ join (M.lookup fid =<< forkMap)
+        ds <- sync (readIORef var)
+        running <- sync (M.lookup fid <$> readIORef ds.forks)
+        for_ running $ \fb -> do
+          outcome <- suspend $ \resume -> do
+            waiting <- onFiberOver fb (resume . Right)
+            unless waiting $ resume (Right (Done ()))
+          case outcome of
+            Done () -> pure ()
+            Failed e -> sync (throwIO e)
+            -- Joining a killed fork ends the program that joins.
+            Cancelled -> Turn $ \self _ _ -> cancelFiber self
         pure a
-      Kill fid a -> do
-        DriverState {forks} <- readIORef ref
-        forkMap <- readIORef forks
-        traverse_ (kill AsyncCancelled) (M.lookup fid =<< forkMap)
+      Kill fid a -> sync $ do
+        ds <- readIORef var
+        traverse_ cancelFiber . M.lookup fid =<< readIORef ds.forks
         pure a
-      GetRef (Input.RefLabel p) k -> do
-        DriverState {refs} <- readIORef ref
+      Throw e -> throwTurn e
+      Catch body handler k -> k <$> catchTurn (evalM var body) (evalM var . handler)
+      GetRef (Input.RefLabel p) k -> sync $ do
+        DriverState {refs} <- readIORef var
         pure $ k $ M.lookup p refs
 
-    evalChildQuery
-      :: IORef (DriverState m r s f act ps i o)
-      -> CQ.ChildQuery ps x
-      -> m x
-    evalChildQuery ref (CQ.ChildQuery unpack query reply) = do
-      st <- readIORef ref
-      let evalChild (DriverStateRef var) = parallel $ do
-            dsx <- readIORef var
-            evalQ render dsx.selfRef query
-      reply <$> sequential (unpack evalChild st.children)
 
-{-# SPECIALIZE unsubscribe :: SubscriptionId -> IORef (DriverState IO r s f act ps i o) -> IO () #-}
-unsubscribe
-  :: (MonadIO m)
-  => SubscriptionId
-  -> IORef (DriverState m r s' f' act' ps' i' o')
-  -> m ()
-unsubscribe sid ref = do
-  DriverState {subscriptions} <- readIORef ref
-  subs <- readIORef subscriptions
-  traverse_ HS.unsubscribe (M.lookup sid =<< subs)
+    update :: forall x. (s -> (x, s)) -> IO (x, [Fiber])
+    update f = do
+      -- The field is taken by a pattern, not `ds.state`: a selector thunk
+      -- is a new pointer, and `unsafeRefEq` would then never see an
+      -- unchanged state and render after every no-op update.
+      ds@DriverState {state} <- readIORef var
+      case f state of
+        (a, state')
+          | unsafeRefEq state state' -> pure (a, [])
+          | otherwise -> do
+              writeIORef var ds {state = state'}
+              -- Rendered before the program goes on, so that what it reads
+              -- next (a ref, say) is the new state's.
+              initializers <- treeRender ds.tree var
+              pure (a, initializers)
 
-{-# SPECIALIZE handleLifecycle :: IORef (LifecycleHandlers IO) -> IO a -> IO a #-}
-handleLifecycle :: (MonadIO m, MonadParallel m, MonadFork m, MonadMask m) => IORef (LifecycleHandlers m) -> m a -> m a
-handleLifecycle lchs f = Safe.mask $ \restore -> do
-  atomicModifyIORef'_ lchs $ \handlers ->
-    if handlers.nesting == 0
-      then LifecycleHandlers {initializers = [], finalizers = [], nesting = 1}
-      else handlers {nesting = handlers.nesting + 1}
+-- | Wait for fibers to end, however they end.
+awaitAll :: [Fiber] -> Turn ()
+awaitAll = traverse_ $ \fb -> suspend $ \resume -> do
+  waiting <- onFiberOver fb (const (resume (Right ())))
+  unless waiting $ resume (Right ())
 
-  let leave keepHandlers = atomicModifyIORef' lchs $ \handlers ->
-        if handlers.nesting == 1
-          then
-            ( LifecycleHandlers {initializers = [], finalizers = [], nesting = 0}
-            , if keepHandlers then Just handlers else Nothing
-            )
-          else (handlers {nesting = handlers.nesting - 1}, Nothing)
+-- | A query answered by a component: 'Nothing' if it has gone away, or goes
+-- away before answering. Its own fiber, owned by that component, which the
+-- asking program waits for.
+queryChild :: IORef (DriverState m r s f act ps i o) -> f b -> Turn (Maybe b)
+queryChild var q = suspend $ \resume -> do
+  ds <- readIORef var
+  life <- readIORef ds.life
+  if life /= Alive
+    then resume (Right Nothing)
+    else launchOwned var False (const pass) (evalQ var q) $ \case
+      Done b -> resume (Right b)
+      Failed e -> resume (Left e)
+      Cancelled -> resume (Right Nothing)
 
-  result <- restore f `Safe.onException` void (leave False)
-  ready <- leave True
-  restore $ for_ ready $ \LifecycleHandlers {initializers, finalizers} -> do
-    traverse_ fork finalizers
-    parSequence_ initializers
-  pure result
+evalQ :: IORef (DriverState m r s f act ps i o) -> f a -> Turn (Maybe a)
+evalQ var q = do
+  ds <- sync (readIORef var)
+  evalM var (runNT ds.component.eval (HQ.Query (Just <$> liftCoyoneda q) (const Nothing)))
 
-{-# SPECIALIZE fresh :: (Int -> a) -> IORef (DriverState IO r s f act ps i o) -> IO a #-}
-fresh
-  :: (MonadIO m)
-  => (Int -> a)
-  -> IORef (DriverState m r s f act ps i o)
-  -> m a
-fresh f ref = do
-  st <- readIORef ref
-  atomicModifyIORef' st.fresh (\i -> (i + 1, f i))
+-- | Start a program as a fiber of the component: it runs until it first
+-- suspends before this returns. It runs only while the component is alive
+-- (or, if it may, while it is being finalized). @register@ sees the fiber
+-- before it starts.
+launchOwned
+  :: IORef (DriverState m r s f act ps i o)
+  -> Bool
+  -> (Fiber -> IO ())
+  -> Turn a
+  -> (Outcome a -> IO ())
+  -> IO ()
+launchOwned var closingOk register program outcome = do
+  ds <- readIORef var
+  n <- fresh identity ds
+  let permitted =
+        readIORef ds.life <&> \case
+          Alive -> True
+          Closing -> closingOk
+          Dead -> False
+  (fb, start) <- fiberFor ds.tree.loop permitted closingOk $ \o -> do
+    modifyIORef' ds.fibers (IntMap.delete n)
+    outcome o
+  modifyIORef' ds.fibers (IntMap.insert n fb)
+  register fb
+  start program
 
-{-# SPECIALIZE queueOrRun :: IORef (Maybe [IO ()]) -> IO () -> IO () #-}
-queueOrRun
-  :: (MonadIO m)
-  => IORef (Maybe [m ()])
-  -> m ()
-  -> m ()
-queueOrRun ref au = do
-  -- Queue or not in one atomic step, so an action queued as the queue is
-  -- being emptied is neither lost nor run twice.
-  runNow <- atomicModifyIORef' ref $ \case
-    Nothing -> (Nothing, True)
-    Just p -> (Just (au : p), False)
-  when runNow au
+-- | An action of the component, as a fiber of its own.
+launchAction :: IORef (DriverState m r s f act ps i o) -> act -> IO ()
+launchAction var act = do
+  ds <- readIORef var
+  launchOwned var False (const pass) (evalM var (runNT ds.component.eval (HQ.Action act ()))) (report "An action")
+
+-- | A program no component owns (the lifecycle work of a render
+-- transaction, which waits on programs that are owned).
+launchFree :: Loop -> Turn () -> IO Fiber
+launchFree loop program = do
+  (fb, start) <- fiberFor loop (pure True) True (report "Lifecycle work")
+  start program
+  pure fb
+
+-- | Start a program owned by a component and wait for it to end, however it
+-- ends.
+spawnAwait :: IORef (DriverState m r s f act ps i o) -> Bool -> Turn () -> Turn ()
+spawnAwait var closingOk program = suspend $ \resume ->
+  launchOwned var closingOk (const pass) program $ \outcome -> do
+    report "A lifecycle handler" outcome
+    resume (Right ())
+
+-- | Run now, or keep for later if the queue is open.
+queueOrRun :: IORef (Maybe [IO ()]) -> IO () -> IO ()
+queueOrRun ref io =
+  readIORef ref >>= \case
+    Nothing -> io
+    Just p -> writeIORef ref (Just (io : p))
+
+-- | Start an action, or keep it until the component's render transaction in
+-- progress is over.
+runHandler :: IORef (DriverState m r s f act ps i o) -> IO () -> IO ()
+runHandler var io = do
+  ds <- readIORef var
+  queueOrRun ds.pendingHandlers io
+
+-- | Run what was kept, and close the queue.
+handlePending :: IORef (Maybe [IO ()]) -> IO ()
+handlePending ref = do
+  queue <- atomicModifyIORef' ref (Nothing,)
+  for_ queue (sequence_ . reverse)
+
+-- | What no one waits for goes to the console when it fails, as an
+-- uncaught error does in the browser.
+report :: Text -> Outcome a -> IO ()
+report what = \case
+  Failed e -> hPutStrLn stderr ("Halogen: " <> what <> " failed: " <> show e)
+  _ -> pass
+
+fresh :: (Int -> a) -> DriverState m r s f act ps i o -> IO a
+fresh f ds = atomicModifyIORef' ds.fresh (\i -> (i + 1, f i))

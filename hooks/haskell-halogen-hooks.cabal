@@ -60,6 +60,7 @@ common commons
       base >= 4.20,
       free,
       transformers,
+      exceptions,
       unliftio,
       protolude,
       containers,

@@ -14,6 +14,7 @@ where
 import Data.IORef (IORef, atomicModifyIORef')
 import Data.Time (NominalDiffTime)
 import Halogen.Hooks qualified as Hooks
+import Halogen.Hooks.Internal.HookM (effectIO)
 import Halogen.Hooks.Extra.Internal.Delay (delayFor)
 import Halogen.Hooks.Types (Hook, HookK (..), HookM)
 import Protolude
@@ -39,7 +40,7 @@ useThrottle period act = Hooks.do
   (_, throttle) <- Hooks.useRef Nothing
 
   Hooks.pure $ \a -> do
-    busy <- liftIO $ atomicModifyIORef' throttle $ \case
+    busy <- effectIO $ atomicModifyIORef' throttle $ \case
       -- Idle: this value goes through, and the period starts.
       Nothing -> (Just Nothing, False)
       -- Mid-period: this value waits, replacing whatever was waiting.
@@ -51,7 +52,7 @@ useThrottle period act = Hooks.do
     drain :: IORef (Throttling a) -> HookM scope slots output m ()
     drain throttle = do
       delayFor period
-      waiting <- liftIO $ atomicModifyIORef' throttle $ \case
+      waiting <- effectIO $ atomicModifyIORef' throttle $ \case
         Just (Just a) -> (Just Nothing, Just a)
         _ -> (Nothing, Nothing)
       -- A value arrived during the period: run it, and keep the period open.

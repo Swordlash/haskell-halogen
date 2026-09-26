@@ -103,6 +103,7 @@ module Halogen.Hooks
 
     -- ** Refs
   , getRef
+  , liftEffect
   )
 where
 

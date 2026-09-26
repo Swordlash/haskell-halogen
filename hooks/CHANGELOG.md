@@ -10,6 +10,10 @@
   `purescript-halogen-hooks-extra` rather than kept in a package of their own.
 * `Halogen.Hooks.Extra.Actions.Events`: `preventDefault` and friends, for
   handlers that have to stop the browser doing it too.
+* `Hooks.liftEffect` runs an effect synchronously, on the tree's loop.
+  `liftIO` in `HookM` suspends the hook program as it does in `HalogenM`
+  (see core's changelog), so what must happen at once, `preventDefault`
+  first, goes through `Hooks.liftEffect`; the `Events` helpers do.
 * State handles and handler programs are branded with the component they
   belong to, so one cannot be used by another component or outlive its owner.
   The scope has a nominal role so `coerce` cannot bypass that boundary.

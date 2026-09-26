@@ -78,8 +78,9 @@ component =
     handleAction = \case
       Draft text -> modify $ \s -> s {draft = text} :: State
       Add event -> do
-        -- The form would otherwise be submitted, and the page navigate away.
-        preventDefault event
+        -- The form would otherwise be submitted, and the page navigate away;
+        -- at once, before the browser decides (see 'H.liftEffect').
+        H.liftEffect (preventDefault event)
         model <- get
         let title = T.strip model.draft
         unless (T.null title) $

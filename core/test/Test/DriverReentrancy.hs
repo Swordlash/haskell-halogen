@@ -1,20 +1,14 @@
--- | Driver-level regression test for the @render'@ re-entrancy bug.
+-- | Driver-level regression test for a render that meets a child's
+-- @Receive@ still in progress.
 --
--- Under a cooperative scheduler (GHC-JS, but also GHC's non-threaded RTS) the
--- reuse path's @evalM (Receive)@ can yield, letting a state-change-triggered
--- re-render re-enter @render'@ on the same DriverState while a render is still
--- in flight. With the old driver this drained the outer render's reuse set and
--- re-minted still-live children (slot accumulation, restarted timers).
---
--- This test reproduces that interleaving deterministically without any DOM: it
--- supplies a headless 'AD.RenderSpec' that simply walks the VDom and calls
--- @renderChild@ per slot, and uses an MVar handshake inside a child's @Receive@
--- to park the outer render exactly while a second render is forced to run.
+-- The first child's first @Receive@ waits (in 'liftIO') until the test lets
+-- it go, and meanwhile another state change renders the parent again. With
+-- the old driver the second render re-entered the first and re-minted a live
+-- child. Now the @Receive@ is a program of the child that suspends, the
+-- render goes on without it, and the second render comes after the first.
 --
 -- Correct behaviour: existing children are reused, a newly added child is
--- initialized exactly once, and no live child is finalized. The buggy driver
--- re-mints a live child; a re-entrancy guard that does not protect lifecycle
--- batching loses the new child's initializer instead.
+-- initialized exactly once, and no live child is finalized.
 module Test.DriverReentrancy (spec) where
 
 import Control.Concurrent (forkIO)
@@ -118,8 +112,8 @@ mkChild env cid =
     renderChildHtml _ = HH.text "child"
 
     handleChild = \case
-      CInit -> liftIO $ modifyIORef' env.initCount (+ 1)
-      CFinalize -> liftIO $ modifyIORef' env.finalizeCount (+ 1)
+      CInit -> H.liftEffect $ modifyIORef' env.initCount (+ 1)
+      CFinalize -> H.liftEffect $ modifyIORef' env.finalizeCount (+ 1)
       CReceive _ -> liftIO $ env.receiveHook cid
 
 data ParentAction = PInit | Bump | Reenter
@@ -183,19 +177,22 @@ test = do
   -- Initial render mounts both children exactly once.
   assertEqual "initial child count" 2 =<< readIORef initCount
 
-  -- While the bump-render is parked in child 0's Receive, re-enter render'
-  -- on the parent from another thread (a fork/subscription-driven re-render).
+  -- While child 0's Receive waits, the parent renders again (as a
+  -- subscription or a fork would make it), then the Receive is let go.
+  reentered <- newEmptyMVar
   _ <- forkIO $ do
     takeMVar inReceive
     HS.notify ctrl.listener Reenter
     putMVar gate ()
+    putMVar reentered ()
 
-  -- Trigger the re-render that walks the reuse path; blocks until released.
+  -- The render walks the reuse path and mounts child 2; it does not wait
+  -- for child 0's Receive.
   HS.notify ctrl.listener Bump
+  assertEqual "child count after the render" 3 =<< readIORef initCount
+  takeMVar reentered
 
-  -- The Bump render mounts child 2 before blocking in child 0's Receive.
-  -- Its initializer must survive the nested handleLifecycle/render call.
-  assertEqual "child count after re-entrant render" 3 =<< readIORef initCount
+  assertEqual "child count after the second render" 3 =<< readIORef initCount
   assertEqual "finalized live child count" 0 =<< readIORef finalizeCount
 
   socket.dispose

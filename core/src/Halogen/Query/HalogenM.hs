@@ -1,6 +1,7 @@
 module Halogen.Query.HalogenM where
 
 import Control.Applicative.Free.Fast
+import Control.Monad.Catch (MonadCatch (..), MonadThrow (..))
 import Control.Monad.Free.Church
 import Control.Monad.Parallel
 import Data.Map.Strict qualified as M
@@ -25,6 +26,9 @@ data HalogenF state action slots output m a
   | Subscribe (SubscriptionId -> Emitter IO action) (SubscriptionId -> a)
   | Unsubscribe SubscriptionId a
   | Lift (m a)
+  -- ^ Work that may wait: the component's other work goes on meanwhile.
+  | LiftEffect (m a)
+  -- ^ Work done at once, before anything else of the component's tree.
   | Unlift (UnliftIO (HalogenM state action slots output m) -> IO a)
   | ChildQuery (CQ.ChildQuery slots a)
   | Raise output a
@@ -33,17 +37,53 @@ data HalogenF state action slots output m a
   | Join ForkId a
   | Kill ForkId a
   | GetRef RefLabel (Maybe Element -> a)
-  deriving (Functor)
+  | Throw SomeException
+  | forall x. Catch (HalogenM state action slots output m x) (SomeException -> HalogenM state action slots output m x) (x -> a)
+
+instance (Functor m) => Functor (HalogenF state' action slots' output m) where
+  fmap f = \case
+    -- Strictly in the pair: the state has to come back as the pointer it
+    -- was, for the driver's `unsafeRefEq` to see that it did not change.
+    State g -> State (\s -> case g s of (a, s') -> (f a, s'))
+    Subscribe es k -> Subscribe es (f . k)
+    Unsubscribe sid a -> Unsubscribe sid (f a)
+    Lift m -> Lift (fmap f m)
+    LiftEffect m -> LiftEffect (fmap f m)
+    Unlift q -> Unlift (fmap f . q)
+    ChildQuery cq -> ChildQuery (fmap f cq)
+    Raise o a -> Raise o (f a)
+    Par p -> Par (fmap f p)
+    Fork hm k -> Fork hm (f . k)
+    Join fid a -> Join fid (f a)
+    Kill fid a -> Kill fid (f a)
+    GetRef l k -> GetRef l (f . k)
+    Throw e -> Throw e
+    Catch body handler k -> Catch body handler (f . k)
 
 newtype HalogenM state action slots output m a
   = HalogenM (F (HalogenF state action slots output m) a)
   deriving (Functor, Applicative, Monad)
 
+-- | 'lift' and 'liftIO' are where a component's program may wait, as
+-- 'liftAff' is in purescript-halogen: the action runs on a thread of its own,
+-- and until it is done the rest of the tree goes on (other events, other
+-- components, this component's other programs); then the program goes on
+-- where it left off. What has to happen at once, while nothing else runs --
+-- @preventDefault@ in an event handler, focusing an element, reading the DOM
+-- as it is now -- goes through 'liftEffect' instead.
 instance MonadTrans (HalogenM state' action slots' output) where
   lift = HalogenM . liftF . Lift
 
 instance (MonadIO m) => MonadIO (HalogenM state' action slots' output m) where
   liftIO = HalogenM . liftF . Lift . liftIO
+
+-- | Run an action of the component's monad at once, as purescript-halogen's
+-- 'liftEffect': the program does not let anything else of the tree run
+-- until it is done. So it must not wait -- not on an 'MVar', a delay, a
+-- JavaScript promise or a query to this tree -- or the whole tree waits
+-- with it; use 'liftIO' for that.
+liftEffect :: forall state action slots output m a. (Functor m) => m a -> HalogenM state action slots output m a
+liftEffect = HalogenM . liftF . LiftEffect
 
 instance (MonadUnliftIO m) => MonadUnliftIO (HalogenM state' action slots' output m) where
   withRunInIO inner =
@@ -54,6 +94,15 @@ type HalogenIO state action slots output a = HalogenM state action slots output 
 newtype HalogenAp state action slots output m a
   = HalogenAp (Ap (HalogenM state action slots output m) a)
   deriving (Functor, Applicative)
+
+-- | A failure of a component's program: a thrown exception, or one of the
+-- component's monad, synchronous or after a wait.
+instance (Functor m) => MonadThrow (HalogenM state' action slots' output m) where
+  throwM = HalogenM . liftF . Throw . toException
+
+-- | Handle a failure of a program, wherever in it (and whenever) it happens.
+instance (Functor m) => MonadCatch (HalogenM state' action slots' output m) where
+  catch body handler = HalogenM $ liftF $ Catch body (\e -> maybe (throwM e) handler (fromException e)) identity
 
 instance (Functor m) => MonadState state' (HalogenM state' action slots' output m) where
   state = HalogenM . liftF . State
@@ -219,6 +268,7 @@ mapHalogen lens fa fo nat (HalogenM alg) = HalogenM (hoistF go alg)
       Subscribe fes k -> Subscribe (map fa . fes) k
       Unsubscribe sid a -> Unsubscribe sid a
       Lift q -> Lift (runNT nat q)
+      LiftEffect q -> LiftEffect (runNT nat q)
       Unlift q -> Unlift $ q . mapUnliftIO (mapHalogen lens fa fo nat)
       ChildQuery cq -> ChildQuery cq
       Raise o a -> Raise (fo o) a
@@ -227,6 +277,8 @@ mapHalogen lens fa fo nat (HalogenM alg) = HalogenM (hoistF go alg)
       Join fid a -> Join fid a
       Kill fid a -> Kill fid a
       GetRef p k -> GetRef p k
+      Throw e -> Throw e
+      Catch body handler k -> Catch (mapHalogen lens fa fo nat body) (mapHalogen lens fa fo nat . handler) k
 
 identityLens :: forall s. s -> (s, s -> s)
 identityLens s = (s, identity)
