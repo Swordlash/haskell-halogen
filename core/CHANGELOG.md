@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Canvas scenes have `Halogen.Canvas.Elements.memoized` and `lazy`, as HTML
+  has: a part of a scene rendered from a value is neither rendered, diffed
+  nor redrawn again until the value changes. A scene's widget type is now
+  that thunk (`Thunk (CanvasNode event) i`) instead of `Void`; code that
+  matched on `unCanvasNode`'s type names it.
 - **Breaking: `lift` and `liftIO` in `HalogenM` now suspend the program.** A
   tree's components run on one loop per tree
   (`Halogen.IO.Driver.Runtime`), as purescript-halogen's run on `Aff`: the

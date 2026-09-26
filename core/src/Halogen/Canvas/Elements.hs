@@ -26,6 +26,8 @@ module Halogen.Canvas.Elements
   , text_
   , sprite
   , sprite_
+  , memoized
+  , lazy
   )
 where
 

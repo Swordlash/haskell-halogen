@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* A scene may hold memoized parts (`Halogen.Canvas.Elements.memoized`,
+  `lazy`): the renderer builds them as thunks, and skips a part whose input
+  is unchanged, so a large static layer costs nothing on a render.
 * **Fix.** Text in an `AssetFont` is no longer cut off. Pixi measures a font's
   ascent and descent once per font string and caches them, and the asset's
   family was named as soon as the text was set, so Pixi measured it before the

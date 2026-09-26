@@ -8,12 +8,12 @@ import Clay.Render qualified as CR
 import Data.List (nub, sort)
 import Data.Text (Text)
 import Data.Text.Lazy (toStrict)
-import Data.Void (Void)
 import Halogen.Canvas.Core
 import Halogen.Canvas.Elements qualified as CE
 import Halogen.Canvas.Properties qualified as CP
 import Halogen.Canvas.Types
 import Halogen.Svg.Attributes qualified as SA
+import Halogen.VDom.Thunk (Thunk, runThunk, unsafeEqThunk)
 import Halogen.VDom.Types (ElemName (..), VDom (..))
 import Prelude
 import Test.Hspec (Spec, describe, it)
@@ -42,11 +42,34 @@ everyProp =
   , Hit (CircleHit (Point 0 0) 1)
   ]
 
-unwrap :: CanvasNode event i -> VDom [CanvasProp event i] Void
+unwrap :: CanvasNode event i -> VDom [CanvasProp event i] (Thunk (CanvasNode event) i)
 unwrap = unCanvasNode
+
+-- | A part of a scene drawn from a number, memoized by equality.
+disc :: Int -> CanvasNode () Action
+disc = CE.memoized (==) (\n -> CE.circle_ (Point 0 0) (fromIntegral n) Nothing Nothing)
+
+thunkOf :: CanvasNode () Action -> Maybe (Thunk (CanvasNode ()) Action)
+thunkOf node = case unwrap node of
+  Widget t -> Just t
+  _ -> Nothing
 
 spec :: Spec
 spec = describe "canvas scenes" $ do
+  describe "memoized parts" $ do
+    it "is the same part while its input is equal, and another once it is not" $ do
+      case (thunkOf (disc 3), thunkOf (disc 3), thunkOf (disc 4)) of
+        (Just a, Just b, Just c) -> do
+          assertWith "equal inputs: skipped" (unsafeEqThunk a b)
+          assertWith "another input: drawn again" (not (unsafeEqThunk a c))
+          case unwrap (runThunk c) of
+            Elem _ (ElemName n) _ _ -> assertEqual "renders what it wraps" "graphics" n
+            _ -> assertWith "renders an element" False
+        _ -> assertWith "a memoized part is a thunk" False
+    it "maps its actions like any other node" $
+      case thunkOf (fmap (const Hovered) (disc 3)) of
+        Just _ -> pure ()
+        Nothing -> assertWith "still a thunk after fmap" False
   describe "the camera" $ do
     let start = Camera {focus = Point 0 0, zoom = 1}
         dragged = Camera {focus = Point 40 10, zoom = 1}

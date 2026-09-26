@@ -2,8 +2,8 @@
 --
 -- A scene is a 'Halogen.VDom.Types.VDom' like any other, so it reconciles
 -- through 'Halogen.VDom.DOM.buildVDom' rather than through a reconciler each
--- backend writes for itself. The widget slot is 'Void': a canvas scene holds
--- no component slots, which is also why nothing below a canvas ever needs a
+-- backend writes for itself. Its widgets are thunks ('memoized', 'lazy'), never
+-- component slots, which is why nothing below a canvas ever needs a
 -- 'Halogen.Query.HalogenM.HalogenM'.
 module Halogen.Canvas.Core
   ( CanvasProp (..)
@@ -11,6 +11,8 @@ module Halogen.Canvas.Core
   , pointerEventName
   , CanvasNode (..)
   , unCanvasNode
+  , memoized
+  , lazy
   , CanvasElem
   , CanvasLeaf
   , propKey
@@ -22,6 +24,8 @@ where
 
 import HPrelude
 import Halogen.Canvas.Types
+import Data.Foreign (unsafeRefEq)
+import Halogen.VDom.Thunk (Thunk (..), unsafeThunkId)
 import Halogen.VDom.Types (ElemName (..), VDom (..))
 
 -- | The events a canvas element can raise.
@@ -99,15 +103,32 @@ propKey = \case
   Cursor _ -> "cursor"
   Hit _ -> "hitArea"
 
-newtype CanvasNode event i = CanvasNode {unCanvasNode :: VDom [CanvasProp event i] Void}
+-- | A node of a scene. Its widgets are thunks ('memoized', 'lazy'): a part
+-- of the scene that is only drawn again when its input changes.
+newtype CanvasNode event i = CanvasNode {unCanvasNode :: VDom [CanvasProp event i] (Thunk (CanvasNode event) i)}
 
-unCanvasNode :: CanvasNode event i -> VDom [CanvasProp event i] Void
+unCanvasNode :: CanvasNode event i -> VDom [CanvasProp event i] (Thunk (CanvasNode event) i)
 unCanvasNode (CanvasNode vdom) = vdom
 
 -- Not derivable: the action sits inside the attribute list, which is VDom's
--- first parameter, so mapping it goes through 'first' rather than 'fmap'.
+-- first parameter, so mapping it goes through 'bimap' rather than 'fmap'.
 instance Functor (CanvasNode event) where
-  fmap f (CanvasNode vdom) = CanvasNode (first (map (fmap f)) vdom)
+  fmap f (CanvasNode vdom) = CanvasNode (bimap (map (fmap f)) (fmap f) vdom)
+
+-- | A part of the scene rendered from @a@, and compared again only when
+-- @a@ changes by the given equality: until then the render is not run,
+-- and the part is neither diffed nor redrawn. As with
+-- 'Halogen.HTML.memoized', partially apply it once (the function's
+-- identity is part of what is compared) rather than build it anew in a
+-- render.
+memoized :: (a -> a -> Bool) -> (a -> CanvasNode event i) -> a -> CanvasNode event i
+memoized eqFn f =
+  -- Not eta-expanded: the partial application is what keeps @f@'s identity.
+  CanvasNode . Widget <$> Thunk (unsafeThunkId f) eqFn f
+
+-- | 'memoized' by reference: skipped while the very same value comes back.
+lazy :: (a -> CanvasNode event i) -> a -> CanvasNode event i
+lazy = memoized unsafeRefEq
 
 type CanvasElem event i = [CanvasProp event i] -> [CanvasNode event i] -> CanvasNode event i
 
