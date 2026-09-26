@@ -21,10 +21,12 @@ module Halogen.IO.Driver.State
   , abandonRender
   , nextToDrain
   , drainQueue
+  , untilWaiting
   )
 where
 
 import Control.Monad.Fork
+import GHC.Conc (ThreadStatus (..), threadStatus)
 import Data.Row
 import HPrelude hiding (state)
 import Halogen.Component
@@ -218,13 +220,30 @@ nextToDrain gate = atomicModifyIORef' gate $ \g ->
     then (g {queued = []}, Just (reverse g.queued))
     else (g {draining = False}, Nothing)
 
--- | Start queued actions in order, each on its own thread and each given
--- the processor until it first waits, then the ones queued meanwhile. For
+-- | Start queued actions in order, then the ones queued meanwhile. For
 -- whoever was handed a 'Drain' (or a batch by 'abandonRender').
+--
+-- Each runs on a thread of its own, and the next starts only once it has
+-- finished or waits: blocked on an 'MVar', STM, a delay, or a foreign call
+-- (a JavaScript promise on wasm and JS). So an action's work up to its
+-- first wait comes before the next action's, with any number of
+-- capabilities; and one that waits long holds up no other. A 'yield'
+-- would not do: it is a hint to the scheduler, and on another capability
+-- (or even on this one) the next action could run first.
 drainQueue :: (MonadIO m, MonadFork m) => IORef (RenderGate m) -> [m ()] -> m ()
 drainQueue gate = fix $ \go batch -> do
-  for_ batch $ \act -> Control.Monad.Fork.fork act >> liftIO yield
+  for_ batch $ \act -> do
+    started <- liftIO newEmptyMVar
+    _ <- Control.Monad.Fork.fork (liftIO (myThreadId >>= putMVar started) >> act)
+    liftIO (takeMVar started >>= untilWaiting)
   nextToDrain gate >>= traverse_ go
+
+-- | Until a thread has finished, died, or waits for something.
+untilWaiting :: ThreadId -> IO ()
+untilWaiting t =
+  threadStatus t >>= \case
+    ThreadRunning -> yield >> untilWaiting t
+    _ -> pure ()
 
 -- | A render failed: let the lock go, and hand back what was queued for it
 -- (oldest first; to start with 'drainQueue', unless a thread already

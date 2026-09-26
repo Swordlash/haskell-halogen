@@ -239,6 +239,9 @@ test-suite Halogen-core-test
     type:             exitcode-stdio-1.0
     hs-source-dirs:   test
     main-is:          Test.hs
+    -- Natively, the driver's tests run on several capabilities too.
+    if !arch(wasm32) && !arch(javascript)
+      ghc-options:    -threaded -rtsopts
     build-depends:    base >= 4.20,
                       aeson,
                       clay >= 0.16.0,

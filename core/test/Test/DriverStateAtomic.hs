@@ -13,7 +13,8 @@
 -- there. With the old driver the second is overwritten and the count is 1.
 module Test.DriverStateAtomic (spec) where
 
-import Control.Concurrent (forkIO, threadDelay, yield)
+import Control.Concurrent (forkIO, rtsSupportsBoundThreads, setNumCapabilities, threadDelay, yield)
+import Control.Exception (evaluate)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar)
 import Control.Monad (forM_, replicateM_, void, when)
 import Data.IORef (atomicModifyIORef', newIORef, readIORef)
@@ -25,7 +26,7 @@ import Halogen as H
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Core qualified as HC
 import Halogen.IO.Driver qualified as AD
-import Halogen.IO.Driver.State (Leave (..), RenderGate (..), RenderStateX (..), beginPass, enterRender, idleGate, leaveRender, nextToDrain, runOrQueue)
+import Halogen.IO.Driver.State (Leave (..), RenderGate (..), RenderStateX (..), beginPass, drainQueue, enterRender, idleGate, leaveRender, nextToDrain, runOrQueue)
 import Halogen.Query.Input (Input)
 import Prelude
 import System.IO.Unsafe (unsafePerformIO)
@@ -168,6 +169,27 @@ gateOrder = do
   where
     shouldBe' a b = assertEqual "one action queued" b a
 
+-- | The real drainer, on four capabilities where the runtime has them: an
+-- action that computes before it records (and never waits) still records
+-- before the one queued after it starts.
+drainOrder :: IO ()
+drainOrder = do
+  when rtsSupportsBoundThreads (setNumCapabilities 4)
+  work <- newIORef (300000 :: Int)
+  forM_ [1 .. 20 :: Int] $ \_ -> do
+    gate <- newIORef idleGate
+    ran <- newIORef []
+    let record n = atomicModifyIORef' ran (\ns -> (ns <> [n :: Int], ()))
+        -- Work that no optimisation can share between calls, and no wait.
+        busy = readIORef work >>= \n -> void (evaluate (foldl' (+) 0 [1 .. n]))
+    drainQueue gate [busy >> record 1, record 2, busy >> record 3, record 4]
+    let settle k = do
+          ns <- readIORef ran
+          when (length ns < 4 && k > (0 :: Int)) (threadDelay 1000 >> settle (k - 1))
+    settle 5000
+    readIORef ran >>= assertEqual "each action recorded before the next began" [1, 2, 3, 4]
+    readIORef gate >>= \g -> assertEqual "and the draining is over" False g.draining
+
 -- | Actions raised from many threads while renders come and go: each one
 -- runs, and runs once.
 gateStress :: IO ()
@@ -208,4 +230,5 @@ spec =
     it "keeps an update made while another is being computed" test
     it "queues actions during a render and hands them out in order" gateSteps
     it "queues an action behind queued ones that have yet to start" gateOrder
+    it "starts each queued action only once the one before it finished or waits" drainOrder
     it "runs every action exactly once while renders come and go" gateStress
