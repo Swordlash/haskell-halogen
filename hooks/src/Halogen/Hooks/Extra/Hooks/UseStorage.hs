@@ -23,6 +23,7 @@ where
 
 import Data.IORef (readIORef, writeIORef)
 import Halogen.Hooks qualified as Hooks
+import Halogen.Hooks.Internal.HookM (effectIO)
 import Halogen.Hooks.Types (Hook, HookK (..), HookM)
 import Halogen.VDom.DOM.Monad (MonadBrowserDOM, StorageKind (..))
 import Protolude
@@ -80,19 +81,21 @@ useStorageWith kind key initial = Hooks.do
   -- the key being asked for, neither is the value, and leaving it there would
   -- show one key's state and then save it under another's.
   Hooks.useTickEffect (kind, key) $ do
-    stored <- lift $ Storage.getItem kind key
+    -- The store is synchronous: read and written at once, so that writes
+    -- land in the order they are made.
+    stored <- Hooks.liftEffect $ Storage.getItem kind key
     case stored of
       -- Nothing kept yet: start the store off at the default rather than
       -- leaving it empty until something changes.
       Nothing -> do
-        lift $ Storage.setItem kind key initial
+        Hooks.liftEffect $ Storage.setItem kind key initial
         current <- Hooks.get valueId
         -- On a mount that is what the state already holds, and putting it
         -- again would cost a render for nothing. After a change of key it is
         -- not: the state is still showing the key before it.
         when (current /= Right initial) $ Hooks.put valueId (Right initial)
       Just found -> Hooks.put valueId found
-    liftIO $ writeIORef loadedFrom (Just (kind, key))
+    effectIO $ writeIORef loadedFrom (Just (kind, key))
     pure Nothing
 
   Hooks.useTickEffect value $ do
@@ -100,12 +103,12 @@ useStorageWith kind key initial = Hooks.do
     -- of key leave undone for as long as it takes the effect above to run. The
     -- store is the authority until then, and writing here would put the
     -- default, or the key before this one's value, over what is kept.
-    loaded <- liftIO $ readIORef loadedFrom
+    loaded <- effectIO $ readIORef loadedFrom
     when (loaded == Just (kind, key)) $ do
       -- What the state holds now rather than what this render saw: the effect
       -- above runs first, and what it put there came from the store.
       current <- Hooks.get valueId
-      for_ current $ \v -> lift $ Storage.setItem kind key v
+      for_ current $ \v -> Hooks.liftEffect $ Storage.setItem kind key v
     pure Nothing
 
   Hooks.pure (value, Hooks.modify_ valueId)

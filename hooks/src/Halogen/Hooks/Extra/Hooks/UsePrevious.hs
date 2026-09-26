@@ -12,6 +12,7 @@ where
 
 import Data.IORef (writeIORef)
 import Halogen.Hooks qualified as Hooks
+import Halogen.Hooks.Internal.HookM (effectIO)
 import Halogen.Hooks.Types (Hook, HookK (..))
 import Protolude
 
@@ -33,7 +34,7 @@ usePrevious value = Hooks.do
   -- render, which is what makes "previous" mean the render before this one
   -- rather than the last one that changed something.
   Hooks.useTickEffectBy (\_ _ -> False) () $ do
-    liftIO $ writeIORef ref (Just value)
+    effectIO $ writeIORef ref (Just value)
     pure Nothing
 
   Hooks.pure previous

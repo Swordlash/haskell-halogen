@@ -22,7 +22,7 @@ import Data.Row as Row
 import Data.UUID.Types qualified as UUID
 import HPrelude
 import Halogen.Data.Slot (Slot)
-import Halogen.Query.HalogenM (ForkId, HalogenF (..), HalogenM (..), SubscriptionId, fork, getRef, join, kill, query, queryAll, raise, subscribe, subscribe', unsubscribe)
+import Halogen.Query.HalogenM (ForkId, HalogenF (..), HalogenM (..), SubscriptionId, fork, getRef, join, kill, liftEffect, query, queryAll, raise, subscribe, subscribe', unsubscribe)
 import Halogen.Query.HalogenQ (HalogenQ (..))
 import Halogen.Query.Input (RefLabel (..))
 import Web.DOM.Internal.Types

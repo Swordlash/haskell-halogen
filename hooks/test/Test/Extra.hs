@@ -40,7 +40,7 @@ stalenessComponent probe events = Hooks.component @Empty $ \_input -> Hooks.do
       Bump -> getCount >>= setCount . (+ 1)
       Report -> do
         latest <- getCount
-        liftIO $ writeIORef probe (latest, count)
+        Hooks.liftEffect $ writeIORef probe (latest, count)
     pure Nothing
 
   Hooks.pure $ HH.text ("count=" <> show count)
@@ -53,7 +53,7 @@ stalenessComponent probe events = Hooks.component @Empty $ \_input -> Hooks.do
 -- the far side lands in the probe.
 debouncerComponent :: IORef [Text] -> HS.Emitter IO Text -> H.Component H.VoidF () Void IO
 debouncerComponent probe events = Hooks.component @Empty $ \_input -> Hooks.do
-  push <- useDebouncer 0.05 $ \t -> liftIO $ modifyIORef' probe (<> [t])
+  push <- useDebouncer 0.05 $ \t -> Hooks.liftEffect $ modifyIORef' probe (<> [t])
 
   Hooks.useLifecycleEffect $ do
     void $ Hooks.subscribe $ map push events
@@ -77,7 +77,7 @@ settlingComponent events = Hooks.component @Empty $ \_input -> Hooks.do
 
 throttleComponent :: IORef [Text] -> HS.Emitter IO Text -> H.Component H.VoidF () Void IO
 throttleComponent probe events = Hooks.component @Empty $ \_input -> Hooks.do
-  push <- useThrottle 0.05 $ \t -> liftIO $ modifyIORef' probe (<> [t])
+  push <- useThrottle 0.05 $ \t -> Hooks.liftEffect $ modifyIORef' probe (<> [t])
 
   Hooks.useLifecycleEffect $ do
     void $ Hooks.subscribe $ map push events
@@ -118,13 +118,13 @@ eventComponent probe events = Hooks.component @Empty $ \_input -> Hooks.do
     void $ Hooks.subscribe $ flip map events $ \case
       Push t -> api.push t
       Listen -> void $ api.setCallback $ \unsubscribe t -> do
-        liftIO $ modifyIORef' probe (<> [t])
+        Hooks.liftEffect $ modifyIORef' probe (<> [t])
         -- A handler can take itself off, which is what the program it is
         -- handed is for.
         when (t == "last") unsubscribe
       Supersede -> do
-        removeFirst <- api.setCallback $ \_ t -> liftIO $ modifyIORef' probe (<> ["first:" <> t])
-        void $ api.setCallback $ \_ t -> liftIO $ modifyIORef' probe (<> ["second:" <> t])
+        removeFirst <- api.setCallback $ \_ t -> Hooks.liftEffect $ modifyIORef' probe (<> ["first:" <> t])
+        void $ api.setCallback $ \_ t -> Hooks.liftEffect $ modifyIORef' probe (<> ["second:" <> t])
         -- The first handler is long gone, replaced by the second. Its
         -- program has nothing left to remove, and the second is not its to
         -- remove.

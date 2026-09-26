@@ -86,6 +86,7 @@ common commons
       uuid-types,
       unliftio,
       safe-exceptions,
+      exceptions,
       clay >= 0.16.0,
       data-default
 
@@ -119,6 +120,7 @@ library
 
       Halogen.IO.Driver
       Halogen.IO.Driver.Eval
+      Halogen.IO.Driver.Runtime
       Halogen.IO.Driver.State
       Halogen.IO.Util
 
@@ -256,6 +258,7 @@ test-suite Halogen-core-test
     
     other-modules:  Test.Canvas
                     Test.Cookie
+                    Test.DriverContract
                     Test.DriverLifecycleRaces
                     Test.DriverReentrancy
                     Test.DriverStateAtomic

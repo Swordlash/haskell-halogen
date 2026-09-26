@@ -40,6 +40,10 @@ module Halogen.Hooks.Internal.HookM
 
     -- * Refs
   , getRef
+
+    -- * Effects
+  , liftEffect
+  , effectIO
   )
 where
 
@@ -65,6 +69,7 @@ type HookF :: Type -> Row Type -> Type -> (Type -> Type) -> Type -> Type
 -- and the constraints appear only where the program is run.
 data HookF scope slots output m a where
   Lift :: m x -> (x -> a) -> HookF scope slots output m a
+  LiftEffect :: m x -> (x -> a) -> HookF scope slots output m a
   State :: StateId scope s -> (s -> (x, s)) -> (x -> a) -> HookF scope slots output m a
   Raise :: output -> a -> HookF scope slots output m a
   ChildQuery :: CQ.ChildQuery slots a -> HookF scope slots output m a
@@ -77,6 +82,7 @@ data HookF scope slots output m a where
 instance Functor (HookF scope slots output m) where
   fmap f = \case
     Lift mx k -> Lift mx (f . k)
+    LiftEffect mx k -> LiftEffect mx (f . k)
     State sid g k -> State sid g (f . k)
     Raise o a -> Raise o (f a)
     ChildQuery cq -> ChildQuery (map f cq)
@@ -93,8 +99,20 @@ newtype HookM scope slots output m a = HookM (F (HookF scope slots output m) a)
 instance MonadTrans (HookM scope slots output) where
   lift mx = HookM $ liftF $ Lift mx identity
 
+-- | As in 'Halogen.Query.HalogenM.HalogenM': 'lift' and 'liftIO' may wait,
+-- and the rest of the tree goes on meanwhile; 'liftEffect' runs at once.
 instance (MonadIO m) => MonadIO (HookM scope slots output m) where
   liftIO = lift . liftIO
+
+-- | Run an action of the component's monad at once, before anything else of
+-- the tree runs (see 'Halogen.Query.HalogenM.liftEffect'): for
+-- @preventDefault@, focusing an element, reading the DOM. It must not wait.
+liftEffect :: m x -> HookM scope slots output m x
+liftEffect mx = HookM $ liftF $ LiftEffect mx identity
+
+-- | 'liftEffect' for plain 'IO' (the hooks' own bookkeeping).
+effectIO :: (MonadIO m) => IO x -> HookM scope slots output m x
+effectIO = liftEffect . liftIO
 
 -- | What a hooks component's DOM emits: an action is simply the 'HookM'
 -- program to run when the event fires.

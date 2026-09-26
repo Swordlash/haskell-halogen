@@ -125,9 +125,20 @@ The class hierarchy (`Halogen.VDom.DOM.Monad.Class`) is split by capability: `Mo
 
 `HalogenM` (`Halogen.Query.HalogenM`) is a free monad over `HalogenF` (State, Subscribe, Fork, Kill,
 Unlift, ChildQuery, Raise, …). `Halogen.IO.Driver.Eval.evalM` interprets it against a
-`DriverState` IORef: a state change triggers a render; forks are tracked in a map so `kill`/`join`
-and finalization can find them. Rendering produces `VDom`, reconciled by the machine-based
-`Halogen.VDom.DOM.buildVDom` through whatever `MonadDOM` instance is in play.
+`DriverState` IORef: a state change triggers a render (done before the program goes on); forks are
+tracked in a map so `kill`/`join` and finalization can find them. Rendering produces `VDom`,
+reconciled by the machine-based `Halogen.VDom.DOM.buildVDom` through whatever `MonadDOM` instance is
+in play.
+
+A mounted tree runs on one loop (`Halogen.IO.Driver.Runtime`), as purescript-halogen runs on Aff:
+its state, children, renders and lifecycle are touched only there, one piece of work at a time, by
+whichever thread brings it work while it is idle. A component's program is a fiber: its
+synchronous parts run on the loop, and it waits only in `lift`/`liftIO`, which run on a worker
+thread while the rest of the tree goes on (as `liftAff`). What must happen at once — `preventDefault`,
+focusing, reading the DOM as it is, a synchronous API such as `localStorage`, a scene handed to a
+canvas in order — goes through `H.liftEffect` (hooks: `Hooks.liftEffect`), which must not wait. A
+component that goes away cancels its fibers (their workers are killed); a render pass that fails
+takes back the children it made. `core/test/Test/DriverContract.hs` states the contract as tests.
 
 The canvas layer reuses this: a scene (`Halogen.Canvas.Elements`/`Properties`, in core) is an
 ordinary `VDom` whose nodes, in `pixi`, are Pixi display objects — so HTML and canvas share one

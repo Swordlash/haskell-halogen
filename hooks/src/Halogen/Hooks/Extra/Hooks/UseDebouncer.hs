@@ -19,6 +19,7 @@ where
 import Data.IORef (readIORef, writeIORef)
 import Data.Time (NominalDiffTime)
 import Halogen.Hooks qualified as Hooks
+import Halogen.Hooks.Internal.HookM (effectIO)
 import Halogen.Hooks.Extra.Internal.Delay (delayFor)
 import Halogen.Hooks.Types (Hook, HookK (..), HookM)
 import Halogen.Query.HalogenM (ForkId)
@@ -43,9 +44,9 @@ useDebouncer quiet act = Hooks.do
 
   Hooks.pure $ \a -> do
     -- Whatever was waiting is no longer the latest value.
-    traverse_ Hooks.kill =<< liftIO (readIORef pending)
+    traverse_ Hooks.kill =<< effectIO (readIORef pending)
     forkId <- Hooks.fork $ do
       delayFor quiet
-      liftIO $ writeIORef pending Nothing
+      effectIO $ writeIORef pending Nothing
       act a
-    liftIO $ writeIORef pending (Just forkId)
+    effectIO $ writeIORef pending (Just forkId)
