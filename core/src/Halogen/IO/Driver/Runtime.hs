@@ -418,18 +418,21 @@ instance Applicative ParTurn where
     rx <- newIORef Nothing
     -- Set once the whole has failed or been cancelled.
     settled <- newIORef False
+    siblings <- newIORef []
     let settle = atomicModifyIORef' settled (True,)
-        cancelled = do
-          already <- settle
-          unless already $ cancelFiber fb
-    bf <- branch fb cancelled
-    bx <- branch fb cancelled
-    let failure e = do
-          already <- settle
-          unless already $ do
-            cancelFiber bf
-            cancelFiber bx
-            step fb (ek e)
+        -- How a branch ended decides for the whole, however it came to end:
+        -- through its error continuation, or a failure 'step' caught (one
+        -- thrown while the next part of the branch was being made, say).
+        ended = \case
+          Done () -> pure ()
+          Failed e -> do
+            already <- settle
+            unless already $ do
+              traverse_ cancelFiber =<< readIORef siblings
+              step fb (ek e)
+          Cancelled -> do
+            already <- settle
+            unless already $ cancelFiber fb
         fire = do
           f <- readIORef rf
           x <- readIORef rx
@@ -437,22 +440,23 @@ instance Applicative ParTurn where
         run :: Fiber -> Turn c -> IORef (Maybe c) -> IO ()
         run b t slot =
           step b $
-            runTurn t b (\e -> end b (Failed e) >> failure e) $ \a -> do
+            runTurn t b (end b . Failed) $ \a -> do
               end b (Done ())
               writeIORef slot (Just a)
               fire
+    bf <- branch fb ended
+    bx <- branch fb ended
+    writeIORef siblings [bf, bx]
     run bf tf rf
     run bx tx rx
 
 -- | A fiber for a branch of this one: run on its loop, while its owner lets
 -- it, and ended with it.
-branch :: Fiber -> IO () -> IO Fiber
-branch parent cancelled = do
+branch :: Fiber -> (Outcome () -> IO ()) -> IO Fiber
+branch parent ended = do
   n <- atomicModifyIORef' parent.nextBranch (\i -> (i + 1, i))
   b <- newFiber parent.loop parent.permitted parent.closingOk $ \outcome -> do
     modifyIORef' parent.branches (IntMap.delete n)
-    case outcome of
-      Cancelled -> cancelled
-      _ -> pure ()
+    ended outcome
   modifyIORef' parent.branches (IntMap.insert n b)
   pure b

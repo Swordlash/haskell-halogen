@@ -19,6 +19,7 @@ spec = xdescribe "render recovery" $ pure ()
 
 import Control.Exception (ErrorCall (..), SomeException, throw, try)
 import Control.Monad.State.Class (put)
+import Data.Foldable (for_)
 import Data.Row (Empty)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -26,7 +27,7 @@ import Data.Void (Void)
 import Halogen qualified as H
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Properties qualified as HP
-import Halogen.VDom.DOM.Monad (MemDOM, runMemDOM)
+import Halogen.VDom.DOM.Monad (MemDOM, appendChild, runMemDOM)
 import Halogen.VDom.DOM.Monad.Native qualified as N
 import Halogen.VDom.Driver qualified as VD
 import Halogen.VDom.Types (ElemName (..))
@@ -59,7 +60,7 @@ recovers = do
   -- The markup, with the first element's properties (its class) after it.
   let page = do
         html <- N.renderToText container
-        [root] <- N.childNodes container
+        root : _ <- N.childNodes container
         first : _ <- N.childNodes root
         props <- N.propertyList first
         pure (html <> " " <> T.pack (show props))
@@ -77,9 +78,59 @@ recovers = do
   page >>= \after -> assertWith ("and later renders patch it: " <> T.unpack after) ("\"c\"" `T.isInfixOf` after)
   runMemDOM dispose
 
+data Shape a = Shape Text Text Bool a
+
+-- | A root element of the given tag, holding a text that fails to render
+-- when asked to.
+shaped :: H.Component Shape () Void MemDOM
+shaped =
+  H.mkComponent
+    H.ComponentSpec
+      { initialState = \_ -> pure ("div", "first", False)
+      , render = \(tag, label, bad) ->
+          (if tag == "section" then HH.section_ else HH.div_)
+            [HH.text (if bad then throw (ErrorCall "no text") else label)]
+          :: H.ComponentHTML () Empty MemDOM
+      , eval = H.mkEval H.defaultEval {H.handleQuery = \(Shape tag label bad a) -> put (tag, label, bad) >> pure (Just a)}
+      }
+
+-- | Mount 'shaped' between two siblings, and run the steps: each changes
+-- the shape, and says whether it fails.
+betweenSiblings :: [(Text, Text, Bool)] -> IO Text
+betweenSiblings steps = do
+  container <- N.newElement Nothing (ElemName "div")
+  before <- N.newElement Nothing (ElemName "b")
+  after <- N.newElement Nothing (ElemName "i")
+  runMemDOM (appendChild (N.fromNative before) (N.fromNative container))
+  H.HalogenSocket {H.query = ask, H.dispose = dispose} <- runMemDOM (VD.runUI shaped () (N.fromNative container))
+  runMemDOM (appendChild (N.fromNative after) (N.fromNative container))
+  N.renderToText container >>= assertEqual "mounted between its siblings" "<div><b></b><div>first</div><i></i></div>"
+  for_ steps $ \(tag, label, bad) -> do
+    result <- try (runMemDOM (ask (H.mkTell (Shape tag label bad))))
+    assertEqual ("the render of " <> T.unpack label <> " failed") bad (either (\(_ :: SomeException) -> True) (const False) result)
+  page <- N.renderToText container
+  runMemDOM dispose
+  pure page
+
+-- | The failed patch took the old root off the page before it failed.
+replacedRoot :: IO ()
+replacedRoot =
+  betweenSiblings [("section", "broken", True), ("div", "back", False)]
+    >>= assertEqual "the new root is where the old one was" "<div><b></b><div>back</div><i></i></div>"
+
+-- | The rebuild after a failed patch fails too.
+failedRebuild :: IO ()
+failedRebuild = do
+  betweenSiblings [("div", "broken", True), ("div", "still broken", True), ("div", "back", False)]
+    >>= assertEqual "the rebuilt root is where the old one was" "<div><b></b><div>back</div><i></i></div>"
+  betweenSiblings [("section", "broken", True), ("section", "still broken", True), ("div", "back", False), ("section", "patched", False)]
+    >>= assertEqual "and is patched in place afterwards" "<div><b></b><section>patched</section><i></i></div>"
+
 spec :: Spec
 spec =
-  describe "render recovery" $
+  describe "render recovery" $ do
     it "brings the page to what is rendered after a render that failed part way" recovers
+    it "puts a root back where it was when the failed patch had taken it off the page" replacedRoot
+    it "keeps the place through a rebuild that fails too" failedRebuild
 
 #endif

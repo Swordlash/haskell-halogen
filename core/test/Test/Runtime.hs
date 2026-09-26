@@ -37,6 +37,36 @@ runFiber program = do
   enter loop (start program)
   readIORef ended
 
+-- | The same, waiting until it ends (it may resume on a worker's behalf).
+awaitFiber :: Turn () -> IO Text
+awaitFiber program = do
+  loop <- newLoop
+  ended <- newEmptyMVar
+  (_, start) <- fiberFor loop (pure True) False $ \case
+    Done () -> putMVar ended "done"
+    Failed _ -> putMVar ended "failed"
+    Cancelled -> putMVar ended "cancelled"
+  enter loop (start program)
+  within "the fiber to end" (takeMVar ended)
+
+-- | A branch that fails outside its error continuation (while its next
+-- part is being made) fails the whole, and stops its sibling.
+branchThrows :: IO ()
+branchThrows = do
+  touched <- newIORef []
+  let throwsNext :: Turn () -> Turn ()
+      throwsNext before = before >>= \_ -> error "branch continuation"
+      sibling = sync (threadDelay 0) >> sync (modifyIORef' touched (<> ["sibling" :: Text]))
+      both first second = sequentialTurn $ (\_ _ -> ()) <$> ParTurn first <*> ParTurn second
+  runFiber (both (throwsNext (sync (pure ()))) (pure ())) >>= assertEqual "failing at once" "failed"
+  runFiber (both (throwsNext (sync (pure ()))) sibling) >>= assertEqual "failing at once, sibling after" "failed"
+  awaitFiber (both (throwsNext (await (pure ()))) (pure ())) >>= assertEqual "failing after a wait" "failed"
+  gate <- newEmptyMVar
+  awaitFiber (both (throwsNext (await (pure ()))) (await (takeMVar gate) >> sibling)) >>= assertEqual "failing while the sibling waits" "failed"
+  _ <- tryPutMVar gate ()
+  threadDelay 10_000
+  readIORef touched >>= assertEqual "no sibling went on" []
+
 selfCancel :: IO ()
 selfCancel = do
   touched <- newIORef []
@@ -126,5 +156,6 @@ spec =
   describe "runtime" $ do
     it "runs nothing more of a fiber once its own work cancelled it" selfCancel
     it "runs work the loop's own thread enters inside the work running, and stops parallel siblings of a failure" nested
+    it "fails the whole when a parallel branch fails outside its error continuation" branchThrows
     it "never strands the loop when the thread taking it is killed" loopHandOff
     it "kills every worker of a cancelled fiber, whenever its starter was killed" workerHandOff

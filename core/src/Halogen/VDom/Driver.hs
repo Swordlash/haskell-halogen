@@ -47,10 +47,19 @@ data RenderState m state action slots output
   { node :: DOM.Node
   , machine :: V.Step m (VHTML m action slots) DOM.Node
   , renderChildRef :: IORef (ChildRenderer m action slots)
-  , intact :: IORef Bool
-  -- ^ Cleared when a patch fails: the machine no longer says what is on the
-  -- page (the patch changed some of it), so it is not patched again.
+  , recovery :: IORef Recovery
   }
+
+-- | Whether the machine still says what is on the page.
+data Recovery
+  = Intact
+  | -- | A patch failed part way, so the machine is not patched again: the
+    -- next render builds the HTML afresh. Where it goes is held by an
+    -- empty text node put where the component's node was before the patch
+    -- (the patch may have taken that node off the page already), which
+    -- stays until a build succeeds. Also whether the old machine has been
+    -- halted yet.
+    Broken (Maybe DOM.Node) Bool
 
 type HTMLThunk m slots action =
   Thunk (HTML (ComponentSlot slots m action)) action
@@ -169,34 +178,44 @@ renderSpec document container =
           (machine, renderChildRef) <- build
           let node = V.extract machine
           void $ DOM.appendChild node $ toNode container
-          intact <- newIORef True
-          pure $ RenderState {machine, node, renderChildRef, intact}
-        Just (RenderState {machine, node, renderChildRef, intact}) -> do
-          parent <- DOM.parentNode node
-          nextSib <- DOM.nextSibling node
-          whole <- readIORef intact
-          if whole
-            then do
+          recovery <- newIORef Intact
+          pure $ RenderState {machine, node, renderChildRef, recovery}
+        Just (RenderState {machine, node, renderChildRef, recovery}) ->
+          readIORef recovery >>= \case
+            Intact -> do
               atomicWriteIORef renderChildRef child
+              parent <- DOM.parentNode node
+              nextSib <- DOM.nextSibling node
               -- A patch that fails has changed part of the page already: the
               -- next render starts afresh rather than diff against a machine
               -- that no longer matches the page.
-              machine' <- V.step machine vdom `onException` writeIORef intact False
+              machine' <- V.step machine vdom `onException` (hold parent nextSib >>= writeIORef recovery . (`Broken` False))
               let newNode = V.extract machine'
               unless (node `unsafeRefEq` newNode)
                 $ substInParent newNode nextSib parent
-              pure $ RenderState {machine = machine', node = newNode, renderChildRef, intact}
-            else do
+              pure $ RenderState {machine = machine', node = newNode, renderChildRef, recovery}
+            Broken place halted -> do
               -- Whatever the failed patch left is taken off the page (the
-              -- refs it held let go first, so that the new ones stay), and
-              -- the HTML is built anew where it was.
-              V.halt machine
+              -- refs it held let go first, so that the new ones stay), once,
+              -- and the HTML is built anew where the component was. Until
+              -- that succeeds, the placeholder keeps the place.
+              unless halted $ do
+                V.halt machine
+                writeIORef recovery (Broken place True)
               (machine', renderChildRef') <- build
               let newNode = V.extract machine'
-              substInParent newNode nextSib parent
-              intact' <- newIORef True
-              pure $ RenderState {machine = machine', node = newNode, renderChildRef = renderChildRef', intact = intact'}
+              for_ place $ \placeholder ->
+                DOM.parentNode placeholder >>= traverse_ (\pn -> do
+                  DOM.insertBefore newNode placeholder pn
+                  DOM.removeChild placeholder pn)
+              recovery' <- newIORef Intact
+              pure $ RenderState {machine = machine', node = newNode, renderChildRef = renderChildRef', recovery = recovery'}
       where
+        -- An empty text node where the component's node was.
+        hold parent nextSib = for parent $ \pn -> do
+          placeholder <- DOM.createTextNode "" document
+          substInParent placeholder nextSib (Just pn)
+          pure placeholder
         build = do
           renderChildRef <- newIORef child
           let spec = mkSpec handler renderChildRef document
