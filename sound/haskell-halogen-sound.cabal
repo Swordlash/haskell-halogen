@@ -1,0 +1,95 @@
+cabal-version:      3.0
+name:               haskell-halogen-sound
+version:            0.1.0.0
+synopsis:           Music and sound effects for haskell-halogen pages
+description:
+  A player for an application's sounds, named by an enumeration: a theme to
+  loop, an album in a shuffled order with the next track fetched ahead,
+  effects on top, a cache that lets unused files go, and a backend for
+  pages (HTML audio over blob URLs).
+homepage:           https://github.com/Swordlash/haskell-halogen
+license:            Apache-2.0
+license-file:       LICENSE
+author:             Mateusz Goślinowski
+maintainer:         mateusz.goslinowski@gmail.com
+category:           Web
+extra-source-files: CHANGELOG.md, README.md
+
+common defaults
+  default-language: GHC2021
+  ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture
+
+  default-extensions:
+      RankNTypes
+      GeneralizedNewtypeDeriving
+      MultiParamTypeClasses
+      FunctionalDependencies
+      FlexibleContexts
+      FlexibleInstances
+      UndecidableInstances
+      GADTs
+      DeriveFunctor
+      DerivingStrategies
+      NoImplicitPrelude
+      KindSignatures
+      DataKinds
+      OverloadedStrings
+      TypeOperators
+      LambdaCase
+      TypeFamilies
+      OverloadedRecordDot
+      RecordWildCards
+      NamedFieldPuns
+      DuplicateRecordFields
+      PartialTypeSignatures
+      DefaultSignatures
+      StandaloneKindSignatures
+      NoFieldSelectors
+      DerivingVia
+      CPP
+      StrictData
+      RequiredTypeArguments
+      ExplicitNamespaces
+
+library
+    import: defaults
+
+    build-depends:
+        base >= 4.20,
+        protolude,
+        containers
+
+    if arch(wasm32)
+      build-depends: ghc-experimental
+
+    exposed-modules:
+      Halogen.Sound
+      Halogen.Sound.Backend
+      Halogen.Sound.Browser
+      Halogen.Sound.Order
+
+    hs-source-dirs:   src
+
+    if arch(javascript)
+      js-sources:
+        jsbits/sound.js
+
+test-suite Halogen-sound-test
+    import: defaults
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          Test.hs
+    build-depends:    base >= 4.20,
+                      containers,
+                      haskell-halogen-core,
+                      haskell-halogen-sound,
+                      hspec >= 2,
+                      text
+
+    other-modules:  Test.Order
+                    Test.Player
+
+source-repository head
+  type:     git
+  location: https://github.com/Swordlash/haskell-halogen.git
+  subdir:   sound
