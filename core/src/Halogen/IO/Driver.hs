@@ -164,11 +164,14 @@ runComponent tree spec handler input (Component cs) = do
   children <- readIORef b.initializers
   let var = ds.selfRef
       initializer = do
-        -- The children's initializers side by side, then this one's, then
-        -- what it was sent before it was ready for it.
-        sequentialTurn (traverse_ ParTurn (reverse children))
-        spawnAwait var False (evalM var (runNT cs.eval (HQ.Initialize ())))
-        sync $ handlePending ds.pendingQueries >> handlePending ds.pendingOuts
+        -- None for a component a failed render pass took back.
+        life <- sync (readIORef ds.life)
+        when (life == Alive) $ do
+          -- The children's initializers side by side, then this one's, then
+          -- what it was sent before it was ready for it.
+          sequentialTurn (traverse_ ParTurn (reverse children))
+          spawnAwait var False (evalM var (runNT cs.eval (HQ.Initialize ())))
+          sync $ handlePending ds.pendingQueries >> handlePending ds.pendingOuts
   writeIORef b.initializers (initializer : before)
   pure (DriverStateRef var)
 
@@ -210,8 +213,12 @@ renderComponent tree spec var = do
 --
 -- A walk that fails commits nothing: the component keeps the children and
 -- rendering it had, and the children this walk created are removed (none
--- of their code has run: they go without a finalizer). It is not tried again by itself (the renderer may have changed
--- part of the DOM before failing); the next state change renders again.
+-- of their code has run: they go without a finalizer, and their
+-- initializers do nothing). That holds up to the commit, taking the
+-- children the walk dropped off the page included. It is not tried again
+-- by itself; the next state change renders again (and the renderer, which
+-- may have changed part of the page before failing, has to cope: see
+-- "Halogen.VDom.Driver").
 renderPass :: forall m r s f act ps i o. (MonadIO m) => Tree m r -> RenderSpec m r -> IORef (DriverState m r s f act ps i o) -> IO ()
 renderPass tree spec var = do
   ds <- readIORef var
@@ -223,25 +230,30 @@ renderPass tree spec var = do
         -- A ref is recorded as soon as its element is created or removed:
         -- initializers, which run after the render, may look it up.
         Input.RefUpdate (Input.RefLabel p) el -> modifyIORef' var $ \d -> d {refs = M.alter (const el) p d.refs}
-        Input.Action act -> enter tree.loop (runHandler var (launchAction var act))
+        Input.Action act -> enterCallback tree.loop (runHandler var (launchAction var act))
       childHandler :: act -> IO ()
       childHandler act = queueOrRun ds.pendingQueries (runHandler var (launchAction var act))
-  rendering <-
-    treeRunM tree
-      ( specRender spec
-          (liftIO . handler)
-          (liftIO . slotChild tree spec childHandler childrenIn childrenOut created)
-          (ds.component.render ds.state)
-          ds.rendering
-      )
+  (rendering, children, gone) <-
+    ( do
+        rendering <-
+          treeRunM tree $
+            specRender
+              spec
+              (liftIO . handler)
+              (liftIO . slotChild tree spec childHandler childrenIn childrenOut created)
+              (ds.component.render ds.state)
+              ds.rendering
+        children <- readIORef childrenOut
+        gone <- readIORef childrenIn
+        Slot.foreachSlot gone $ \(DriverStateRef child) -> do
+          cds <- readIORef child
+          for_ cds.rendering (treeRunM tree . specRemove spec)
+        pure (rendering, children, gone)
+    )
       `onException` (sequence_ =<< readIORef created)
-  children <- readIORef childrenOut
-  gone <- readIORef childrenIn
-  Slot.foreachSlot gone $ \(DriverStateRef child) -> do
-    cds <- readIORef child
-    for_ cds.rendering (treeRunM tree . specRemove spec)
-    finalize tree (DriverStateX cds)
   modifyIORef' var $ \d -> d {rendering = Just rendering, children}
+  Slot.foreachSlot gone $ \(DriverStateRef child) ->
+    readIORef child >>= finalize tree . DriverStateX
 
 -- | A child slot of a render pass: the child already there (which gets its
 -- new input), or a new one.
@@ -290,9 +302,14 @@ discard tree spec (DriverStateX ds0) = do
   writeIORef ds.life Dead
   traverse_ cancelFiber =<< readIORef ds.fibers
   traverse_ HS.unsubscribe =<< atomicModifyIORef' ds.subscriptions (mempty,)
-  for_ ds.rendering (treeRunM tree . specRemove spec)
   Slot.foreachSlot ds.children $ \(DriverStateRef child) ->
     readIORef child >>= discard tree spec . DriverStateX
+  -- Taking it off the page may fail too (it does in the pass it is taken
+  -- back from, maybe): that is reported, and the rest is taken back still.
+  for_ ds.rendering $ \rendering ->
+    (try (treeRunM tree (specRemove spec rendering)) :: IO (Either SomeException ())) >>= \case
+      Left e -> hPutStrLn stderr ("Halogen: removing a component a failed render made failed: " <> show e :: Text)
+      Right () -> pass
 
 -- | A component goes away, with its children: it is closed to everything
 -- but its finalizer (its programs are cancelled, its subscriptions ended),

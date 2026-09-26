@@ -78,7 +78,7 @@ evalM var (HalogenM hm) = foldF go hm
         await (treeRunM ds.tree aff)
       LiftEffect eff -> do
         ds <- sync (readIORef var)
-        sync (treeRunM ds.tree eff)
+        sync (withinEffect ds.tree.loop (treeRunM ds.tree eff))
       Unlift q -> do
         ds <- sync (readIORef var)
         -- The body is arbitrary IO, run on a worker; each program it runs

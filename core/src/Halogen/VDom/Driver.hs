@@ -11,7 +11,7 @@ import Control.Monad.Parallel
 import Control.Monad.UUID
 import Data.Coerce
 import Data.Foreign
-import HPrelude
+import HPrelude hiding (onException)
 import Halogen.Component
 import Halogen.HTML.Core (HTML (..))
 import Halogen.IO.Driver (HalogenSocket)
@@ -47,6 +47,9 @@ data RenderState m state action slots output
   { node :: DOM.Node
   , machine :: V.Step m (VHTML m action slots) DOM.Node
   , renderChildRef :: IORef (ChildRenderer m action slots)
+  , intact :: IORef Bool
+  -- ^ Cleared when a patch fails: the machine no longer says what is on the
+  -- page (the patch changed some of it), so it is not patched again.
   }
 
 type HTMLThunk m slots action =
@@ -141,7 +144,7 @@ runUI component i element = do
 
 renderSpec
   :: forall m
-   . (DOM.MonadBrowserDOM m, MonadIO m)
+   . (DOM.MonadBrowserDOM m, MonadIO m, MonadMask m)
   => DOM.Document
   -> DOM.HTMLElement
   -> AD.RenderSpec m (RenderState m)
@@ -163,21 +166,42 @@ renderSpec document container =
     render handler child (HTML vdom) =
       \case
         Nothing -> do
+          (machine, renderChildRef) <- build
+          let node = V.extract machine
+          void $ DOM.appendChild node $ toNode container
+          intact <- newIORef True
+          pure $ RenderState {machine, node, renderChildRef, intact}
+        Just (RenderState {machine, node, renderChildRef, intact}) -> do
+          parent <- DOM.parentNode node
+          nextSib <- DOM.nextSibling node
+          whole <- readIORef intact
+          if whole
+            then do
+              atomicWriteIORef renderChildRef child
+              -- A patch that fails has changed part of the page already: the
+              -- next render starts afresh rather than diff against a machine
+              -- that no longer matches the page.
+              machine' <- V.step machine vdom `onException` writeIORef intact False
+              let newNode = V.extract machine'
+              unless (node `unsafeRefEq` newNode)
+                $ substInParent newNode nextSib parent
+              pure $ RenderState {machine = machine', node = newNode, renderChildRef, intact}
+            else do
+              -- Whatever the failed patch left is taken off the page (the
+              -- refs it held let go first, so that the new ones stay), and
+              -- the HTML is built anew where it was.
+              V.halt machine
+              (machine', renderChildRef') <- build
+              let newNode = V.extract machine'
+              substInParent newNode nextSib parent
+              intact' <- newIORef True
+              pure $ RenderState {machine = machine', node = newNode, renderChildRef = renderChildRef', intact = intact'}
+      where
+        build = do
           renderChildRef <- newIORef child
           let spec = mkSpec handler renderChildRef document
           machine <- V.buildVDom spec vdom
-          let node = V.extract machine
-          void $ DOM.appendChild node $ toNode container
-          pure $ RenderState {machine, node, renderChildRef}
-        Just (RenderState {machine, node, renderChildRef}) -> do
-          atomicWriteIORef renderChildRef child
-          parent <- DOM.parentNode node
-          nextSib <- DOM.nextSibling node
-          machine' <- V.step machine vdom
-          let newNode = V.extract machine'
-          unless (node `unsafeRefEq` newNode)
-            $ substInParent newNode nextSib parent
-          pure $ RenderState {machine = machine', node = newNode, renderChildRef}
+          pure (machine, renderChildRef)
 
 removeChild
   :: forall m state action slots output

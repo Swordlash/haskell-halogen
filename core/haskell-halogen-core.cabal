@@ -248,6 +248,7 @@ test-suite Halogen-core-test
                       aeson,
                       clay >= 0.16.0,
                       containers,
+                      exceptions,
                       haskell-halogen-core,
                       hspec >= 2,
                       mtl,
@@ -265,6 +266,8 @@ test-suite Halogen-core-test
                     Test.Fork
                     Test.GHCJS
                     Test.NativeDom
+                    Test.RenderRecovery
+                    Test.Runtime
                     Test.Storage
                     Test.SvgAttributes
                     Test.Utils

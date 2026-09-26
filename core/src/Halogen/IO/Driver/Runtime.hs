@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE MultiWayIf #-}
 
 -- | The scheduler a mounted component tree runs on.
@@ -12,9 +13,10 @@
 --   it work while it is idle (so a browser event is handled while the event
 --   is being dispatched, and 'preventDefault' still counts), one piece of
 --   work at a time, until nothing is queued. The one exception is the
---   browser's own: an event dispatched by a piece of work (from a
+--   browser's own: an event a piece of work dispatches (from a
 --   'Halogen.Query.HalogenM.liftEffect') is handled there and then, nested
---   in it, as the browser runs handlers while it dispatches.
+--   in it, as the browser runs handlers while it dispatches; so is work the
+--   thread running the loop brings it itself.
 --
 -- * A component's program runs as a 'Fiber': a continuation, driven in
 --   'Turn'. Its synchronous parts run on the loop; at a suspension ('await')
@@ -32,7 +34,9 @@ module Halogen.IO.Driver.Runtime
     Loop
   , newLoop
   , enter
+  , enterCallback
   , post
+  , withinEffect
 
     -- * Fibers
   , Fiber
@@ -81,13 +85,16 @@ data LoopState = LoopState
   { running :: !Bool
   , runner :: !(Maybe ThreadId)
   -- ^ 'Nothing' while the loop passes to a thread just forked to run it.
+  , effects :: !Int
+  -- ^ How many synchronous effects of components ('withinEffect') are
+  -- under way on the loop.
   , queue :: !(Seq (IO ()))
   }
 
 newtype Loop = Loop (IORef LoopState)
 
 newLoop :: IO Loop
-newLoop = Loop <$> newIORef (LoopState False Nothing Seq.empty)
+newLoop = Loop <$> newIORef (LoopState False Nothing 0 Seq.empty)
 
 data Entry = Claimed | Nested | Queued
 
@@ -96,14 +103,33 @@ data Entry = Claimed | Nested | Queued
 -- after what is queued already. Never waits.
 --
 -- The thread running the loop that enters it again, from inside a piece of
--- work (a browser event dispatched by a 'Halogen.Query.HalogenM.liftEffect',
--- say), runs the new work there and then, nested in the old, as a browser
--- runs an event's handlers while it is being dispatched: a handler may then
--- still prevent the event's default action, or stop its propagation.
+-- work (an emitter a 'Halogen.Query.HalogenM.liftEffect' notifies, say),
+-- runs the new work there and then, nested in the old.
 --
 -- The work runs in the masking state of the thread that entered.
 enter :: Loop -> IO () -> IO ()
-enter loop@(Loop ref) work = do
+enter = enterWith False
+
+-- | 'enter', for a browser event's handler. A browser runs an event's
+-- handlers while it dispatches it, so an event a component dispatches from
+-- a synchronous effect is handled before the effect goes on: the handler
+-- may still prevent the event's default action, or stop its propagation.
+-- In the browser the handler runs on a thread of its own while the thread
+-- running the loop waits for the dispatch to return, so there it is nested
+-- whenever the loop is inside a synchronous effect ('withinEffect'). (There
+-- is only ever one thread running, and a handler is called either from the
+-- page's own event loop, with no effect under way, or by the effect.)
+enterCallback :: Loop -> IO () -> IO ()
+enterCallback = enterWith browser
+  where
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+    browser = True
+#else
+    browser = False
+#endif
+
+enterWith :: Bool -> Loop -> IO () -> IO ()
+enterWith callback loop@(Loop ref) work = do
   me <- myThreadId
   -- Masked from taking the loop to running it: the loop must not be left
   -- taken with nobody to run it.
@@ -111,12 +137,20 @@ enter loop@(Loop ref) work = do
     entry <- atomicModifyIORef' ref $ \s ->
       if
         | not s.running -> (s {running = True, runner = Just me}, Claimed)
-        | s.runner == Just me -> (s, Nested)
+        | s.runner == Just me || (callback && s.effects > 0) -> (s, Nested)
         | otherwise -> (s {queue = s.queue |> work}, Queued)
     case entry of
       Claimed -> runLoop loop restore work
       Nested -> restore work
       Queued -> pure ()
+
+-- | Run a component's synchronous effect, on the loop.
+withinEffect :: Loop -> IO a -> IO a
+withinEffect (Loop ref) io = mask $ \restore -> do
+  count 1
+  restore io `onException` count (-1) <* count (-1)
+  where
+    count n = atomicModifyIORef' ref (\s -> (s {effects = s.effects + n}, ()))
 
 -- | The same, for a thread that must not run the loop itself (a worker,
 -- which is killed with its fiber): when nobody runs the loop, a new thread

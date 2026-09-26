@@ -11,17 +11,24 @@
 -- * A component that goes away takes its programs with it: none touches it
 --   again, a query waiting on it answers 'Nothing', and what its finalizer
 --   forked ends with the finalizer.
--- * A render pass that fails takes back the children it made.
+-- * A program stops the moment it is cancelled, by its own work too.
+-- * Parallel branches end together: a failing one takes the others with it.
+-- * A render pass that fails takes back the children it made, up to its
+--   commit.
+-- * Work the tree's own thread brings it (an emitter a synchronous effect
+--   notifies) runs there and then.
 -- * A failing program ends alone: the rest of the tree goes on.
 module Test.DriverContract (spec) where
 
-import Control.Concurrent (forkIO, rtsSupportsBoundThreads, setNumCapabilities)
+import Control.Concurrent (forkIO, rtsSupportsBoundThreads, setNumCapabilities, threadDelay)
 import Control.Concurrent.MVar
-import Control.Exception (ErrorCall (..), SomeException, onException, throwIO, try)
-import Control.Monad (void, when)
+import Control.Exception (ErrorCall (..), SomeException, onException, throwIO)
+import Control.Monad (forever, void, when)
+import Control.Monad.Catch (try)
+import Control.Monad.Parallel (parallel, sequential)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.State.Class (get, modify, put)
-import Data.Foldable (traverse_)
+import Data.Foldable (for_, traverse_)
 import Data.IORef
 import Data.Kind (Type)
 import Data.Row (Empty, Row, type (.==))
@@ -68,13 +75,47 @@ walking texts =
       modifyIORef' texts (<> [mconcat text])
       pure Rendered
 
-    walk :: VDom p w -> ([w], [Text])
-    walk = \case
-      Text t -> ([], [t])
-      Elem _ _ _ cs -> foldMap walk cs
-      Keyed _ _ _ cs -> foldMap (walk . snd) cs
-      Widget w -> ([w], [])
-      Grafted g -> walk (runGraft g)
+walk :: VDom p w -> ([w], [Text])
+walk = \case
+  Text t -> ([], [t])
+  Elem _ _ _ cs -> foldMap walk cs
+  Keyed _ _ _ cs -> foldMap (walk . snd) cs
+  Widget w -> ([w], [])
+  Grafted g -> walk (runGraft g)
+
+-- | A render spec that counts what is on the page: each rendering has a
+-- number, live until it is removed. It refuses to remove the one it is told
+-- to.
+data Tracked (s :: Type) (act :: Type) (ps :: Row Type) (o :: Type) = Tracked Int
+
+tracking :: IORef Int -> IORef [Int] -> IORef (Maybe Int) -> AD.RenderSpec IO Tracked
+tracking fresh live refuse =
+  AD.RenderSpec
+    { AD.render = render
+    , AD.renderChild = id
+    , AD.removeChild = remove
+    , AD.dispose = remove
+    }
+  where
+    render
+      :: (Input act -> IO ())
+      -> (ComponentSlotBox ps IO act -> IO (RenderStateX Tracked))
+      -> HC.HTML (ComponentSlot ps IO act) act
+      -> Maybe (Tracked s act ps o)
+      -> IO (Tracked s act ps o)
+    render _ renderChild html old = do
+      traverse_ (\case ComponentSlot box -> void (renderChild box); ThunkSlot _ -> pure ()) (fst (walk (HC.unHTML html)))
+      case old of
+        Just r -> pure r
+        Nothing -> do
+          n <- atomicModifyIORef' fresh (\i -> (i + 1, i))
+          modifyIORef' live (<> [n])
+          pure (Tracked n)
+    remove :: Tracked s act ps o -> IO ()
+    remove (Tracked n) = do
+      refused <- readIORef refuse
+      when (refused == Just n) $ throwIO (ErrorCall "cannot remove")
+      modifyIORef' live (filter (/= n))
 
 ask :: AD.HalogenSocket q o IO -> q a -> IO (Maybe a)
 ask AD.HalogenSocket {AD.query = q} = q
@@ -98,17 +139,32 @@ data Act
   -- ^ Holds the tree: signals, then waits in 'liftEffect'.
   | Slow (MVar ()) (MVar ())
   -- ^ Waits in 'liftIO' for the first, then signals the second.
-  | Stuck (MVar ()) (MVar ())
-  -- ^ Waits in 'liftIO' forever; signals the second when killed.
+  | Stuck (MVar ()) (MVar ()) (MVar ())
+  -- ^ Waits in 'liftIO' for the second forever, signalling the first once
+  -- it waits (a worker killed before it starts runs none of its handlers)
+  -- and the third when killed.
   | Boom
+  | SelfKill (MVar ())
+  -- ^ Forks a program that kills itself (and signals when it has).
+  | ParStuck (MVar ()) (MVar ()) (MVar ()) (MVar ())
+  -- ^ Two branches that wait forever: each signals when it starts, and when
+  -- it is killed.
+  | ParFailsAtOnce (MVar ())
+  -- ^ A branch that fails at once, and one that notes it started; goes on
+  -- (past a wait) once it has caught the failure, and signals at the end.
+  | ParFailsLater (MVar ()) (MVar ()) (MVar ()) (MVar ()) (MVar ())
+  -- ^ A branch that fails once let go, and one that waits (signalling when
+  -- it waits, and when it is killed) and then changes the state; signals
+  -- once it has caught the failure.
+  | Dispatch
 
 data Query a
   = Bump (Text -> a)
   | Current (Int -> a)
   | Hang (MVar ()) a
 
-logging :: IORef [Text] -> IORef [Text] -> HS.Emitter IO Act -> H.Component Query () Void IO
-logging texts logRef acts =
+logging :: IORef [Text] -> IORef [Text] -> HS.Emitter IO Act -> HS.Listener IO Act -> H.Component Query () Void IO
+logging texts logRef acts self =
   H.mkComponent
     H.ComponentSpec
       { initialState = \_ -> pure (0 :: Int)
@@ -116,7 +172,8 @@ logging texts logRef acts =
       , eval = H.mkEval H.defaultEval {initialize = Just (Note "init"), handleAction, handleQuery}
       }
   where
-    note t = H.liftEffect (modifyIORef' logRef (<> [t]))
+    note t = H.liftEffect (note' t)
+    note' t = modifyIORef' logRef (<> [t])
     handleAction = \case
       Note "init" -> void (H.subscribe acts)
       Note t -> note t
@@ -128,12 +185,51 @@ logging texts logRef acts =
         liftIO (takeMVar gate)
         note "slow end"
         H.liftEffect (putMVar done ())
-      Stuck gate killed -> do
+      Stuck started gate killed -> do
         note "stuck"
-        liftIO (takeMVar gate `onException` putMVar killed ())
+        liftIO ((putMVar started () >> takeMVar gate) `onException` putMVar killed ())
         modify (+ 1)
         note "after"
       Boom -> H.liftEffect (throwIO (ErrorCall "boom"))
+      SelfKill done -> do
+        me <- H.liftEffect newEmptyMVar
+        fid <- H.fork $ do
+          fid <- liftIO (readMVar me)
+          H.liftEffect (putMVar done ())
+          H.kill fid
+          note "went on after its kill"
+          modify (+ 1)
+          liftIO (note' "waited after its kill")
+        H.liftEffect (putMVar me fid)
+      ParStuck started1 started2 killed1 killed2 ->
+        sequential $
+          (\() () -> ())
+            <$> parallel (liftIO (putMVar started1 () >> forever (threadDelay 1_000_000) `onException` putMVar killed1 ()) :: H.HalogenM Int Act Empty Void IO ())
+            <*> parallel (liftIO (putMVar started2 () >> forever (threadDelay 1_000_000) `onException` putMVar killed2 ()) :: H.HalogenM Int Act Empty Void IO ())
+      ParFailsAtOnce done -> do
+        result <-
+          try $
+            sequential $
+              (,)
+                <$> parallel (H.liftEffect (throwIO (ErrorCall "first")) :: H.HalogenM Int Act Empty Void IO ())
+                <*> parallel (note "second started")
+        for_ (either (\(_ :: SomeException) -> Just ()) (const Nothing) result) $ \() -> note "caught"
+        -- Still running, so that a sibling let go would run too.
+        liftIO (pure ())
+        note "went on"
+        H.liftEffect (putMVar done ())
+      ParFailsLater gate1 started2 gate2 killed2 caught -> do
+        result <-
+          try $
+            sequential $
+              (,)
+                <$> parallel (liftIO (takeMVar gate1 >> throwIO (ErrorCall "first")) :: H.HalogenM Int Act Empty Void IO ())
+                <*> parallel (liftIO ((putMVar started2 () >> takeMVar gate2) `onException` putMVar killed2 ()) >> modify (+ 1) >> note "sibling went on")
+        for_ (either (\(_ :: SomeException) -> Just ()) (const Nothing) result) $ \() -> note "caught"
+        H.liftEffect (putMVar caught ())
+      Dispatch -> do
+        H.liftEffect (HS.notify self (Note "handled while dispatched"))
+        note "dispatched"
     handleQuery :: Query a -> H.HalogenM Int Act Empty Void IO (Maybe a)
     handleQuery = \case
       Bump k -> do
@@ -153,7 +249,7 @@ withLogging body = do
   texts <- newIORef []
   logRef <- newIORef []
   HS.Subscribe {HS.listener, HS.emitter} <- HS.create
-  socket <- AD.runUI (walking texts) (logging texts logRef emitter) ()
+  socket <- AD.runUI (walking texts) (logging texts logRef emitter listener) ()
   body listener socket texts logRef
 
 busyTree :: IO ()
@@ -194,9 +290,11 @@ renderedFirst = withLogging $ \_ socket _ _ -> do
 
 goneWhileWaiting :: IO ()
 goneWhileWaiting = withLogging $ \acts socket texts logRef -> do
+  started <- newEmptyMVar
   gate <- newEmptyMVar
   killed <- newEmptyMVar
-  HS.notify acts (Stuck gate killed)
+  HS.notify acts (Stuck started gate killed)
+  within "the wait" (takeMVar started)
   rendersBefore <- length <$> readIORef texts
   dispose socket
   within "the cancelled wait" (takeMVar killed)
@@ -219,6 +317,104 @@ failureAlone = withLogging $ \acts _ _ logRef -> do
   HS.notify acts Boom
   HS.notify acts (Note "after")
   readIORef logRef >>= assertEqual "the tree went on" ["after"]
+
+selfKill :: IO ()
+selfKill = withLogging $ \acts socket _ logRef -> do
+  killed <- newEmptyMVar
+  HS.notify acts (SelfKill killed)
+  within "the kill" (takeMVar killed)
+  -- Queued behind whatever the fork still ran.
+  ask socket (Current id) >>= assertEqual "the state is as it was" (Just 0)
+  threadDelay 10_000
+  readIORef logRef >>= assertEqual "the fork ran nothing after its kill" []
+
+parallelDisposed :: IO ()
+parallelDisposed = withLogging $ \acts socket _ _ -> do
+  [started1, started2, killed1, killed2] <- sequence [newEmptyMVar, newEmptyMVar, newEmptyMVar, newEmptyMVar]
+  HS.notify acts (ParStuck started1 started2 killed1 killed2)
+  within "the first branch" (takeMVar started1)
+  within "the second branch" (takeMVar started2)
+  dispose socket
+  within "the first branch's worker to go" (takeMVar killed1)
+  within "the second branch's worker to go" (takeMVar killed2)
+
+parallelFailsAtOnce :: IO ()
+parallelFailsAtOnce = withLogging $ \acts _ _ logRef -> do
+  done <- newEmptyMVar
+  HS.notify acts (ParFailsAtOnce done)
+  within "the action" (takeMVar done)
+  readIORef logRef >>= assertEqual "the second branch never started" ["caught", "went on"]
+
+parallelFailsLater :: IO ()
+parallelFailsLater = withLogging $ \acts socket _ logRef -> do
+  [gate1, started2, gate2, killed2, caught] <- sequence [newEmptyMVar, newEmptyMVar, newEmptyMVar, newEmptyMVar, newEmptyMVar]
+  HS.notify acts (ParFailsLater gate1 started2 gate2 killed2 caught)
+  within "the sibling's wait" (takeMVar started2)
+  putMVar gate1 ()
+  within "the failure to be caught" (takeMVar caught)
+  within "the sibling's worker to go" (takeMVar killed2)
+  _ <- tryPutMVar gate2 ()
+  threadDelay 10_000
+  ask socket (Current id) >>= assertEqual "the sibling changed nothing" (Just 0)
+  readIORef logRef >>= assertEqual "and did not go on" ["caught"]
+
+nestedDispatch :: IO ()
+nestedDispatch = withLogging $ \acts _ _ logRef -> do
+  HS.notify acts Dispatch
+  readIORef logRef >>= assertEqual "handled before the effect returned" ["handled while dispatched", "dispatched"]
+
+----------------------------------------------------------------------
+-- A child that tells its parent to remove it, and would go on.
+
+data PokeAct = Watch | Poke
+
+poked :: IORef [Text] -> HS.Emitter IO () -> H.Component H.VoidF () () IO
+poked logRef pokes =
+  H.mkComponent
+    H.ComponentSpec
+      { initialState = \_ -> pure ()
+      , render = \_ -> HH.text "child" :: H.ComponentHTML PokeAct Empty IO
+      , eval =
+          H.mkEval
+            H.defaultEval
+              { initialize = Just Watch
+              , handleAction = \case
+                  Watch -> void (H.subscribe (Poke <$ pokes))
+                  Poke -> do
+                    -- The parent removes this component before 'raise' returns.
+                    H.raise ()
+                    H.liftEffect (modifyIORef' logRef (<> ["went on"]))
+                    liftIO (modifyIORef' logRef (<> ["waited"]))
+              }
+      }
+
+remover :: IORef [Text] -> HS.Emitter IO () -> H.Component Query () Void IO
+remover logRef pokes =
+  H.mkComponent
+    H.ComponentSpec
+      { initialState = \_ -> pure (0 :: Int)
+      , render = \n -> HH.div_ [HH.slot "child" () (poked logRef pokes) () (const ()) | n == 0] :: H.ComponentHTML () ("child" .== H.Slot H.VoidF () ()) IO
+      , eval =
+          H.mkEval
+            H.defaultEval
+              { handleAction = \() -> modify (+ 1)
+              , handleQuery = \case
+                  Current k -> Just . k <$> get
+                  _ -> pure Nothing
+              }
+      }
+
+removedWhileRunning :: IO ()
+removedWhileRunning = do
+  onCapabilities
+  texts <- newIORef []
+  logRef <- newIORef []
+  HS.Subscribe {HS.listener, HS.emitter} <- HS.create
+  socket <- AD.runUI (walking texts) (remover logRef emitter) ()
+  HS.notify listener ()
+  ask socket (Current id) >>= assertEqual "the child was removed" (Just 1)
+  threadDelay 10_000
+  readIORef logRef >>= assertEqual "the removed child ran nothing more" []
 
 ----------------------------------------------------------------------
 -- A child whose Receive asks its parent and waits for the answer.
@@ -323,6 +519,41 @@ failedPass = do
   dispose socket
   readIORef counts.stopped >>= assertEqual "all stopped with the tree" 3
 
+-- | One row, whose key is the state.
+swapper :: Counts -> H.Component SetQuery () Void IO
+swapper counts =
+  H.mkComponent
+    H.ComponentSpec
+      { initialState = \_ -> pure (0 :: Int)
+      , render = \k -> HH.div_ [HH.slot_ "row" k (counted counts) k] :: H.ComponentHTML () ("row" .== H.Slot H.VoidF Void Int) IO
+      , eval = H.mkEval H.defaultEval {handleQuery = \(Set n a) -> put n >> pure (Just a)}
+      }
+
+failedRemoval :: IO ()
+failedRemoval = do
+  onCapabilities
+  fresh <- newIORef 0
+  live <- newIORef []
+  refuse <- newIORef Nothing
+  counts <- Counts <$> newIORef 0 <*> newIORef 0 <*> newIORef 0
+  socket <- AD.runUI (tracking fresh live refuse) (swapper counts) ()
+  -- The row renders before the component around it.
+  readIORef live >>= assertEqual "the row and its parent" [0, 1]
+  writeIORef refuse (Just 0)
+  -- Row 1 is made, then the old row cannot be taken off the page.
+  failed <- try (ask socket (H.mkTell (Set 1)))
+  assertEqual "the render failed" True (either (\(_ :: SomeException) -> True) (const False) failed)
+  readIORef live >>= assertEqual "the row the failed pass made is gone" [0, 1]
+  readIORef counts.started >>= assertEqual "and was never initialized" 1
+  readIORef counts.stopped >>= assertEqual "nor finalized" 0
+  writeIORef refuse Nothing
+  void $ ask socket (H.mkTell (Set 1))
+  readIORef live >>= assertEqual "the new row replaced the old" [1, 3]
+  readIORef counts.started >>= assertEqual "the new row started" 2
+  readIORef counts.stopped >>= assertEqual "the old row stopped" 1
+  dispose socket
+  readIORef counts.stopped >>= assertEqual "all stopped with the tree" 2
+
 ----------------------------------------------------------------------
 -- A failing initializer, a finalizer that forks.
 
@@ -356,7 +587,10 @@ initParent logRef forkKilled =
               , handleAction = \case
                   Init -> H.liftEffect $ modifyIORef' logRef (<> ["parent"])
                   -- Forks work that outlives the finalizer: it ends with it.
-                  Fin -> void $ H.fork $ liftIO $ (newEmptyMVar >>= takeMVar :: IO ()) `onException` putMVar forkKilled ()
+                  Fin -> do
+                    forkWaits <- H.liftEffect newEmptyMVar
+                    void $ H.fork $ liftIO $ (putMVar forkWaits () >> (newEmptyMVar >>= takeMVar :: IO ())) `onException` putMVar forkKilled ()
+                    liftIO (readMVar forkWaits)
               }
       }
 
@@ -382,5 +616,12 @@ spec =
     it "cancels a waiting action of a component that goes away" goneWhileWaiting
     it "answers Nothing to a query whose component goes away" queryWhileGoing
     it "ends a failing program alone" failureAlone
+    it "runs nothing more of a program that kills itself" selfKill
+    it "runs nothing more of a program whose component its own work removed" removedWhileRunning
+    it "kills every waiting parallel branch when the tree goes" parallelDisposed
+    it "never starts a parallel branch after its sibling failed" parallelFailsAtOnce
+    it "cancels a parallel branch whose sibling failed later" parallelFailsLater
+    it "runs work an effect brings the tree there and then" nestedDispatch
     it "takes back the children made by a render pass that failed" failedPass
+    it "takes back the children made by a render pass that failed removing others" failedRemoval
     it "initializes the rest when an initializer fails, and ends a finalizer's forks with it" lifecycle
