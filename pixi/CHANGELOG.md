@@ -10,6 +10,12 @@
   the fog of war (hundreds of cloud shapes) took a pan from 7 to 13 frames a
   second (Chromium, software GL, 4× slowed CPU), and the main thread's work
   in it from about 430 to 310 ms.
+* **Fix.** Two fingers put down together no longer make the camera jump.
+  Pixi hands one event object on from event to event, and the pointer's id
+  and position were read from it lazily, after it already held the other
+  finger's event: a pinch could start from a wrong distance and zoom far in or
+  out at the first move. The handlers, `stagePosition` and `localPosition` now
+  read the event at once.
 * `PolygonHit` hit areas, as a Pixi `Polygon`.
 * Touch: two pointers pinch the camera. It zooms by how far apart they move,
   within the scene's `zoomRange`, and pans so that the world point between
