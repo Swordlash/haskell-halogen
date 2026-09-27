@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* Touch: two pointers pinch the camera. It zooms by how far apart they move,
+  within the scene's `zoomRange`, and pans so that the world point between
+  them stays between them. With one pointer it pans as before, and a finger
+  left down after a pinch pans on from where it is. `CameraChanged` is raised
+  once, when the last pointer lifts.
 * A scene may hold memoized parts (`Halogen.Canvas.Elements.memoized`,
   `lazy`): the renderer builds them as thunks, and while a part's input is
   equal a render skips building and diffing it and updating its Pixi

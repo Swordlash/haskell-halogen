@@ -35,6 +35,7 @@ where
 import Control.Monad.IO.Unlift (MonadUnliftIO (..))
 import Control.Monad.UUID
 import Data.IORef
+import Data.Map.Strict qualified as Map
 import Halogen qualified as H
 import Halogen.Canvas qualified as Canvas
 import Halogen.Canvas.Core
@@ -154,15 +155,17 @@ data Lifecycle
     Dead
   deriving stock (Eq, Show)
 
--- | A pan in progress.
-data Drag = Drag
-  { pointer :: Int
-  , lastX :: Double
-  , lastY :: Double
+-- | The pointers down on the scene, and where each was last: one pans the
+-- camera, two pan and zoom it (a pinch).
+data Gesture = Gesture
+  { pointers :: Map Int Point
   , moved :: Bool
-  -- ^ Whether the pointer has actually moved, so that a plain click does
-  -- not raise a spurious 'CameraChanged'.
+  -- ^ Whether the camera has actually moved, so that a plain click does not
+  -- raise a spurious 'CameraChanged'.
   }
+
+noGesture :: Gesture
+noGesture = Gesture {pointers = Map.empty, moved = False}
 
 type SceneStep i = V.Step PixiDOM (V.VDom [PixiProp i] (Thunk (CanvasNode PixiEvent) i)) FFI.Object
 
@@ -176,7 +179,7 @@ data Runtime i = Runtime
   -- ^ The camera on screen.
   , asked :: IORef (Maybe Camera)
   -- ^ The camera the last view asked for (see 'followCamera').
-  , drag :: IORef (Maybe Drag)
+  , gesture :: IORef Gesture
   , callbacks :: IORef [FFI.Callback]
   , wheelCallback :: IORef (Maybe FFI.Callback)
   , cameraTimer :: IORef (Maybe FFI.Timer)
@@ -193,12 +196,12 @@ rendererWith Config {moduleUrl} = Canvas.Renderer {mount}
       scene <- newIORef Nothing
       camera <- newIORef defaultCamera
       asked <- newIORef Nothing
-      drag <- newIORef Nothing
+      gesture <- newIORef noGesture
       callbacks <- newIORef []
       wheelCallback <- newIORef Nothing
       cameraTimer <- newIORef Nothing
       lifecycle <- newIORef Loading
-      let runtime = Runtime {app, canvas, emit = runInIO . emit, pending, scene, camera, asked, drag, callbacks, wheelCallback, cameraTimer, lifecycle}
+      let runtime = Runtime {app, canvas, emit = runInIO . emit, pending, scene, camera, asked, gesture, callbacks, wheelCallback, cameraTimer, lifecycle}
       onReady <- registerPermanent runtime $ \_ -> rendererReady runtime
       FFI.initializeApplication app moduleUrl canvas onReady
       pure
@@ -291,29 +294,36 @@ moveCamera runtime nextCamera = do
 -- Pan and zoom
 
 installInteraction :: Runtime i -> IO ()
-installInteraction runtime@Runtime {app, canvas, camera, drag} = do
+installInteraction runtime@Runtime {app, canvas, camera, gesture} = do
   down <- registerPermanent runtime $ \event ->
     whenPanning runtime $ \_ ->
-      writeIORef drag $
-        Just Drag {pointer = FFI.pointerId event, lastX = FFI.globalX event, lastY = FFI.globalY event, moved = False}
+      modifyIORef' gesture $ \g ->
+        g {pointers = Map.insert (FFI.pointerId event) (Point (FFI.globalX event) (FFI.globalY event)) g.pointers}
   FFI.onPointerDown app down
 
-  move <- registerPermanent runtime $ \event -> whenPanning runtime $ \_ -> do
-    active <- readIORef drag
-    for_ active $ \dragging -> when (FFI.pointerId event == dragging.pointer) $ do
-      let x = FFI.globalX event
-          y = FFI.globalY event
-      Camera {focus = Point focusX focusY, zoom} <- readIORef camera
-      writeIORef drag $ Just dragging {lastX = x, lastY = y, moved = True}
-      moveCamera runtime $
-        Camera {focus = Point (focusX - (x - dragging.lastX) / zoom) (focusY - (y - dragging.lastY) / zoom), zoom}
+  move <- registerPermanent runtime $ \event -> whenPanning runtime $ \scene -> do
+    g <- readIORef gesture
+    let pointer = FFI.pointerId event
+        here = Point (FFI.globalX event) (FFI.globalY event)
+    for_ (Map.lookup pointer g.pointers) $ \before -> do
+      let after = Map.insert pointer here g.pointers
+      writeIORef gesture g {pointers = after, moved = True}
+      width <- FFI.screenWidth app
+      height <- FFI.screenHeight app
+      current <- readIORef camera
+      moveCamera runtime $ case (Map.elems g.pointers, Map.elems after) of
+        -- Two fingers: the first two down, as they were and as they are.
+        (a : b : _, a' : b' : _) -> pinch (Point (width / 2) (height / 2)) scene.interaction.zoomRange (a, b) (a', b') current
+        _ -> pan before here current
   FFI.onPointerMove app move
 
   end <- registerPermanent runtime $ \event -> do
-    active <- readIORef drag
-    for_ active $ \dragging -> when (FFI.pointerId event == dragging.pointer) $ do
-      writeIORef drag Nothing
-      when dragging.moved $ readIORef camera >>= runtime.emit . CameraChanged
+    g <- readIORef gesture
+    when (Map.member (FFI.pointerId event) g.pointers) $ do
+      let left = Map.delete (FFI.pointerId event) g.pointers
+      -- A finger that stays down after a pinch pans on from where it is.
+      writeIORef gesture g {pointers = left, moved = g.moved && not (Map.null left)}
+      when (Map.null left && g.moved) $ readIORef camera >>= runtime.emit . CameraChanged
   FFI.onPointerEnd app end
 
   -- A wheel raises one event per notch, so the camera is reported once the
@@ -324,6 +334,30 @@ installInteraction runtime@Runtime {app, canvas, camera, drag} = do
   wheel <- registerPermanent runtime $ zoomAtPointer runtime settled
   writeIORef runtime.wheelCallback $ Just wheel
   FFI.onWheel canvas wheel
+
+-- | The camera after a pointer moved from one point on the screen to
+-- another: the world under it moves with it.
+pan :: Point -> Point -> Camera -> Camera
+pan (Point x0 y0) (Point x1 y1) Camera {focus = Point focusX focusY, zoom} =
+  Camera {focus = Point (focusX - (x1 - x0) / zoom) (focusY - (y1 - y0) / zoom), zoom}
+
+-- | The camera after two pointers moved (screen points, the screen's centre
+-- given): zoomed by how far apart they went, within the range if there is
+-- one (none: no zoom), and panned so that the world point between them
+-- stays between them.
+pinch :: Point -> Maybe (Double, Double) -> (Point, Point) -> (Point, Point) -> Camera -> Camera
+pinch (Point centreX centreY) range (a, b) (a', b') Camera {focus = Point focusX focusY, zoom} =
+  Camera {focus = Point (worldX - (midX' - centreX) / zoom') (worldY - (midY' - centreY) / zoom'), zoom = zoom'}
+  where
+    Point midX midY = midpoint a b
+    Point midX' midY' = midpoint a' b'
+    worldX = focusX + (midX - centreX) / zoom
+    worldY = focusY + (midY - centreY) / zoom
+    zoom' = case range of
+      Just (low, high) | distance a b > 0 -> max low (min high (zoom * distance a' b' / distance a b))
+      _ -> zoom
+    midpoint (Point x0 y0) (Point x1 y1) = Point ((x0 + x1) / 2) ((y0 + y1) / 2)
+    distance (Point x0 y0) (Point x1 y1) = sqrt ((x1 - x0) ^ (2 :: Int) + (y1 - y0) ^ (2 :: Int))
 
 whenPanning :: Runtime i -> (View i -> IO ()) -> IO ()
 whenPanning runtime act = do
