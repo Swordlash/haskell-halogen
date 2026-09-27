@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- `cacheAsTexture` on a group: Pixi's `cacheAsTexture`, kept up to date. Pixi
+  does not notice changes inside a cached group; here every change the
+  reconciler makes to a prop, a child added or removed, and a texture or
+  font finishing its load marks the cached groups above it, which are drawn
+  again before the next frame, once a frame at most. In Paladyn, caching
+  the fog of war (hundreds of cloud shapes) took a pan from 7 to 13 frames a
+  second (Chromium, software GL, 4× slowed CPU), and the main thread's work
+  in it from about 430 to 310 ms.
 * `PolygonHit` hit areas, as a Pixi `Polygon`.
 * Touch: two pointers pinch the camera. It zooms by how far apart they move,
   within the scene's `zoomRange`, and pans so that the world point between

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `Halogen.Canvas.Properties.cacheAsTexture` (`CacheAsTexture`): a group
+  drawn once into a texture, at a given resolution, and shown as that
+  texture until something inside it changes. Backends without such a thing
+  may ignore it.
 - `HitArea` has `PolygonHit`, a polygon given by its corners: a tile the
   shape of a hex is hit to its edges, where a circle left gaps between tiles.
 - Canvas scenes have `Halogen.Canvas.Elements.memoized` and `lazy`, as HTML
