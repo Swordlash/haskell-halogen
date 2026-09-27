@@ -177,6 +177,12 @@ data Gesture = Gesture
 noGesture :: Gesture
 noGesture = Gesture {pointers = Map.empty, going = False, changed = False, crowded = False, anchor = Nothing}
 
+-- | The pointers as they are now, each counted from where it is: when the
+-- pair changes (a pointer goes down or lifts), what a finger did before is
+-- not part of the new pinch, nor of its slop.
+rebase :: Map Int (Point, Point) -> Map Int (Point, Point)
+rebase = Map.map (\(_, seen) -> (seen, seen))
+
 -- | Where the pinch of the first two pointers begins, as they are now:
 -- taken whenever the pair changes (a pointer goes down or lifts).
 pinchAnchor :: Map Int (Point, Point) -> Maybe Point
@@ -325,7 +331,7 @@ installInteraction runtime@Runtime {app, canvas, camera, gesture, swallowTap} = 
     whenGestures runtime $ \_ -> do
       let here = Point (FFI.globalX event) (FFI.globalY event)
       modifyIORef' gesture $ \g ->
-        let pointers = Map.insert (FFI.pointerId event) (here, here) g.pointers
+        let pointers = rebase (Map.insert (FFI.pointerId event) (here, here) g.pointers)
          in g {pointers, crowded = g.crowded || Map.size pointers > 1, anchor = pinchAnchor pointers}
   FFI.onPointerDown app down
 
@@ -365,7 +371,7 @@ installInteraction runtime@Runtime {app, canvas, camera, gesture, swallowTap} = 
   end <- registerPermanent runtime $ \event -> do
     g <- readIORef gesture
     when (Map.member (FFI.pointerId event) g.pointers) $ do
-      let left = Map.delete (FFI.pointerId event) g.pointers
+      let left = rebase (Map.delete (FFI.pointerId event) g.pointers)
       -- A finger that stays down after a pinch pans on from where it is.
       writeIORef gesture (if Map.null left then noGesture else g {pointers = left, anchor = pinchAnchor left})
       -- No finger of a gesture that moved the camera, or had two down, lets
