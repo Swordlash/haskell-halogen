@@ -8,8 +8,9 @@
   them stays between them. With one pointer it pans as before, and a finger
   left down after a pinch pans on from where it is. `CameraChanged` is raised
   once, when the last pointer lifts.
-  A scene that zooms but does not pan (`pan = False`) is pinched too: about
-  where the fingers began, without following them.
+  A scene that zooms but does not pan (`pan = False`) is pinched too, about
+  one point for the whole pinch (between where the two fingers went down).
+  `CameraChanged` is raised only when the camera has actually moved.
 * A pointer moves the camera only once it has gone 8 screen pixels from where
   it went down, so a tap with a trembling finger stays a tap. The tap that
   ends a pan or a pinch is not delivered to `PointerTap` handlers, for any
