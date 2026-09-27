@@ -100,6 +100,7 @@ buildCanvasProp emit swallowTap application object = render
           target <- newMutVar f
           callback <- liftIO $ FFI.mkCallback $ \event -> runPixiDOM $ do
             swallowed <- if eventType == PointerTap then liftIO swallowTap else pure False
+            when (eventType == PointerTap) $ liftIO $ hPutStrLn stderr ("DBG tap swallowed " <> show swallowed :: Text)
             unless swallowed $ do
               current <- readMutVar target
               traverse_ emit (current event)

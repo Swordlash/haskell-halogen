@@ -305,6 +305,7 @@ moveCamera runtime nextCamera = do
 installInteraction :: Runtime i -> IO ()
 installInteraction runtime@Runtime {app, canvas, camera, gesture, swallowTap} = do
   down <- registerPermanent runtime $ \event -> do
+    hPutStrLn stderr ("DBG down " <> show (FFI.pointerId event) :: Text)
     writeIORef swallowTap False
     whenPanning runtime $ \_ -> do
       let here = Point (FFI.globalX event) (FFI.globalY event)
@@ -330,6 +331,7 @@ installInteraction runtime@Runtime {app, canvas, camera, gesture, swallowTap} = 
 
   end <- registerPermanent runtime $ \event -> do
     g <- readIORef gesture
+    hPutStrLn stderr ("DBG end " <> show (FFI.pointerId event) <> " " <> show (Map.keys g.pointers) <> " moved " <> show g.moved :: Text)
     when (Map.member (FFI.pointerId event) g.pointers) $ do
       let left = Map.delete (FFI.pointerId event) g.pointers
       -- A finger that stays down after a pinch pans on from where it is.
