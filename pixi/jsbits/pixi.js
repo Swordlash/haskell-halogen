@@ -143,6 +143,7 @@ function halogen_pixi_set_event_mode(object, mode) { object.eventMode = mode; }
 function halogen_pixi_set_cursor(object, cursor) { object.cursor = cursor; }
 function halogen_pixi_set_rect_hit_area(holder, object, x, y, width, height) { object.hitArea = new holder.pixi.Rectangle(x, y, width, height); }
 function halogen_pixi_set_circle_hit_area(holder, object, x, y, radius) { object.hitArea = new holder.pixi.Circle(x, y, radius); }
+function halogen_pixi_set_polygon_hit_area(holder, object, coordinates) { object.hitArea = new holder.pixi.Polygon(coordinates.split(",").map(Number)); }
 function halogen_pixi_clear_hit_area(object) { object.hitArea = null; }
 function halogen_pixi_enable_stage_events(holder) { holder.app.stage.eventMode = "static"; holder.app.stage.hitArea = holder.app.screen; }
 function halogen_pixi_on_pointer_down(holder, callback) { holder.app.stage.on("pointerdown", callback); }

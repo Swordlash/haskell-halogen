@@ -35,6 +35,7 @@ where
 import Control.Monad.IO.Unlift (MonadUnliftIO (..))
 import Control.Monad.UUID
 import Data.IORef
+import Data.Map.Strict qualified as Map
 import Halogen qualified as H
 import Halogen.Canvas qualified as Canvas
 import Halogen.Canvas.Core
@@ -154,15 +155,54 @@ data Lifecycle
     Dead
   deriving stock (Eq, Show)
 
--- | A pan in progress.
-data Drag = Drag
-  { pointer :: Int
-  , lastX :: Double
-  , lastY :: Double
-  , moved :: Bool
-  -- ^ Whether the pointer has actually moved, so that a plain click does
-  -- not raise a spurious 'CameraChanged'.
+-- | The pointers down on the scene, each where it went down and where it
+-- was last: one pans the camera, two pan and zoom it (a pinch).
+data Gesture = Gesture
+  { pointers :: Map Int (Point, Point)
+  , order :: [Int]
+  -- ^ The pointers in the order they went down: the first two are the pair
+  -- that moves the camera.
+  , going :: Bool
+  -- ^ Whether a pointer has gone further than 'slop' from where it went
+  -- down: until then the camera stays, so that a tap with a trembling
+  -- finger is a tap.
+  , changed :: Bool
+  -- ^ Whether the camera has actually moved: only then is 'CameraChanged'
+  -- raised.
+  , crowded :: Bool
+  -- ^ Whether two pointers were ever down at once: a gesture, whatever it
+  -- moved, and none of its releases a tap.
+  , anchor :: Maybe Point
+  -- ^ While two pointers are down, the point between the pair where their
+  -- pinch began: a scene that does not pan zooms about it.
   }
+
+noGesture :: Gesture
+noGesture = Gesture {pointers = Map.empty, order = [], going = False, changed = False, crowded = False, anchor = Nothing}
+
+-- | The pair's pointers (the first two down), where each went down and
+-- where it was last.
+pairOf :: [Int] -> Map Int (Point, Point) -> [(Point, Point)]
+pairOf order pointers = mapMaybe (`Map.lookup` pointers) (take 2 order)
+
+-- | The gesture with pointers down or lifted. If that changed the pair,
+-- each pointer is counted from where it is now: what a finger did before is
+-- not part of the new pinch, nor of its slop, which starts over; the pinch's
+-- anchor is where the new pair is. A pointer beyond the pair changes none
+-- of that.
+regroup :: [Int] -> Map Int (Point, Point) -> Gesture -> Gesture
+regroup order pointers g
+  | take 2 order == take 2 g.order = g {order, pointers}
+  | otherwise =
+      let rebased = Map.map (\(_, seen) -> (seen, seen)) pointers
+          anchor = case pairOf order rebased of
+            [(_, a), (_, b)] -> Just (midpoint a b)
+            _ -> Nothing
+       in g {order, pointers = rebased, going = False, anchor}
+
+-- | How far a pointer goes, in screen pixels, before it moves the camera.
+slop :: Double
+slop = 8
 
 type SceneStep i = V.Step PixiDOM (V.VDom [PixiProp i] (Thunk (CanvasNode PixiEvent) i)) FFI.Object
 
@@ -176,7 +216,10 @@ data Runtime i = Runtime
   -- ^ The camera on screen.
   , asked :: IORef (Maybe Camera)
   -- ^ The camera the last view asked for (see 'followCamera').
-  , drag :: IORef (Maybe Drag)
+  , gesture :: IORef Gesture
+  , swallowTap :: IORef Bool
+  -- ^ Set when a gesture that moved the camera ends, until the next pointer
+  -- goes down: the tap its last pointer's release raises is not one.
   , callbacks :: IORef [FFI.Callback]
   , wheelCallback :: IORef (Maybe FFI.Callback)
   , cameraTimer :: IORef (Maybe FFI.Timer)
@@ -193,12 +236,13 @@ rendererWith Config {moduleUrl} = Canvas.Renderer {mount}
       scene <- newIORef Nothing
       camera <- newIORef defaultCamera
       asked <- newIORef Nothing
-      drag <- newIORef Nothing
+      gesture <- newIORef noGesture
+      swallowTap <- newIORef False
       callbacks <- newIORef []
       wheelCallback <- newIORef Nothing
       cameraTimer <- newIORef Nothing
       lifecycle <- newIORef Loading
-      let runtime = Runtime {app, canvas, emit = runInIO . emit, pending, scene, camera, asked, drag, callbacks, wheelCallback, cameraTimer, lifecycle}
+      let runtime = Runtime {app, canvas, emit = runInIO . emit, pending, scene, camera, asked, gesture, swallowTap, callbacks, wheelCallback, cameraTimer, lifecycle}
       onReady <- registerPermanent runtime $ \_ -> rendererReady runtime
       FFI.initializeApplication app moduleUrl canvas onReady
       pure
@@ -247,7 +291,7 @@ pixiSpec :: Runtime i -> V.VDomSpec PixiDOM [PixiProp i] (Thunk (CanvasNode Pixi
 pixiSpec runtime =
   V.VDomSpec
     { buildWidget = Thunk.buildThunk unCanvasNode
-    , buildAttributes = buildCanvasProp (liftIO . runtime.emit . Fired) runtime.app
+    , buildAttributes = buildCanvasProp (liftIO . runtime.emit . Fired) (readIORef runtime.swallowTap) runtime.app
     , document = runtime.app
     }
 
@@ -291,29 +335,66 @@ moveCamera runtime nextCamera = do
 -- Pan and zoom
 
 installInteraction :: Runtime i -> IO ()
-installInteraction runtime@Runtime {app, canvas, camera, drag} = do
-  down <- registerPermanent runtime $ \event ->
-    whenPanning runtime $ \_ ->
-      writeIORef drag $
-        Just Drag {pointer = FFI.pointerId event, lastX = FFI.globalX event, lastY = FFI.globalY event, moved = False}
+installInteraction runtime@Runtime {app, canvas, camera, gesture, swallowTap} = do
+  down <- registerPermanent runtime $ \event -> do
+    writeIORef swallowTap False
+    whenGestures runtime $ \_ -> do
+      let here = Point (FFI.globalX event) (FFI.globalY event)
+          pointer = FFI.pointerId event
+      modifyIORef' gesture $ \g ->
+        let pointers = Map.insert pointer (here, here) g.pointers
+         in (regroup (filter (/= pointer) g.order <> [pointer]) pointers g) {crowded = g.crowded || Map.size pointers > 1}
   FFI.onPointerDown app down
 
-  move <- registerPermanent runtime $ \event -> whenPanning runtime $ \_ -> do
-    active <- readIORef drag
-    for_ active $ \dragging -> when (FFI.pointerId event == dragging.pointer) $ do
-      let x = FFI.globalX event
-          y = FFI.globalY event
-      Camera {focus = Point focusX focusY, zoom} <- readIORef camera
-      writeIORef drag $ Just dragging {lastX = x, lastY = y, moved = True}
-      moveCamera runtime $
-        Camera {focus = Point (focusX - (x - dragging.lastX) / zoom) (focusY - (y - dragging.lastY) / zoom), zoom}
+  move <- registerPermanent runtime $ \event -> whenGestures runtime $ \scene -> do
+    g <- readIORef gesture
+    let pointer = FFI.pointerId event
+        here = Point (FFI.globalX event) (FFI.globalY event)
+        Interaction {pan = panning, zoomRange} = scene.interaction
+    for_ (Map.lookup pointer g.pointers) $ \(start, before) -> do
+      -- Every move is recorded, though the camera moves only past the slop:
+      -- the other finger of a pinch is then where it is, not where it went
+      -- down.
+      let after = Map.insert pointer (start, here) g.pointers
+      -- Only the pair (the first two down) moves the camera: a third finger
+      -- is followed, but neither moves it nor gets it past the slop.
+      let inPair = pointer `elem` take 2 g.order
+      if not inPair || not (g.going || distance start here > slop)
+        then writeIORef gesture g {pointers = after}
+        else do
+          width <- FFI.screenWidth app
+          height <- FFI.screenHeight app
+          current <- readIORef camera
+          -- Two fingers: the first two down, as they were and as they are.
+          -- A scene that does not pan zooms about one point for the whole
+          -- pinch, between where the two were when it began. One finger: a
+          -- pan, if the scene pans. Past the slop, the first move catches
+          -- up from where the fingers went down.
+          let origin (wentDown, seen) = if g.going then seen else wentDown
+              next = case (pairOf g.order g.pointers, pairOf g.order after) of
+                (p : q : _, (_, a') : (_, b') : _) ->
+                  let anchor = if panning then Nothing else g.anchor
+                   in Just (pinch anchor (Point (width / 2) (height / 2)) zoomRange (origin p, origin q) (a', b') current)
+                _ | panning -> Just (pan (origin (start, before)) here current)
+                _ -> Nothing
+              moves = maybe False (/= current) next
+          -- Past the slop only if these pointers can move the camera at all
+          -- (one finger on a scene that only zooms cannot).
+          writeIORef gesture g {pointers = after, going = isJust next, changed = g.changed || moves}
+          when moves $ traverse_ (moveCamera runtime) next
   FFI.onPointerMove app move
 
   end <- registerPermanent runtime $ \event -> do
-    active <- readIORef drag
-    for_ active $ \dragging -> when (FFI.pointerId event == dragging.pointer) $ do
-      writeIORef drag Nothing
-      when dragging.moved $ readIORef camera >>= runtime.emit . CameraChanged
+    g <- readIORef gesture
+    let pointer = FFI.pointerId event
+    when (Map.member pointer g.pointers) $ do
+      let left = Map.delete pointer g.pointers
+      -- A finger that stays down after a pinch pans on from where it is.
+      writeIORef gesture (if Map.null left then noGesture else regroup (filter (/= pointer) g.order) left g)
+      -- No finger of a gesture that moved the camera, or had two down, lets
+      -- go with a tap; the camera is reported once, at the last.
+      when (g.changed || g.crowded) $ writeIORef swallowTap True
+      when (Map.null left && g.changed) $ readIORef camera >>= runtime.emit . CameraChanged
   FFI.onPointerEnd app end
 
   -- A wheel raises one event per notch, so the camera is reported once the
@@ -325,10 +406,41 @@ installInteraction runtime@Runtime {app, canvas, camera, drag} = do
   writeIORef runtime.wheelCallback $ Just wheel
   FFI.onWheel canvas wheel
 
-whenPanning :: Runtime i -> (View i -> IO ()) -> IO ()
-whenPanning runtime act = do
+-- | The camera after a pointer moved from one point on the screen to
+-- another: the world under it moves with it.
+pan :: Point -> Point -> Camera -> Camera
+pan (Point x0 y0) (Point x1 y1) Camera {focus = Point focusX focusY, zoom} =
+  Camera {focus = Point (focusX - (x1 - x0) / zoom) (focusY - (y1 - y0) / zoom), zoom}
+
+-- | The camera after two pointers moved (screen points, the screen's centre
+-- given): zoomed by how far apart they went, within the range if there is
+-- one (none: no zoom). About a fixed screen point if one is given (a scene
+-- that does not pan); otherwise it pans too, so that the world point
+-- between the pointers stays between them.
+pinch :: Maybe Point -> Point -> Maybe (Double, Double) -> (Point, Point) -> (Point, Point) -> Camera -> Camera
+pinch anchor (Point centreX centreY) range (a, b) (a', b') Camera {focus = Point focusX focusY, zoom} =
+  Camera {focus = Point (worldX - (toX - centreX) / zoom') (worldY - (toY - centreY) / zoom'), zoom = zoom'}
+  where
+    Point fromX fromY = fromMaybe (midpoint a b) anchor
+    Point toX toY = fromMaybe (midpoint a' b') anchor
+    worldX = focusX + (fromX - centreX) / zoom
+    worldY = focusY + (fromY - centreY) / zoom
+    zoom' = case range of
+      Just (low, high) | distance a b > 0 -> max low (min high (zoom * distance a' b' / distance a b))
+      _ -> zoom
+
+midpoint :: Point -> Point -> Point
+midpoint (Point x0 y0) (Point x1 y1) = Point ((x0 + x1) / 2) ((y0 + y1) / 2)
+
+distance :: Point -> Point -> Double
+distance (Point x0 y0) (Point x1 y1) = sqrt ((x1 - x0) ^ (2 :: Int) + (y1 - y0) ^ (2 :: Int))
+
+-- | Pointers are followed when the scene pans or zooms: a pinch zooms a
+-- scene that does not pan.
+whenGestures :: Runtime i -> (View i -> IO ()) -> IO ()
+whenGestures runtime act = do
   current <- readIORef runtime.pending
-  for_ current $ \scene -> when scene.interaction.pan $ act scene
+  for_ current $ \scene -> when (scene.interaction.pan || isJust scene.interaction.zoomRange) $ act scene
 
 zoomAtPointer :: Runtime i -> FFI.Callback -> FFI.Event -> IO ()
 zoomAtPointer runtime@Runtime {app, canvas, camera, pending, cameraTimer} settled event = do

@@ -173,6 +173,9 @@ data HitArea
     RectHit Point Point
   | -- | Centre and radius, as 'Circle' takes them.
     CircleHit Point Double
+  | -- | The corners, in order, of a polygon: say, a hex tile, which a circle
+    -- would leave gaps between.
+    PolygonHit [Point]
   deriving stock (Eq, Show)
 
 -- | How an element takes part in hit testing.

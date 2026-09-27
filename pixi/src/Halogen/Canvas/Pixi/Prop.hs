@@ -35,10 +35,12 @@ data PropState i = PropState
 buildCanvasProp
   :: forall i
    . (i -> PixiDOM ())
+  -> IO Bool
+  -- ^ Whether a tap now ends a pan or a pinch rather than being one.
   -> FFI.Application
   -> FFI.Object
   -> V.Machine PixiDOM [CanvasProp FFI.Event i] ()
-buildCanvasProp emit application object = render
+buildCanvasProp emit swallowTap application object = render
   where
     render :: V.Machine PixiDOM [CanvasProp FFI.Event i] ()
     render next = do
@@ -97,8 +99,10 @@ buildCanvasProp emit application object = render
           let eventName = pointerEventName eventType
           target <- newMutVar f
           callback <- liftIO $ FFI.mkCallback $ \event -> runPixiDOM $ do
-            current <- readMutVar target
-            traverse_ emit (current event)
+            swallowed <- if eventType == PointerTap then liftIO swallowTap else pure False
+            unless swallowed $ do
+              current <- readMutVar target
+              traverse_ emit (current event)
           liftIO $ FFI.addListener object eventName callback
           atomicModifyMutVar'_ listeners (M.insert eventName (callback, target))
         _ -> repaint prop
@@ -202,6 +206,8 @@ buildCanvasProp emit application object = render
           FFI.setRectHitArea application object (x - width / 2) (y - height / 2) width height
         CircleHit (Point x y) radius ->
           FFI.setCircleHitArea application object x y radius
+        PolygonHit corners ->
+          FFI.setPolygonHitArea application object (concat [[x, y] | Point x y <- corners])
       Handler _ _ -> pass
 
 atomicModifyMutVar'_ :: (PrimMonad m) => MutVar (PrimState m) a -> (a -> a) -> m ()

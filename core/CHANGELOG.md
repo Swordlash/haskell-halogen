@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `HitArea` has `PolygonHit`, a polygon given by its corners: a tile the
+  shape of a hex is hit to its edges, where a circle left gaps between tiles.
 - Canvas scenes have `Halogen.Canvas.Elements.memoized` and `lazy`, as HTML
   has: while the value a part of a scene is rendered from stays equal, a
   render skips building and diffing the part and updating its props. A
