@@ -170,7 +170,7 @@ noGesture = Gesture {pointers = Map.empty, moved = False}
 
 -- | How far a pointer goes, in screen pixels, before it moves the camera.
 slop :: Double
-slop = 8
+slop = 0
 
 type SceneStep i = V.Step PixiDOM (V.VDom [PixiProp i] (Thunk (CanvasNode PixiEvent) i)) FFI.Object
 
