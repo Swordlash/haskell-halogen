@@ -206,6 +206,8 @@ buildCanvasProp emit swallowTap application object = render
           FFI.setRectHitArea application object (x - width / 2) (y - height / 2) width height
         CircleHit (Point x y) radius ->
           FFI.setCircleHitArea application object x y radius
+        PolygonHit corners ->
+          FFI.setPolygonHitArea application object (concat [[x, y] | Point x y <- corners])
       Handler _ _ -> pass
 
 atomicModifyMutVar'_ :: (PrimMonad m) => MutVar (PrimState m) a -> (a -> a) -> m ()

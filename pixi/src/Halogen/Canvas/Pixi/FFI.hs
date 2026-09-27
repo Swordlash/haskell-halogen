@@ -54,6 +54,7 @@ module Halogen.Canvas.Pixi.FFI
   , setCursor
   , setRectHitArea
   , setCircleHitArea
+  , setPolygonHitArea
   , clearHitArea
   , enableStageEvents
   , onPointerDown
@@ -164,6 +165,7 @@ foreign import javascript unsafe "halogen_pixi_set_event_mode" setEventModeRaw :
 foreign import javascript unsafe "halogen_pixi_set_cursor" setCursorRaw :: Object -> JSVal -> IO ()
 foreign import javascript unsafe "halogen_pixi_set_rect_hit_area" setRectHitArea :: Application -> Object -> Double -> Double -> Double -> Double -> IO ()
 foreign import javascript unsafe "halogen_pixi_set_circle_hit_area" setCircleHitArea :: Application -> Object -> Double -> Double -> Double -> IO ()
+foreign import javascript unsafe "halogen_pixi_set_polygon_hit_area" setPolygonHitAreaRaw :: Application -> Object -> JSVal -> IO ()
 foreign import javascript unsafe "halogen_pixi_clear_hit_area" clearHitArea :: Object -> IO ()
 foreign import javascript unsafe "halogen_pixi_enable_stage_events" enableStageEvents :: Application -> IO ()
 foreign import javascript unsafe "halogen_pixi_on_pointer_down" onPointerDown :: Application -> Callback -> IO ()
@@ -211,6 +213,11 @@ setEventMode :: Object -> Text -> IO ()
 setEventMode object mode = setEventModeRaw object (toJSString $ toS mode)
 setCursor :: Object -> Text -> IO ()
 setCursor object cursor = setCursorRaw object (toJSString $ toS cursor)
+setPolygonHitArea :: Application -> Object -> [Double] -> IO ()
+setPolygonHitArea application object coordinates = setPolygonHitAreaRaw application object (toJSString (toS (polygonText coordinates)))
+-- | A polygon's coordinates as Pixi's Polygon takes them, flat: "x,y,x,y,…".
+polygonText :: [Double] -> Text
+polygonText = mconcat . intersperse "," . map show
 mkCallback :: (Event -> IO ()) -> IO Callback
 mkCallback handler = JS.asyncCallback1 (handler . Event)
 freeCallback :: Callback -> IO ()
@@ -275,6 +282,7 @@ foreign import javascript unsafe "$1.eventMode=$2" setEventModeRaw :: Object -> 
 foreign import javascript unsafe "$1.cursor=$2" setCursorRaw :: Object -> JSVal -> IO ()
 foreign import javascript unsafe "$2.hitArea=new $1.pixi.Rectangle($3,$4,$5,$6)" setRectHitArea :: Application -> Object -> Double -> Double -> Double -> Double -> IO ()
 foreign import javascript unsafe "$2.hitArea=new $1.pixi.Circle($3,$4,$5)" setCircleHitArea :: Application -> Object -> Double -> Double -> Double -> IO ()
+foreign import javascript unsafe "$2.hitArea=new $1.pixi.Polygon($3.split(',').map(Number))" setPolygonHitAreaRaw :: Application -> Object -> JSVal -> IO ()
 foreign import javascript unsafe "$1.hitArea=null" clearHitArea :: Object -> IO ()
 foreign import javascript unsafe "$1.app.stage.eventMode='static';$1.app.stage.hitArea=$1.app.screen" enableStageEvents :: Application -> IO ()
 foreign import javascript unsafe "$1.app.stage.on('pointerdown',$2)" onPointerDown :: Application -> Callback -> IO ()
@@ -326,6 +334,11 @@ setEventMode :: Object -> Text -> IO ()
 setEventMode object mode = setEventModeRaw object (textValue mode)
 setCursor :: Object -> Text -> IO ()
 setCursor object cursor = setCursorRaw object (textValue cursor)
+setPolygonHitArea :: Application -> Object -> [Double] -> IO ()
+setPolygonHitArea application object coordinates = setPolygonHitAreaRaw application object (textValue (polygonText coordinates))
+-- | A polygon's coordinates as Pixi's Polygon takes them, flat: "x,y,x,y,…".
+polygonText :: [Double] -> Text
+polygonText = mconcat . intersperse "," . map show
 mkCallback :: (Event -> IO ()) -> IO Callback
 mkCallback handler = wasmMkCallback (handler . Event)
 freeCallback :: Callback -> IO ()
@@ -418,6 +431,8 @@ setRectHitArea :: Application -> Object -> Double -> Double -> Double -> Double 
 setRectHitArea _ _ _ _ _ _ = pure ()
 setCircleHitArea :: Application -> Object -> Double -> Double -> Double -> IO ()
 setCircleHitArea _ _ _ _ _ = pure ()
+setPolygonHitArea :: Application -> Object -> [Double] -> IO ()
+setPolygonHitArea _ _ _ = pure ()
 clearHitArea :: Object -> IO ()
 clearHitArea _ = pure ()
 enableStageEvents :: Application -> IO ()

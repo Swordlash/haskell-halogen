@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+* `PolygonHit` hit areas, as a Pixi `Polygon`.
 * Touch: two pointers pinch the camera. It zooms by how far apart they move,
   within the scene's `zoomRange`, and pans so that the world point between
   them stays between them. With one pointer it pans as before, and a finger
