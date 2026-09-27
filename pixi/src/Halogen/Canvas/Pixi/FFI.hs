@@ -188,6 +188,8 @@ foreign import javascript unsafe "halogen_pixi_prevent_default" preventDefault :
 foreign import javascript unsafe "halogen_pixi_client_x" clientX :: Event -> Double
 foreign import javascript unsafe "halogen_pixi_client_y" clientY :: Event -> Double
 foreign import javascript unsafe "halogen_pixi_delta_y" deltaY :: Event -> Double
+-- | See @halogen_pixi_snapshot@: the event as it is now, copied.
+foreign import javascript unsafe "halogen_pixi_snapshot" snapshot :: JSVal -> IO JSVal
 foreign import javascript unsafe "halogen_pixi_canvas_left" canvasLeft :: Canvas -> IO Double
 foreign import javascript unsafe "halogen_pixi_canvas_top" canvasTop :: Canvas -> IO Double
 foreign import javascript unsafe "halogen_pixi_canvas_width" canvasWidth :: Canvas -> IO Double
@@ -223,7 +225,7 @@ setPolygonHitArea application object coordinates = setPolygonHitAreaRaw applicat
 polygonText :: [Double] -> Text
 polygonText = mconcat . intersperse "," . map show
 mkCallback :: (Event -> IO ()) -> IO Callback
-mkCallback handler = JS.asyncCallback1 (handler . Event)
+mkCallback handler = JS.syncCallback1 JS.ContinueAsync (\event -> snapshot event >>= handler . Event)
 freeCallback :: Callback -> IO ()
 freeCallback = JS.releaseCallback
 
@@ -309,6 +311,11 @@ foreign import javascript unsafe "$1.preventDefault()" preventDefault :: Event -
 foreign import javascript unsafe "$1.clientX" clientX :: Event -> Double
 foreign import javascript unsafe "$1.clientY" clientY :: Event -> Double
 foreign import javascript unsafe "$1.deltaY" deltaY :: Event -> Double
+-- | What a handler reads of an event, copied as the event is dispatched: Pixi
+-- hands one event object on from event to event, so a read made later, by a
+-- thunk or after the handler has blocked, would read another event. A
+-- callback called with no event (a timeout, a promise) gets what it was given.
+foreign import javascript unsafe "if(!$1||typeof $1!=='object')return $1;const g=$1.global?{x:$1.global.x,y:$1.global.y}:null;const t=$1.currentTarget;let l=null;if(g&&t&&$1.getLocalPosition){const p=$1.getLocalPosition(t);l={x:p.x,y:p.y}}const e=$1;return {pointerId:e.pointerId,global:g,button:e.button,currentTarget:t,clientX:e.clientX,clientY:e.clientY,deltaY:e.deltaY,preventDefault:()=>e.preventDefault(),getLocalPosition:o=>o===t&&l?l:o.toLocal(g)}" snapshot :: JSVal -> IO JSVal
 foreign import javascript unsafe "$1.getBoundingClientRect().left" canvasLeft :: Canvas -> IO Double
 foreign import javascript unsafe "$1.getBoundingClientRect().top" canvasTop :: Canvas -> IO Double
 foreign import javascript unsafe "$1.getBoundingClientRect().width" canvasWidth :: Canvas -> IO Double
@@ -348,7 +355,7 @@ setPolygonHitArea application object coordinates = setPolygonHitAreaRaw applicat
 polygonText :: [Double] -> Text
 polygonText = mconcat . intersperse "," . map show
 mkCallback :: (Event -> IO ()) -> IO Callback
-mkCallback handler = wasmMkCallback (handler . Event)
+mkCallback handler = wasmMkCallback (\event -> snapshot event >>= handler . Event)
 freeCallback :: Callback -> IO ()
 freeCallback = freeJSVal
 
