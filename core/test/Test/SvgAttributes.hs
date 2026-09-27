@@ -43,7 +43,7 @@ spec = describe "SVG attributes" $ do
     assertEqual
       "complete upstream path command serialization"
       ( "d"
-      , "M1.0, 2.0 l3.0, 4.0 H5.0 v6.0 C7.0,8.0 9.0,10.0 11.0,12.0 s13.0, 14.0, 15.0, 16.0 Q17.0, 18.0, 19.0, 20.0 t21.0, 22.0 A23.0, 24.0, 25.0 0 1 26.0 27.0 z"
+      , "M1, 2 l3, 4 H5 v6 C7,8 9,10 11,12 s13, 14, 15, 16 Q17, 18, 19, 20 t21, 22 A23, 24, 25 0 1 26 27 z"
       )
       ( attribute
           ( SA.d
@@ -64,8 +64,21 @@ spec = describe "SVG attributes" $ do
   it "converts path commands to rendered text" $
     assertEqual
       "path commands convert to their rendered text"
-      ["H1.0", "v2.0"]
+      ["H1", "v2"]
       (SA.toArrayString [SA.h SA.Abs 1, SA.v SA.Rel 2])
+  it "writes a path's numbers to a thousandth, without trailing zeros" $
+    assertEqual
+      "path numbers"
+      ["M0.5, -2.25", "L-0.001, 1234567.125", "l0.333, 0", "h1.0e15", "vNaN", "h-Infinity"]
+      ( SA.toArrayString
+          [ SA.m SA.Abs 0.5 (-2.25)
+          , SA.l SA.Abs (-0.0012) 1234567.125
+          , SA.l SA.Rel (1 / 3) (-0.0001)
+          , SA.h SA.Rel 1e15
+          , SA.v SA.Rel (0 / 0)
+          , SA.h SA.Rel (-1 / 0)
+          ]
+      )
   it "renders the transform attribute" $
     assertEqual
       "transform attribute"
