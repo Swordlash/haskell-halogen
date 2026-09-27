@@ -169,10 +169,20 @@ data Gesture = Gesture
   , crowded :: Bool
   -- ^ Whether two pointers were ever down at once: a gesture, whatever it
   -- moved, and none of its releases a tap.
+  , anchor :: Maybe Point
+  -- ^ While two pointers are down, the point between the two where their
+  -- pinch began: a scene that does not pan zooms about it.
   }
 
 noGesture :: Gesture
-noGesture = Gesture {pointers = Map.empty, going = False, changed = False, crowded = False}
+noGesture = Gesture {pointers = Map.empty, going = False, changed = False, crowded = False, anchor = Nothing}
+
+-- | Where the pinch of the first two pointers begins, as they are now:
+-- taken whenever the pair changes (a pointer goes down or lifts).
+pinchAnchor :: Map Int (Point, Point) -> Maybe Point
+pinchAnchor pointers = case Map.elems pointers of
+  (_, a) : (_, b) : _ -> Just (midpoint a b)
+  _ -> Nothing
 
 -- | How far a pointer goes, in screen pixels, before it moves the camera.
 slop :: Double
@@ -316,7 +326,7 @@ installInteraction runtime@Runtime {app, canvas, camera, gesture, swallowTap} = 
       let here = Point (FFI.globalX event) (FFI.globalY event)
       modifyIORef' gesture $ \g ->
         let pointers = Map.insert (FFI.pointerId event) (here, here) g.pointers
-         in g {pointers, crowded = g.crowded || Map.size pointers > 1}
+         in g {pointers, crowded = g.crowded || Map.size pointers > 1, anchor = pinchAnchor pointers}
   FFI.onPointerDown app down
 
   move <- registerPermanent runtime $ \event -> whenGestures runtime $ \scene -> do
@@ -324,25 +334,32 @@ installInteraction runtime@Runtime {app, canvas, camera, gesture, swallowTap} = 
     let pointer = FFI.pointerId event
         here = Point (FFI.globalX event) (FFI.globalY event)
         Interaction {pan = panning, zoomRange} = scene.interaction
-    for_ (Map.lookup pointer g.pointers) $ \(start, before) ->
-      when (g.going || distance start here > slop) $ do
-        let after = Map.insert pointer (start, here) g.pointers
-        width <- FFI.screenWidth app
-        height <- FFI.screenHeight app
-        current <- readIORef camera
-        -- Two fingers: the first two down, as they were and as they are.
-        -- A scene that does not pan zooms about one point for the whole
-        -- pinch, between where the two went down. One finger: a pan, if
-        -- the scene pans.
-        let next = case (Map.elems g.pointers, Map.elems after) of
-              ((_, a) : (_, b) : _, (startA, a') : (startB, b') : _) ->
-                let anchor = if panning then Nothing else Just (midpoint startA startB)
-                 in Just (pinch anchor (Point (width / 2) (height / 2)) zoomRange (a, b) (a', b') current)
-              _ | panning -> Just (pan before here current)
-              _ -> Nothing
-            moves = maybe False (/= current) next
-        writeIORef gesture g {pointers = after, going = True, changed = g.changed || moves}
-        when moves $ traverse_ (moveCamera runtime) next
+    for_ (Map.lookup pointer g.pointers) $ \(start, before) -> do
+      -- Every move is recorded, though the camera moves only past the slop:
+      -- the other finger of a pinch is then where it is, not where it went
+      -- down.
+      let after = Map.insert pointer (start, here) g.pointers
+      if not (g.going || distance start here > slop)
+        then writeIORef gesture g {pointers = after}
+        else do
+          width <- FFI.screenWidth app
+          height <- FFI.screenHeight app
+          current <- readIORef camera
+          -- Two fingers: the first two down, as they were and as they are.
+          -- A scene that does not pan zooms about one point for the whole
+          -- pinch, between where the two were when it began. One finger: a
+          -- pan, if the scene pans. Past the slop, the first move catches
+          -- up from where the fingers went down.
+          let origin (wentDown, seen) = if g.going then seen else wentDown
+              next = case (Map.elems g.pointers, Map.elems after) of
+                (p : q : _, (_, a') : (_, b') : _) ->
+                  let anchor = if panning then Nothing else g.anchor
+                   in Just (pinch anchor (Point (width / 2) (height / 2)) zoomRange (origin p, origin q) (a', b') current)
+                _ | panning -> Just (pan (origin (start, before)) here current)
+                _ -> Nothing
+              moves = maybe False (/= current) next
+          writeIORef gesture g {pointers = after, going = True, changed = g.changed || moves}
+          when moves $ traverse_ (moveCamera runtime) next
   FFI.onPointerMove app move
 
   end <- registerPermanent runtime $ \event -> do
@@ -350,7 +367,7 @@ installInteraction runtime@Runtime {app, canvas, camera, gesture, swallowTap} = 
     when (Map.member (FFI.pointerId event) g.pointers) $ do
       let left = Map.delete (FFI.pointerId event) g.pointers
       -- A finger that stays down after a pinch pans on from where it is.
-      writeIORef gesture (if Map.null left then noGesture else g {pointers = left})
+      writeIORef gesture (if Map.null left then noGesture else g {pointers = left, anchor = pinchAnchor left})
       -- No finger of a gesture that moved the camera, or had two down, lets
       -- go with a tap; the camera is reported once, at the last.
       when (g.changed || g.crowded) $ writeIORef swallowTap True
