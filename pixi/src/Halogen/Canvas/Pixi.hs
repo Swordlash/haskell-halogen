@@ -113,16 +113,7 @@ pointerId = FFI.pointerId
 -- 'localPosition' is what a handler usually wants, and it is unaffected by
 -- the camera.
 stagePosition :: PixiEvent -> Point
-stagePosition = globalPoint
-
--- | Both coordinates read as soon as the point is: Pixi hands one event
--- object on from event to event, so a coordinate read later is another
--- event's.
-globalPoint :: PixiEvent -> Point
-globalPoint event =
-  let !x = FFI.globalX event
-      !y = FFI.globalY event
-   in Point x y
+stagePosition event = Point (FFI.globalX event) (FFI.globalY event)
 
 -- | Where the pointer is relative to the element the handler is attached to.
 --
@@ -131,9 +122,7 @@ globalPoint event =
 localPosition :: PixiEvent -> Point
 localPosition event =
   let target = FFI.currentTarget event
-      !x = FFI.localX target event
-      !y = FFI.localY target event
-   in Point x y
+   in Point (FFI.localX target event) (FFI.localY target event)
 
 -- | Which mouse button, in the @MouseEvent.button@ numbering.
 button :: PixiEvent -> Int
@@ -349,22 +338,19 @@ installInteraction :: Runtime i -> IO ()
 installInteraction runtime@Runtime {app, canvas, camera, gesture, swallowTap} = do
   down <- registerPermanent runtime $ \event -> do
     writeIORef swallowTap False
-    -- Read now: Pixi hands one event object on from event to event, and a
-    -- thunk that read it later would read another finger's.
-    let !here = globalPoint event
-        !pointer = FFI.pointerId event
     whenGestures runtime $ \_ -> do
+      let here = Point (FFI.globalX event) (FFI.globalY event)
+          pointer = FFI.pointerId event
       modifyIORef' gesture $ \g ->
         let pointers = Map.insert pointer (here, here) g.pointers
          in (regroup (filter (/= pointer) g.order <> [pointer]) pointers g) {crowded = g.crowded || Map.size pointers > 1}
   FFI.onPointerDown app down
 
-  move <- registerPermanent runtime $ \event -> do
-   let !here = globalPoint event
-       !pointer = FFI.pointerId event
-   whenGestures runtime $ \scene -> do
+  move <- registerPermanent runtime $ \event -> whenGestures runtime $ \scene -> do
     g <- readIORef gesture
-    let Interaction {pan = panning, zoomRange} = scene.interaction
+    let pointer = FFI.pointerId event
+        here = Point (FFI.globalX event) (FFI.globalY event)
+        Interaction {pan = panning, zoomRange} = scene.interaction
     for_ (Map.lookup pointer g.pointers) $ \(start, before) -> do
       -- Every move is recorded, though the camera moves only past the slop:
       -- the other finger of a pinch is then where it is, not where it went
@@ -399,8 +385,8 @@ installInteraction runtime@Runtime {app, canvas, camera, gesture, swallowTap} = 
   FFI.onPointerMove app move
 
   end <- registerPermanent runtime $ \event -> do
-    let !pointer = FFI.pointerId event
     g <- readIORef gesture
+    let pointer = FFI.pointerId event
     when (Map.member pointer g.pointers) $ do
       let left = Map.delete pointer g.pointers
       -- A finger that stays down after a pinch pans on from where it is.
