@@ -48,6 +48,8 @@ module Halogen.Canvas.Pixi.FFI
   , setOutline
   , clearOutline
   , refreshOutline
+  , setCacheAsTexture
+  , clearCacheAsTexture
   , addListener
   , removeListener
   , setEventMode
@@ -159,6 +161,8 @@ foreign import javascript unsafe "halogen_pixi_set_size" setSize :: Object -> Do
 foreign import javascript unsafe "halogen_pixi_set_outline" setOutline :: Application -> Object -> Int -> Double -> Double -> Double -> IO ()
 foreign import javascript unsafe "halogen_pixi_clear_outline" clearOutline :: Object -> IO ()
 foreign import javascript unsafe "halogen_pixi_refresh_outline" refreshOutline :: Object -> IO ()
+foreign import javascript unsafe "halogen_pixi_set_cache_as_texture" setCacheAsTexture :: Application -> Object -> Double -> IO ()
+foreign import javascript unsafe "halogen_pixi_clear_cache_as_texture" clearCacheAsTexture :: Object -> IO ()
 foreign import javascript unsafe "halogen_pixi_on" onRaw :: Object -> JSVal -> Callback -> IO ()
 foreign import javascript unsafe "halogen_pixi_off" offRaw :: Object -> JSVal -> Callback -> IO ()
 foreign import javascript unsafe "halogen_pixi_set_event_mode" setEventModeRaw :: Object -> JSVal -> IO ()
@@ -234,7 +238,7 @@ foreign import javascript unsafe "({pixi:null,app:null,ready:false})" newApplica
 --
 -- @||=@ rather than @??=@: the snippet is emitted through a C string, where
 -- @??=@ is a trigraph for @#@.
-foreign import javascript unsafe "globalThis.__halogenPixi ||= {resize:object=>{const size=object.__halogenSize;const scale=object.__halogenScale||{x:1,y:1};const texture=size?object.texture:null;const naturalWidth=texture?texture.orig.width:0;const naturalHeight=texture?texture.orig.height:0;object.scale.set(naturalWidth?(size.width/naturalWidth)*scale.x:scale.x,naturalHeight?(size.height/naturalHeight)*scale.y:scale.y)},outline:object=>{const spec=object.__halogenOutline;if(!spec)return;let graphics=object.__halogenOutlineGraphics;if(!graphics){graphics=new spec.holder.pixi.Graphics();graphics.eventMode='none';object.__halogenOutlineGraphics=graphics}if(graphics.parent)graphics.parent.removeChild(graphics);const bounds=object.getLocalBounds();const scaleX=object.scale.x||1;const scaleY=object.scale.y||1;graphics.clear();graphics.scale.set(1/scaleX,1/scaleY);graphics.rect(bounds.x*scaleX-spec.padding,bounds.y*scaleY-spec.padding,bounds.width*scaleX+spec.padding*2,bounds.height*scaleY+spec.padding*2);graphics.stroke({color:spec.color,width:spec.width,alpha:spec.alpha});object.addChild(graphics)}}" installHelpers :: IO ()
+foreign import javascript unsafe "globalThis.__halogenPixi ||= {resize:object=>{const size=object.__halogenSize;const scale=object.__halogenScale||{x:1,y:1};const texture=size?object.texture:null;const naturalWidth=texture?texture.orig.width:0;const naturalHeight=texture?texture.orig.height:0;object.scale.set(naturalWidth?(size.width/naturalWidth)*scale.x:scale.x,naturalHeight?(size.height/naturalHeight)*scale.y:scale.y)},touch:object=>{for(let o=object;o;o=o.parent)if(o.__halogenCached)o.__halogenDirty=true},outline:object=>{globalThis.__halogenPixi.touch(object);const spec=object.__halogenOutline;if(!spec)return;let graphics=object.__halogenOutlineGraphics;if(!graphics){graphics=new spec.holder.pixi.Graphics();graphics.eventMode='none';object.__halogenOutlineGraphics=graphics}if(graphics.parent)graphics.parent.removeChild(graphics);const bounds=object.getLocalBounds();const scaleX=object.scale.x||1;const scaleY=object.scale.y||1;graphics.clear();graphics.scale.set(1/scaleX,1/scaleY);graphics.rect(bounds.x*scaleX-spec.padding,bounds.y*scaleY-spec.padding,bounds.width*scaleX+spec.padding*2,bounds.height*scaleY+spec.padding*2);graphics.stroke({color:spec.color,width:spec.width,alpha:spec.alpha});object.addChild(graphics)}}" installHelpers :: IO ()
 foreign import javascript unsafe "import($2).then(pixi=>{$1.pixi=pixi;$1.app=new pixi.Application();return $1.app.init({canvas:$3,resizeTo:$3.parentElement,preference:'webgl',antialias:true,autoDensity:true,resolution:Math.min(globalThis.devicePixelRatio || 1,2),backgroundColor:0x111827})}).then(()=>{$1.ready=true;$4(null)}).catch(error=>{console.error('Could not load or initialize PixiJS',error);$4(null)})" initializeApplicationRaw :: Application -> JSVal -> Canvas -> Callback -> IO ()
 foreign import javascript unsafe "$1.app!==null" applicationCreated :: Application -> IO Bool
 foreign import javascript unsafe "$1.ready" applicationReady :: Application -> IO Bool
@@ -242,8 +246,8 @@ foreign import javascript unsafe "$1.app.destroy(false,{children:true,texture:fa
 foreign import javascript unsafe "new $1.pixi.Container()" newContainer :: Application -> IO Object
 foreign import javascript unsafe "new $1.pixi.Graphics()" newGraphics :: Application -> IO Object
 foreign import javascript unsafe "$1.app.stage.addChild($2)" addToStage :: Application -> Object -> IO ()
-foreign import javascript unsafe "$1.addChild($2)" addChild :: Object -> Object -> IO ()
-foreign import javascript unsafe "$1.removeChild($2)" removeChild :: Object -> Object -> IO ()
+foreign import javascript unsafe "$1.addChild($2);globalThis.__halogenPixi.touch($1)" addChild :: Object -> Object -> IO ()
+foreign import javascript unsafe "$1.removeChild($2);globalThis.__halogenPixi.touch($1)" removeChild :: Object -> Object -> IO ()
 foreign import javascript unsafe "$1.parent ?? null" parentOfRaw :: Object -> IO (Nullable Object)
 foreign import javascript unsafe "$1.setChildIndex($2,$3)" setChildIndex :: Object -> Object -> Int -> IO ()
 foreign import javascript unsafe "$1.destroy({children:true,texture:false,textureSource:false})" destroyObject :: Object -> IO ()
@@ -276,6 +280,10 @@ foreign import javascript unsafe "$1.__halogenSize={width:$2,height:$3};globalTh
 foreign import javascript unsafe "$2.__halogenOutline={holder:$1,color:$3,width:$4,alpha:$5,padding:$6};globalThis.__halogenPixi.outline($2)" setOutline :: Application -> Object -> Int -> Double -> Double -> Double -> IO ()
 foreign import javascript unsafe "$1.__halogenOutline=null;const graphics=$1.__halogenOutlineGraphics;$1.__halogenOutlineGraphics=null;if(graphics)graphics.destroy()" clearOutline :: Object -> IO ()
 foreign import javascript unsafe "globalThis.__halogenPixi.outline($1)" refreshOutline :: Object -> IO ()
+-- Drawn again, once a frame at most, before the frame is rendered, when
+-- anything inside has changed ('touch' marks it): Pixi itself does not notice.
+foreign import javascript unsafe "$2.cacheAsTexture({resolution:$3});$2.__halogenCached=true;$2.__halogenDirty=false;const h=$1;h.__halogenCaches||=new Set();h.__halogenCaches.add($2);if(!h.__halogenCacheTick){h.__halogenCacheTick=()=>{for(const o of h.__halogenCaches){if(o.destroyed||!o.__halogenCached){h.__halogenCaches.delete(o);continue}if(o.__halogenDirty){o.__halogenDirty=false;o.updateCacheTexture()}}};h.app.ticker.add(h.__halogenCacheTick)}" setCacheAsTexture :: Application -> Object -> Double -> IO ()
+foreign import javascript unsafe "$1.cacheAsTexture(false);delete $1.__halogenCached;delete $1.__halogenDirty" clearCacheAsTexture :: Object -> IO ()
 foreign import javascript unsafe "$1.on($2,$3)" onRaw :: Object -> JSVal -> Callback -> IO ()
 foreign import javascript unsafe "$1.off($2,$3)" offRaw :: Object -> JSVal -> Callback -> IO ()
 foreign import javascript unsafe "$1.eventMode=$2" setEventModeRaw :: Object -> JSVal -> IO ()
@@ -421,6 +429,10 @@ setOutline _ _ _ _ _ _ = pure ()
 clearOutline, refreshOutline :: Object -> IO ()
 clearOutline _ = pure ()
 refreshOutline _ = pure ()
+setCacheAsTexture :: Application -> Object -> Double -> IO ()
+setCacheAsTexture _ _ _ = pure ()
+clearCacheAsTexture :: Object -> IO ()
+clearCacheAsTexture _ = pure ()
 addListener, removeListener :: Object -> Text -> Callback -> IO ()
 addListener _ _ _ = pure ()
 removeListener _ _ _ = pure ()

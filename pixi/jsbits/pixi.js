@@ -15,8 +15,8 @@ function halogen_pixi_destroy_application(holder) { holder.app.destroy(false, { 
 function halogen_pixi_new_container(holder) { return new holder.pixi.Container(); }
 function halogen_pixi_new_graphics(holder) { return new holder.pixi.Graphics(); }
 function halogen_pixi_add_to_stage(holder, child) { holder.app.stage.addChild(child); }
-function halogen_pixi_add_child(parent, child) { parent.addChild(child); }
-function halogen_pixi_remove_child(parent, child) { parent.removeChild(child); }
+function halogen_pixi_add_child(parent, child) { parent.addChild(child); halogen_pixi_touch(parent); }
+function halogen_pixi_remove_child(parent, child) { parent.removeChild(child); halogen_pixi_touch(parent); }
 function halogen_pixi_parent_of(object) { return object.parent ?? null; }
 function halogen_pixi_set_child_index(parent, child, index) { parent.setChildIndex(child, index); }
 function halogen_pixi_destroy_object(object) { object.destroy({ children: true, texture: false, textureSource: false }); }
@@ -97,7 +97,37 @@ function halogen_pixi_resize(object) {
 // The outline is a child, so it is measured with itself detached, and it
 // cancels out the object's own scale so that the stroke stays one unit wide
 // however the object was sized.
+// A group drawn into a texture ('cacheAsTexture') is drawn again when
+// anything inside it has changed: Pixi itself does not notice. Every change
+// the reconciler or a load makes passes through here or through a child
+// being added or removed.
+function halogen_pixi_touch(object) {
+  for (var o = object; o; o = o.parent) if (o.__halogenCached) o.__halogenDirty = true;
+}
+function halogen_pixi_set_cache_as_texture(holder, object, resolution) {
+  object.cacheAsTexture({ resolution: resolution });
+  object.__halogenCached = true;
+  object.__halogenDirty = false;
+  holder.__halogenCaches = holder.__halogenCaches || new Set();
+  holder.__halogenCaches.add(object);
+  if (!holder.__halogenCacheTick) {
+    // Before the frame is rendered, once a frame at most.
+    holder.__halogenCacheTick = function () {
+      holder.__halogenCaches.forEach(function (o) {
+        if (o.destroyed || !o.__halogenCached) { holder.__halogenCaches.delete(o); return; }
+        if (o.__halogenDirty) { o.__halogenDirty = false; o.updateCacheTexture(); }
+      });
+    };
+    holder.app.ticker.add(holder.__halogenCacheTick);
+  }
+}
+function halogen_pixi_clear_cache_as_texture(object) {
+  object.cacheAsTexture(false);
+  delete object.__halogenCached;
+  delete object.__halogenDirty;
+}
 function halogen_pixi_refresh_outline(object) {
+  halogen_pixi_touch(object);
   var spec = object.__halogenOutline;
   if (!spec) return;
   var graphics = object.__halogenOutlineGraphics;
