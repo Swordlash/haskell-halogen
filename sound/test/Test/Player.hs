@@ -2,7 +2,9 @@
 -- is asked: the test ends the tracks itself.
 module Test.Player (spec) where
 
-import Control.Concurrent (threadDelay)
+import Control.Concurrent (forkIO, threadDelay)
+import Control.Concurrent.MVar
+import System.Timeout (timeout)
 import Data.IORef
 import Data.List (nub, sort)
 import Data.Map.Strict qualified as Map
@@ -33,31 +35,46 @@ instance Sound Open where
 album :: [Snd]
 album = [T1, T2, T3, T4]
 
-data Event = Fetched Text | Released Text | Started Text Bool | Stopped Text
+data Event = Fetched Text | Released Text | Started Text Bool | Stopped Text | Volume Text Double | DeadVolume Text
   deriving stock (Eq, Show)
 
 data Fake = Fake
   { events :: IORef [Event]
   , voices :: IORef (Map.Map Int (Text, IO ()))
   , counter :: IORef Int
+  , dead :: IORef (Map.Map Int Text)
+  -- ^ Voices stopped: a volume change on one is a bug ('DeadVolume').
+  , stopGate :: IORef (Maybe (MVar (), MVar ()))
+  -- ^ When set, a stop marks its voice dead, signals the first, and waits
+  -- for the second before it finishes.
   }
 
 newFake :: IO (Fake, Backend Text Int)
 newFake = do
-  fake <- Fake <$> newIORef [] <*> newIORef mempty <*> newIORef 0
+  fake <- Fake <$> newIORef [] <*> newIORef mempty <*> newIORef 0 <*> newIORef mempty <*> newIORef Nothing
   let note e = atomicModifyIORef' fake.events (\es -> (es <> [e], ()))
       backend =
         Backend
           { fetchClip = \url -> threadDelay 1000 >> note (Fetched url) >> pure (Just url)
           , releaseClip = note . Released
-          , startVoice = \clip Voicing {looping} ended -> do
+          , startVoice = \clip Voicing {volume, looping} ended -> do
               n <- atomicModifyIORef' fake.counter (\i -> (i + 1, i))
               atomicModifyIORef' fake.voices (\vs -> (Map.insert n (clip, ended) vs, ()))
               note (Started clip looping)
+              note (Volume clip volume)
               pure n
           , stopVoice = \n -> do
               v <- atomicModifyIORef' fake.voices (\vs -> (Map.delete n vs, Map.lookup n vs))
+              mapM_ (\(clip, _) -> atomicModifyIORef' fake.dead (\ds -> (Map.insert n clip ds, ()))) v
+              readIORef fake.stopGate >>= mapM_ (\(reached, release) -> putMVar reached () >> takeMVar release)
               mapM_ (note . Stopped . fst) v
+          , setVolume = \n volume -> do
+              gone <- Map.lookup n <$> readIORef fake.dead
+              case gone of
+                Just clip -> note (DeadVolume clip)
+                Nothing -> do
+                  v <- Map.lookup n <$> readIORef fake.voices
+                  mapM_ (\(clip, _) -> note (Volume clip volume)) v
           }
   pure (fake, backend)
 
@@ -195,3 +212,96 @@ spec = describe "player" $ do
     setMuted player True
     es' <- eventually fake (Stopped "Menu" `elem`)
     Stopped "Menu" `elem` es' `shouldBe` True
+
+  it "changes the music's volume while it plays, and plays effects at theirs" $ do
+    (fake, backend) <- newFake
+    player <- newPlayer backend config {musicVolume = 0.5, effectsVolume = 0.8}
+    playTheme player Menu
+    _ <- eventually fake (Volume "Menu" 0.5 `elem`)
+    setMusicVolume player 0.25
+    es <- eventually fake (Volume "Menu" 0.25 `elem`)
+    Volume "Menu" 0.25 `elem` es `shouldBe` True
+    Stopped "Menu" `elem` es `shouldBe` False
+    setEffectsVolume player 0.4
+    playEffect player Click
+    es' <- eventually fake (Volume "Click" 0.4 `elem`)
+    Volume "Click" 0.4 `elem` es' `shouldBe` True
+    -- The effects' volume leaves the music alone.
+    [v | Volume "Menu" v <- es'] `shouldBe` [0.5, 0.25]
+    stopMusic player
+
+  it "at no music volume stops the music and fetches none, until it is raised" $ do
+    (fake, backend) <- newFake
+    player <- newPlayer backend config
+    playTheme player Menu
+    _ <- eventually fake (Started "Menu" True `elem`)
+    setMusicVolume player 0
+    _ <- eventually fake (Stopped "Menu" `elem`)
+    playAlbum player album
+    threadDelay 50000
+    es <- readIORef fake.events
+    [t | Fetched t <- es, t `notElem` ["Menu", "Click"]] `shouldBe` []
+    startsOf es `shouldBe` ["Menu"]
+    setMusicVolume player 0.3
+    es' <- eventually fake (\xs -> length (startsOf xs) > 1)
+    drop 1 (startsOf es') `shouldSatisfy` all (`elem` ["T1", "T2", "T3", "T4"])
+    [v | Volume t v <- es', t /= "Menu"] `shouldBe` [0.3]
+    stopMusic player
+
+  it "plays no effect at no effects volume" $ do
+    (fake, backend) <- newFake
+    player <- newPlayer backend config
+    _ <- eventually fake (Fetched "Click" `elem`)
+    setEffectsVolume player 0
+    playEffect player Click
+    threadDelay 50000
+    readIORef fake.events >>= (`shouldBe` []) . startsOf
+
+  it "retires the music's voice before a volume change can reach it" $ do
+    (fake, backend) <- newFake
+    player <- newPlayer backend config
+    playAlbum player album
+    _ <- eventually fake (not . null . startsOf)
+    reached <- newEmptyMVar
+    release <- newEmptyMVar
+    writeIORef fake.stopGate (Just (reached, release))
+    -- The track ends; its voice is being stopped, and is held there.
+    finishTrack fake
+    timeout 2000000 (takeMVar reached) >>= (`shouldBe` Just ())
+    changed <- newEmptyMVar
+    _ <- forkIO (setMusicVolume player 0.2 >> putMVar changed ())
+    threadDelay 20000
+    writeIORef fake.stopGate Nothing
+    putMVar release ()
+    timeout 2000000 (takeMVar changed) >>= (`shouldBe` Just ())
+    es <- readIORef fake.events
+    [t | DeadVolume t <- es] `shouldBe` []
+    stopMusic player
+
+  it "starting at no music volume plays no music, and asks for no track, until it is raised" $ do
+    (fake, backend) <- newFake
+    player <- newPlayer backend config {musicVolume = 0}
+    playTheme player T1
+    threadDelay 50000
+    es <- readIORef fake.events
+    startsOf es `shouldBe` []
+    [t | Fetched t <- es, t `notElem` ["Menu", "Click"]] `shouldBe` []
+    -- Persistent sounds are preloaded whatever the volume.
+    Fetched "Menu" `elem` es `shouldBe` True
+    setMusicVolume player 0.3
+    es' <- eventually fake (Started "T1" True `elem`)
+    Volume "T1" 0.3 `elem` es' `shouldBe` True
+    stopMusic player
+
+  it "unmuting at no music volume plays no music" $ do
+    (fake, backend) <- newFake
+    player <- newPlayer backend config {musicVolume = 0, startMuted = True}
+    playAlbum player album
+    setMuted player False
+    threadDelay 50000
+    es <- readIORef fake.events
+    startsOf es `shouldBe` []
+    [t | Fetched t <- es, t `notElem` ["Menu", "Click"]] `shouldBe` []
+    playEffect player Click
+    _ <- eventually fake (Started "Click" False `elem`)
+    stopMusic player

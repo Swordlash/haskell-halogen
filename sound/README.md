@@ -23,6 +23,8 @@ playAlbum player [Campaign1, Campaign2, Campaign3]  -- a game: shuffled, on and 
 playEffect player Dice                              -- over whatever plays
 stopMusic player
 setMuted player True                                -- and nothing is fetched while muted
+setMusicVolume player 0.2                           -- a slider each: reaches the music playing
+setEffectsVolume player 0.8
 ```
 
 - A type whose sounds are not all known in advance (an album read from a
@@ -34,6 +36,11 @@ setMuted player True                                -- and nothing is fetched wh
 - While a track plays, the next `bufferAhead` are fetched. Files that are not
   persistent are let go, least recently used first, beyond `cacheSize`
   (besides those playing or buffered), so an album is never held whole.
+- The music and the effects each have a volume, from 0 to 1 (the initial
+  ones in `Config`). A change reaches the music playing at once. At zero
+  music volume, playback stops and the music makes no further track
+  requests until the volume is raised; persistent sounds continue to
+  preload and remain cached. Effects at 0 are not played.
 - `browser` fetches whole files at low priority into blob URLs and plays them
   with HTML audio. A page may not play before its first click or key; a voice
   started earlier waits for one. Natively it plays nothing.

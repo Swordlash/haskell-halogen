@@ -40,3 +40,5 @@ function halogen_sound_stop(a) {
   a.removeAttribute("src");
   a.load();
 }
+
+function halogen_sound_volume(a, volume) { a.volume = Math.min(1, Math.max(0, volume)); }

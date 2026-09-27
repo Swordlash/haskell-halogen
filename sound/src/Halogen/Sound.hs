@@ -1,3 +1,5 @@
+{-# LANGUAGE MultiWayIf #-}
+
 -- | Music and sound effects for a page: a theme to loop, an album to play
 -- in a shuffled order, and effects on top, over any 'Backend'.
 --
@@ -14,6 +16,14 @@
 -- 'stopMusic' each replace whatever was playing, at once, from any thread:
 -- the music runs on a thread of its own, which they stop. Effects play on
 -- top of it, each on its own voice.
+--
+-- The music and the effects have a volume each ('setMusicVolume',
+-- 'setEffectsVolume'), which a page can offer as two sliders: a change
+-- reaches the music playing at once. At zero music volume, playback stops
+-- and the music makes no further track requests, and it comes back as it
+-- was asked for when the volume is raised; persistent sounds go on
+-- preloading and stay cached, whatever the volume (persistence is about
+-- the cache, the volume about playing). Effects at 0 are not played.
 module Halogen.Sound
   ( Sound (..)
   , Config (..)
@@ -25,10 +35,13 @@ module Halogen.Sound
   , playAlbum
   , stopMusic
   , setMuted
+  , setMusicVolume
+  , setEffectsVolume
   , module Halogen.Sound.Backend
   )
 where
 
+import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Halogen.Sound.Backend
@@ -60,7 +73,9 @@ class (Ord t) => Sound t where
 
 data Config = Config
   { musicVolume :: Double
+  -- ^ From 0 to 1, until 'setMusicVolume'.
   , effectsVolume :: Double
+  -- ^ From 0 to 1, until 'setEffectsVolume'.
   , gap :: Double
   -- ^ Seconds of silence before a piece of music, and between the tracks of
   -- an album.
@@ -95,7 +110,14 @@ data Engine t clip voice = Engine
   , config :: Config
   , store :: MVar (Store t clip)
   , control :: MVar (Control t)
+  , levels :: IORef Levels
+  , musicVoice :: MVar (Maybe (Int, voice, Double))
+  -- ^ The music's voice, the number of the music playing it, and the
+  -- sound's 'loudness'. Also the lock under which the music's volume is
+  -- read to start a voice and changed, so that no change falls between.
   }
+
+data Levels = Levels {musicLevel :: Double, effectsLevel :: Double}
 
 -- | The files, and what may not be let go.
 data Store t clip = Store
@@ -127,7 +149,9 @@ newPlayer :: forall t clip voice. (Sound t) => Backend clip voice -> Config -> I
 newPlayer backend config = do
   store <- newMVar Store {entries = mempty, pins = mempty, wanted = (0, mempty), clock = 0}
   control <- newMVar Control {music = Silence, thread = Nothing, muted = config.startMuted, shuffles = config.seed, playing = 0}
-  let engine = Engine {backend, config, store, control}
+  levels <- newIORef Levels {musicLevel = clamp config.musicVolume, effectsLevel = clamp config.effectsVolume}
+  musicVoice <- newMVar Nothing
+  let engine = Engine {backend, config, store, control, levels, musicVoice}
   unless config.startMuted (preloadPersistent engine)
   pure (Player engine)
 
@@ -135,9 +159,10 @@ newPlayer backend config = do
 playEffect :: (Sound t) => Player t -> t -> IO ()
 playEffect (Player e) t = do
   c <- readMVar e.control
-  unless c.muted $ void $ forkIO $ quietly $ bracket_ (pin e t 1) (pin e t (-1) >> evict e) $ do
+  level <- (.effectsLevel) <$> readIORef e.levels
+  unless (c.muted || level <= 0) $ void $ forkIO $ quietly $ bracket_ (pin e t 1) (pin e t (-1) >> evict e) $ do
     clip <- obtain e t
-    for_ clip $ \x -> playVoice e x Voicing {volume = e.config.effectsVolume * loudness t, looping = False}
+    for_ clip $ \x -> playVoice e x Voicing {volume = level * loudness t, looping = False}
 
 -- | Stop the music, and after a 'gap' loop this track.
 playTheme :: (Sound t) => Player t -> t -> IO ()
@@ -159,6 +184,28 @@ setMuted (Player e) m = modifyMVar_ e.control $ \c -> case (m, c.muted) of
   (False, True) -> preloadPersistent e >> run e c {muted = False}
   _ -> pure c
 
+-- | The music's volume, from 0 to 1, for the music playing too. At 0 the
+-- music stops and asks for no further tracks, and starts again when the
+-- volume is raised. Persistent sounds are preloaded and kept regardless.
+setMusicVolume :: (Sound t) => Player t -> Double -> IO ()
+setMusicVolume (Player e) v = modifyMVar_ e.control $ \c -> do
+  let new = clamp v
+  old <- modifyMVar e.musicVoice $ \playing -> do
+    before <- atomicModifyIORef' e.levels (\l -> (l {musicLevel = new}, l.musicLevel))
+    for_ playing $ \(_, voice, louder) -> e.backend.setVolume voice (new * louder)
+    pure (playing, before)
+  if
+    | new <= 0 && old > 0 -> for_ c.thread killThread >> pure c {thread = Nothing}
+    | new > 0 && old <= 0 && isNothing c.thread -> run e c
+    | otherwise -> pure c
+
+-- | The effects' volume, from 0 to 1, for the effects played from now on.
+setEffectsVolume :: Player t -> Double -> IO ()
+setEffectsVolume (Player e) v = atomicModifyIORef' e.levels (\l -> (l {effectsLevel = clamp v}, ()))
+
+clamp :: Double -> Double
+clamp = max 0 . min 1
+
 ----------------------------------------------------------------------
 -- The music
 
@@ -167,11 +214,11 @@ setMusic e m = modifyMVar_ e.control $ \c -> do
   for_ c.thread killThread
   run e c {music = m, thread = Nothing}
 
--- | Start the thread for the music asked for, unless muted.
+-- | Start the thread for the music asked for, unless muted or at no volume.
 run :: (Sound t) => Engine t clip voice -> Control t -> IO (Control t)
-run e c
-  | c.muted = pure c
-  | otherwise = case c.music of
+run e c = do
+  level <- (.musicLevel) <$> readIORef e.levels
+  if c.muted || level <= 0 then pure c else case c.music of
       Silence -> pure c
       Theme t -> start c (\n -> theme e n t)
       Album ts -> start c {shuffles = c.shuffles + 1} (\n -> album e n (newOrder c.shuffles ts))
@@ -188,7 +235,7 @@ theme e n t = do
   prefetch e t
   pause e.config.gap
   clip <- obtain e t
-  for_ clip $ \x -> playVoice e x Voicing {volume = e.config.musicVolume * loudness t, looping = True}
+  for_ clip $ \x -> playMusicVoice e n x (loudness t) True
 
 album :: (Sound t) => Engine t clip voice -> Int -> Order t -> IO ()
 album e n order = for_ (nextTrack order) $ \(t, order') -> do
@@ -200,7 +247,7 @@ album e n order = for_ (nextTrack order) $ \(t, order') -> do
   -- The next ones only once this one is here, so as not to hold it up.
   for_ ahead (prefetch e)
   case clip of
-    Just x -> playVoice e x Voicing {volume = e.config.musicVolume * loudness t, looping = False}
+    Just x -> playMusicVoice e n x (loudness t) False
     -- Not to be had: on to the next, but not in a spin should none be.
     Nothing -> pause 1
   album e n order'
@@ -213,6 +260,32 @@ playVoice e clip voicing = do
   bracket
     (e.backend.startVoice clip voicing (void (tryPutMVar done ())))
     e.backend.stopVoice
+    (\_ -> takeMVar done)
+
+-- | 'playVoice' for the music of this number, at the music's volume, with
+-- the voice at hand for 'setMusicVolume' while it plays.
+playMusicVoice :: Engine t clip voice -> Int -> clip -> Double -> Bool -> IO ()
+playMusicVoice e n clip louder looping = do
+  done <- newEmptyMVar
+  bracket
+    ( modifyMVar e.musicVoice $ \_ -> do
+        level <- (.musicLevel) <$> readIORef e.levels
+        voice <- e.backend.startVoice clip Voicing {volume = level * louder, looping} (void (tryPutMVar done ()))
+        pure (Just (n, voice, louder), voice)
+    )
+    -- Retired under the same lock a volume change takes: the voice leaves
+    -- the registration and is stopped with no change in between, and the
+    -- registration goes even if the stop fails. A successor's registration
+    -- (another number) stays.
+    ( \voice -> do
+        stopped <- modifyMVar e.musicVoice $ \current -> do
+          r <- try (e.backend.stopVoice voice)
+          let rest = case current of
+                Just (m, _, _) | m == n -> Nothing
+                other -> other
+          pure (rest, r)
+        either (throwIO :: SomeException -> IO ()) pure stopped
+    )
     (\_ -> takeMVar done)
 
 ----------------------------------------------------------------------

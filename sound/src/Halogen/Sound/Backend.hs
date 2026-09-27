@@ -24,6 +24,8 @@ data Backend clip voice = Backend
   -- by itself (a looping voice never does).
   , stopVoice :: voice -> IO ()
   -- ^ Stop a voice, whether or not it has ended already.
+  , setVolume :: voice -> Double -> IO ()
+  -- ^ Change a playing voice's volume, from 0 to 1.
   }
 
 data Voicing = Voicing

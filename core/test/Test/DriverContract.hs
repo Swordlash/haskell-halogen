@@ -204,8 +204,10 @@ logging texts logRef acts self =
       ParStuck started1 started2 killed1 killed2 ->
         sequential $
           (\() () -> ())
-            <$> parallel (liftIO (putMVar started1 () >> forever (threadDelay 1_000_000) `onException` putMVar killed1 ()) :: H.HalogenM Int Act Empty Void IO ())
-            <*> parallel (liftIO (putMVar started2 () >> forever (threadDelay 1_000_000) `onException` putMVar killed2 ()) :: H.HalogenM Int Act Empty Void IO ())
+            -- The handler goes up before the branch says it started: a kill
+            -- right after the signal is still seen.
+            <$> parallel (liftIO ((putMVar started1 () >> forever (threadDelay 1_000_000)) `onException` putMVar killed1 ()) :: H.HalogenM Int Act Empty Void IO ())
+            <*> parallel (liftIO ((putMVar started2 () >> forever (threadDelay 1_000_000)) `onException` putMVar killed2 ()) :: H.HalogenM Int Act Empty Void IO ())
       ParFailsAtOnce done -> do
         result <-
           try $
