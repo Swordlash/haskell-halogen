@@ -159,6 +159,9 @@ data Lifecycle
 -- was last: one pans the camera, two pan and zoom it (a pinch).
 data Gesture = Gesture
   { pointers :: Map Int (Point, Point)
+  , order :: [Int]
+  -- ^ The pointers in the order they went down: the first two are the pair
+  -- that moves the camera.
   , going :: Bool
   -- ^ Whether a pointer has gone further than 'slop' from where it went
   -- down: until then the camera stays, so that a tap with a trembling
@@ -170,25 +173,32 @@ data Gesture = Gesture
   -- ^ Whether two pointers were ever down at once: a gesture, whatever it
   -- moved, and none of its releases a tap.
   , anchor :: Maybe Point
-  -- ^ While two pointers are down, the point between the two where their
+  -- ^ While two pointers are down, the point between the pair where their
   -- pinch began: a scene that does not pan zooms about it.
   }
 
 noGesture :: Gesture
-noGesture = Gesture {pointers = Map.empty, going = False, changed = False, crowded = False, anchor = Nothing}
+noGesture = Gesture {pointers = Map.empty, order = [], going = False, changed = False, crowded = False, anchor = Nothing}
 
--- | The pointers as they are now, each counted from where it is: when the
--- pair changes (a pointer goes down or lifts), what a finger did before is
--- not part of the new pinch, nor of its slop (which starts over too).
-rebase :: Map Int (Point, Point) -> Map Int (Point, Point)
-rebase = Map.map (\(_, seen) -> (seen, seen))
+-- | The pair's pointers (the first two down), where each went down and
+-- where it was last.
+pairOf :: [Int] -> Map Int (Point, Point) -> [(Point, Point)]
+pairOf order pointers = mapMaybe (`Map.lookup` pointers) (take 2 order)
 
--- | Where the pinch of the first two pointers begins, as they are now:
--- taken whenever the pair changes (a pointer goes down or lifts).
-pinchAnchor :: Map Int (Point, Point) -> Maybe Point
-pinchAnchor pointers = case Map.elems pointers of
-  (_, a) : (_, b) : _ -> Just (midpoint a b)
-  _ -> Nothing
+-- | The gesture with pointers down or lifted. If that changed the pair,
+-- each pointer is counted from where it is now: what a finger did before is
+-- not part of the new pinch, nor of its slop, which starts over; the pinch's
+-- anchor is where the new pair is. A pointer beyond the pair changes none
+-- of that.
+regroup :: [Int] -> Map Int (Point, Point) -> Gesture -> Gesture
+regroup order pointers g
+  | take 2 order == take 2 g.order = g {order, pointers}
+  | otherwise =
+      let rebased = Map.map (\(_, seen) -> (seen, seen)) pointers
+          anchor = case pairOf order rebased of
+            [(_, a), (_, b)] -> Just (midpoint a b)
+            _ -> Nothing
+       in g {order, pointers = rebased, going = False, anchor}
 
 -- | How far a pointer goes, in screen pixels, before it moves the camera.
 slop :: Double
@@ -330,9 +340,10 @@ installInteraction runtime@Runtime {app, canvas, camera, gesture, swallowTap} = 
     writeIORef swallowTap False
     whenGestures runtime $ \_ -> do
       let here = Point (FFI.globalX event) (FFI.globalY event)
+          pointer = FFI.pointerId event
       modifyIORef' gesture $ \g ->
-        let pointers = rebase (Map.insert (FFI.pointerId event) (here, here) g.pointers)
-         in g {pointers, going = False, crowded = g.crowded || Map.size pointers > 1, anchor = pinchAnchor pointers}
+        let pointers = Map.insert pointer (here, here) g.pointers
+         in (regroup (filter (/= pointer) g.order <> [pointer]) pointers g) {crowded = g.crowded || Map.size pointers > 1}
   FFI.onPointerDown app down
 
   move <- registerPermanent runtime $ \event -> whenGestures runtime $ \scene -> do
@@ -347,7 +358,7 @@ installInteraction runtime@Runtime {app, canvas, camera, gesture, swallowTap} = 
       let after = Map.insert pointer (start, here) g.pointers
       -- Only the pair (the first two down) moves the camera: a third finger
       -- is followed, but neither moves it nor gets it past the slop.
-      let inPair = pointer `elem` take 2 (Map.keys g.pointers)
+      let inPair = pointer `elem` take 2 g.order
       if not inPair || not (g.going || distance start here > slop)
         then writeIORef gesture g {pointers = after}
         else do
@@ -360,7 +371,7 @@ installInteraction runtime@Runtime {app, canvas, camera, gesture, swallowTap} = 
           -- pan, if the scene pans. Past the slop, the first move catches
           -- up from where the fingers went down.
           let origin (wentDown, seen) = if g.going then seen else wentDown
-              next = case (Map.elems g.pointers, Map.elems after) of
+              next = case (pairOf g.order g.pointers, pairOf g.order after) of
                 (p : q : _, (_, a') : (_, b') : _) ->
                   let anchor = if panning then Nothing else g.anchor
                    in Just (pinch anchor (Point (width / 2) (height / 2)) zoomRange (origin p, origin q) (a', b') current)
@@ -375,10 +386,11 @@ installInteraction runtime@Runtime {app, canvas, camera, gesture, swallowTap} = 
 
   end <- registerPermanent runtime $ \event -> do
     g <- readIORef gesture
-    when (Map.member (FFI.pointerId event) g.pointers) $ do
-      let left = rebase (Map.delete (FFI.pointerId event) g.pointers)
+    let pointer = FFI.pointerId event
+    when (Map.member pointer g.pointers) $ do
+      let left = Map.delete pointer g.pointers
       -- A finger that stays down after a pinch pans on from where it is.
-      writeIORef gesture (if Map.null left then noGesture else g {pointers = left, going = False, anchor = pinchAnchor left})
+      writeIORef gesture (if Map.null left then noGesture else regroup (filter (/= pointer) g.order) left g)
       -- No finger of a gesture that moved the camera, or had two down, lets
       -- go with a tap; the camera is reported once, at the last.
       when (g.changed || g.crowded) $ writeIORef swallowTap True
