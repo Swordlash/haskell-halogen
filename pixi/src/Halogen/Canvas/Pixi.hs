@@ -179,7 +179,7 @@ noGesture = Gesture {pointers = Map.empty, going = False, changed = False, crowd
 
 -- | The pointers as they are now, each counted from where it is: when the
 -- pair changes (a pointer goes down or lifts), what a finger did before is
--- not part of the new pinch, nor of its slop.
+-- not part of the new pinch, nor of its slop (which starts over too).
 rebase :: Map Int (Point, Point) -> Map Int (Point, Point)
 rebase = Map.map (\(_, seen) -> (seen, seen))
 
@@ -332,7 +332,7 @@ installInteraction runtime@Runtime {app, canvas, camera, gesture, swallowTap} = 
       let here = Point (FFI.globalX event) (FFI.globalY event)
       modifyIORef' gesture $ \g ->
         let pointers = rebase (Map.insert (FFI.pointerId event) (here, here) g.pointers)
-         in g {pointers, crowded = g.crowded || Map.size pointers > 1, anchor = pinchAnchor pointers}
+         in g {pointers, going = False, crowded = g.crowded || Map.size pointers > 1, anchor = pinchAnchor pointers}
   FFI.onPointerDown app down
 
   move <- registerPermanent runtime $ \event -> whenGestures runtime $ \scene -> do
@@ -364,7 +364,9 @@ installInteraction runtime@Runtime {app, canvas, camera, gesture, swallowTap} = 
                 _ | panning -> Just (pan (origin (start, before)) here current)
                 _ -> Nothing
               moves = maybe False (/= current) next
-          writeIORef gesture g {pointers = after, going = True, changed = g.changed || moves}
+          -- Past the slop only if these pointers can move the camera at all
+          -- (one finger on a scene that only zooms cannot).
+          writeIORef gesture g {pointers = after, going = isJust next, changed = g.changed || moves}
           when moves $ traverse_ (moveCamera runtime) next
   FFI.onPointerMove app move
 
@@ -373,7 +375,7 @@ installInteraction runtime@Runtime {app, canvas, camera, gesture, swallowTap} = 
     when (Map.member (FFI.pointerId event) g.pointers) $ do
       let left = rebase (Map.delete (FFI.pointerId event) g.pointers)
       -- A finger that stays down after a pinch pans on from where it is.
-      writeIORef gesture (if Map.null left then noGesture else g {pointers = left, anchor = pinchAnchor left})
+      writeIORef gesture (if Map.null left then noGesture else g {pointers = left, going = False, anchor = pinchAnchor left})
       -- No finger of a gesture that moved the camera, or had two down, lets
       -- go with a tap; the camera is reported once, at the last.
       when (g.changed || g.crowded) $ writeIORef swallowTap True
