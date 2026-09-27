@@ -345,7 +345,10 @@ installInteraction runtime@Runtime {app, canvas, camera, gesture, swallowTap} = 
       -- the other finger of a pinch is then where it is, not where it went
       -- down.
       let after = Map.insert pointer (start, here) g.pointers
-      if not (g.going || distance start here > slop)
+      -- Only the pair (the first two down) moves the camera: a third finger
+      -- is followed, but neither moves it nor gets it past the slop.
+      let inPair = pointer `elem` take 2 (Map.keys g.pointers)
+      if not inPair || not (g.going || distance start here > slop)
         then writeIORef gesture g {pointers = after}
         else do
           width <- FFI.screenWidth app
