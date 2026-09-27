@@ -83,7 +83,13 @@ svgNumber :: Double -> Text
 svgNumber value_
   | isNaN value_ || isInfinite value_ || abs value_ >= 1e15 = show value_
   | otherwise =
-      let n = Protolude.round (value_ * 1000) :: Int64
+      let scaled = value_ * 1000
+          -- The product may itself round onto a half, from a value just
+          -- short of it or just past it; only then is the rounding done
+          -- exactly, since the product is otherwise on the right side.
+          n
+            | scaled - fromIntegral (floor scaled :: Int64) == 0.5 = Protolude.round (toRational value_ * 1000) :: Int64
+            | otherwise = Protolude.round scaled
           (whole, frac) = abs n `quotRem` 1000
           sign = if n < 0 then "-" else ""
           fraction
