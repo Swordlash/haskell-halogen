@@ -155,17 +155,22 @@ data Lifecycle
     Dead
   deriving stock (Eq, Show)
 
--- | The pointers down on the scene, and where each was last: one pans the
--- camera, two pan and zoom it (a pinch).
+-- | The pointers down on the scene, each where it went down and where it
+-- was last: one pans the camera, two pan and zoom it (a pinch).
 data Gesture = Gesture
-  { pointers :: Map Int Point
+  { pointers :: Map Int (Point, Point)
   , moved :: Bool
-  -- ^ Whether the camera has actually moved, so that a plain click does not
-  -- raise a spurious 'CameraChanged'.
+  -- ^ Whether a pointer has gone further than 'slop' from where it went
+  -- down: until then the camera stays, so that a tap with a trembling
+  -- finger is a tap and does not raise a spurious 'CameraChanged'.
   }
 
 noGesture :: Gesture
 noGesture = Gesture {pointers = Map.empty, moved = False}
+
+-- | How far a pointer goes, in screen pixels, before it moves the camera.
+slop :: Double
+slop = 8
 
 type SceneStep i = V.Step PixiDOM (V.VDom [PixiProp i] (Thunk (CanvasNode PixiEvent) i)) FFI.Object
 
@@ -180,6 +185,9 @@ data Runtime i = Runtime
   , asked :: IORef (Maybe Camera)
   -- ^ The camera the last view asked for (see 'followCamera').
   , gesture :: IORef Gesture
+  , swallowTap :: IORef Bool
+  -- ^ Set when a gesture that moved the camera ends, until the next pointer
+  -- goes down: the tap its last pointer's release raises is not one.
   , callbacks :: IORef [FFI.Callback]
   , wheelCallback :: IORef (Maybe FFI.Callback)
   , cameraTimer :: IORef (Maybe FFI.Timer)
@@ -197,11 +205,12 @@ rendererWith Config {moduleUrl} = Canvas.Renderer {mount}
       camera <- newIORef defaultCamera
       asked <- newIORef Nothing
       gesture <- newIORef noGesture
+      swallowTap <- newIORef False
       callbacks <- newIORef []
       wheelCallback <- newIORef Nothing
       cameraTimer <- newIORef Nothing
       lifecycle <- newIORef Loading
-      let runtime = Runtime {app, canvas, emit = runInIO . emit, pending, scene, camera, asked, gesture, callbacks, wheelCallback, cameraTimer, lifecycle}
+      let runtime = Runtime {app, canvas, emit = runInIO . emit, pending, scene, camera, asked, gesture, swallowTap, callbacks, wheelCallback, cameraTimer, lifecycle}
       onReady <- registerPermanent runtime $ \_ -> rendererReady runtime
       FFI.initializeApplication app moduleUrl canvas onReady
       pure
@@ -250,7 +259,7 @@ pixiSpec :: Runtime i -> V.VDomSpec PixiDOM [PixiProp i] (Thunk (CanvasNode Pixi
 pixiSpec runtime =
   V.VDomSpec
     { buildWidget = Thunk.buildThunk unCanvasNode
-    , buildAttributes = buildCanvasProp (liftIO . runtime.emit . Fired) runtime.app
+    , buildAttributes = buildCanvasProp (liftIO . runtime.emit . Fired) (readIORef runtime.swallowTap) runtime.app
     , document = runtime.app
     }
 
@@ -294,27 +303,29 @@ moveCamera runtime nextCamera = do
 -- Pan and zoom
 
 installInteraction :: Runtime i -> IO ()
-installInteraction runtime@Runtime {app, canvas, camera, gesture} = do
-  down <- registerPermanent runtime $ \event ->
-    whenPanning runtime $ \_ ->
-      modifyIORef' gesture $ \g ->
-        g {pointers = Map.insert (FFI.pointerId event) (Point (FFI.globalX event) (FFI.globalY event)) g.pointers}
+installInteraction runtime@Runtime {app, canvas, camera, gesture, swallowTap} = do
+  down <- registerPermanent runtime $ \event -> do
+    writeIORef swallowTap False
+    whenPanning runtime $ \_ -> do
+      let here = Point (FFI.globalX event) (FFI.globalY event)
+      modifyIORef' gesture $ \g -> g {pointers = Map.insert (FFI.pointerId event) (here, here) g.pointers}
   FFI.onPointerDown app down
 
   move <- registerPermanent runtime $ \event -> whenPanning runtime $ \scene -> do
     g <- readIORef gesture
     let pointer = FFI.pointerId event
         here = Point (FFI.globalX event) (FFI.globalY event)
-    for_ (Map.lookup pointer g.pointers) $ \before -> do
-      let after = Map.insert pointer here g.pointers
-      writeIORef gesture g {pointers = after, moved = True}
-      width <- FFI.screenWidth app
-      height <- FFI.screenHeight app
-      current <- readIORef camera
-      moveCamera runtime $ case (Map.elems g.pointers, Map.elems after) of
-        -- Two fingers: the first two down, as they were and as they are.
-        (a : b : _, a' : b' : _) -> pinch (Point (width / 2) (height / 2)) scene.interaction.zoomRange (a, b) (a', b') current
-        _ -> pan before here current
+    for_ (Map.lookup pointer g.pointers) $ \(start, before) ->
+      when (g.moved || distance start here > slop) $ do
+        let after = Map.insert pointer (start, here) g.pointers
+        writeIORef gesture g {pointers = after, moved = True}
+        width <- FFI.screenWidth app
+        height <- FFI.screenHeight app
+        current <- readIORef camera
+        moveCamera runtime $ case (map snd (Map.elems g.pointers), map snd (Map.elems after)) of
+          -- Two fingers: the first two down, as they were and as they are.
+          (a : b : _, a' : b' : _) -> pinch (Point (width / 2) (height / 2)) scene.interaction.zoomRange (a, b) (a', b') current
+          _ -> pan before here current
   FFI.onPointerMove app move
 
   end <- registerPermanent runtime $ \event -> do
@@ -323,7 +334,9 @@ installInteraction runtime@Runtime {app, canvas, camera, gesture} = do
       let left = Map.delete (FFI.pointerId event) g.pointers
       -- A finger that stays down after a pinch pans on from where it is.
       writeIORef gesture g {pointers = left, moved = g.moved && not (Map.null left)}
-      when (Map.null left && g.moved) $ readIORef camera >>= runtime.emit . CameraChanged
+      when (Map.null left && g.moved) $ do
+        writeIORef swallowTap True
+        readIORef camera >>= runtime.emit . CameraChanged
   FFI.onPointerEnd app end
 
   -- A wheel raises one event per notch, so the camera is reported once the
@@ -357,7 +370,9 @@ pinch (Point centreX centreY) range (a, b) (a', b') Camera {focus = Point focusX
       Just (low, high) | distance a b > 0 -> max low (min high (zoom * distance a' b' / distance a b))
       _ -> zoom
     midpoint (Point x0 y0) (Point x1 y1) = Point ((x0 + x1) / 2) ((y0 + y1) / 2)
-    distance (Point x0 y0) (Point x1 y1) = sqrt ((x1 - x0) ^ (2 :: Int) + (y1 - y0) ^ (2 :: Int))
+
+distance :: Point -> Point -> Double
+distance (Point x0 y0) (Point x1 y1) = sqrt ((x1 - x0) ^ (2 :: Int) + (y1 - y0) ^ (2 :: Int))
 
 whenPanning :: Runtime i -> (View i -> IO ()) -> IO ()
 whenPanning runtime act = do

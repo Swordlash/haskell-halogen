@@ -7,6 +7,10 @@
   them stays between them. With one pointer it pans as before, and a finger
   left down after a pinch pans on from where it is. `CameraChanged` is raised
   once, when the last pointer lifts.
+* A pointer moves the camera only once it has gone 8 screen pixels from where
+  it went down, so a tap with a trembling finger stays a tap. The tap that
+  ends a pan or a pinch is not delivered to `PointerTap` handlers: releasing
+  a dragged map over an element no longer counts as tapping it.
 * A scene may hold memoized parts (`Halogen.Canvas.Elements.memoized`,
   `lazy`): the renderer builds them as thunks, and while a part's input is
   equal a render skips building and diffing it and updating its Pixi
