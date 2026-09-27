@@ -83,8 +83,15 @@ spec = describe "SVG attributes" $ do
     -- Times a thousand it is exactly 1059.5 as a Double, a tie it is not.
     assertEqual
       "path numbers near a half"
-      ["H1.059", "h-1.059", "v1.06"]
-      (SA.toArrayString [SA.h SA.Abs 1.0594999999999999, SA.h SA.Rel (-1.0594999999999999), SA.v SA.Rel 1.0595000000000001])
+      ["H1.059", "h-1.059", "v1.06", "V9402123468364.041"]
+      ( SA.toArrayString
+          [ SA.h SA.Abs 1.0594999999999999
+          , SA.h SA.Rel (-1.0594999999999999)
+          , SA.v SA.Rel 1.0595000000000001
+          , -- Times a thousand it is past 2^53, where a Double skips whole units.
+            SA.v SA.Abs 9402123468364.041
+          ]
+      )
   it "renders the transform attribute" $
     assertEqual
       "transform attribute"

@@ -84,11 +84,13 @@ svgNumber value_
   | isNaN value_ || isInfinite value_ || abs value_ >= 1e15 = show value_
   | otherwise =
       let scaled = value_ * 1000
-          -- The product may itself round onto a half, from a value just
-          -- short of it or just past it; only then is the rounding done
-          -- exactly, since the product is otherwise on the right side.
+          -- Below 2^52 a Double holds every half, so the product is on the
+          -- right side of one unless it has rounded onto it, from a value
+          -- just short of it or just past it; only then, and above 2^52,
+          -- where the product may lose whole units, is it rounded exactly.
           n
-            | scaled - fromIntegral (floor scaled :: Int64) == 0.5 = Protolude.round (toRational value_ * 1000) :: Int64
+            | abs scaled >= 2 ^ (52 :: Int) || scaled - fromIntegral (floor scaled :: Int64) == 0.5 =
+                Protolude.round (toRational value_ * 1000) :: Int64
             | otherwise = Protolude.round scaled
           (whole, frac) = abs n `quotRem` 1000
           sign = if n < 0 then "-" else ""
