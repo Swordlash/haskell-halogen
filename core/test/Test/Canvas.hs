@@ -197,7 +197,7 @@ spec = describe "canvas scenes" $ do
     it "renders commands as an SVG d attribute" $
       assertEqual
         "d"
-        ("M0.0, 0.0 L10.0, 0.0 z" :: Text)
+        ("M0, 0 L10, 0 z" :: Text)
         (pathData [SA.m SA.Abs 0 0, SA.l SA.Abs 10 0, SA.z])
 
 -- | Every cursor, so that a name repeated by a copy-and-paste slip in the

@@ -6,6 +6,14 @@
   drawn once into a texture, at a given resolution, and shown as that
   texture until something inside it changes. Backends without such a thing
   may ignore it.
+- SVG path commands (`Halogen.Svg.Attributes`, and so canvas paths) and
+  `points` write their numbers with `svgNumber`, not `show`: to a thousandth,
+  with no exponent and no trailing zeros (`M1, 2.5`, where it was
+  `M1.0, 2.5`). `show` on a `Double` is slow, slowest in WebAssembly, and a
+  scene of paths can hold tens of thousands of numbers: in a WebAssembly
+  game, the first render of a board with fog of war (every hex's cloud a
+  path) went from about 10 s to under 5 under an 8× slowed CPU. NaN, the
+  infinities and numbers from 1e15 up are still written by `show`.
 - `HitArea` has `PolygonHit`, a polygon given by its corners: a tile the
   shape of a hex is hit to its edges, where a circle left gaps between tiles.
 - Canvas scenes have `Halogen.Canvas.Elements.memoized` and `lazy`, as HTML
