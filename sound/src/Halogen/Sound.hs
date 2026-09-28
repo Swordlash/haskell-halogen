@@ -190,6 +190,9 @@ skipTrack (Player e) = modifyMVar_ e.control $ \c -> do
   rest <- readIORef e.restRef
   case (c.music, c.thread, rest) of
     (Album _, Just th, Just (m, order)) | m == c.playing -> do
+      -- What the new thread plays and buffers is wanted before the old one
+      -- lets its files go, so a track already fetched plays at once.
+      want e (c.playing + 1) (take (1 + e.config.bufferAhead) (upcoming (1 + e.config.bufferAhead) order))
       killThread th
       -- The new thread plays the first of @order@; a skip right after this
       -- one, before it starts, finds what comes after that.
@@ -292,7 +295,8 @@ album e n gapFirst order = for_ (nextTrack order) $ \(t, order') -> do
   -- The next ones only once this one is here, so as not to hold it up.
   for_ ahead (prefetch e)
   case clip of
-    Just x -> playMusicVoice e n x (loudness t) False (nowOn e n t) (notPlaying e n) `finally` notPlaying e n
+    -- Played out: the next track waits out its gap, and a skip then skips it.
+    Just x -> playMusicVoice e n x (loudness t) False (nowOn e n t) (notPlaying e n >> atomicWriteIORef e.restRef (Just (n, afterFirst order'))) `finally` notPlaying e n
     -- Not to be had: on to the next, but not in a spin should none be.
     Nothing -> pause 1
   album e n True order'
@@ -315,23 +319,22 @@ playVoice :: Engine t clip voice -> clip -> Voicing -> IO ()
 playVoice e clip voicing = do
   done <- newEmptyMVar
   bracket
-    (e.backend.startVoice clip voicing (void (tryPutMVar done ())))
+    (e.backend.startVoice clip voicing pass (void (tryPutMVar done ())))
     e.backend.stopVoice
     (\_ -> takeMVar done)
 
 -- | 'playVoice' for the music of this number, at the music's volume, with
 -- the voice at hand for 'setMusicVolume' while it plays.
 --
--- @started@ runs once the voice has started, @ended@ as soon as it has
--- played out, before its teardown.
+-- @started@ runs when the voice is heard (the backend says when), @ended@
+-- as soon as it has played out, before its teardown.
 playMusicVoice :: Engine t clip voice -> Int -> clip -> Double -> Bool -> IO () -> IO () -> IO ()
 playMusicVoice e n clip louder looping started ended = do
   done <- newEmptyMVar
   bracket
     ( modifyMVar e.musicVoice $ \_ -> do
         level <- (.musicLevel) <$> readIORef e.levels
-        voice <- e.backend.startVoice clip Voicing {volume = level * louder, looping} (void (tryPutMVar done ()))
-        started
+        voice <- e.backend.startVoice clip Voicing {volume = level * louder, looping} started (void (tryPutMVar done ()))
         pure (Just (n, voice, louder), voice)
     )
     -- Retired under the same lock a volume change takes: the voice leaves

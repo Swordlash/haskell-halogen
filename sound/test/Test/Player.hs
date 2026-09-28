@@ -57,11 +57,12 @@ newFake = do
         Backend
           { fetchClip = \url -> threadDelay 1000 >> note (Fetched url) >> pure (Just url)
           , releaseClip = note . Released
-          , startVoice = \clip Voicing {volume, looping} ended -> do
+          , startVoice = \clip Voicing {volume, looping} heard ended -> do
               n <- atomicModifyIORef' fake.counter (\i -> (i + 1, i))
               atomicModifyIORef' fake.voices (\vs -> (Map.insert n (clip, ended) vs, ()))
               note (Started clip looping)
               note (Volume clip volume)
+              heard
               pure n
           , stopVoice = \n -> do
               v <- atomicModifyIORef' fake.voices (\vs -> (Map.delete n vs, Map.lookup n vs))
@@ -193,6 +194,21 @@ spec = describe "player" $ do
     skipTrack player
     es <- eventually fake (not . null . startsOf)
     startsOf es `shouldBe` drop 2 order
+    stopMusic player
+
+  it "plays a track already fetched at once when skipped to, not fetching it again" $ do
+    (fake, backend) <- newFake
+    player <- newPlayer backend config {gap = 5, cacheSize = 0}
+    playAlbum player album
+    -- Straight to the first track; the one after it is fetched meanwhile.
+    skipTrack player
+    es <- eventually fake (\xs -> not (null (startsOf xs)) && length (held xs) >= 2)
+    let first = mconcat (take 1 (startsOf es))
+        next = mconcat (take 1 [t | t <- held es, t /= first])
+    skipTrack player
+    es' <- eventually fake (\xs -> length (startsOf xs) >= 2)
+    drop 1 (startsOf es') `shouldBe` [next]
+    length [t | Fetched t <- es', t == next] `shouldBe` 1
     stopMusic player
 
   it "stops the music at once, and plays nothing more" $ do

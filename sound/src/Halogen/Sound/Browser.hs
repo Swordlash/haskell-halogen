@@ -42,8 +42,9 @@ browser =
 -- | A blob URL.
 newtype Clip = Clip JSVal
 
--- | An audio element, and the callback it calls at its end.
-data Voice = Voice JSVal Callback
+-- | An audio element, and the callbacks it calls when it is heard and at
+-- its end.
+data Voice = Voice JSVal Callback Callback
 
 fetchClip :: Text -> IO (Maybe Clip)
 fetchClip url = do
@@ -57,19 +58,21 @@ fetchClip url = do
 releaseClip :: Clip -> IO ()
 releaseClip (Clip url) = js_release url
 
-startVoice :: Clip -> Voicing -> IO () -> IO Voice
-startVoice (Clip url) Voicing {volume, looping} ended = do
+startVoice :: Clip -> Voicing -> IO () -> IO () -> IO Voice
+startVoice (Clip url) Voicing {volume, looping} started ended = do
+  heard <- mkCallback (const started)
   done <- mkCallback (const ended)
-  audio <- js_start url volume looping done
-  pure (Voice audio done)
+  audio <- js_start url volume looping heard done
+  pure (Voice audio heard done)
 
 stopVoice :: Voice -> IO ()
-stopVoice (Voice audio done) = do
+stopVoice (Voice audio heard done) = do
   js_stop audio
+  freeCallback heard
   freeCallback done
 
 setVolume :: Voice -> Double -> IO ()
-setVolume (Voice audio _) = js_volume audio
+setVolume (Voice audio _ _) = js_volume audio
 
 #endif
 
@@ -91,7 +94,7 @@ jsIsNull = isNull
 
 foreign import javascript unsafe "halogen_sound_fetch" js_fetch :: JSVal -> Callback -> IO ()
 foreign import javascript unsafe "halogen_sound_release" js_release :: JSVal -> IO ()
-foreign import javascript unsafe "halogen_sound_start" js_start :: JSVal -> Double -> Bool -> Callback -> IO JSVal
+foreign import javascript unsafe "halogen_sound_start" js_start :: JSVal -> Double -> Bool -> Callback -> Callback -> IO JSVal
 foreign import javascript unsafe "halogen_sound_stop" js_stop :: JSVal -> IO ()
 foreign import javascript unsafe "halogen_sound_volume" js_volume :: JSVal -> Double -> IO ()
 
@@ -112,8 +115,8 @@ foreign import javascript unsafe "fetch($1, {priority: 'low'}).then(r => r.ok ? 
 foreign import javascript unsafe "URL.revokeObjectURL($1)" js_release :: JSVal -> IO ()
 -- Before the page's first click or key a browser refuses to play; the
 -- voice then waits for one (unless it has been stopped by then).
-foreign import javascript unsafe "const a = new Audio($1); a.volume = $2; a.loop = $3; a.onended = () => $4(null); const go = () => { if (a.__halogenStopped) return; a.play().catch(() => { const retry = () => { removeEventListener('pointerdown', retry, true); removeEventListener('keydown', retry, true); go(); }; addEventListener('pointerdown', retry, true); addEventListener('keydown', retry, true); }); }; go(); return a;" js_start :: JSVal -> Double -> Bool -> Callback -> IO JSVal
-foreign import javascript unsafe "$1.__halogenStopped = true; $1.onended = null; $1.pause(); $1.removeAttribute('src'); $1.load();" js_stop :: JSVal -> IO ()
+foreign import javascript unsafe "const a = new Audio($1); a.volume = $2; a.loop = $3; a.onplaying = () => $4(null); a.onended = () => $5(null); const go = () => { if (a.__halogenStopped) return; a.play().catch(() => { const retry = () => { removeEventListener('pointerdown', retry, true); removeEventListener('keydown', retry, true); go(); }; addEventListener('pointerdown', retry, true); addEventListener('keydown', retry, true); }); }; go(); return a;" js_start :: JSVal -> Double -> Bool -> Callback -> Callback -> IO JSVal
+foreign import javascript unsafe "$1.__halogenStopped = true; $1.onplaying = null; $1.onended = null; $1.pause(); $1.removeAttribute('src'); $1.load();" js_stop :: JSVal -> IO ()
 foreign import javascript unsafe "$1.volume = Math.min(1, Math.max(0, $2));" js_volume :: JSVal -> Double -> IO ()
 
 #else
@@ -129,8 +132,8 @@ fetchClip _ = pure Nothing
 releaseClip :: Clip -> IO ()
 releaseClip _ = pass
 
-startVoice :: Clip -> Voicing -> IO () -> IO Voice
-startVoice _ _ _ = pure Voice
+startVoice :: Clip -> Voicing -> IO () -> IO () -> IO Voice
+startVoice _ _ _ _ = pure Voice
 
 stopVoice :: Voice -> IO ()
 stopVoice _ = pass

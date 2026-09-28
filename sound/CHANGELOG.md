@@ -5,8 +5,12 @@
 * `skipTrack`: skips the album's track playing, or the one waiting out its
   gap, and plays the one after it at once; each call skips one more, also
   in quick succession. Nothing for a theme or silence.
-* `nowPlaying`: the track playing now, if any: set once its voice has
-  started, cleared as soon as it plays out (not during a gap).
+* `nowPlaying`: the track playing now, if any: set once its voice is
+  heard, cleared as soon as it plays out (not during a gap).
+* **Breaking:** `Backend`'s `startVoice` takes an action to call when the
+  voice is heard, besides the one for its end. The browser backend calls
+  it on the audio element's `playing` event, so a voice waiting for the
+  page's first click does not count as playing.
 
 ## 0.2.0.0
 
