@@ -2,10 +2,11 @@
 
 ## Unreleased
 
-* `skipTrack`: on to the album's next track at once, without the gap (the
-  album's order goes on from there; nothing for a theme or silence).
-* `nowPlaying`: the track playing now, if any (not during a gap), for a
-  page to show its name.
+* `skipTrack`: skips the album's track playing, or the one waiting out its
+  gap, and plays the one after it at once; each call skips one more, also
+  in quick succession. Nothing for a theme or silence.
+* `nowPlaying`: the track playing now, if any: set once its voice has
+  started, cleared as soon as it plays out (not during a gap).
 
 ## 0.2.0.0
 

@@ -182,14 +182,18 @@ playTheme (Player e) t = setMusic e (Theme t)
 playAlbum :: (Sound t) => Player t -> [t] -> IO ()
 playAlbum (Player e) ts = setMusic e (Album ts)
 
--- | On to the album's next track at once, without the 'gap'. Nothing for
--- a theme, silence, or music not playing (muted, at no volume).
+-- | Skip the album's track playing, or the one waiting out its 'gap', and
+-- play the one after it at once. Each call skips one more. Nothing for a
+-- theme, silence, or music not playing (muted, at no volume).
 skipTrack :: (Sound t) => Player t -> IO ()
 skipTrack (Player e) = modifyMVar_ e.control $ \c -> do
   rest <- readIORef e.restRef
   case (c.music, c.thread, rest) of
     (Album _, Just th, Just (m, order)) | m == c.playing -> do
       killThread th
+      -- The new thread plays the first of @order@; a skip right after this
+      -- one, before it starts, finds what comes after that.
+      atomicWriteIORef e.restRef (Just (c.playing + 1, afterFirst order))
       start e c {thread = Nothing} (\n -> album e n False order)
     _ -> pure c
 
@@ -241,6 +245,8 @@ clamp = max 0 . min 1
 setMusic :: (Sound t) => Engine t clip voice -> Music t -> IO ()
 setMusic e m = modifyMVar_ e.control $ \c -> do
   for_ c.thread killThread
+  -- The album replaced lets go of its tracks.
+  atomicWriteIORef e.restRef Nothing
   run e c {music = m, thread = Nothing}
 
 -- | Start the thread for the music asked for, unless muted or at no volume.
@@ -250,7 +256,11 @@ run e c = do
   if c.muted || level <= 0 then pure c else case c.music of
       Silence -> pure c
       Theme t -> start e c (\n -> theme e n t)
-      Album ts -> start e c {shuffles = c.shuffles + 1} (\n -> album e n True (newOrder c.shuffles ts))
+      Album ts -> do
+        let order = newOrder c.shuffles ts
+        -- Known before this returns, for a skip right after it.
+        atomicWriteIORef e.restRef (Just (c.playing + 1, afterFirst order))
+        start e c {shuffles = c.shuffles + 1} (\n -> album e n True order)
 
 -- | Start a thread for a piece of music, numbered anew.
 start :: (Sound t) => Engine t clip voice -> Control t -> (Int -> IO ()) -> IO (Control t)
@@ -266,13 +276,14 @@ theme e n t = do
   prefetch e t
   pause e.config.gap
   clip <- obtain e t
-  for_ clip $ \x -> whilePlaying e n t (playMusicVoice e n x (loudness t) True (notPlaying e n))
+  for_ clip $ \x -> playMusicVoice e n x (loudness t) True (nowOn e n t) (notPlaying e n) `finally` notPlaying e n
 
 -- | Play an album's tracks in its order, a 'gap' before each (but the
 -- first, when skipped to).
 album :: (Sound t) => Engine t clip voice -> Int -> Bool -> Order t -> IO ()
 album e n gapFirst order = for_ (nextTrack order) $ \(t, order') -> do
   let ahead = upcoming e.config.bufferAhead order'
+  -- A skip, during the gap or the track, goes on to the one after it.
   atomicWriteIORef e.restRef (Just (n, order'))
   want e n (t : ahead)
   prefetch e t
@@ -281,14 +292,18 @@ album e n gapFirst order = for_ (nextTrack order) $ \(t, order') -> do
   -- The next ones only once this one is here, so as not to hold it up.
   for_ ahead (prefetch e)
   case clip of
-    Just x -> whilePlaying e n t (playMusicVoice e n x (loudness t) False (notPlaying e n))
+    Just x -> playMusicVoice e n x (loudness t) False (nowOn e n t) (notPlaying e n) `finally` notPlaying e n
     -- Not to be had: on to the next, but not in a spin should none be.
     Nothing -> pause 1
   album e n True order'
 
--- | While it plays, this track is what the music of this number plays.
-whilePlaying :: Engine t clip voice -> Int -> t -> IO () -> IO ()
-whilePlaying e n t = bracket_ (atomicWriteIORef e.nowRef (Just (n, t))) (notPlaying e n)
+-- | An order past its next track.
+afterFirst :: (Eq t) => Order t -> Order t
+afterFirst order = maybe order snd (nextTrack order)
+
+-- | The music of this number plays this track now.
+nowOn :: Engine t clip voice -> Int -> t -> IO ()
+nowOn e n t = atomicWriteIORef e.nowRef (Just (n, t))
 
 -- | The music of this number plays nothing now (a successor's track stays).
 notPlaying :: Engine t clip voice -> Int -> IO ()
@@ -307,14 +322,16 @@ playVoice e clip voicing = do
 -- | 'playVoice' for the music of this number, at the music's volume, with
 -- the voice at hand for 'setMusicVolume' while it plays.
 --
--- @ended@ runs as soon as the voice has played out, before its teardown.
-playMusicVoice :: Engine t clip voice -> Int -> clip -> Double -> Bool -> IO () -> IO ()
-playMusicVoice e n clip louder looping ended = do
+-- @started@ runs once the voice has started, @ended@ as soon as it has
+-- played out, before its teardown.
+playMusicVoice :: Engine t clip voice -> Int -> clip -> Double -> Bool -> IO () -> IO () -> IO ()
+playMusicVoice e n clip louder looping started ended = do
   done <- newEmptyMVar
   bracket
     ( modifyMVar e.musicVoice $ \_ -> do
         level <- (.musicLevel) <$> readIORef e.levels
         voice <- e.backend.startVoice clip Voicing {volume = level * louder, looping} (void (tryPutMVar done ()))
+        started
         pure (Just (n, voice, louder), voice)
     )
     -- Retired under the same lock a volume change takes: the voice leaves

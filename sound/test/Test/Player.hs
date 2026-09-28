@@ -178,6 +178,23 @@ spec = describe "player" $ do
     stopMusic player
     nowPlaying player >>= (`shouldBe` Nothing)
 
+  it "skips one track a call, also twice in a row right after the album starts" $ do
+    -- The same seed plays the same order: one player plays it through,
+    -- the other skips twice before its first track.
+    (plain, backend) <- newFake
+    through <- newPlayer backend config
+    playAlbum through album
+    order <- playTracks plain 3
+    stopMusic through
+    (fake, backend') <- newFake
+    player <- newPlayer backend' config {gap = 5}
+    playAlbum player album
+    skipTrack player
+    skipTrack player
+    es <- eventually fake (not . null . startsOf)
+    startsOf es `shouldBe` drop 2 order
+    stopMusic player
+
   it "stops the music at once, and plays nothing more" $ do
     (fake, backend) <- newFake
     player <- newPlayer backend config
