@@ -12,10 +12,11 @@ function halogen_sound_release(url) { URL.revokeObjectURL(url); }
 
 // Before the page's first click or key a browser refuses to play; the voice
 // then waits for one (unless it has been stopped by then).
-function halogen_sound_start(url, volume, looping, ended) {
+function halogen_sound_start(url, volume, looping, heard, ended) {
   var a = new Audio(url);
   a.volume = volume;
   a.loop = looping;
+  a.onplaying = function () { heard(null); };
   a.onended = function () { ended(null); };
   var go = function () {
     if (a.__halogenStopped) return;
@@ -35,6 +36,7 @@ function halogen_sound_start(url, volume, looping, ended) {
 
 function halogen_sound_stop(a) {
   a.__halogenStopped = true;
+  a.onplaying = null;
   a.onended = null;
   a.pause();
   a.removeAttribute("src");

@@ -19,9 +19,11 @@ data Backend clip voice = Backend
   -- its own).
   , releaseClip :: clip -> IO ()
   -- ^ Let a fetched file go. It is not playing when this is called.
-  , startVoice :: clip -> Voicing -> IO () -> IO voice
-  -- ^ Start playing a file, and call the action once if it comes to its end
-  -- by itself (a looping voice never does).
+  , startVoice :: clip -> Voicing -> IO () -> IO () -> IO voice
+  -- ^ Start playing a file. The first action is called when it is heard
+  -- (maybe later than this returns: a page plays nothing before its first
+  -- click), the second once if it comes to its end by itself (a looping
+  -- voice never does). Neither after 'stopVoice'.
   , stopVoice :: voice -> IO ()
   -- ^ Stop a voice, whether or not it has ended already.
   , setVolume :: voice -> Double -> IO ()

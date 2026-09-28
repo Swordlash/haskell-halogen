@@ -57,11 +57,12 @@ newFake = do
         Backend
           { fetchClip = \url -> threadDelay 1000 >> note (Fetched url) >> pure (Just url)
           , releaseClip = note . Released
-          , startVoice = \clip Voicing {volume, looping} ended -> do
+          , startVoice = \clip Voicing {volume, looping} heard ended -> do
               n <- atomicModifyIORef' fake.counter (\i -> (i + 1, i))
               atomicModifyIORef' fake.voices (\vs -> (Map.insert n (clip, ended) vs, ()))
               note (Started clip looping)
               note (Volume clip volume)
+              heard
               pure n
           , stopVoice = \n -> do
               v <- atomicModifyIORef' fake.voices (\vs -> (Map.delete n vs, Map.lookup n vs))
@@ -150,6 +151,64 @@ spec = describe "player" $ do
     length (held es) `shouldSatisfy` (<= 3)
     [t | Released t <- es] `shouldSatisfy` (not . null)
     [t | Released t <- es, t `elem` ["Menu", "Click"]] `shouldBe` []
+    stopMusic player
+
+  it "says what plays, and skips to the next track at once" $ do
+    (fake, backend) <- newFake
+    player <- newPlayer backend config {gap = 5}
+    nowPlaying player >>= (`shouldBe` Nothing)
+    playAlbum player album
+    -- Not until the gap before the first track has passed.
+    threadDelay 50000
+    nowPlaying player >>= (`shouldBe` Nothing)
+    skipTrack player
+    es <- eventually fake (not . null . startsOf)
+    let first = mconcat (take 1 (startsOf es))
+    fmap (T.pack . show) <$> nowPlaying player >>= (`shouldBe` Just first)
+    -- The next one, without the five-second gap, and not the same one.
+    skipTrack player
+    es' <- eventually fake (\xs -> length (startsOf xs) >= 2)
+    Stopped first `elem` es' `shouldBe` True
+    let second = mconcat (take 1 (drop 1 (startsOf es')))
+    second `shouldSatisfy` (/= first)
+    fmap (T.pack . show) <$> nowPlaying player >>= (`shouldBe` Just second)
+    -- Played out: nothing plays during the gap before the next one.
+    finishTrack fake
+    threadDelay 20000
+    nowPlaying player >>= (`shouldBe` Nothing)
+    stopMusic player
+    nowPlaying player >>= (`shouldBe` Nothing)
+
+  it "skips one track a call, also twice in a row right after the album starts" $ do
+    -- The same seed plays the same order: one player plays it through,
+    -- the other skips twice before its first track.
+    (plain, backend) <- newFake
+    through <- newPlayer backend config
+    playAlbum through album
+    order <- playTracks plain 3
+    stopMusic through
+    (fake, backend') <- newFake
+    player <- newPlayer backend' config {gap = 5}
+    playAlbum player album
+    skipTrack player
+    skipTrack player
+    es <- eventually fake (not . null . startsOf)
+    startsOf es `shouldBe` drop 2 order
+    stopMusic player
+
+  it "plays a track already fetched at once when skipped to, not fetching it again" $ do
+    (fake, backend) <- newFake
+    player <- newPlayer backend config {gap = 5, cacheSize = 0}
+    playAlbum player album
+    -- Straight to the first track; the one after it is fetched meanwhile.
+    skipTrack player
+    es <- eventually fake (\xs -> not (null (startsOf xs)) && length (held xs) >= 2)
+    let first = mconcat (take 1 (startsOf es))
+        next = mconcat (take 1 [t | t <- held es, t /= first])
+    skipTrack player
+    es' <- eventually fake (\xs -> length (startsOf xs) >= 2)
+    drop 1 (startsOf es') `shouldBe` [next]
+    length [t | Fetched t <- es', t == next] `shouldBe` 1
     stopMusic player
 
   it "stops the music at once, and plays nothing more" $ do
@@ -243,7 +302,8 @@ spec = describe "player" $ do
     [t | Fetched t <- es, t `notElem` ["Menu", "Click"]] `shouldBe` []
     startsOf es `shouldBe` ["Menu"]
     setMusicVolume player 0.3
-    es' <- eventually fake (\xs -> length (startsOf xs) > 1)
+    -- A voice's volume is written down just after it starts: wait for it.
+    es' <- eventually fake (\xs -> not (null [v | Volume t v <- xs, t /= "Menu"]))
     drop 1 (startsOf es') `shouldSatisfy` all (`elem` ["T1", "T2", "T3", "T4"])
     [v | Volume t v <- es', t /= "Menu"] `shouldBe` [0.3]
     stopMusic player
