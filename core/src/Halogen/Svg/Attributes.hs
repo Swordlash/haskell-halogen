@@ -74,6 +74,31 @@ data CommandArcChoice = Arc0 | Arc1
 data CommandSweepChoice = Sweep0 | Sweep1
   deriving (Eq, Show)
 
+-- | A number as SVG (and a canvas's path parser) reads it, written fast.
+-- 'show' on a 'Double' is slow, slowest in WebAssembly, and a scene of paths
+-- has tens of thousands of numbers. To a thousandth, with no exponent and no
+-- trailing zeros; what does not fit (NaN, the infinities, the huge) as 'show'
+-- writes it.
+svgNumber :: Double -> Text
+svgNumber value_
+  | isNaN value_ || isInfinite value_ || abs value_ >= 1e15 = show value_
+  | otherwise =
+      let scaled = value_ * 1000
+          -- Below 2^52 a Double holds every half, so the product is on the
+          -- right side of one unless it has rounded onto it, from a value
+          -- just short of it or just past it; only then, and above 2^52,
+          -- where the product may lose whole units, is it rounded exactly.
+          n
+            | abs scaled >= 2 ^ (52 :: Int) || scaled - fromIntegral (floor scaled :: Int64) == 0.5 =
+                Protolude.round (toRational value_ * 1000) :: Int64
+            | otherwise = Protolude.round scaled
+          (whole, frac) = abs n `quotRem` 1000
+          sign = if n < 0 then "-" else ""
+          fraction
+            | frac == 0 = ""
+            | otherwise = "." <> T.dropWhileEnd (== '0') (T.justifyRight 3 '0' (show frac))
+       in sign <> show whole <> fraction
+
 toArrayString :: [PathCommand] -> [Text]
 toArrayString = coerce
 
@@ -83,11 +108,11 @@ renderCommand Abs commandName = T.toUpper commandName
 
 renderCommand1Arg :: Text -> CommandPositionReference -> Double -> PathCommand
 renderCommand1Arg commandName reference a_ =
-  PathCommand $ renderCommand reference commandName <> show a_
+  PathCommand $ renderCommand reference commandName <> svgNumber a_
 
 renderCommand2Args :: Text -> CommandPositionReference -> Double -> Double -> PathCommand
 renderCommand2Args commandName reference a_ b_ =
-  PathCommand $ renderCommand reference commandName <> show a_ <> ", " <> show b_
+  PathCommand $ renderCommand reference commandName <> svgNumber a_ <> ", " <> svgNumber b_
 
 renderCommand4Args
   :: Text
@@ -100,13 +125,13 @@ renderCommand4Args
 renderCommand4Args commandName reference a_ b_ c_ d_ =
   PathCommand $
     renderCommand reference commandName
-      <> show a_
+      <> svgNumber a_
       <> ", "
-      <> show b_
+      <> svgNumber b_
       <> ", "
-      <> show c_
+      <> svgNumber c_
       <> ", "
-      <> show d_
+      <> svgNumber d_
 
 m :: CommandPositionReference -> Double -> Double -> PathCommand
 m = renderCommand2Args "m"
@@ -132,17 +157,17 @@ c
 c reference x1_ y1_ x2_ y2_ x_ y_ =
   PathCommand $
     renderCommand reference "c"
-      <> show x1_
+      <> svgNumber x1_
       <> ","
-      <> show y1_
+      <> svgNumber y1_
       <> " "
-      <> show x2_
+      <> svgNumber x2_
       <> ","
-      <> show y2_
+      <> svgNumber y2_
       <> " "
-      <> show x_
+      <> svgNumber x_
       <> ","
-      <> show y_
+      <> svgNumber y_
 
 s :: CommandPositionReference -> Double -> Double -> Double -> Double -> PathCommand
 s = renderCommand4Args "s"
@@ -166,19 +191,19 @@ a
 a reference rx_ ry_ rotation arc sweep x_ y_ =
   PathCommand $
     renderCommand reference "a"
-      <> show rx_
+      <> svgNumber rx_
       <> ", "
-      <> show ry_
+      <> svgNumber ry_
       <> ", "
-      <> show rotation
+      <> svgNumber rotation
       <> " "
       <> printArcChoice arc
       <> " "
       <> printSweepChoice sweep
       <> " "
-      <> show x_
+      <> svgNumber x_
       <> " "
-      <> show y_
+      <> svgNumber y_
   where
     printArcChoice Arc0 = "0"
     printArcChoice Arc1 = "1"
@@ -481,7 +506,7 @@ path = attr (H.AttrName "path") . T.intercalate " " . coerce
 
 -- | An array of x-y value pairs (e.g. `[(x, y)]`).
 points :: forall r i. (HasType "points" Text r) => [(Double, Double)] -> IProp r i
-points = attr (H.AttrName "points") . T.intercalate " " . map (\(x_, y_) -> show x_ <> "," <> show y_)
+points = attr (H.AttrName "points") . T.intercalate " " . map (\(x_, y_) -> svgNumber x_ <> "," <> svgNumber y_)
 
 pathLength :: forall r i. (HasType "pathLength" Double r) => Double -> IProp r i
 pathLength = attr (H.AttrName "pathLength") . show
