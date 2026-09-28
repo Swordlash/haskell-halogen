@@ -1,5 +1,12 @@
 # Revision history for haskell-halogen-sound
 
+## Unreleased
+
+* `skipTrack`: on to the album's next track at once, without the gap (the
+  album's order goes on from there; nothing for a theme or silence).
+* `nowPlaying`: the track playing now, if any (not during a gap), for a
+  page to show its name.
+
 ## 0.2.0.0
 
 * `setMusicVolume` and `setEffectsVolume`: a volume each for the music and

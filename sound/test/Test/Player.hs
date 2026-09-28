@@ -152,6 +152,28 @@ spec = describe "player" $ do
     [t | Released t <- es, t `elem` ["Menu", "Click"]] `shouldBe` []
     stopMusic player
 
+  it "says what plays, and skips to the next track at once" $ do
+    (fake, backend) <- newFake
+    player <- newPlayer backend config {gap = 5}
+    nowPlaying player >>= (`shouldBe` Nothing)
+    playAlbum player album
+    -- Not until the gap before the first track has passed.
+    threadDelay 50000
+    nowPlaying player >>= (`shouldBe` Nothing)
+    skipTrack player
+    es <- eventually fake (not . null . startsOf)
+    let first = mconcat (take 1 (startsOf es))
+    fmap (T.pack . show) <$> nowPlaying player >>= (`shouldBe` Just first)
+    -- The next one, without the five-second gap, and not the same one.
+    skipTrack player
+    es' <- eventually fake (\xs -> length (startsOf xs) >= 2)
+    Stopped first `elem` es' `shouldBe` True
+    let second = mconcat (take 1 (drop 1 (startsOf es')))
+    second `shouldSatisfy` (/= first)
+    fmap (T.pack . show) <$> nowPlaying player >>= (`shouldBe` Just second)
+    stopMusic player
+    nowPlaying player >>= (`shouldBe` Nothing)
+
   it "stops the music at once, and plays nothing more" $ do
     (fake, backend) <- newFake
     player <- newPlayer backend config
