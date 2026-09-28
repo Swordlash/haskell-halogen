@@ -18,9 +18,13 @@ function halogen_sound_start(url, volume, looping, heard, ended) {
   a.loop = looping;
   a.onplaying = function () { heard(null); };
   a.onended = function () { ended(null); };
+  // A file that cannot be played ends at once, so that the album goes on.
+  a.onerror = function () { if (!a.__halogenStopped) ended(null); };
   var go = function () {
     if (a.__halogenStopped) return;
-    a.play().catch(function () {
+    a.play().catch(function (e) {
+      // Only the page's want of a first click is waited out.
+      if (!e || e.name !== "NotAllowedError") { if (!a.__halogenStopped) ended(null); return; }
       var retry = function () {
         removeEventListener("pointerdown", retry, true);
         removeEventListener("keydown", retry, true);
@@ -38,6 +42,7 @@ function halogen_sound_stop(a) {
   a.__halogenStopped = true;
   a.onplaying = null;
   a.onended = null;
+  a.onerror = null;
   a.pause();
   a.removeAttribute("src");
   a.load();

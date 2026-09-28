@@ -35,6 +35,7 @@ module Halogen.Sound
   , playAlbum
   , skipTrack
   , nowPlaying
+  , musicProgress
   , stopMusic
   , setMuted
   , setMusicVolume
@@ -208,6 +209,15 @@ nowPlaying (Player e) = do
   pure $ case now of
     Just (m, t) | m == c.playing, isJust c.thread -> Just t
     _ -> Nothing
+
+-- | How far the music's track has played and how long it is, in seconds.
+musicProgress :: Player t -> IO (Maybe (Double, Double))
+musicProgress (Player e) = do
+  c <- readMVar e.control
+  voice <- readMVar e.musicVoice
+  case voice of
+    Just (m, v, _) | m == c.playing, isJust c.thread -> e.backend.voiceProgress v
+    _ -> pure Nothing
 
 stopMusic :: (Sound t) => Player t -> IO ()
 stopMusic (Player e) = setMusic e Silence
