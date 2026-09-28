@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+* **Fix.** Two fingers put down together no longer make the camera jump.
+  Pixi hands one event object on from event to event, and the pointer's id
+  and position were read from it lazily, after it already held the other
+  finger's event: a pinch could start from a wrong distance and zoom far in or
+  out at the first move. Every callback now gets a copy of the event made as
+  it is dispatched, so a handler's reads (`stagePosition`, `localPosition`,
+  `pointerId`, …) are of its own event however late they happen. On the
+  JavaScript backend the callbacks are now entered synchronously, as the DOM
+  backend's are, so `preventDefault` on a wheel event takes effect.
 * `PolygonHit` hit areas, as a Pixi `Polygon`.
 * Touch: two pointers pinch the camera. It zooms by how far apart they move,
   within the scene's `zoomRange`, and pans so that the world point between

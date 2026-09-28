@@ -151,6 +151,31 @@ function halogen_pixi_on_pointer_move(holder, callback) { holder.app.stage.on("g
 function halogen_pixi_on_pointer_end(holder, callback) { holder.app.stage.on("pointerup", callback); holder.app.stage.on("pointerupoutside", callback); holder.app.stage.on("pointercancel", callback); }
 function halogen_pixi_on_wheel(canvas, callback) { canvas.addEventListener("wheel", callback, { passive: false }); }
 function halogen_pixi_remove_wheel(canvas, callback) { canvas.removeEventListener("wheel", callback); }
+// What a handler reads of an event, copied as the event is dispatched: Pixi
+// hands one event object on from event to event, so a read made later, by a
+// thunk or after the handler has blocked, would read another event. A
+// callback called with no event (a timeout, a promise) gets what it was given.
+function halogen_pixi_snapshot(event) {
+  if (!event || typeof event !== "object") return event;
+  var global = event.global ? { x: event.global.x, y: event.global.y } : null;
+  var target = event.currentTarget;
+  var local = null;
+  if (global && target && event.getLocalPosition) {
+    var point = event.getLocalPosition(target);
+    local = { x: point.x, y: point.y };
+  }
+  return {
+    pointerId: event.pointerId,
+    global: global,
+    button: event.button,
+    currentTarget: target,
+    clientX: event.clientX,
+    clientY: event.clientY,
+    deltaY: event.deltaY,
+    preventDefault: function () { event.preventDefault(); },
+    getLocalPosition: function (object) { return object === target && local ? local : object.toLocal(global); }
+  };
+}
 function halogen_pixi_pointer_id(event) { return event.pointerId; }
 function halogen_pixi_global_x(event) { return event.global.x; }
 function halogen_pixi_global_y(event) { return event.global.y; }
