@@ -171,6 +171,10 @@ spec = describe "player" $ do
     let second = mconcat (take 1 (drop 1 (startsOf es')))
     second `shouldSatisfy` (/= first)
     fmap (T.pack . show) <$> nowPlaying player >>= (`shouldBe` Just second)
+    -- Played out: nothing plays during the gap before the next one.
+    finishTrack fake
+    threadDelay 20000
+    nowPlaying player >>= (`shouldBe` Nothing)
     stopMusic player
     nowPlaying player >>= (`shouldBe` Nothing)
 
@@ -265,7 +269,8 @@ spec = describe "player" $ do
     [t | Fetched t <- es, t `notElem` ["Menu", "Click"]] `shouldBe` []
     startsOf es `shouldBe` ["Menu"]
     setMusicVolume player 0.3
-    es' <- eventually fake (\xs -> length (startsOf xs) > 1)
+    -- A voice's volume is written down just after it starts: wait for it.
+    es' <- eventually fake (\xs -> not (null [v | Volume t v <- xs, t /= "Menu"]))
     drop 1 (startsOf es') `shouldSatisfy` all (`elem` ["T1", "T2", "T3", "T4"])
     [v | Volume t v <- es', t /= "Menu"] `shouldBe` [0.3]
     stopMusic player

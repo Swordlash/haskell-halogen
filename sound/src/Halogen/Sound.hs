@@ -266,7 +266,7 @@ theme e n t = do
   prefetch e t
   pause e.config.gap
   clip <- obtain e t
-  for_ clip $ \x -> whilePlaying e n t (playMusicVoice e n x (loudness t) True)
+  for_ clip $ \x -> whilePlaying e n t (playMusicVoice e n x (loudness t) True (notPlaying e n))
 
 -- | Play an album's tracks in its order, a 'gap' before each (but the
 -- first, when skipped to).
@@ -281,17 +281,18 @@ album e n gapFirst order = for_ (nextTrack order) $ \(t, order') -> do
   -- The next ones only once this one is here, so as not to hold it up.
   for_ ahead (prefetch e)
   case clip of
-    Just x -> whilePlaying e n t (playMusicVoice e n x (loudness t) False)
+    Just x -> whilePlaying e n t (playMusicVoice e n x (loudness t) False (notPlaying e n))
     -- Not to be had: on to the next, but not in a spin should none be.
     Nothing -> pause 1
   album e n True order'
 
 -- | While it plays, this track is what the music of this number plays.
 whilePlaying :: Engine t clip voice -> Int -> t -> IO () -> IO ()
-whilePlaying e n t =
-  bracket_
-    (atomicWriteIORef e.nowRef (Just (n, t)))
-    (atomicModifyIORef' e.nowRef (\case Just (m, _) | m == n -> (Nothing, ()); other -> (other, ())))
+whilePlaying e n t = bracket_ (atomicWriteIORef e.nowRef (Just (n, t))) (notPlaying e n)
+
+-- | The music of this number plays nothing now (a successor's track stays).
+notPlaying :: Engine t clip voice -> Int -> IO ()
+notPlaying e n = atomicModifyIORef' e.nowRef (\case Just (m, _) | m == n -> (Nothing, ()); other -> (other, ()))
 
 -- | Play a voice to its end (forever, for a loop), and stop it however
 -- this ends: a stopped thread takes its voice with it.
@@ -305,8 +306,10 @@ playVoice e clip voicing = do
 
 -- | 'playVoice' for the music of this number, at the music's volume, with
 -- the voice at hand for 'setMusicVolume' while it plays.
-playMusicVoice :: Engine t clip voice -> Int -> clip -> Double -> Bool -> IO ()
-playMusicVoice e n clip louder looping = do
+--
+-- @ended@ runs as soon as the voice has played out, before its teardown.
+playMusicVoice :: Engine t clip voice -> Int -> clip -> Double -> Bool -> IO () -> IO ()
+playMusicVoice e n clip louder looping ended = do
   done <- newEmptyMVar
   bracket
     ( modifyMVar e.musicVoice $ \_ -> do
@@ -327,7 +330,7 @@ playMusicVoice e n clip louder looping = do
           pure (rest, r)
         either (throwIO :: SomeException -> IO ()) pure stopped
     )
-    (\_ -> takeMVar done)
+    (\_ -> takeMVar done >> ended)
 
 ----------------------------------------------------------------------
 -- The files
