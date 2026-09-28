@@ -3,6 +3,10 @@ import: cabal.project
 allow-newer:
   *:base, *:template-haskell, protolude:ghc-prim
 
+-- constraints 0.13.4 exports a name spelled forall, which the JavaScript
+-- GHC (9.12) does not parse there.
+constraints: constraints < 0.13.4
+
 -- -ddisable-js-c-sources has to apply to every package, not just the library
 -- that declares js-sources: the executables are separate packages here, and
 -- their link step is what invokes emcc.
