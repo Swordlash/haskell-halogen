@@ -35,6 +35,7 @@ browser =
     , startVoice
     , stopVoice
     , setVolume
+    , voiceProgress
     }
 
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
@@ -74,6 +75,12 @@ stopVoice (Voice audio heard done) = do
 setVolume :: Voice -> Double -> IO ()
 setVolume (Voice audio _ _) = js_volume audio
 
+voiceProgress :: Voice -> IO (Maybe (Double, Double))
+voiceProgress (Voice audio _ _) = do
+  at <- js_time audio
+  total <- js_duration audio
+  pure (if isNaN total || isInfinite total || total <= 0 then Nothing else Just (at, total))
+
 #endif
 
 #if defined(javascript_HOST_ARCH)
@@ -97,6 +104,8 @@ foreign import javascript unsafe "halogen_sound_release" js_release :: JSVal -> 
 foreign import javascript unsafe "halogen_sound_start" js_start :: JSVal -> Double -> Bool -> Callback -> Callback -> IO JSVal
 foreign import javascript unsafe "halogen_sound_stop" js_stop :: JSVal -> IO ()
 foreign import javascript unsafe "halogen_sound_volume" js_volume :: JSVal -> Double -> IO ()
+foreign import javascript unsafe "((a) => a.currentTime)" js_time :: JSVal -> IO Double
+foreign import javascript unsafe "((a) => a.duration)" js_duration :: JSVal -> IO Double
 
 #elif defined(wasm32_HOST_ARCH)
 
@@ -115,9 +124,11 @@ foreign import javascript unsafe "fetch($1, {priority: 'low'}).then(r => r.ok ? 
 foreign import javascript unsafe "URL.revokeObjectURL($1)" js_release :: JSVal -> IO ()
 -- Before the page's first click or key a browser refuses to play; the
 -- voice then waits for one (unless it has been stopped by then).
-foreign import javascript unsafe "const a = new Audio($1); a.volume = $2; a.loop = $3; a.onplaying = () => $4(null); a.onended = () => $5(null); const go = () => { if (a.__halogenStopped) return; a.play().catch(() => { const retry = () => { removeEventListener('pointerdown', retry, true); removeEventListener('keydown', retry, true); go(); }; addEventListener('pointerdown', retry, true); addEventListener('keydown', retry, true); }); }; go(); return a;" js_start :: JSVal -> Double -> Bool -> Callback -> Callback -> IO JSVal
-foreign import javascript unsafe "$1.__halogenStopped = true; $1.onplaying = null; $1.onended = null; $1.pause(); $1.removeAttribute('src'); $1.load();" js_stop :: JSVal -> IO ()
+foreign import javascript unsafe "const a = new Audio($1); a.volume = $2; a.loop = $3; a.onplaying = () => $4(null); a.onended = () => $5(null); a.onerror = () => { if (!a.__halogenStopped) $5(null); }; const go = () => { if (a.__halogenStopped) return; a.play().catch((e) => { if (!e || e.name !== 'NotAllowedError') { if (!a.__halogenStopped) $5(null); return; } const retry = () => { removeEventListener('pointerdown', retry, true); removeEventListener('keydown', retry, true); go(); }; addEventListener('pointerdown', retry, true); addEventListener('keydown', retry, true); }); }; go(); return a;" js_start :: JSVal -> Double -> Bool -> Callback -> Callback -> IO JSVal
+foreign import javascript unsafe "$1.__halogenStopped = true; $1.onplaying = null; $1.onended = null; $1.onerror = null; $1.pause(); $1.removeAttribute('src'); $1.load();" js_stop :: JSVal -> IO ()
 foreign import javascript unsafe "$1.volume = Math.min(1, Math.max(0, $2));" js_volume :: JSVal -> Double -> IO ()
+foreign import javascript unsafe "$1.currentTime" js_time :: JSVal -> IO Double
+foreign import javascript unsafe "$1.duration" js_duration :: JSVal -> IO Double
 
 #else
 
@@ -140,5 +151,8 @@ stopVoice _ = pass
 
 setVolume :: Voice -> Double -> IO ()
 setVolume _ _ = pass
+
+voiceProgress :: Voice -> IO (Maybe (Double, Double))
+voiceProgress _ = pure Nothing
 
 #endif

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+* `musicProgress`: how far the music's track has played and how long it
+  is, for a page to show.
+* **Breaking:** `Backend` has `voiceProgress`.
+* The browser backend ends a voice whose file cannot be played (an error
+  event, or a refusal other than the page's want of a first click), so an
+  album goes on to its next track instead of waiting forever.
+
+## Unreleased
+
 * `skipTrack`: skips the album's track playing, or the one waiting out its
   gap, and plays the one after it at once; each call skips one more, also
   in quick succession. Nothing for a theme or silence.

@@ -69,6 +69,9 @@ newFake = do
               mapM_ (\(clip, _) -> atomicModifyIORef' fake.dead (\ds -> (Map.insert n clip ds, ()))) v
               readIORef fake.stopGate >>= mapM_ (\(reached, release) -> putMVar reached () >> takeMVar release)
               mapM_ (note . Stopped . fst) v
+          , voiceProgress = \n -> do
+              v <- Map.lookup n <$> readIORef fake.voices
+              pure (fmap (const (1, 60)) v)
           , setVolume = \n volume -> do
               gone <- Map.lookup n <$> readIORef fake.dead
               case gone of
@@ -210,6 +213,16 @@ spec = describe "player" $ do
     drop 1 (startsOf es') `shouldBe` [next]
     length [t | Fetched t <- es', t == next] `shouldBe` 1
     stopMusic player
+
+  it "tells how far the music's track has played" $ do
+    (fake, backend) <- newFake
+    player <- newPlayer backend config
+    musicProgress player >>= (`shouldBe` Nothing)
+    playAlbum player album
+    _ <- eventually fake (not . null . startsOf)
+    musicProgress player >>= (`shouldBe` Just (1, 60))
+    stopMusic player
+    musicProgress player >>= (`shouldBe` Nothing)
 
   it "stops the music at once, and plays nothing more" $ do
     (fake, backend) <- newFake
