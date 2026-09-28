@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `Halogen.Canvas.Properties.cacheAsTexture` (`CacheAsTexture`): a group
+  drawn once into a texture, at a given resolution, and shown as that
+  texture until something inside it changes. Backends without such a thing
+  may ignore it.
 - SVG path commands (`Halogen.Svg.Attributes`, and so canvas paths) and
   `points` write their numbers with `svgNumber`, not `show`: to a thousandth,
   with no exponent and no trailing zeros (`M1, 2.5`, where it was

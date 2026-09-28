@@ -7,6 +7,7 @@ module Halogen.Canvas.Properties
   , eventMode
   , hitArea
   , outline
+  , cacheAsTexture
   , onClick
   , onPointerDown
   , onPointerUp
@@ -50,6 +51,15 @@ hitArea = Hit
 -- sprite whose texture has not arrived.
 outline :: StrokeStyle -> Double -> CanvasProp event i
 outline = Outline
+
+-- | Draw a group into a texture once, at the given resolution (1: a pixel
+-- of the texture to a unit of the scene), and show the texture until
+-- something inside the group changes, when it is drawn again (once a
+-- frame at most). For a group of many shapes that seldom change: panning
+-- and zooming then draw one texture instead of all of them. Zoomed in past
+-- the resolution, the group looks as soft as the texture is.
+cacheAsTexture :: Double -> CanvasProp event i
+cacheAsTexture = CacheAsTexture
 
 -- | Raise an action on an event, ignoring the event itself.
 handler :: PointerEventType -> i -> CanvasProp event i

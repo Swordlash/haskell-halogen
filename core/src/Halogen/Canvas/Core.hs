@@ -84,6 +84,11 @@ data CanvasProp event i
   | Interactive EventMode
   | Cursor Cursor
   | Hit HitArea
+  | -- | Draw a group once into a texture, at the given resolution, and
+    -- show that texture until something inside the group changes. For a
+    -- part of a scene made of many shapes that seldom change (a map's fog,
+    -- say): drawing one texture each frame is cheaper than drawing them all.
+    CacheAsTexture Double
   deriving stock (Functor)
 
 -- | The key a prop is diffed under.
@@ -102,6 +107,7 @@ propKey = \case
   Interactive _ -> "eventMode"
   Cursor _ -> "cursor"
   Hit _ -> "hitArea"
+  CacheAsTexture _ -> "cacheAsTexture"
 
 -- | A node of a scene. Its widgets are thunks ('memoized', 'lazy'): a part
 -- of the scene that is only drawn again when its input changes.
