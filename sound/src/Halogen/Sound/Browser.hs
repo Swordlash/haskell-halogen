@@ -35,6 +35,8 @@ browser =
     , startVoice
     , stopVoice
     , setVolume
+    , pauseVoice
+    , resumeVoice
     , voiceProgress
     }
 
@@ -75,6 +77,12 @@ stopVoice (Voice audio heard done) = do
 setVolume :: Voice -> Double -> IO ()
 setVolume (Voice audio _ _) = js_volume audio
 
+pauseVoice :: Voice -> IO ()
+pauseVoice (Voice audio _ _) = js_pause audio
+
+resumeVoice :: Voice -> IO ()
+resumeVoice (Voice audio _ _) = js_resume audio
+
 voiceProgress :: Voice -> IO (Maybe (Double, Double))
 voiceProgress (Voice audio _ _) = do
   at <- js_time audio
@@ -104,6 +112,8 @@ foreign import javascript unsafe "halogen_sound_release" js_release :: JSVal -> 
 foreign import javascript unsafe "halogen_sound_start" js_start :: JSVal -> Double -> Bool -> Callback -> Callback -> IO JSVal
 foreign import javascript unsafe "halogen_sound_stop" js_stop :: JSVal -> IO ()
 foreign import javascript unsafe "halogen_sound_volume" js_volume :: JSVal -> Double -> IO ()
+foreign import javascript unsafe "halogen_sound_pause" js_pause :: JSVal -> IO ()
+foreign import javascript unsafe "halogen_sound_resume" js_resume :: JSVal -> IO ()
 foreign import javascript unsafe "((a) => a.currentTime)" js_time :: JSVal -> IO Double
 foreign import javascript unsafe "((a) => a.duration)" js_duration :: JSVal -> IO Double
 
@@ -124,9 +134,13 @@ foreign import javascript unsafe "fetch($1, {priority: 'low'}).then(r => r.ok ? 
 foreign import javascript unsafe "URL.revokeObjectURL($1)" js_release :: JSVal -> IO ()
 -- Before the page's first click or key a browser refuses to play; the
 -- voice then waits for one (unless it has been stopped by then).
-foreign import javascript unsafe "const a = new Audio($1); a.volume = $2; a.loop = $3; a.onplaying = () => $4(null); a.onended = () => $5(null); a.onerror = () => { if (!a.__halogenStopped) $5(null); }; const go = () => { if (a.__halogenStopped) return; a.play().catch((e) => { if (!e || e.name !== 'NotAllowedError') { if (!a.__halogenStopped) $5(null); return; } const retry = () => { removeEventListener('pointerdown', retry, true); removeEventListener('keydown', retry, true); go(); }; addEventListener('pointerdown', retry, true); addEventListener('keydown', retry, true); }); }; go(); return a;" js_start :: JSVal -> Double -> Bool -> Callback -> Callback -> IO JSVal
+foreign import javascript unsafe "const a = new Audio($1); a.volume = $2; a.loop = $3; a.onplaying = () => $4(null); a.onended = () => $5(null); a.onerror = () => { if (!a.__halogenStopped) $5(null); }; const go = () => { if (a.__halogenStopped || a.__halogenPaused) return; a.play().catch((e) => { if (!e || e.name !== 'NotAllowedError') { if (!a.__halogenStopped && !a.__halogenPaused) $5(null); return; } const retry = () => { removeEventListener('pointerdown', retry, true); removeEventListener('keydown', retry, true); go(); }; addEventListener('pointerdown', retry, true); addEventListener('keydown', retry, true); }); }; go(); return a;" js_start :: JSVal -> Double -> Bool -> Callback -> Callback -> IO JSVal
 foreign import javascript unsafe "$1.__halogenStopped = true; $1.onplaying = null; $1.onended = null; $1.onerror = null; $1.pause(); $1.removeAttribute('src'); $1.load();" js_stop :: JSVal -> IO ()
 foreign import javascript unsafe "$1.volume = Math.min(1, Math.max(0, $2));" js_volume :: JSVal -> Double -> IO ()
+-- A voice held before it could start (the page's first click) starts on
+-- resuming; a refusal then is waited out as at the start.
+foreign import javascript unsafe "$1.__halogenPaused = true; $1.pause();" js_pause :: JSVal -> IO ()
+foreign import javascript unsafe "$1.__halogenPaused = false; if (!$1.__halogenStopped) $1.play().catch(() => {});" js_resume :: JSVal -> IO ()
 foreign import javascript unsafe "$1.currentTime" js_time :: JSVal -> IO Double
 foreign import javascript unsafe "$1.duration" js_duration :: JSVal -> IO Double
 
@@ -151,6 +165,12 @@ stopVoice _ = pass
 
 setVolume :: Voice -> Double -> IO ()
 setVolume _ _ = pass
+
+pauseVoice :: Voice -> IO ()
+pauseVoice _ = pass
+
+resumeVoice :: Voice -> IO ()
+resumeVoice _ = pass
 
 voiceProgress :: Voice -> IO (Maybe (Double, Double))
 voiceProgress _ = pure Nothing

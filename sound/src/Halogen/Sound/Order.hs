@@ -9,6 +9,7 @@ module Halogen.Sound.Order
   , newOrder
   , nextTrack
   , upcoming
+  , playFirst
   )
 where
 
@@ -43,6 +44,10 @@ upcoming n order
   | otherwise = case nextTrack order of
       Nothing -> []
       Just (t, order') -> t : upcoming (n - 1) order'
+
+-- | These tracks first, in this order, then the order as it was.
+playFirst :: [a] -> Order a -> Order a
+playFirst ts order = order {queue = ts <> order.queue}
 
 -- | A new round starting with the track that ended the last one swaps it
 -- with its neighbour.

@@ -35,7 +35,7 @@ instance Sound Open where
 album :: [Snd]
 album = [T1, T2, T3, T4]
 
-data Event = Fetched Text | Released Text | Started Text Bool | Stopped Text | Volume Text Double | DeadVolume Text
+data Event = Fetched Text | Released Text | Started Text Bool | Stopped Text | Volume Text Double | DeadVolume Text | Paused Text | Resumed Text
   deriving stock (Eq, Show)
 
 data Fake = Fake
@@ -69,6 +69,8 @@ newFake = do
               mapM_ (\(clip, _) -> atomicModifyIORef' fake.dead (\ds -> (Map.insert n clip ds, ()))) v
               readIORef fake.stopGate >>= mapM_ (\(reached, release) -> putMVar reached () >> takeMVar release)
               mapM_ (note . Stopped . fst) v
+          , pauseVoice = \n -> Map.lookup n <$> readIORef fake.voices >>= mapM_ (note . Paused . fst)
+          , resumeVoice = \n -> Map.lookup n <$> readIORef fake.voices >>= mapM_ (note . Resumed . fst)
           , voiceProgress = \n -> do
               v <- Map.lookup n <$> readIORef fake.voices
               pure (fmap (const (1, 60)) v)
@@ -212,6 +214,58 @@ spec = describe "player" $ do
     es' <- eventually fake (\xs -> length (startsOf xs) >= 2)
     drop 1 (startsOf es') `shouldBe` [next]
     length [t | Fetched t <- es', t == next] `shouldBe` 1
+    stopMusic player
+
+  it "goes back to the track before the one playing, and on to this one after it" $ do
+    (fake, backend) <- newFake
+    player <- newPlayer backend config
+    playAlbum player album
+    -- Two tracks: the first played out, the second playing (for a second).
+    starts <- playTracks fake 1
+    es <- eventually fake (\xs -> length (startsOf xs) >= 2)
+    let first = mconcat (take 1 (startsOf es))
+        second = mconcat (take 1 (drop 1 (startsOf es)))
+    previousTrack player
+    es' <- eventually fake (\xs -> length (startsOf xs) >= 3)
+    Stopped second `elem` es' `shouldBe` True
+    take 1 (drop 2 (startsOf es')) `shouldBe` [first]
+    starts `shouldBe` [first]
+    -- Played out, the one skipped back from comes again.
+    finishTrack fake
+    es'' <- eventually fake (\xs -> length (startsOf xs) >= 4)
+    take 1 (drop 3 (startsOf es'')) `shouldBe` [second]
+    stopMusic player
+
+  it "plays the album's first track again from its start on a step back" $ do
+    (fake, backend) <- newFake
+    player <- newPlayer backend config
+    playAlbum player album
+    es <- eventually fake (not . null . startsOf)
+    previousTrack player
+    es' <- eventually fake (\xs -> length (startsOf xs) >= 2)
+    take 2 (startsOf es') `shouldBe` replicate 2 (mconcat (take 1 (startsOf es)))
+    stopMusic player
+
+  it "holds the music, starts a track held while it is, and goes on when resumed" $ do
+    (fake, backend) <- newFake
+    player <- newPlayer backend config
+    playAlbum player album
+    es <- eventually fake (not . null . startsOf)
+    let first = mconcat (take 1 (startsOf es))
+    pauseMusic player
+    musicPaused player >>= (`shouldBe` True)
+    es' <- eventually fake (elem (Paused first))
+    Paused first `elem` es' `shouldBe` True
+    -- Skipped to while held: the next one starts held.
+    skipTrack player
+    es'' <- eventually fake (\xs -> length (startsOf xs) >= 2)
+    let second = mconcat (take 1 (drop 1 (startsOf es'')))
+    es3 <- eventually fake (elem (Paused second))
+    Paused second `elem` es3 `shouldBe` True
+    resumeMusic player
+    musicPaused player >>= (`shouldBe` False)
+    es4 <- eventually fake (elem (Resumed second))
+    Resumed second `elem` es4 `shouldBe` True
     stopMusic player
 
   it "tells how far the music's track has played" $ do

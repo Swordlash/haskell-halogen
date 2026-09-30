@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+* `pauseMusic` and `resumeMusic`: hold the music where it is and go on
+  from there; a track that starts while it is held (after a gap, a skip, a
+  new album) starts held. `musicPaused` says whether it is.
+* `previousTrack`: back to the album's track before the one playing, which
+  then plays again after it; or, when the one playing has played three
+  seconds or more (or is the first), that one again from its start. Each
+  call goes one further back.
+* **Breaking:** `Backend` has `pauseVoice` and `resumeVoice`. The browser
+  backend pauses the audio element, and a play aborted by a pause right
+  after the start does not end the voice.
+
+## Unreleased
+
 * `musicProgress`: how far the music's track has played and how long it
   is, for a page to show.
 * **Breaking:** `Backend` has `voiceProgress`.

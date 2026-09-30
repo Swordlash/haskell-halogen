@@ -21,10 +21,11 @@ function halogen_sound_start(url, volume, looping, heard, ended) {
   // A file that cannot be played ends at once, so that the album goes on.
   a.onerror = function () { if (!a.__halogenStopped) ended(null); };
   var go = function () {
-    if (a.__halogenStopped) return;
+    if (a.__halogenStopped || a.__halogenPaused) return;
     a.play().catch(function (e) {
       // Only the page's want of a first click is waited out.
-      if (!e || e.name !== "NotAllowedError") { if (!a.__halogenStopped) ended(null); return; }
+      // A pause right after the start aborts the play: not an end.
+      if (!e || e.name !== "NotAllowedError") { if (!a.__halogenStopped && !a.__halogenPaused) ended(null); return; }
       var retry = function () {
         removeEventListener("pointerdown", retry, true);
         removeEventListener("keydown", retry, true);
@@ -49,3 +50,12 @@ function halogen_sound_stop(a) {
 }
 
 function halogen_sound_volume(a, volume) { a.volume = Math.min(1, Math.max(0, volume)); }
+
+// A voice held before it could start (the page's first click) starts on
+// resuming.
+function halogen_sound_pause(a) { a.__halogenPaused = true; a.pause(); }
+
+function halogen_sound_resume(a) {
+  a.__halogenPaused = false;
+  if (!a.__halogenStopped) a.play().catch(function () {});
+}
