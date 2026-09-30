@@ -28,6 +28,11 @@ data Backend clip voice = Backend
   -- ^ Stop a voice, whether or not it has ended already.
   , setVolume :: voice -> Double -> IO ()
   -- ^ Change a playing voice's volume, from 0 to 1.
+  , pauseVoice :: voice -> IO ()
+  -- ^ Hold a voice where it is; it does not end while held (a file that
+  -- fails meanwhile ends it once resumed).
+  , resumeVoice :: voice -> IO ()
+  -- ^ Go on with a held voice from where it was held.
   , voiceProgress :: voice -> IO (Maybe (Double, Double))
   -- ^ How far a voice has played and how long its file is, in seconds;
   -- 'Nothing' while the length is not known.
@@ -37,5 +42,8 @@ data Voicing = Voicing
   { volume :: Double
   -- ^ From 0 to 1.
   , looping :: Bool
+  , held :: Bool
+  -- ^ Start held, as by 'pauseVoice': nothing is heard, and the voice is
+  -- not said to be heard, before 'resumeVoice'.
   }
   deriving stock (Eq, Show)

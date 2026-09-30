@@ -35,7 +35,7 @@ instance Sound Open where
 album :: [Snd]
 album = [T1, T2, T3, T4]
 
-data Event = Fetched Text | Released Text | Started Text Bool | Stopped Text | Volume Text Double | DeadVolume Text
+data Event = Fetched Text | Released Text | Started Text Bool | Stopped Text | Volume Text Double | DeadVolume Text | Paused Text | Resumed Text
   deriving stock (Eq, Show)
 
 data Fake = Fake
@@ -44,6 +44,8 @@ data Fake = Fake
   , counter :: IORef Int
   , dead :: IORef (Map.Map Int Text)
   -- ^ Voices stopped: a volume change on one is a bug ('DeadVolume').
+  , held :: IORef (Map.Map Int (IO ()))
+  -- ^ Voices started held: what says they are heard, on resuming.
   , stopGate :: IORef (Maybe (MVar (), MVar ()))
   -- ^ When set, a stop marks its voice dead, signals the first, and waits
   -- for the second before it finishes.
@@ -51,24 +53,31 @@ data Fake = Fake
 
 newFake :: IO (Fake, Backend Text Int)
 newFake = do
-  fake <- Fake <$> newIORef [] <*> newIORef mempty <*> newIORef 0 <*> newIORef mempty <*> newIORef Nothing
+  fake <- Fake <$> newIORef [] <*> newIORef mempty <*> newIORef 0 <*> newIORef mempty <*> newIORef mempty <*> newIORef Nothing
   let note e = atomicModifyIORef' fake.events (\es -> (es <> [e], ()))
       backend =
         Backend
           { fetchClip = \url -> threadDelay 1000 >> note (Fetched url) >> pure (Just url)
           , releaseClip = note . Released
-          , startVoice = \clip Voicing {volume, looping} heard ended -> do
+          , startVoice = \clip Voicing {volume, looping, held = startHeld} heard ended -> do
               n <- atomicModifyIORef' fake.counter (\i -> (i + 1, i))
               atomicModifyIORef' fake.voices (\vs -> (Map.insert n (clip, ended) vs, ()))
               note (Started clip looping)
               note (Volume clip volume)
-              heard
+              -- Heard at once, as a backend may be, unless started held.
+              if startHeld
+                then note (Paused clip) >> atomicModifyIORef' fake.held (\hs -> (Map.insert n heard hs, ()))
+                else heard
               pure n
           , stopVoice = \n -> do
               v <- atomicModifyIORef' fake.voices (\vs -> (Map.delete n vs, Map.lookup n vs))
               mapM_ (\(clip, _) -> atomicModifyIORef' fake.dead (\ds -> (Map.insert n clip ds, ()))) v
               readIORef fake.stopGate >>= mapM_ (\(reached, release) -> putMVar reached () >> takeMVar release)
               mapM_ (note . Stopped . fst) v
+          , pauseVoice = \n -> Map.lookup n <$> readIORef fake.voices >>= mapM_ (note . Paused . fst)
+          , resumeVoice = \n -> do
+              Map.lookup n <$> readIORef fake.voices >>= mapM_ (note . Resumed . fst)
+              atomicModifyIORef' fake.held (\hs -> (Map.delete n hs, Map.lookup n hs)) >>= sequence_
           , voiceProgress = \n -> do
               v <- Map.lookup n <$> readIORef fake.voices
               pure (fmap (const (1, 60)) v)
@@ -92,6 +101,9 @@ eventually fake ok = go (400 :: Int)
     go n = do
       es <- readIORef fake.events
       if ok es || n == 0 then pure es else threadDelay 5000 >> go (n - 1)
+
+lastOf :: [a] -> Maybe a
+lastOf = foldl (\_ x -> Just x) Nothing
 
 startsOf :: [Event] -> [Text]
 startsOf es = [t | Started t _ <- es]
@@ -212,6 +224,100 @@ spec = describe "player" $ do
     es' <- eventually fake (\xs -> length (startsOf xs) >= 2)
     drop 1 (startsOf es') `shouldBe` [next]
     length [t | Fetched t <- es', t == next] `shouldBe` 1
+    stopMusic player
+
+  it "goes back to the track before the one playing, and on to this one after it" $ do
+    (fake, backend) <- newFake
+    player <- newPlayer backend config
+    playAlbum player album
+    -- Two tracks: the first played out, the second playing (for a second).
+    starts <- playTracks fake 1
+    es <- eventually fake (\xs -> length (startsOf xs) >= 2)
+    let first = mconcat (take 1 (startsOf es))
+        second = mconcat (take 1 (drop 1 (startsOf es)))
+    previousTrack player
+    es' <- eventually fake (\xs -> length (startsOf xs) >= 3)
+    Stopped second `elem` es' `shouldBe` True
+    take 1 (drop 2 (startsOf es')) `shouldBe` [first]
+    starts `shouldBe` [first]
+    -- Played out, the one skipped back from comes again.
+    finishTrack fake
+    es'' <- eventually fake (\xs -> length (startsOf xs) >= 4)
+    take 1 (drop 3 (startsOf es'')) `shouldBe` [second]
+    stopMusic player
+
+  it "plays the album's first track again from its start on a step back" $ do
+    (fake, backend) <- newFake
+    player <- newPlayer backend config
+    playAlbum player album
+    es <- eventually fake (not . null . startsOf)
+    previousTrack player
+    es' <- eventually fake (\xs -> length (startsOf xs) >= 2)
+    take 2 (startsOf es') `shouldBe` replicate 2 (mconcat (take 1 (startsOf es)))
+    stopMusic player
+
+  it "holds the music, starts a track held while it is, and goes on when resumed" $ do
+    (fake, backend) <- newFake
+    player <- newPlayer backend config
+    playAlbum player album
+    es <- eventually fake (not . null . startsOf)
+    let first = mconcat (take 1 (startsOf es))
+    pauseMusic player
+    musicPaused player >>= (`shouldBe` True)
+    es' <- eventually fake (elem (Paused first))
+    Paused first `elem` es' `shouldBe` True
+    -- Skipped to while held: the next one starts held, and is not heard
+    -- (so not playing) before the resume.
+    skipTrack player
+    es'' <- eventually fake (\xs -> length (startsOf xs) >= 2)
+    let second = mconcat (take 1 (drop 1 (startsOf es'')))
+    es3 <- eventually fake (elem (Paused second))
+    Paused second `elem` es3 `shouldBe` True
+    threadDelay 20000
+    nowPlaying player >>= (`shouldBe` Nothing)
+    resumeMusic player
+    musicPaused player >>= (`shouldBe` False)
+    es4 <- eventually fake (elem (Resumed second))
+    Resumed second `elem` es4 `shouldBe` True
+    playingNow <- nowPlaying player
+    fmap soundUrl playingNow `shouldBe` Just second
+    stopMusic player
+
+  it "goes two tracks back at once, then on through both" $ do
+    (fake, backend) <- newFake
+    player <- newPlayer backend config
+    playAlbum player album
+    -- Three tracks: two played out, the third playing.
+    _ <- playTracks fake 2
+    es <- eventually fake (\xs -> length (startsOf xs) >= 3)
+    let a = mconcat (take 1 (startsOf es))
+        b = mconcat (take 1 (drop 1 (startsOf es)))
+        c = mconcat (take 1 (drop 2 (startsOf es)))
+    previousTrack player
+    previousTrack player
+    es' <- eventually fake (\xs -> lastOf (startsOf xs) == Just a)
+    lastOf (startsOf es') `shouldBe` Just a
+    finishTrack fake
+    es'' <- eventually fake (\xs -> lastOf (startsOf xs) == Just b)
+    lastOf (startsOf es'') `shouldBe` Just b
+    finishTrack fake
+    es3 <- eventually fake (\xs -> lastOf (startsOf xs) == Just c)
+    lastOf (startsOf es3) `shouldBe` Just c
+    stopMusic player
+
+  it "lets the file playing go only after its voice has stopped, on a step back" $ do
+    (fake, backend) <- newFake
+    player <- newPlayer backend config {bufferAhead = 0, cacheSize = 0}
+    playAlbum player album
+    _ <- playTracks fake 1
+    es <- eventually fake (\xs -> length (startsOf xs) >= 2)
+    let second = mconcat (take 1 (drop 1 (startsOf es)))
+    previousTrack player
+    es' <- eventually fake (\xs -> length (startsOf xs) >= 3 && Stopped second `elem` xs)
+    let at x = lookup x (zip es' [0 :: Int ..])
+    case at (Released second) of
+      Nothing -> pure ()
+      Just r -> (at (Stopped second) < Just r) `shouldBe` True
     stopMusic player
 
   it "tells how far the music's track has played" $ do
