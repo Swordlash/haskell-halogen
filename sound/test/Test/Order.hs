@@ -10,6 +10,17 @@ takeTracks n = take n . unfoldr nextTrack
 
 spec :: Spec
 spec = describe "album order" $ do
+  it "starts with a chosen track without losing or repeating any member of the round" $
+    and
+      [ take 1 ts == [current]
+          && map sort (chunks ts) == replicate 8 [1 .. 5]
+          && and (zipWith (/=) ts (drop 1 ts))
+      | seed <- [0 .. 200]
+      , current <- [1 .. 5]
+      , let ts = takeTracks 40 (startWith current (newOrder seed [1 .. 5]))
+      ]
+      `shouldBe` True
+
   it "plays every track once a round, over many rounds and seeds" $
     and
       [ map sort (chunks (takeTracks 40 (newOrder s [1 .. 5]))) == replicate 8 [1 .. 5]

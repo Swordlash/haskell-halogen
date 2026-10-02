@@ -33,6 +33,8 @@ module Halogen.Sound
   , playEffect
   , playTheme
   , playAlbum
+  , playAlbumFrom
+  , musicPosition
   , skipTrack
   , previousTrack
   , pauseMusic
@@ -108,7 +110,7 @@ defaultConfig =
     , startMuted = False
     }
 
-data Music t = Silence | Theme t | Album [t]
+data Music t = Silence | Theme t | Album [t] (Maybe (t, Double))
 
 data Player t = forall clip voice. Player (Engine t clip voice)
 
@@ -184,7 +186,7 @@ playEffect (Player e) t = do
   level <- (.effectsLevel) <$> readIORef e.levels
   unless (c.muted || level <= 0) $ void $ forkIO $ quietly $ bracket_ (pin e t 1) (pin e t (-1) >> evict e) $ do
     clip <- obtain e t
-    for_ clip $ \x -> playVoice e x Voicing {volume = level * loudness t, looping = False, held = False}
+    for_ clip $ \x -> playVoice e x Voicing {volume = level * loudness t, looping = False, held = False, offset = 0}
 
 -- | Stop the music, and after a 'gap' loop this track.
 playTheme :: (Sound t) => Player t -> t -> IO ()
@@ -193,7 +195,36 @@ playTheme (Player e) t = setMusic e (Theme t)
 -- | Stop the music, and play these tracks in a shuffled order, with a 'gap'
 -- before each, until told otherwise.
 playAlbum :: (Sound t) => Player t -> [t] -> IO ()
-playAlbum (Player e) ts = setMusic e (Album ts)
+playAlbum (Player e) ts = setMusic e (Album ts Nothing)
+
+-- | Start with this track at this position in seconds, then play the
+-- rest of the album in a new shuffle. An absent track starts an ordinary
+-- album. The saved position is used only for the first voice.
+playAlbumFrom :: (Sound t) => Player t -> [t] -> t -> Double -> IO ()
+playAlbumFrom (Player e) ts t seconds =
+  setMusic e (Album ts (if t `elem` ts then Just (t, finitePosition seconds) else Nothing))
+
+finitePosition :: Double -> Double
+finitePosition x = if isNaN x || isInfinite x then 0 else max 0 x
+
+-- | The current track and its position together, also while held before
+-- it has been heard. Nothing during a gap or before its file is loaded.
+-- The control and voice locks keep a skip from pairing one track with
+-- another track's position.
+musicPosition :: Player t -> IO (Maybe (t, Double))
+musicPosition (Player e) = withMVar e.control $ \c -> withMVar e.musicVoice $ \voice ->
+  case voice of
+    Just (n, v, _)
+      | n == c.playing
+      , isJust c.thread -> do
+          (m, history) <- readIORef e.historyRef
+          let track = case c.music of
+                Theme t -> Just t
+                Album _ _ | m == n -> listToMaybe history
+                _ -> Nothing
+          progress <- e.backend.voiceProgress v
+          pure ((,) <$> track <*> (fst <$> progress))
+    _ -> pure Nothing
 
 -- | Skip the album's track playing, or the one waiting out its 'gap', and
 -- play the one after it at once. Each call skips one more. Nothing for a
@@ -202,7 +233,7 @@ skipTrack :: (Sound t) => Player t -> IO ()
 skipTrack (Player e) = modifyMVar_ e.control $ \c -> do
   rest <- readIORef e.restRef
   case (c.music, c.thread, rest) of
-    (Album _, Just th, Just (m, order)) | m == c.playing -> do
+    (Album _ _, Just th, Just (m, order)) | m == c.playing -> do
       -- What the new thread plays and buffers is wanted before the old one
       -- lets its files go, so a track already fetched plays at once.
       want e (c.playing + 1) (take (1 + e.config.bufferAhead) (upcoming (1 + e.config.bufferAhead) order))
@@ -212,7 +243,7 @@ skipTrack (Player e) = modifyMVar_ e.control $ \c -> do
       atomicWriteIORef e.restRef (Just (c.playing + 1, afterFirst order))
       -- The tracks started so far stay behind the new one, for a step back.
       atomicModifyIORef' e.historyRef (\(hm, ts) -> ((c.playing + 1, if hm == c.playing then ts else []), ()))
-      start e c {thread = Nothing} (\n -> album e n False False order)
+      start e c {thread = Nothing} (\n -> album e n False False 0 order)
     _ -> pure c
 
 -- | Back to the album's track before the one playing, at once; or, when
@@ -227,19 +258,22 @@ previousTrack (Player e) = modifyMVar_ e.control $ \c -> do
     Just (m, voice, _) | m == c.playing -> (v,) . maybe 0 fst <$> e.backend.voiceProgress voice
     _ -> pure (v, 0)
   case (c.music, c.thread, rest) of
-    (Album _, Just th, Just (m, order)) | m == c.playing, hn == c.playing, current : earlier <- history -> do
-      let (again, before) = case earlier of
-            prev : older | at < 3 -> ([prev, current], older)
-            _ -> ([current], earlier)
-          order' = playFirst again order
-      want e (c.playing + 1) (take (1 + e.config.bufferAhead) (upcoming (1 + e.config.bufferAhead) order'))
-      killThread th
-      atomicWriteIORef e.restRef (Just (c.playing + 1, afterFirst order'))
-      -- The track gone back to is the history's head now, not once the
-      -- new thread has got to it: a second step back right after this one
-      -- goes on from it.
-      atomicWriteIORef e.historyRef (c.playing + 1, take 1 again <> before)
-      start e c {thread = Nothing} (\n -> album e n False True order')
+    (Album _ _, Just th, Just (m, order))
+      | m == c.playing
+      , hn == c.playing
+      , current : earlier <- history -> do
+          let (again, before) = case earlier of
+                prev : older | at < 3 -> ([prev, current], older)
+                _ -> ([current], earlier)
+              order' = playFirst again order
+          want e (c.playing + 1) (take (1 + e.config.bufferAhead) (upcoming (1 + e.config.bufferAhead) order'))
+          killThread th
+          atomicWriteIORef e.restRef (Just (c.playing + 1, afterFirst order'))
+          -- The track gone back to is the history's head now, not once the
+          -- new thread has got to it: a second step back right after this one
+          -- goes on from it.
+          atomicWriteIORef e.historyRef (c.playing + 1, take 1 again <> before)
+          start e c {thread = Nothing} (\n -> album e n False True 0 order')
     _ -> pure c
 
 -- | Hold the music where it is: the track playing stops where it is, and
@@ -326,14 +360,18 @@ setMusic e m = modifyMVar_ e.control $ \c -> do
 run :: (Sound t) => Engine t clip voice -> Control t -> IO (Control t)
 run e c = do
   level <- (.musicLevel) <$> readIORef e.levels
-  if c.muted || level <= 0 then pure c else case c.music of
+  if c.muted || level <= 0
+    then pure c
+    else case c.music of
       Silence -> pure c
       Theme t -> start e c (\n -> theme e n t)
-      Album ts -> do
-        let order = newOrder c.shuffles ts
+      Album ts saved -> do
+        let shuffled = newOrder c.shuffles ts
+            order = maybe shuffled (\(t, _) -> startWith t shuffled) saved
+            at = maybe 0 snd saved
         -- Known before this returns, for a skip right after it.
         atomicWriteIORef e.restRef (Just (c.playing + 1, afterFirst order))
-        start e c {shuffles = c.shuffles + 1} (\n -> album e n True False order)
+        start e c {shuffles = c.shuffles + 1} (\n -> album e n (isNothing saved) False at order)
 
 -- | Start a thread for a piece of music, numbered anew.
 start :: (Sound t) => Engine t clip voice -> Control t -> (Int -> IO ()) -> IO (Control t)
@@ -349,15 +387,15 @@ theme e n t = do
   prefetch e t
   pause e.config.gap
   clip <- obtain e t
-  for_ clip $ \x -> whilePlaying e t $ playMusicVoice e n x (loudness t) True (nowOn e n t) (notPlaying e n) `finally` notPlaying e n
+  for_ clip $ \x -> whilePlaying e t $ playMusicVoice e n x (loudness t) True 0 (nowOn e n t) (notPlaying e n) `finally` notPlaying e n
 
 -- | Play an album's tracks in its order, a 'gap' before each (but the
 -- first, when skipped to).
 --
 -- @known@: the history has the first track already (a step back puts it
 -- there itself, before a second step back can look).
-album :: (Sound t) => Engine t clip voice -> Int -> Bool -> Bool -> Order t -> IO ()
-album e n gapFirst known order = for_ (nextTrack order) $ \(t, order') -> do
+album :: (Sound t) => Engine t clip voice -> Int -> Bool -> Bool -> Double -> Order t -> IO ()
+album e n gapFirst known at order = for_ (nextTrack order) $ \(t, order') -> do
   let ahead = upcoming e.config.bufferAhead order'
   -- A skip, during the gap or the track, goes on to the one after it.
   atomicWriteIORef e.restRef (Just (n, order'))
@@ -371,10 +409,10 @@ album e n gapFirst known order = for_ (nextTrack order) $ \(t, order') -> do
   for_ ahead (prefetch e)
   case clip of
     -- Played out: the next track waits out its gap, and a skip then skips it.
-    Just x -> whilePlaying e t $ playMusicVoice e n x (loudness t) False (nowOn e n t) (notPlaying e n >> atomicWriteIORef e.restRef (Just (n, afterFirst order'))) `finally` notPlaying e n
+    Just x -> whilePlaying e t $ playMusicVoice e n x (loudness t) False at (nowOn e n t) (notPlaying e n >> atomicWriteIORef e.restRef (Just (n, afterFirst order'))) `finally` notPlaying e n
     -- Not to be had: on to the next, but not in a spin should none be.
     Nothing -> pause 1
-  album e n True False order'
+  album e n True False 0 order'
 
 -- | Keep a file while a voice of it plays: a skip or a step back names
 -- other files wanted before this voice has stopped, and a file is let go
@@ -409,8 +447,8 @@ playVoice e clip voicing = do
 --
 -- @started@ runs when the voice is heard (the backend says when), @ended@
 -- as soon as it has played out, before its teardown.
-playMusicVoice :: Engine t clip voice -> Int -> clip -> Double -> Bool -> IO () -> IO () -> IO ()
-playMusicVoice e n clip louder looping started ended = do
+playMusicVoice :: Engine t clip voice -> Int -> clip -> Double -> Bool -> Double -> IO () -> IO () -> IO ()
+playMusicVoice e n clip louder looping offset started ended = do
   done <- newEmptyMVar
   bracket
     ( modifyMVar e.musicVoice $ \_ -> do
@@ -419,7 +457,7 @@ playMusicVoice e n clip louder looping started ended = do
         -- (and say so) before startVoice returns. A pause meanwhile waits
         -- for this lock, and then finds the voice.
         held <- readIORef e.pausedRef
-        voice <- e.backend.startVoice clip Voicing {volume = level * louder, looping, held} started (void (tryPutMVar done ()))
+        voice <- e.backend.startVoice clip Voicing {volume = level * louder, looping, held, offset} started (void (tryPutMVar done ()))
         pure (Just (n, voice, louder), voice)
     )
     -- Retired under the same lock a volume change takes: the voice leaves

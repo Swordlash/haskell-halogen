@@ -42,6 +42,8 @@ data Voicing = Voicing
   { volume :: Double
   -- ^ From 0 to 1.
   , looping :: Bool
+  , offset :: Double
+  -- ^ Start at this position in seconds, clamped to the file's duration.
   , held :: Bool
   -- ^ Start held, as by 'pauseVoice': nothing is heard, and the voice is
   -- not said to be heard, before 'resumeVoice'.

@@ -13,7 +13,7 @@ function halogen_sound_release(url) { URL.revokeObjectURL(url); }
 // Before the page's first click or key a browser refuses to play; the voice
 // then waits for one (unless it has been stopped by then). A voice started
 // held plays nothing until resumed.
-function halogen_sound_start(url, volume, looping, held, heard, ended) {
+function halogen_sound_start(url, volume, looping, held, offset, heard, ended) {
   var a = new Audio(url);
   a.volume = volume;
   a.loop = looping;
@@ -28,8 +28,19 @@ function halogen_sound_start(url, volume, looping, held, heard, ended) {
   a.onplaying = function () { heard(null); };
   a.onended = function () { ended(null); };
   a.onerror = fail;
+  var seek = Number.isFinite(offset) ? Math.max(0, offset) : 0;
+  var place = function () {
+    if (a.__halogenStopped || a.readyState < 1) return;
+    if (seek > 0) {
+      a.currentTime = Math.min(seek, Number.isFinite(a.duration) ? Math.max(0, a.duration - 0.001) : seek);
+      seek = 0;
+    }
+  };
+  a.onloadedmetadata = function () { place(); go(); };
   var go = function () {
     if (a.__halogenStopped || a.__halogenPaused) return;
+    if (seek > 0 && a.readyState < 1) return;
+    place();
     a.play().catch(function (e) {
       // A pause right after the play aborts it: not an end, the resume
       // plays again.
@@ -60,6 +71,7 @@ function halogen_sound_stop(a) {
   a.onplaying = null;
   a.onended = null;
   a.onerror = null;
+  a.onloadedmetadata = null;
   a.pause();
   a.removeAttribute("src");
   a.load();

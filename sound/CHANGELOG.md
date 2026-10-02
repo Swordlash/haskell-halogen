@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+`playAlbumFrom` resumes a chosen track at a saved position in seconds,
+then continues through a new shuffle of the album. `musicPosition` reads
+that track and its position together, including a voice started paused.
+Custom backends must handle the new `Voicing.offset` field; the browser
+backend seeks after metadata is loaded, before any audio is heard.
+
 * `pauseMusic` and `resumeMusic`: hold the music where it is and go on
   from there; a track that starts while it is held (after a gap, a skip, a
   new album) starts held. `musicPaused` says whether it is.

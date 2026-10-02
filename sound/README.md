@@ -46,3 +46,15 @@ setEffectsVolume player 0.8
   started earlier waits for one. Natively it plays nothing.
 - The logic runs over a `Backend` record, so a test can hand in one that
   only writes down what it was asked (see `test/Test/Player.hs`).
+
+To carry music across a reload, save `musicPosition player` and
+`musicPaused player`. On the new player, call `pauseMusic` first if the
+music was held, then `playAlbumFrom player tracks track seconds`. The
+current track resumes immediately at that position; the rest of the
+album gets a new shuffle, with each track still played once per round.
+If the saved track is no longer in the album, an ordinary album starts.
+Custom backends must honor `Voicing.offset` before the voice is heard.
+
+`node sound/test/browser-offset.cjs` checks metadata, seeking and held
+voices in both browser implementations; the player tests run through
+`cabal test haskell-halogen-sound` on all three backends.

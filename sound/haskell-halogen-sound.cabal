@@ -13,7 +13,7 @@ license-file:       LICENSE
 author:             Mateusz Goślinowski
 maintainer:         mateusz.goslinowski@gmail.com
 category:           Web
-extra-source-files: CHANGELOG.md, README.md
+extra-source-files: CHANGELOG.md, README.md, test/browser-offset.cjs
 
 common defaults
   default-language: GHC2021
