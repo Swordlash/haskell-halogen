@@ -4,3 +4,6 @@ allow-newer: *:*
 
 with-compiler: wasm32-wasi-ghc-9.14.1.20260731
 with-hc-pkg: wasm32-wasi-ghc-pkg-9.14.1.20260731
+
+-- WASM Template Haskell loads dynamic objects in its external interpreter.
+shared: True

@@ -130,101 +130,68 @@ jsText = toJSString . toS
 fromJS :: JSVal -> Text
 fromJS = toS . fromJSString
 
-foreign import javascript unsafe "(() => typeof document !== 'undefined')"
+foreign import javascript unsafe "halogen_test_has_document"
   js_has_document :: IO Bool
 
-foreign import javascript unsafe "(() => globalThis.__halogenTestArgs ?? null)"
+foreign import javascript unsafe "halogen_test_test_args"
   js_test_args :: IO JSVal
 
 -- Outside the runner (a page opened by hand) there is nobody to tell.
-foreign import javascript unsafe "((failures) => { globalThis.__halogenTest?.done?.(failures); })"
+foreign import javascript unsafe "halogen_test_test_done"
   js_test_done :: Int -> IO ()
 
-foreign import javascript unsafe "(() => { document.querySelectorAll('.halogen-test-root').forEach((root) => root.remove()); })"
+foreign import javascript unsafe "halogen_test_remove_leftovers"
   js_remove_leftovers :: IO ()
 
-foreign import javascript unsafe "(() => document.body.appendChild(Object.assign(document.createElement('div'), {className: 'halogen-test-root'})))"
+foreign import javascript unsafe "halogen_test_create_container"
   js_create_container :: IO JSVal
 
-foreign import javascript unsafe "((parent) => parent.appendChild(document.createElement('div')))"
+foreign import javascript unsafe "halogen_test_create_container_in"
   js_create_container_in :: JSVal -> IO JSVal
 
-foreign import javascript unsafe "((element) => { element.remove(); })"
+foreign import javascript unsafe "halogen_test_remove"
   js_remove :: JSVal -> IO ()
 
-foreign import javascript unsafe "((scope, selector) => scope.querySelector(selector))"
+foreign import javascript unsafe "halogen_test_query_selector"
   js_query_selector :: Element -> JSVal -> IO JSVal
 
-foreign import javascript unsafe "((scope, selector) => Array.from(scope.querySelectorAll(selector)))"
+foreign import javascript unsafe "halogen_test_query_selector_all"
   js_query_selector_all :: Element -> JSVal -> IO JSVal
 
 -- Without the runner's bridge, fall back to synthetic events: close enough
 -- for most components, though focus and key events differ from a user's.
-foreign import javascript interruptible
-  "((action, element, text, $c) => {\
-  \  const target = 'halogen-test-' + (globalThis.__halogenTestTargets = (globalThis.__halogenTestTargets ?? 0) + 1);\
-  \  element.setAttribute('data-halogen-test-target', target);\
-  \  const finish = (error) => { element.removeAttribute('data-halogen-test-target'); $c(error); };\
-  \  const bridge = globalThis.__halogenTest;\
-  \  if (bridge) {\
-  \    bridge.act(action, '[data-halogen-test-target=\"' + target + '\"]', text)\
-  \      .then(() => finish(null), (error) => finish(String(error?.message ?? error)));\
-  \    return;\
-  \  }\
-  \  if (action === 'click') { element.click(); }\
-  \  else {\
-  \    element.focus();\
-  \    element.value = action === 'type' ? element.value + text : '';\
-  \    element.dispatchEvent(new Event('input', {bubbles: true}));\
-  \  }\
-  \  finish(null);\
-  \})"
+foreign import javascript interruptible "((a1, a2, a3, done) => { halogen_test_act(a1, a2, a3).then(() => done(null), error => done(String(error?.message ?? error))); })"
   js_act :: JSVal -> Element -> JSVal -> IO JSVal
 
-foreign import javascript interruptible
-  "((key, $c) => {\
-  \  const bridge = globalThis.__halogenTest;\
-  \  if (bridge) {\
-  \    bridge.press(key).then(() => $c(null), (error) => $c(String(error?.message ?? error)));\
-  \    return;\
-  \  }\
-  \  const target = document.activeElement ?? document.body;\
-  \  for (const type of ['keydown', 'keyup']) target.dispatchEvent(new KeyboardEvent(type, {key, bubbles: true}));\
-  \  $c(null);\
-  \})"
+foreign import javascript interruptible "((a1, done) => { halogen_test_press(a1).then(() => done(null), error => done(String(error?.message ?? error))); })"
   js_press :: JSVal -> IO JSVal
 
-foreign import javascript interruptible
-  "(($c) => {\
-  \  const resume = () => $c();\
-  \  if (globalThis.scheduler) scheduler.postTask(resume, {priority: 'background'});\
-  \  else setTimeout(resume, 0);\
-  \})"
+foreign import javascript interruptible "((done) => { halogen_test_settle().then(() => done(), error => done(String(error?.message ?? error))); })"
   js_settle :: IO ()
 
-foreign import javascript unsafe "((element) => { element.focus(); })"
+foreign import javascript unsafe "halogen_test_focus"
   js_focus :: Element -> IO ()
 
-foreign import javascript unsafe "((element) => { element.blur(); })"
+foreign import javascript unsafe "halogen_test_blur"
   js_blur :: Element -> IO ()
 
-foreign import javascript unsafe "((element) => element.textContent ?? '')"
+foreign import javascript unsafe "halogen_test_text_content"
   js_text_content :: Element -> IO JSVal
 
-foreign import javascript unsafe "((element, name) => String(element[name]))"
+foreign import javascript unsafe "halogen_test_get_property"
   js_get_property :: Element -> JSVal -> IO JSVal
 
-foreign import javascript unsafe "((element, name) => element.getAttribute(name))"
+foreign import javascript unsafe "halogen_test_get_attribute"
   js_get_attribute :: Element -> JSVal -> IO JSVal
 
-foreign import javascript unsafe "((element) => element.outerHTML)"
+foreign import javascript unsafe "halogen_test_outer_html"
   js_outer_html :: Element -> IO JSVal
 
-foreign import javascript unsafe "((element) => element.checkVisibility())"
+foreign import javascript unsafe "halogen_test_is_visible"
   js_is_visible :: Element -> IO Bool
 
-foreign import javascript unsafe "((a, b) => a === b ? 1 : 0)"
+foreign import javascript unsafe "((a, b) => halogen_test_same_element(a, b) ? 1 : 0)"
   js_same_element :: Element -> Element -> IO Int
 
-foreign import javascript unsafe "((element) => element.isConnected)"
+foreign import javascript unsafe "halogen_test_is_connected"
   js_is_connected :: Element -> IO Bool

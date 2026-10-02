@@ -4,7 +4,6 @@ module Test.Player (spec) where
 
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar
-import System.Timeout (timeout)
 import Data.IORef
 import Data.List (nub, sort)
 import Data.Map.Strict qualified as Map
@@ -12,6 +11,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Halogen.Sound
 import Prelude
+import System.Timeout (timeout)
 import Test.Hspec (Spec, describe, it, shouldBe, shouldSatisfy)
 
 data Snd = Menu | Click | T1 | T2 | T3 | T4
@@ -35,7 +35,7 @@ instance Sound Open where
 album :: [Snd]
 album = [T1, T2, T3, T4]
 
-data Event = Fetched Text | Released Text | Started Text Bool | Stopped Text | Volume Text Double | DeadVolume Text | Paused Text | Resumed Text
+data Event = Fetched Text | Released Text | Started Text Bool | Stopped Text | Volume Text Double | DeadVolume Text | Positioned Text Double | Paused Text | Resumed Text
   deriving stock (Eq, Show)
 
 data Fake = Fake
@@ -46,6 +46,7 @@ data Fake = Fake
   -- ^ Voices stopped: a volume change on one is a bug ('DeadVolume').
   , held :: IORef (Map.Map Int (IO ()))
   -- ^ Voices started held: what says they are heard, on resuming.
+  , positions :: IORef (Map.Map Int Double)
   , stopGate :: IORef (Maybe (MVar (), MVar ()))
   -- ^ When set, a stop marks its voice dead, signals the first, and waits
   -- for the second before it finishes.
@@ -53,16 +54,18 @@ data Fake = Fake
 
 newFake :: IO (Fake, Backend Text Int)
 newFake = do
-  fake <- Fake <$> newIORef [] <*> newIORef mempty <*> newIORef 0 <*> newIORef mempty <*> newIORef mempty <*> newIORef Nothing
+  fake <- Fake <$> newIORef [] <*> newIORef mempty <*> newIORef 0 <*> newIORef mempty <*> newIORef mempty <*> newIORef mempty <*> newIORef Nothing
   let note e = atomicModifyIORef' fake.events (\es -> (es <> [e], ()))
       backend =
         Backend
           { fetchClip = \url -> threadDelay 1000 >> note (Fetched url) >> pure (Just url)
           , releaseClip = note . Released
-          , startVoice = \clip Voicing {volume, looping, held = startHeld} heard ended -> do
+          , startVoice = \clip Voicing {volume, looping, held = startHeld, offset} heard ended -> do
               n <- atomicModifyIORef' fake.counter (\i -> (i + 1, i))
               atomicModifyIORef' fake.voices (\vs -> (Map.insert n (clip, ended) vs, ()))
               note (Started clip looping)
+              note (Positioned clip offset)
+              atomicModifyIORef' fake.positions (\ps -> (Map.insert n offset ps, ()))
               note (Volume clip volume)
               -- Heard at once, as a backend may be, unless started held.
               if startHeld
@@ -80,7 +83,8 @@ newFake = do
               atomicModifyIORef' fake.held (\hs -> (Map.delete n hs, Map.lookup n hs)) >>= sequence_
           , voiceProgress = \n -> do
               v <- Map.lookup n <$> readIORef fake.voices
-              pure (fmap (const (1, 60)) v)
+              at <- Map.findWithDefault 0 n <$> readIORef fake.positions
+              pure (fmap (const (max 1 at, 60)) v)
           , setVolume = \n volume -> do
               gone <- Map.lookup n <$> readIORef fake.dead
               case gone of
@@ -134,6 +138,96 @@ held = foldl step []
 
 spec :: Spec
 spec = describe "player" $ do
+  it "resumes the chosen track at its position, then starts later tracks at zero" $ do
+    (fake, backend) <- newFake
+    player <- newPlayer backend config {gap = 5}
+    playAlbumFrom player album T3 23.5
+    es <- eventually fake (elem (Positioned "T3" 23.5))
+    startsOf es `shouldBe` ["T3"]
+    musicPosition player >>= (`shouldBe` Just (T3, 23.5))
+    skipTrack player
+    es' <- eventually fake (\xs -> length (startsOf xs) >= 2)
+    let second = mconcat (take 1 (drop 1 (startsOf es')))
+    second `shouldSatisfy` (/= "T3")
+    Positioned second 0 `elem` es' `shouldBe` True
+    previousTrack player
+    es'' <- eventually fake (\xs -> length (startsOf xs) >= 3)
+    take 1 (drop 2 (startsOf es'')) `shouldBe` ["T3"]
+    Positioned "T3" 0 `elem` es'' `shouldBe` True
+    stopMusic player
+    musicPosition player >>= (`shouldBe` Nothing)
+
+  it "captures a restored track while it starts held, before it has been heard" $ do
+    (fake, backend) <- newFake
+    player <- newPlayer backend config
+    pauseMusic player
+    playAlbumFrom player album T2 17
+    es <- eventually fake (elem (Paused "T2"))
+    Positioned "T2" 17 `elem` es `shouldBe` True
+    nowPlaying player >>= (`shouldBe` Nothing)
+    musicPosition player >>= (`shouldBe` Just (T2, 17))
+    resumeMusic player
+    es' <- eventually fake (elem (Resumed "T2"))
+    Resumed "T2" `elem` es' `shouldBe` True
+    nowPlaying player >>= (`shouldBe` Just T2)
+    stopMusic player
+
+  it "defers a saved position while muted and at zero volume" $ do
+    (fake, backend) <- newFake
+    player <- newPlayer backend config {startMuted = True, musicVolume = 0}
+    playAlbumFrom player album T4 31
+    setMuted player False
+    threadDelay 20000
+    startsOf <$> readIORef fake.events >>= (`shouldBe` [])
+    setMusicVolume player 0.5
+    es <- eventually fake (elem (Positioned "T4" 31))
+    startsOf es `shouldBe` ["T4"]
+    stopMusic player
+
+  mapM_
+    ( \(label, silence, restart) ->
+        it ("consumes the saved position before restarting music after " <> label) $ do
+          (fake, backend) <- newFake
+          player <- newPlayer backend config {startMuted = True, musicVolume = 0}
+          playAlbumFrom player album T4 31
+          setMuted player False
+          setMusicVolume player 0.5
+          es <- eventually fake (elem (Positioned "T4" 31))
+          [at | Positioned _ at <- es] `shouldBe` [31]
+          skipTrack player
+          es' <- eventually fake (\xs -> length [() | Positioned _ _ <- xs] >= 2)
+          [at | Positioned _ at <- es'] `shouldBe` [31, 0]
+          silence player
+          restart player
+          es'' <- eventually fake (\xs -> length [() | Positioned _ _ <- xs] >= 3)
+          [at | Positioned _ at <- es''] `shouldBe` [31, 0, 0]
+          stopMusic player
+    )
+    [ ("muting", \player -> setMuted player True, \player -> setMuted player False)
+    , ("zero volume", \player -> setMusicVolume player 0, \player -> setMusicVolume player 0.5)
+    ]
+
+  it "starts an ordinary album if the saved track is no longer in it" $ do
+    (fake, backend) <- newFake
+    player <- newPlayer backend config
+    playAlbumFrom player album Menu 31
+    es <- eventually fake (not . null . startsOf)
+    startsOf es `shouldSatisfy` all (`elem` ["T1", "T2", "T3", "T4"])
+    [at | Positioned _ at <- es] `shouldBe` [0]
+    stopMusic player
+
+  it "normalizes invalid positions to the beginning" $ do
+    mapM_
+      ( \at -> do
+          (fake, backend) <- newFake
+          player <- newPlayer backend config
+          playAlbumFrom player album T1 at
+          es <- eventually fake (elem (Positioned "T1" 0))
+          Positioned "T1" 0 `elem` es `shouldBe` True
+          stopMusic player
+      )
+      [-10, 0 / 0, 1 / 0]
+
   it "fetches the persistent sounds as it starts" $ do
     (fake, backend) <- newFake
     _ <- newPlayer backend config :: IO (Player Snd)
@@ -461,8 +555,7 @@ spec = describe "player" $ do
     (fake, backend) <- newFake
     player <- newPlayer backend config {musicVolume = 0}
     playTheme player T1
-    threadDelay 50000
-    es <- readIORef fake.events
+    es <- eventually fake (elem (Fetched "Menu"))
     startsOf es `shouldBe` []
     [t | Fetched t <- es, t `notElem` ["Menu", "Click"]] `shouldBe` []
     -- Persistent sounds are preloaded whatever the volume.

@@ -10,10 +10,11 @@ module Halogen.Sound.Order
   , nextTrack
   , upcoming
   , playFirst
+  , startWith
   )
 where
 
-import Data.List ((!!))
+import Data.List (delete, (!!))
 import Protolude
 
 data Order a = Order
@@ -71,3 +72,17 @@ splitMix s =
       z1 = (s' `xor` (s' `shiftR` 30)) * 0xbf58476d1ce4e5b9
       z2 = (z1 `xor` (z1 `shiftR` 27)) * 0x94d049bb133111eb
    in (z2 `xor` (z2 `shiftR` 31), s')
+
+-- | Begin the current round with this track, preserving every entry of
+-- the album, including duplicates. An absent track leaves
+-- the order alone.
+startWith :: (Eq a) => a -> Order a -> Order a
+startWith t order
+  | t `notElem` order.tracks = order
+  | otherwise = case nextTrack order of
+      Nothing -> order
+      Just (headTrack, rest) ->
+        rest
+          { queue = t : delete t (headTrack : rest.queue)
+          , previous = order.previous
+          }

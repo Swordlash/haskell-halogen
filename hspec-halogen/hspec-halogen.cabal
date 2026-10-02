@@ -18,7 +18,8 @@ category:           Web, Testing
 build-type:         Simple
 extra-doc-files:    CHANGELOG.md
                     README.md
-extra-source-files: js/runner.mjs
+extra-source-files: jsbits/*.js
+                    js/runner.mjs
                     js/open.mjs
 
 flag interactive
@@ -54,10 +55,11 @@ library
     -- panic (see Internal.Page).
     if arch(wasm32)
         other-modules: Test.Hspec.Halogen.Internal.Wasm
-        build-depends: ghc-experimental
+        build-depends: ghc-experimental, haskell-halogen-jsbits
 
     if arch(javascript)
         other-modules: Test.Hspec.Halogen.Internal.JS
+        js-sources: jsbits/page.js
 
 -- The host side, run with the host compiler: cabal's test wrapper for wasm
 -- and JavaScript-backend suites, and the opener for a suite in browser GHCi. It carries the

@@ -1,3 +1,4 @@
+{-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 -- | 'MonadDOM' for the GHC WebAssembly backend.
@@ -7,6 +8,10 @@
 -- the package (the cabal file selects on @arch@), so the instances can never
 -- overlap.
 module Halogen.VDom.DOM.Monad.WASM () where
+
+#if defined(wasm32_HOST_ARCH)
+import Halogen.JSBits (wasmJS, Safety (..))
+#endif
 
 import Data.Foreign
 import GHC.Conc (ThreadStatus (..), threadStatus)
@@ -23,65 +28,38 @@ import Web.Event.Internal.Types qualified as EventTypes
 import Web.HTML.Common
 import Web.HTML.HTMLDocument.ReadyState as ReadyState
 
--- The wasm backend embeds JavaScript snippets in the generated JSFFI module;
--- unlike the JavaScript backend it does not link global functions from jsbits.
-
-foreign import javascript unsafe "$2.createTextNode($1)" js_create_text_node :: JSVal -> Document -> IO Node
-
-foreign import javascript unsafe "$2.textContent = $1" js_set_text_content :: JSVal -> Node -> IO ()
-
-foreign import javascript unsafe "$1 == null ? $3.createElement($2) : $3.createElementNS($1, $2)" js_create_element :: JSVal -> JSVal -> Document -> IO Element
-
-foreign import javascript unsafe "$1 !== $2.previousSibling && $3.insertBefore($1, $2)" js_insert_before :: Node -> Node -> ParentNode -> IO ()
-
-foreign import javascript unsafe "globalThis.window" js_get_window :: IO Window
-
-foreign import javascript unsafe "($1 === 'local' ? globalThis.localStorage : globalThis.sessionStorage).getItem($2)" js_storage_read :: JSVal -> JSVal -> IO (Nullable JSVal)
-
-foreign import javascript unsafe "($1 === 'local' ? globalThis.localStorage : globalThis.sessionStorage).setItem($2, $3)" js_storage_write :: JSVal -> JSVal -> JSVal -> IO ()
-
-foreign import javascript unsafe "($1 === 'local' ? globalThis.localStorage : globalThis.sessionStorage).removeItem($2)" js_storage_remove :: JSVal -> JSVal -> IO ()
-
-foreign import javascript unsafe "($1 === 'local' ? globalThis.localStorage : globalThis.sessionStorage).length" js_storage_length :: JSVal -> IO (Foreign Int)
-
-foreign import javascript unsafe "($1 === 'local' ? globalThis.localStorage : globalThis.sessionStorage).key($2)" js_storage_key :: JSVal -> Int -> IO (Nullable JSVal)
-
-foreign import javascript unsafe "$1.document" js_get_document :: Window -> IO HTMLDocument
-
-foreign import javascript unsafe "$2.lastChild !== $1 && $2.appendChild($1)" js_append_child :: Node -> ParentNode -> IO ()
-
-foreign import javascript unsafe "$1 !== $2 && $3.replaceChild($1, $2)" js_replace_child :: Node -> Node -> ParentNode -> IO ()
-
-foreign import javascript unsafe "const n = $3.childNodes.item($1); if (n !== $2) $3.insertBefore($2, n)" js_insert_child_ix :: Int -> Node -> ParentNode -> IO ()
-
-foreign import javascript unsafe "$2.removeChild($1)" js_remove_child :: Node -> ParentNode -> IO ()
-
-foreign import javascript unsafe "$1.parentNode" js_parent_node :: Node -> IO (Nullable ParentNode)
-
-foreign import javascript unsafe "$1.nextSibling" js_next_sibling :: Node -> IO (Nullable Node)
-
-foreign import javascript unsafe "$1 == null ? $4.setAttribute($2, $3) : $4.setAttributeNS($1, $2, $3)" js_set_attribute :: JSVal -> JSVal -> JSVal -> Element -> IO ()
-
-foreign import javascript unsafe "$3[$1] !== $2 && ($3[$1] = $2)" js_set_property :: JSVal -> JSVal -> Element -> IO ()
-
-foreign import javascript unsafe "$3[$1] === $2" js_property_equals :: JSVal -> JSVal -> Element -> IO Bool
-
--- A DOM property is an accessor inherited from the element's prototype, so
--- deleting it from the element does nothing. Set it back instead, as
--- purescript-halogen-vdom does.
-foreign import javascript unsafe "typeof $2[$1] === 'string' ? ($2[$1] = '') : ($1 === 'rowSpan' || $1 === 'colSpan') ? ($2[$1] = 1) : ($2[$1] = undefined)" js_remove_property :: JSVal -> Element -> IO ()
-
-foreign import javascript unsafe "$1 == null ? $3.removeAttribute($2) : $3.removeAttributeNS($1, $2)" js_remove_attribute :: JSVal -> JSVal -> Element -> IO ()
-
-foreign import javascript unsafe "$1 == null ? $3.hasAttribute($2) : $3.hasAttributeNS($1, $2)" js_has_attribute :: JSVal -> JSVal -> Element -> IO Bool
-
-foreign import javascript unsafe "$3.addEventListener($1, $2, false)" js_add_event_listener :: JSVal -> EventListener -> EventTarget -> IO ()
-
-foreign import javascript unsafe "$3.removeEventListener($1, $2, false)" js_remove_event_listener :: JSVal -> EventListener -> EventTarget -> IO ()
-
-foreign import javascript unsafe "$2.querySelector($1)" js_query_selector :: JSVal -> ParentNode -> IO (Nullable Element)
-
-foreign import javascript unsafe "$1.readyState" js_ready_state :: HTMLDocument -> IO JSVal
+-- Both backends use the same jsbits; WASM embeds them into its JSFFI module.
+$( wasmJS
+     ["jsbits/monad_dom.js", "jsbits/web_browser.js"]
+     [ ("js_create_text_node", "js_create_text_node", Unsafe, [t|JSVal -> Document -> IO Node|])
+     , ("js_set_text_content", "js_set_text_content", Unsafe, [t|JSVal -> Node -> IO ()|])
+     , ("js_create_element", "js_create_element", Unsafe, [t|JSVal -> JSVal -> Document -> IO Element|])
+     , ("js_insert_before", "js_insert_before", Unsafe, [t|Node -> Node -> ParentNode -> IO ()|])
+     , ("js_get_window", "js_get_window", Unsafe, [t|IO Window|])
+     , ("js_storage_read", "js_storage_read", Unsafe, [t|JSVal -> JSVal -> IO (Nullable JSVal)|])
+     , ("js_storage_write", "js_storage_write", Unsafe, [t|JSVal -> JSVal -> JSVal -> IO ()|])
+     , ("js_storage_remove", "js_storage_remove", Unsafe, [t|JSVal -> JSVal -> IO ()|])
+     , ("js_storage_length", "js_storage_length", Unsafe, [t|JSVal -> IO (Foreign Int)|])
+     , ("js_storage_key", "js_storage_key", Unsafe, [t|JSVal -> Int -> IO (Nullable JSVal)|])
+     , ("js_get_document", "js_get_document", Unsafe, [t|Window -> IO HTMLDocument|])
+     , ("js_append_child", "js_append_child", Unsafe, [t|Node -> ParentNode -> IO ()|])
+     , ("js_replace_child", "js_replace_child", Unsafe, [t|Node -> Node -> ParentNode -> IO ()|])
+     , ("js_insert_child_ix", "js_insert_child_ix", Unsafe, [t|Int -> Node -> ParentNode -> IO ()|])
+     , ("js_remove_child", "js_remove_child", Unsafe, [t|Node -> ParentNode -> IO ()|])
+     , ("js_parent_node", "js_parent_node", Unsafe, [t|Node -> IO (Nullable ParentNode)|])
+     , ("js_next_sibling", "js_next_sibling", Unsafe, [t|Node -> IO (Nullable Node)|])
+     , ("js_set_attribute", "js_set_attribute", Unsafe, [t|JSVal -> JSVal -> JSVal -> Element -> IO ()|])
+     , ("js_set_property", "js_set_property", Unsafe, [t|JSVal -> JSVal -> Element -> IO ()|])
+     , ("js_remove_property", "js_remove_property", Unsafe, [t|JSVal -> Element -> IO ()|])
+     , ("js_remove_attribute", "js_remove_attribute", Unsafe, [t|JSVal -> JSVal -> Element -> IO ()|])
+     , ("js_has_attribute", "js_has_attribute", Unsafe, [t|JSVal -> JSVal -> Element -> IO Bool|])
+     , ("js_add_event_listener", "js_add_event_listener", Unsafe, [t|JSVal -> EventListener -> EventTarget -> IO ()|])
+     , ("js_remove_event_listener", "js_remove_event_listener", Unsafe, [t|JSVal -> EventListener -> EventTarget -> IO ()|])
+     , ("js_query_selector", "js_query_selector", Unsafe, [t|JSVal -> ParentNode -> IO (Nullable Element)|])
+     , ("js_ready_state", "js_ready_state", Unsafe, [t|HTMLDocument -> IO JSVal|])
+     , ("js_property_equals", "js_property_equals", Unsafe, [t|JSVal -> JSVal -> Element -> IO Bool|])
+     ]
+ )
 
 foreign import javascript unsafe "null" js_null :: JSVal
 
@@ -172,8 +150,7 @@ instance MonadBrowserDOM BrowserDOM where
     count <- foreignToInt <$> js_storage_length (storageName kind)
     catMaybes <$> for [0 .. count - 1] (\ix -> fmap foreignToString . nullableToMaybe <$> js_storage_key (storageName kind) ix)
 
--- | Which store the browser is being asked for, as the string the expressions
--- above switch on.
+-- | Which store the browser is being asked for, as the string the jsbits switch on.
 storageName :: StorageKind -> JSVal
 storageName = \case
   LocalStorage -> jsStringVal "local"

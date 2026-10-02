@@ -1,6 +1,11 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Control.Monad.UUID where
+
+#if defined(wasm32_HOST_ARCH)
+import Halogen.JSBits (wasmJS, Safety (..))
+#endif
 
 import Control.Monad.Trans
 import Data.Type.Equality
@@ -28,7 +33,10 @@ foreign import javascript unsafe "js_crypto_random_uuid" js_crypto_random_uuid :
 instance MonadUUID IO where
   generateV4 = fromMaybe (panic "Failed to generate UUID") . fromText . toS . fromJSString <$> js_crypto_random_uuid
 #elif defined(wasm32_HOST_ARCH)
-foreign import javascript unsafe "globalThis.crypto.randomUUID()" js_crypto_random_uuid :: IO JSString
+
+$(wasmJS ["jsbits/web_browser.js"]
+  [ ("js_crypto_random_uuid", "js_crypto_random_uuid", Unsafe, [t| IO JSString |])
+  ])
 
 instance MonadUUID IO where
   generateV4 = fromMaybe (panic "Failed to generate UUID") . fromText . toS . fromJSString <$> js_crypto_random_uuid

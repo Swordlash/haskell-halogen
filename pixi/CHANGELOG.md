@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+The JavaScript and WebAssembly backends now use the same browser jsbits, embedded
+at compile time for WASM. Applications need no additional scripts. WASM builds
+must enable shared dependencies for Template Haskell (`shared: True` in the
+WASM project); Git source dependencies must also include the `jsbits` package.
+
 - `cacheAsTexture` on a group: Pixi's `cacheAsTexture`, kept up to date. Pixi
   does not notice changes inside a cached group; here every change the
   reconciler makes to a prop, a child added or removed, and a texture or

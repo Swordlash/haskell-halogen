@@ -8,7 +8,7 @@ license-file:       LICENSE
 author:             Mateusz Goślinowski
 maintainer:         mateusz.goslinowski@gmail.com
 category:           Web
-extra-source-files: CHANGELOG.md, NOTICE
+extra-source-files: CHANGELOG.md, NOTICE, jsbits/*.js
 
 flag js-polyfills
   description:
@@ -17,11 +17,6 @@ flag js-polyfills
     Turn it off to provide them some other way, or to leave them out of a
     bundle that does not need them.
   default: True
-  manual: True
-
-flag trace-dom
-  description: Enable tracing of DOM operations
-  default: False
   manual: True
 
 common defaults
@@ -91,7 +86,7 @@ common commons
       data-default
 
   if arch(wasm32)
-    build-depends: ghc-experimental
+    build-depends: ghc-experimental, haskell-halogen-jsbits
 
 library
     import: commons
@@ -233,8 +228,6 @@ library
     else
       exposed-modules: Halogen.VDom.DOM.Monad.Native
       
---      if flag(trace-dom)
---        jspp-options: -DHALOGEN_TRACE_DOM
 
 test-suite Halogen-core-test
     import: defaults

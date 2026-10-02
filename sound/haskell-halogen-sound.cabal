@@ -13,7 +13,7 @@ license-file:       LICENSE
 author:             Mateusz Goślinowski
 maintainer:         mateusz.goslinowski@gmail.com
 category:           Web
-extra-source-files: CHANGELOG.md, README.md
+extra-source-files: CHANGELOG.md, README.md, test/browser-offset.cjs, jsbits/*.js
 
 common defaults
   default-language: GHC2021
@@ -60,7 +60,7 @@ library
         containers
 
     if arch(wasm32)
-      build-depends: ghc-experimental
+      build-depends: ghc-experimental, haskell-halogen-jsbits
 
     exposed-modules:
       Halogen.Sound
