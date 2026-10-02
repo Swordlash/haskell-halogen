@@ -19,11 +19,6 @@ flag js-polyfills
   default: True
   manual: True
 
-flag trace-dom
-  description: Enable tracing of DOM operations
-  default: False
-  manual: True
-
 common defaults
   default-language: GHC2021
   ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture
@@ -233,8 +228,6 @@ library
     else
       exposed-modules: Halogen.VDom.DOM.Monad.Native
       
---      if flag(trace-dom)
---        jspp-options: -DHALOGEN_TRACE_DOM
 
 test-suite Halogen-core-test
     import: defaults

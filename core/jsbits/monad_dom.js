@@ -1,26 +1,12 @@
-
-function getNodeType(node) {
-  return node.nodeType === 1 ? node.tagName : node.nodeType;
-}
-
 function js_create_text_node(text, document) {
-  if (globalThis.HALOGEN_TRACE_DOM) {
-  console.log("Creating text node with text: " + text);
-  }
   return document.createTextNode(text);
 }
 
 function js_set_text_content(text, node) {
-  if (globalThis.HALOGEN_TRACE_DOM) {
-  console.log("Setting text content to: " + text + " on node type: " + getNodeType(node));
-  }
   node.textContent = text;
 }
 
 function js_create_element(namespace, elemName, document) {
-  if (globalThis.HALOGEN_TRACE_DOM) {
-  console.log("Creating element with name: " + elemName);
-  }
   if (namespace === null) {
     return document.createElement(elemName);
   } else {
@@ -30,82 +16,42 @@ function js_create_element(namespace, elemName, document) {
 
 function js_insert_before(newNode, referenceNode, parentNode) {
   if (newNode !== referenceNode.previousSibling) {
-  if (globalThis.HALOGEN_TRACE_DOM) {
-      console.log("Inserting node type: " + getNodeType(newNode) + " before reference node type: " + getNodeType(referenceNode));
-  }
     parentNode.insertBefore(newNode, referenceNode);
-  } else {
-  if (globalThis.HALOGEN_TRACE_DOM) {
-      console.log("Node type: " + getNodeType(newNode) + " is already before reference node type: " + getNodeType(referenceNode));
-  }
   }
 }
 
 function js_append_child(newNode, parentNode) {
   if (parentNode.lastChild !== newNode) {
-  if (globalThis.HALOGEN_TRACE_DOM) {
-      console.log("Appending child node type: " + getNodeType(newNode) + " to parent node type: " + getNodeType(parentNode));
-  }
     parentNode.appendChild(newNode);
-  } else {
-  if (globalThis.HALOGEN_TRACE_DOM) {
-      console.log("Child node type: " + getNodeType(newNode) + " is already the last child of parent node type: " + getNodeType(parentNode));
-  }
   }
 }
 
 function js_replace_child(newNode, oldNode, parentNode) {
   if (newNode !== oldNode) {
-  if (globalThis.HALOGEN_TRACE_DOM) {
-      console.log("Replacing old node type: " + getNodeType(oldNode) + " with new node type: " + getNodeType(newNode));
-  }
     parentNode.replaceChild(newNode, oldNode);
-  } else {
-  if (globalThis.HALOGEN_TRACE_DOM) {
-      console.log("New node is the same as the old node, no replacement needed.");
-  }
   }
 }
 
 function js_insert_child_ix(index, newNode, parentNode) {
   var n = parentNode.childNodes.item(index) || null;
   if (n !== newNode) {
-  if (globalThis.HALOGEN_TRACE_DOM) {
-      console.log("Inserting child node type: " + getNodeType(newNode) + " at index: " + index + " in parent node type: " + getNodeType(parentNode));
-  }
     parentNode.insertBefore(newNode, n);
-  } else {
-  if (globalThis.HALOGEN_TRACE_DOM) {
-      console.log("Node is already at index: " + index);
-  }
   }
 }
 
 function js_remove_child(childNode, parentNode) {
-  if (globalThis.HALOGEN_TRACE_DOM) {
-  console.log("Removing child node type: " + getNodeType(childNode) + " from parent node type: " + getNodeType(parentNode));
-  }
   parentNode.removeChild(childNode);
 }
 
 function js_parent_node(node) {
-  if (globalThis.HALOGEN_TRACE_DOM) {
-  console.log("Getting parent node of node type: " + getNodeType(node));
-  }
   return node.parentNode;
 }
 
 function js_next_sibling(node) {
-  if (globalThis.HALOGEN_TRACE_DOM) {
-  console.log("Getting next sibling of node type: " + getNodeType(node));
-  }
   return node.nextSibling;
 }
 
 function js_set_attribute(namespace, attrName, value, element) {
-  if (globalThis.HALOGEN_TRACE_DOM) {
-  console.log("Setting attribute: " + attrName + " with value: " + value + " on element type: " + getNodeType(element));
-  }
   if (namespace === null) {
     element.setAttribute(attrName, value);
   } else {
@@ -115,28 +61,15 @@ function js_set_attribute(namespace, attrName, value, element) {
 
 function js_set_property(propName, propValue, element) {
   if (element[propName] !== propValue) {
-  if (globalThis.HALOGEN_TRACE_DOM) {
-      console.log("Setting property: " + propName + " with value: " + propValue + " on element type: " + getNodeType(element));
-  }
     element[propName] = propValue;
-  } else {
-  if (globalThis.HALOGEN_TRACE_DOM) {
-      console.log("Property: " + propName + " is already set to: " + propValue);
-  }
   }
 }
 
 function js_unsafe_get_property(propName, element) {
-  if (globalThis.HALOGEN_TRACE_DOM) {
-  console.log("Getting property: " + propName + " from element type: " + getNodeType(element) + " value: " + element[propName]);
-  }
   return element[propName];
 }
 
 function js_remove_property(propName, element) {
-  if (globalThis.HALOGEN_TRACE_DOM) {
-  console.log("Removing property: " + propName + " from element type: " + getNodeType(element));
-  }
   // A DOM property is an accessor inherited from the element's prototype, so
   // deleting it from the element does nothing. Set it back instead, as
   // purescript-halogen-vdom does.
@@ -146,9 +79,6 @@ function js_remove_property(propName, element) {
 }
 
 function js_remove_attribute(namespace, attrName, element) {
-  if (globalThis.HALOGEN_TRACE_DOM) {
-  console.log("Removing attribute: " + attrName + " from element type: " + getNodeType(element));
-  }
   if (namespace === null) {
     element.removeAttribute(attrName);
   } else {
@@ -157,9 +87,6 @@ function js_remove_attribute(namespace, attrName, element) {
 }
 
 function js_has_attribute(namespace, attrName, element) {
-  if (globalThis.HALOGEN_TRACE_DOM) {
-  console.log("Checking if element type: " + getNodeType(element) + " has attribute: " + attrName);
-  }
   if (namespace === null) {
     return element.hasAttribute(attrName);
   } else {
@@ -168,44 +95,26 @@ function js_has_attribute(namespace, attrName, element) {
 }
 
 function js_add_event_listener(eventType, eventListener, eventTarget) {
-  if (globalThis.HALOGEN_TRACE_DOM) {
-  console.log("Adding event listener for " + eventType + " on target type: " + getNodeType(eventTarget));
-  }
   eventTarget.addEventListener(eventType, eventListener, false);
 }
 
 function js_remove_event_listener(eventType, eventListener, eventTarget) {
-  if (globalThis.HALOGEN_TRACE_DOM) {
-  console.log("Removing event listener for " + eventType + " from target type: " + getNodeType(eventTarget));
-  }
   eventTarget.removeEventListener(eventType, eventListener, false);
 }
 
 function js_get_window() {
-  if (globalThis.HALOGEN_TRACE_DOM) {
-  console.log("Getting window");
-  }
   return window;
 }
 
 function js_get_document(window) {
-  if (globalThis.HALOGEN_TRACE_DOM) {
-  console.log("Getting document from window");
-  }
   return window.document;
 }
 
 function js_query_selector(selector, element) {
-  if (globalThis.HALOGEN_TRACE_DOM) {
-  console.log("Querying selector: " + selector + " on element type: " + getNodeType(element));
-  }
   return element.querySelector(selector);
 }
 
 function js_ready_state(element) {
-  if (globalThis.HALOGEN_TRACE_DOM) {
-  console.log("Getting ready state of element type: " + getNodeType(element));
-  }
   return element.readyState;
 }
 

@@ -3,8 +3,8 @@
 ## Unreleased
 
 `currentTarget` now consistently returns the node running the handler on both
-browser backends, including when an event bubbles from a descendant. DOM tracing
-is controlled by `globalThis.HALOGEN_TRACE_DOM` on both backends.
+browser backends, including when an event bubbles from a descendant. Legacy DOM
+tracing instrumentation and its Cabal flag have been removed.
 
 The JavaScript and WebAssembly backends now use the same browser jsbits, embedded
 at compile time for WASM. Applications need no additional scripts. WASM builds

@@ -47,8 +47,5 @@ function js_document_set_cookie(value, document) {
 }
 
 function js_crypto_random_uuid() {
-  if (globalThis.HALOGEN_TRACE_DOM) {
-    console.log("Generating random UUID");
-  }
   return globalThis.crypto.randomUUID();
 }
