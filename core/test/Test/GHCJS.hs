@@ -15,11 +15,13 @@ import Test.Hspec (Spec, describe, it)
 import Test.Utils (assertEqual, assertWith)
 import Web.DOM.Internal.Types (Node (..), EventListener (..))
 import Web.DOM.ParentNode (ParentNode (..))
+import Web.Event.Internal.Types (Event (..), EventTarget (..))
 import Web.Event.Event qualified as Event
 
 data DOMFixture
 
 #if defined(javascript_HOST_ARCH)
+foreign import javascript unsafe "(() => ({target: {name: 'child'}, currentTarget: {name: 'parent'}}))" js_bubbling_event :: Event
 foreign import javascript unsafe "(() => { return true; })" js_true :: Foreign Bool
 foreign import javascript unsafe "(() => { return false; })" js_false :: Foreign Bool
 foreign import javascript unsafe "(() => { return 'hello'; })" js_string :: Foreign String
@@ -33,6 +35,7 @@ foreign import javascript unsafe "((x) => x.parent)" js_fixture_parent_foreign :
 foreign import javascript unsafe "((cb) => { const t = new EventTarget(); t.addEventListener('submit', cb); return !t.dispatchEvent(new Event('submit', {cancelable:true})); })" js_cancelled :: EventListener -> IO Bool
 foreign import javascript unsafe "((cb) => { const t = new EventTarget(); let reached = false; t.addEventListener('click', cb); t.addEventListener('click', () => { reached = true; }); t.dispatchEvent(new Event('click')); return !reached; })" js_stopped :: EventListener -> IO Bool
 #else
+foreign import javascript unsafe "({target: {name: 'child'}, currentTarget: {name: 'parent'}})" js_bubbling_event :: Event
 foreign import javascript unsafe "true" js_true :: Foreign Bool
 foreign import javascript unsafe "false" js_false :: Foreign Bool
 foreign import javascript unsafe "'hello'" js_string :: Foreign String
@@ -58,6 +61,9 @@ js_fixture_parent = Node . js_fixture_parent_foreign
 
 spec :: Spec
 spec = describe "GHCJS FFI" $ do
+  it "reads the handler's currentTarget rather than the event's original target" $ do
+    let name = Event.currentTarget js_bubbling_event >>= \(EventTarget target) -> readProp "name" (Just . foreignToString) target
+    assertEqual "currentTarget" (Just "parent") name
   it "cancels the default action before dispatch returns" $ do
     listener <- DOM.runBrowserDOM $ DOM.mkEventListener Event.preventDefault
     assertEqual "canceled" True =<< js_cancelled listener

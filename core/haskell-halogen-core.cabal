@@ -8,7 +8,7 @@ license-file:       LICENSE
 author:             Mateusz Goślinowski
 maintainer:         mateusz.goslinowski@gmail.com
 category:           Web
-extra-source-files: CHANGELOG.md, NOTICE
+extra-source-files: CHANGELOG.md, NOTICE, jsbits/*.js
 
 flag js-polyfills
   description:
@@ -91,7 +91,7 @@ common commons
       data-default
 
   if arch(wasm32)
-    build-depends: ghc-experimental
+    build-depends: ghc-experimental, haskell-halogen-jsbits
 
 library
     import: commons

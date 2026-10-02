@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+`currentTarget` now consistently returns the node running the handler on both
+browser backends, including when an event bubbles from a descendant. DOM tracing
+is controlled by `globalThis.HALOGEN_TRACE_DOM` on both backends.
+
+The JavaScript and WebAssembly backends now use the same browser jsbits, embedded
+at compile time for WASM. Applications need no additional scripts. WASM builds
+must enable shared dependencies for Template Haskell (`shared: True` in the
+WASM project); Git source dependencies must also include the `jsbits` package.
+
 - `Halogen.Canvas.Properties.cacheAsTexture` (`CacheAsTexture`): a group
   drawn once into a texture, at a given resolution, and shown as that
   texture until something inside it changes. Backends without such a thing

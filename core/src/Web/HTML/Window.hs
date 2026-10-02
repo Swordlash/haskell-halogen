@@ -1,3 +1,5 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 -- | The window globals that are not about the document tree.
 --
 -- The two stores are not here: they are the storage methods of
@@ -15,11 +17,23 @@ module Web.HTML.Window
 where
 
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+#if defined(wasm32_HOST_ARCH)
+import Halogen.JSBits (wasmJS, Safety (..))
+#endif
+
 import Data.Foreign
 #endif
 
 import HPrelude
 import Web.DOM.Internal.Types (Window (..))
+
+#if defined(wasm32_HOST_ARCH)
+$(wasmJS ["jsbits/web_browser.js"]
+  [ ("js_window_inner_width", "js_window_inner_width", Unsafe, [t| Window -> IO (Foreign Int) |])
+  , ("js_window_inner_height", "js_window_inner_height", Unsafe, [t| Window -> IO (Foreign Int) |])
+  , ("js_window_location_hash", "js_window_location_hash", Unsafe, [t| Window -> IO (Foreign Text) |])
+  ])
+#endif
 
 -- | The width of the viewport, in CSS pixels.
 innerWidth :: (MonadIO m) => Window -> m Int
@@ -38,10 +52,6 @@ locationHash :: (MonadIO m) => Window -> m Text
 foreign import javascript unsafe "js_window_inner_width" js_window_inner_width :: Window -> IO (Foreign Int)
 foreign import javascript unsafe "js_window_inner_height" js_window_inner_height :: Window -> IO (Foreign Int)
 foreign import javascript unsafe "js_window_location_hash" js_window_location_hash :: Window -> IO (Foreign Text)
-#elif defined(wasm32_HOST_ARCH)
-foreign import javascript unsafe "$1.innerWidth" js_window_inner_width :: Window -> IO (Foreign Int)
-foreign import javascript unsafe "$1.innerHeight" js_window_inner_height :: Window -> IO (Foreign Int)
-foreign import javascript unsafe "$1.location.hash" js_window_location_hash :: Window -> IO (Foreign Text)
 #endif
 
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)

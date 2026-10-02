@@ -88,3 +88,6 @@ function halogen_sound_resume(a) {
   if (a.__halogenStopped) return;
   if (a.__halogenFailed) { a.__halogenFailed = false; a.__halogenFail(); } else a.__halogenGo();
 }
+
+function halogen_sound_time(audio) { return audio.currentTime; }
+function halogen_sound_duration(audio) { return audio.duration; }

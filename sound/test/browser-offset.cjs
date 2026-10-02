@@ -1,19 +1,11 @@
-// Exercise both browser implementations without playing sound or fetching files.
+// Exercise the shared browser implementation without playing sound or fetching files.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const root = path.resolve(__dirname, '..');
 const jsbits = fs.readFileSync(path.join(root, 'jsbits/sound.js'), 'utf8');
-const wasm = fs.readFileSync(path.join(root, 'src/Halogen/Sound/Browser.hs'), 'utf8');
-const inline = wasm.match(/foreign import javascript unsafe "(const a = new Audio.*?)" js_start/)[1];
-const parameters = ['url', 'volume', 'looping', 'held', 'offset', 'heard', 'ended'];
-const body = inline.replace(/\$(\d+)/g, (_, n) => parameters[Number(n) - 1]);
-
-for (const [backend, source] of [
-  ['javascript', jsbits],
-  ['wasm', `function halogen_sound_start(${parameters.join(', ')}) { ${body} }`],
-]) {
+for (const [backend, source] of [['shared jsbits', jsbits]]) {
   const voices = [];
   class Audio {
     constructor() { this.readyState = 0; this.duration = NaN; this.currentTime = 0; this.plays = []; voices.push(this); }

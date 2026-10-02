@@ -1,4 +1,5 @@
 packages:
+  jsbits
   core
   pixi
   sound

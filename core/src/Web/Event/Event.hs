@@ -1,3 +1,5 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 module Web.Event.Event
   ( EventType (..)
   , Event (..)
@@ -10,6 +12,10 @@ module Web.Event.Event
 where
 
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+#if defined(wasm32_HOST_ARCH)
+import Halogen.JSBits (wasmJS, Safety (..))
+#endif
+
 import Data.Foreign
 #endif
 
@@ -17,6 +23,15 @@ import HPrelude
 import Web.Event.Internal.Types
 
 newtype EventType = EventType Text
+
+#if defined(wasm32_HOST_ARCH)
+$(wasmJS ["jsbits/web_event.js"]
+  [ ("js_current_target", "js_current_target", Unsafe, [t| Event -> Nullable EventTarget |])
+  , ("js_prevent_default", "js_prevent_default", Unsafe, [t| Event -> IO () |])
+  , ("js_stop_propagation", "js_stop_propagation", Unsafe, [t| Event -> IO () |])
+  , ("js_stop_immediate_propagation", "js_stop_immediate_propagation", Unsafe, [t| Event -> IO () |])
+  ])
+#endif
 
 currentTarget :: Event -> Maybe EventTarget
 
@@ -48,16 +63,13 @@ stopPropagation = liftIO . js_stop_propagation
 foreign import javascript unsafe "js_stop_immediate_propagation" js_stop_immediate_propagation :: Event -> IO ()
 stopImmediatePropagation = liftIO . js_stop_immediate_propagation
 #elif defined(wasm32_HOST_ARCH)
-foreign import javascript unsafe "$1.currentTarget" js_current_target :: Event -> Nullable EventTarget
+
 currentTarget e = EventTarget <$> nullableToMaybe (js_current_target e)
 
-foreign import javascript unsafe "$1.preventDefault()" js_prevent_default :: Event -> IO ()
 preventDefault = liftIO . js_prevent_default
 
-foreign import javascript unsafe "$1.stopPropagation()" js_stop_propagation :: Event -> IO ()
 stopPropagation = liftIO . js_stop_propagation
 
-foreign import javascript unsafe "$1.stopImmediatePropagation()" js_stop_immediate_propagation :: Event -> IO ()
 stopImmediatePropagation = liftIO . js_stop_immediate_propagation
 #else
 currentTarget _ = panic "currentTarget: not available in GHC" -- TODO

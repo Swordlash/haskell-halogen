@@ -66,7 +66,7 @@ foreign import javascript unsafe "js_set_attribute" js_set_attribute :: JSVal ->
 
 foreign import javascript unsafe "js_set_property" js_set_property :: JSVal -> JSVal -> Element -> IO ()
 
-foreign import javascript unsafe "js_unsafe_get_property" js_unsafe_get_property :: JSVal -> Element -> IO JSVal
+foreign import javascript unsafe "js_property_equals" js_property_equals :: JSVal -> JSVal -> Element -> IO Bool
 
 foreign import javascript unsafe "js_remove_property" js_remove_property :: JSVal -> Element -> IO ()
 
@@ -139,7 +139,7 @@ instance MonadBrowserDOM BrowserDOM where
 instance MonadAttributes BrowserDOM where
   setAttribute ns (AttrName name) val el = liftIO $ js_set_attribute (maybe jsNull (toJSString . toS . unNamespace) ns) (toJSString $ toS name) (toJSString $ toS val) el
   setProperty (PropName name) val el = liftIO $ js_set_property (toJSString $ toS name) (propValueToJSVal val) el
-  propertyEquals (PropName name) val el = liftIO $ unsafeRefEq <$> js_unsafe_get_property (toJSString $ toS name) el <*> pure (propValueToJSVal val)
+  propertyEquals (PropName name) val el = liftIO $ js_property_equals (toJSString $ toS name) (propValueToJSVal val) el
   removeProperty (PropName name) el = liftIO $ js_remove_property (toJSString $ toS name) el
   removeAttribute ns (AttrName name) el = liftIO $ js_remove_attribute (maybe jsNull (toJSString . toS . unNamespace) ns) (toJSString $ toS name) el
   hasAttribute ns (AttrName name) el = liftIO $ js_has_attribute (maybe jsNull (toJSString . toS . unNamespace) ns) (toJSString $ toS name) el

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+The JavaScript and WebAssembly backends now use the same browser jsbits, embedded
+at compile time for WASM. Applications need no additional scripts. WASM builds
+must enable shared dependencies for Template Haskell (`shared: True` in the
+WASM project); Git source dependencies must also include the `jsbits` package.
+
 * First version: mount a component into a real page from an hspec suite, find
   its elements by CSS selector, click and type into them through Playwright,
   and read their text, properties and classes back. Runs on the WebAssembly

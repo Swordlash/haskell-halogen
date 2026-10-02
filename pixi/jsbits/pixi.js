@@ -91,7 +91,7 @@ function halogen_pixi_resize(object) {
   );
 }
 // Draw a border around what the object actually turned out to be. Nothing in
-// the scene can know that — a label's extent is whatever the font laid out —
+// the scene can know that ; a label's extent is whatever the font laid out ;
 // so the measurement happens here, against the same bounds Pixi hit-tests.
 //
 // The outline is a child, so it is measured with itself detached, and it

@@ -3,7 +3,7 @@
 // by name; the wasm backend writes the same expressions inline.
 
 function js_storage_of(kind) {
-  return kind === "local" ? window.localStorage : window.sessionStorage;
+  return kind === "local" ? globalThis.localStorage : globalThis.sessionStorage;
 }
 
 function js_storage_read(kind, key) {
@@ -44,4 +44,11 @@ function js_document_cookie(document) {
 
 function js_document_set_cookie(value, document) {
   document.cookie = value;
+}
+
+function js_crypto_random_uuid() {
+  if (globalThis.HALOGEN_TRACE_DOM) {
+    console.log("Generating random UUID");
+  }
+  return globalThis.crypto.randomUUID();
 }

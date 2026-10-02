@@ -20,12 +20,15 @@ AI usage disclaimer: All code until tag `0.9.0` was hand-written. Any later comm
 | [hooks/](hooks/) | `haskell-halogen-hooks` | A port of `purescript-halogen-hooks`: a component as one function. |
 | [material/](material/) | `haskell-halogen-material` | Google Material Components bindings. |
 | [pixi/](pixi/) | `haskell-halogen-pixi` | A PixiJS v8 canvas rendering backend. |
+| [jsbits/](jsbits/) | `haskell-halogen-jsbits` | Compile-time embedding of shared browser JavaScript into WASM FFI. |
 | [sound/](sound/) | `haskell-halogen-sound` | Music and sound effects for a page: a theme to loop, a shuffled album fetched ahead, effects on top. |
 | [hspec-halogen/](hspec-halogen/) | `hspec-halogen` | Test components in a real browser with hspec: mount, click, type, check. |
 | [examples/](examples/) | `halogen-example-*` | One runnable browser app per library, and `all`, which mounts them in one page. |
 
-`core` is dependency-free with respect to the others; `hooks`, `material`, `pixi` and
-`hspec-halogen` each depend only on `core`, and `sound` depends on none of them. Every package builds from the one `cabal.project` at the repository root, so a change to
+`hooks`, `material`, `pixi` and `hspec-halogen` depend on `core`; `sound` is
+independent of those runtime libraries. WASM backends also use the `jsbits`
+compile-time helper. Every package builds from the one `cabal.project` at the
+repository root, so a change to
 `core` is type-checked against every dependent and every example in the same build.
 
 ## The monad a component runs in
@@ -234,3 +237,14 @@ instead.
 
 One repository, one tag namespace: releases are tagged with a package prefix, such as `core-v0.10.0`
 or `material-v0.2.0`. Each package keeps its own `CHANGELOG.md` and uploads to Hackage separately.
+
+### Shared browser JavaScript
+
+Both browser backends use the same files under each package's `jsbits/`. The
+JavaScript backend links them with `js-sources`; WASM embeds them at compile time
+with [Halogen.JSBits](jsbits/README.md), leaving only callback and representation
+adapters specific to the backend. Material keeps its existing bundled JS module.
+
+WASM consumers must set `shared: True` in their Cabal project so Template Haskell
+can load its dependencies. When using a Git source dependency, include `jsbits`
+alongside the requested packages in `subdir`. No runtime asset loading is added.

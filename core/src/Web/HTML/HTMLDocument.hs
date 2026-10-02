@@ -1,3 +1,5 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 -- | The document, as HTML sees it.
 module Web.HTML.HTMLDocument
   ( toParentNode
@@ -6,11 +8,22 @@ module Web.HTML.HTMLDocument
   )
 where
 
+#if defined(wasm32_HOST_ARCH)
+import Halogen.JSBits (wasmJS, Safety (..))
+#endif
+
 import Data.Coerce
 import Data.Foreign
 import HPrelude
 import Web.DOM.Internal.Types
 import Web.DOM.ParentNode (ParentNode (..))
+
+#if defined(wasm32_HOST_ARCH)
+$(wasmJS ["jsbits/web_browser.js"]
+  [ ("js_document_cookie", "js_document_cookie", Unsafe, [t| HTMLDocument -> IO (Foreign Text) |])
+  , ("js_document_set_cookie", "js_document_set_cookie", Unsafe, [t| Foreign Text -> HTMLDocument -> IO () |])
+  ])
+#endif
 
 toParentNode :: HTMLDocument -> ParentNode
 toParentNode = coerce
@@ -27,9 +40,6 @@ setCookie :: (MonadIO m) => Text -> HTMLDocument -> m ()
 #if defined(javascript_HOST_ARCH)
 foreign import javascript unsafe "js_document_cookie" js_document_cookie :: HTMLDocument -> IO (Foreign Text)
 foreign import javascript unsafe "js_document_set_cookie" js_document_set_cookie :: Foreign Text -> HTMLDocument -> IO ()
-#elif defined(wasm32_HOST_ARCH)
-foreign import javascript unsafe "$1.cookie" js_document_cookie :: HTMLDocument -> IO (Foreign Text)
-foreign import javascript unsafe "$2.cookie = $1" js_document_set_cookie :: Foreign Text -> HTMLDocument -> IO ()
 #endif
 
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)

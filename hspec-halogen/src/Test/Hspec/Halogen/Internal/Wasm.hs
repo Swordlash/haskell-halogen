@@ -1,7 +1,8 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 -- | The page, as the WebAssembly backend reaches it. Compiled only there;
 -- "Test.Hspec.Halogen.Internal.Page" re-exports it, or stands in for it
--- elsewhere. (It is a module of its own because the JavaScript below is kept
--- in multi-line strings, whose line-end backslashes CPP would eat.)
+-- elsewhere. Its JavaScript comes from the same jsbits as the JavaScript backend.
 module Test.Hspec.Halogen.Internal.Wasm
   ( inBrowser
   , runnerArgs
@@ -28,8 +29,38 @@ module Test.Hspec.Halogen.Internal.Wasm
 where
 
 import GHC.Wasm.Prim (JSString (..), JSVal, fromJSString, toJSString)
+import Halogen.JSBits (Safety (..), wasmJS)
 import Protolude
 import Web.DOM.Internal.Types (Element (..))
+
+$( wasmJS
+     ["jsbits/page.js"]
+     [ ("js_has_document", "halogen_test_has_document", Unsafe, [t|IO Bool|])
+     , ("js_test_args", "halogen_test_test_args", Unsafe, [t|IO JSVal|])
+     , ("js_remove_leftovers", "halogen_test_remove_leftovers", Unsafe, [t|IO ()|])
+     , ("js_test_done", "halogen_test_test_done", Unsafe, [t|Int -> IO ()|])
+     , ("js_create_container", "halogen_test_create_container", Unsafe, [t|IO JSVal|])
+     , ("js_create_container_in", "halogen_test_create_container_in", Unsafe, [t|JSVal -> IO JSVal|])
+     , ("js_remove", "halogen_test_remove", Unsafe, [t|JSVal -> IO ()|])
+     , ("js_query_selector", "halogen_test_query_selector", Unsafe, [t|Element -> JSVal -> IO JSVal|])
+     , ("js_query_selector_all", "halogen_test_query_selector_all", Unsafe, [t|Element -> JSVal -> IO JSVal|])
+     , ("js_act", "halogen_test_act", Safe, [t|JSVal -> Element -> JSVal -> IO ()|])
+     , ("js_press", "halogen_test_press", Safe, [t|JSVal -> IO ()|])
+     , ("js_settle", "halogen_test_settle", Safe, [t|IO ()|])
+     , ("js_focus", "halogen_test_focus", Unsafe, [t|Element -> IO ()|])
+     , ("js_blur", "halogen_test_blur", Unsafe, [t|Element -> IO ()|])
+     , ("js_text_content", "halogen_test_text_content", Unsafe, [t|Element -> IO JSVal|])
+     , ("js_get_property", "halogen_test_get_property", Unsafe, [t|Element -> JSVal -> IO JSVal|])
+     , ("js_get_attribute", "halogen_test_get_attribute", Unsafe, [t|Element -> JSVal -> IO JSVal|])
+     , ("js_outer_html", "halogen_test_outer_html", Unsafe, [t|Element -> IO JSVal|])
+     , ("js_is_visible", "halogen_test_is_visible", Unsafe, [t|Element -> IO Bool|])
+     , ("js_same_element", "halogen_test_same_element", Unsafe, [t|Element -> Element -> Bool|])
+     , ("js_is_connected", "halogen_test_is_connected", Unsafe, [t|Element -> IO Bool|])
+     , ("js_is_null", "halogen_test_is_null", Unsafe, [t|JSVal -> Bool|])
+     , ("js_length", "halogen_test_length", Unsafe, [t|JSVal -> Int|])
+     , ("js_index", "halogen_test_index", Unsafe, [t|JSVal -> Int -> JSVal|])
+     ]
+ )
 
 -- | Whether there is a page to run in.
 inBrowser :: IO Bool
@@ -141,98 +172,7 @@ fromJS = toS . fromJSString . JSString
 fromJSVals :: JSVal -> [JSVal]
 fromJSVals array = map (js_index array) [0 .. js_length array - 1]
 
-foreign import javascript unsafe "typeof document !== 'undefined'"
-  js_has_document :: IO Bool
-
-foreign import javascript unsafe "globalThis.__halogenTestArgs ?? null"
-  js_test_args :: IO JSVal
-
-foreign import javascript unsafe "document.querySelectorAll('.halogen-test-root').forEach((root) => root.remove())"
-  js_remove_leftovers :: IO ()
-
 -- Outside the runner (a page opened by hand) there is nobody to tell.
-foreign import javascript unsafe "globalThis.__halogenTest?.done?.($1)"
-  js_test_done :: Int -> IO ()
-
-foreign import javascript unsafe "document.body.appendChild(Object.assign(document.createElement('div'), {className: 'halogen-test-root'}))"
-  js_create_container :: IO JSVal
-
-foreign import javascript unsafe "$1.appendChild(document.createElement('div'))"
-  js_create_container_in :: JSVal -> IO JSVal
-
-foreign import javascript unsafe "$1.remove()"
-  js_remove :: JSVal -> IO ()
-
-foreign import javascript unsafe "$1.querySelector($2)"
-  js_query_selector :: Element -> JSVal -> IO JSVal
-
-foreign import javascript unsafe "Array.from($1.querySelectorAll($2))"
-  js_query_selector_all :: Element -> JSVal -> IO JSVal
 
 -- Without the runner's bridge, fall back to synthetic events: close enough
 -- for most components, though focus and key events differ from a user's.
-foreign import javascript safe
-  "const target = 'halogen-test-' + (globalThis.__halogenTestTargets = (globalThis.__halogenTestTargets ?? 0) + 1);\
-  \$2.setAttribute('data-halogen-test-target', target);\
-  \try {\
-  \  const bridge = globalThis.__halogenTest;\
-  \  if (bridge) { await bridge.act($1, '[data-halogen-test-target=\"' + target + '\"]', $3); }\
-  \  else if ($1 === 'click') { $2.click(); }\
-  \  else {\
-  \    $2.focus();\
-  \    $2.value = $1 === 'type' ? $2.value + $3 : '';\
-  \    $2.dispatchEvent(new Event('input', {bubbles: true}));\
-  \  }\
-  \} finally { $2.removeAttribute('data-halogen-test-target'); }"
-  js_act :: JSVal -> Element -> JSVal -> IO ()
-
-foreign import javascript safe
-  "const bridge = globalThis.__halogenTest;\
-  \if (bridge) { await bridge.press($1); }\
-  \else {\
-  \  const target = document.activeElement ?? document.body;\
-  \  for (const type of ['keydown', 'keyup']) target.dispatchEvent(new KeyboardEvent(type, {key: $1, bubbles: true}));\
-  \}"
-  js_press :: JSVal -> IO ()
-
-foreign import javascript safe
-  "await new Promise((resolve) => globalThis.scheduler\
-  \  ? scheduler.postTask(resolve, {priority: 'background'})\
-  \  : setTimeout(resolve, 0));"
-  js_settle :: IO ()
-
-foreign import javascript unsafe "$1.focus()"
-  js_focus :: Element -> IO ()
-
-foreign import javascript unsafe "$1.blur()"
-  js_blur :: Element -> IO ()
-
-foreign import javascript unsafe "$1.textContent ?? ''"
-  js_text_content :: Element -> IO JSVal
-
-foreign import javascript unsafe "String($1[$2])"
-  js_get_property :: Element -> JSVal -> IO JSVal
-
-foreign import javascript unsafe "$1.getAttribute($2)"
-  js_get_attribute :: Element -> JSVal -> IO JSVal
-
-foreign import javascript unsafe "$1.outerHTML"
-  js_outer_html :: Element -> IO JSVal
-
-foreign import javascript unsafe "$1.checkVisibility()"
-  js_is_visible :: Element -> IO Bool
-
-foreign import javascript unsafe "$1 === $2"
-  js_same_element :: Element -> Element -> Bool
-
-foreign import javascript unsafe "$1.isConnected"
-  js_is_connected :: Element -> IO Bool
-
-foreign import javascript unsafe "$1 == null"
-  js_is_null :: JSVal -> Bool
-
-foreign import javascript unsafe "$1.length"
-  js_length :: JSVal -> Int
-
-foreign import javascript unsafe "$1[$2]"
-  js_index :: JSVal -> Int -> JSVal

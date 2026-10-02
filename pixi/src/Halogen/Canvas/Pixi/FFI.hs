@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Halogen.Canvas.Pixi.FFI
   ( Application
@@ -87,6 +88,10 @@ module Halogen.Canvas.Pixi.FFI
   , cancelTimeout
   )
 where
+
+#if defined(wasm32_HOST_ARCH)
+import Halogen.JSBits (wasmJS, Safety (..))
+#endif
 
 import Data.Foreign
 import Protolude
@@ -230,103 +235,86 @@ freeCallback :: Callback -> IO ()
 freeCallback = JS.releaseCallback
 
 #elif defined(wasm32_HOST_ARCH)
-foreign import javascript unsafe "({pixi:null,app:null,ready:false})" newApplicationRaw :: IO Application
 
--- | Install the two helpers the inline snippets in this branch call.
---
--- The javascript backend has jsbits for these; wasm has no such file, and
--- neither of them fits in an expression — so they are installed once, on the
--- first thing any Pixi work has to do.
---
--- @||=@ rather than @??=@: the snippet is emitted through a C string, where
--- @??=@ is a trigraph for @#@.
-foreign import javascript unsafe "globalThis.__halogenPixi ||= {resize:object=>{const size=object.__halogenSize;const scale=object.__halogenScale||{x:1,y:1};const texture=size?object.texture:null;const naturalWidth=texture?texture.orig.width:0;const naturalHeight=texture?texture.orig.height:0;object.scale.set(naturalWidth?(size.width/naturalWidth)*scale.x:scale.x,naturalHeight?(size.height/naturalHeight)*scale.y:scale.y)},touch:object=>{for(let o=object;o;o=o.parent)if(o.__halogenCached)o.__halogenDirty=true},outline:object=>{globalThis.__halogenPixi.touch(object);const spec=object.__halogenOutline;if(!spec)return;let graphics=object.__halogenOutlineGraphics;if(!graphics){graphics=new spec.holder.pixi.Graphics();graphics.eventMode='none';object.__halogenOutlineGraphics=graphics}if(graphics.parent)graphics.parent.removeChild(graphics);const bounds=object.getLocalBounds();const scaleX=object.scale.x||1;const scaleY=object.scale.y||1;graphics.clear();graphics.scale.set(1/scaleX,1/scaleY);graphics.rect(bounds.x*scaleX-spec.padding,bounds.y*scaleY-spec.padding,bounds.width*scaleX+spec.padding*2,bounds.height*scaleY+spec.padding*2);graphics.stroke({color:spec.color,width:spec.width,alpha:spec.alpha});object.addChild(graphics)}}" installHelpers :: IO ()
-foreign import javascript unsafe "import($2).then(pixi=>{$1.pixi=pixi;$1.app=new pixi.Application();return $1.app.init({canvas:$3,resizeTo:$3.parentElement,preference:'webgl',antialias:true,autoDensity:true,resolution:Math.min(globalThis.devicePixelRatio || 1,2),backgroundColor:0x111827})}).then(()=>{$1.ready=true;$4(null)}).catch(error=>{console.error('Could not load or initialize PixiJS',error);$4(null)})" initializeApplicationRaw :: Application -> JSVal -> Canvas -> Callback -> IO ()
-foreign import javascript unsafe "$1.app!==null" applicationCreated :: Application -> IO Bool
-foreign import javascript unsafe "$1.ready" applicationReady :: Application -> IO Bool
-foreign import javascript unsafe "$1.app.destroy(false,{children:true,texture:false,textureSource:false})" destroyApplication :: Application -> IO ()
-foreign import javascript unsafe "new $1.pixi.Container()" newContainer :: Application -> IO Object
-foreign import javascript unsafe "new $1.pixi.Graphics()" newGraphics :: Application -> IO Object
-foreign import javascript unsafe "$1.app.stage.addChild($2)" addToStage :: Application -> Object -> IO ()
-foreign import javascript unsafe "$1.addChild($2);globalThis.__halogenPixi.touch($1)" addChild :: Object -> Object -> IO ()
-foreign import javascript unsafe "$1.removeChild($2);globalThis.__halogenPixi.touch($1)" removeChild :: Object -> Object -> IO ()
-foreign import javascript unsafe "$1.parent ?? null" parentOfRaw :: Object -> IO (Nullable Object)
-foreign import javascript unsafe "$1.setChildIndex($2,$3)" setChildIndex :: Object -> Object -> Int -> IO ()
-foreign import javascript unsafe "$1.destroy({children:true,texture:false,textureSource:false})" destroyObject :: Object -> IO ()
-foreign import javascript unsafe "$1.clear()" clearGraphics :: Object -> IO ()
-foreign import javascript unsafe "$1.moveTo($2,$3)" moveTo :: Object -> Double -> Double -> IO ()
-foreign import javascript unsafe "$1.lineTo($2,$3)" lineTo :: Object -> Double -> Double -> IO ()
-foreign import javascript unsafe "$1.rect($2,$3,$4,$5)" rect :: Object -> Double -> Double -> Double -> Double -> IO ()
-foreign import javascript unsafe "$1.circle($2,$3,$4)" circle :: Object -> Double -> Double -> Double -> IO ()
-foreign import javascript unsafe "$1.ellipse($2,$3,$4,$5)" ellipse :: Object -> Double -> Double -> Double -> Double -> IO ()
-foreign import javascript unsafe "$1.quadraticCurveTo($2,$3,$4,$5)" quadraticCurveTo :: Object -> Double -> Double -> Double -> Double -> IO ()
-foreign import javascript unsafe "$1.bezierCurveTo($2,$3,$4,$5,$6,$7)" bezierCurveTo :: Object -> Double -> Double -> Double -> Double -> Double -> Double -> IO ()
-foreign import javascript unsafe "$1.arc($2,$3,$4,$5,$6,$7)" arc :: Object -> Double -> Double -> Double -> Double -> Double -> Bool -> IO ()
-foreign import javascript unsafe "$2.path(new $1.pixi.GraphicsPath($3))" svgPathRaw :: Application -> Object -> JSVal -> IO ()
-foreign import javascript unsafe "$1.fill({color:$2,alpha:$3})" fill :: Object -> Int -> Double -> IO ()
-foreign import javascript unsafe "$1.stroke({color:$2,width:$3,alpha:$4})" stroke :: Object -> Int -> Double -> Double -> IO ()
-foreign import javascript unsafe "new $1.pixi.Text({text:'',style:{}})" newText :: Application -> IO Object
-foreign import javascript unsafe "$1.__halogenFontRequest=null;$1.text=$2;$1.style={fontFamily:$3,fontSize:$4,fill:$5,align:$6}" setSystemTextRaw :: Object -> JSVal -> JSVal -> Double -> Int -> JSVal -> IO ()
--- Draws in the generic fallback until the asset's face has loaded, and only
--- then names its family: see halogen_pixi_set_asset_text in jsbits/pixi.js.
-foreign import javascript unsafe "const request={};$2.__halogenFontRequest=request;$2.text=$3;$2.style={fontFamily:'sans-serif',fontSize:$6,fill:$7,align:$8};$1.pixi.Assets.load({src:$5,data:{family:$4}}).then(()=>{if($2.destroyed||$2.__halogenFontRequest!==request)return;$2.style={fontFamily:$4,fontSize:$6,fill:$7,align:$8};globalThis.__halogenPixi.outline($2)}).catch(error=>console.error('Could not load PixiJS font',$5,error))" setAssetTextRaw :: Application -> Object -> JSVal -> JSVal -> JSVal -> Double -> Int -> JSVal -> IO ()
-foreign import javascript unsafe "new $1.pixi.Sprite($1.pixi.Texture.EMPTY)" newSprite :: Application -> IO Object
-foreign import javascript unsafe "$1.__halogenFontRequest=null;$1.text=''" clearText :: Object -> IO ()
-foreign import javascript unsafe "$2.__halogenAsset=null;$2.__halogenSize=null;$2.texture=$1.pixi.Texture.EMPTY;globalThis.__halogenPixi.resize($2)" clearTexture :: Application -> Object -> IO ()
-foreign import javascript unsafe "$2.__halogenAsset=$3;$1.pixi.Assets.load($3).then(texture=>{if($2.destroyed||$2.__halogenAsset!==$3)return;$2.texture=texture;globalThis.__halogenPixi.resize($2);globalThis.__halogenPixi.outline($2)}).catch(error=>console.error('Could not load PixiJS texture',$3,error))" setTextureRaw :: Application -> Object -> JSVal -> IO ()
-foreign import javascript unsafe "$1.anchor.set(0.5)" centerAnchor :: Object -> IO ()
-foreign import javascript unsafe "$1.position.set($2,$3)" setPosition :: Object -> Double -> Double -> IO ()
-foreign import javascript unsafe "$1.__halogenScale={x:$2,y:$3};globalThis.__halogenPixi.resize($1)" setScale :: Object -> Double -> Double -> IO ()
-foreign import javascript unsafe "$1.rotation=$2" setRotation :: Object -> Double -> IO ()
-foreign import javascript unsafe "$1.__halogenSize={width:$2,height:$3};globalThis.__halogenPixi.resize($1)" setSize :: Object -> Double -> Double -> IO ()
-foreign import javascript unsafe "$2.__halogenOutline={holder:$1,color:$3,width:$4,alpha:$5,padding:$6};globalThis.__halogenPixi.outline($2)" setOutline :: Application -> Object -> Int -> Double -> Double -> Double -> IO ()
-foreign import javascript unsafe "$1.__halogenOutline=null;const graphics=$1.__halogenOutlineGraphics;$1.__halogenOutlineGraphics=null;if(graphics)graphics.destroy()" clearOutline :: Object -> IO ()
-foreign import javascript unsafe "globalThis.__halogenPixi.outline($1)" refreshOutline :: Object -> IO ()
--- Drawn again, once a frame at most, before the frame is rendered, when
--- anything inside has changed ('touch' marks it): Pixi itself does not notice.
-foreign import javascript unsafe "$2.cacheAsTexture({resolution:$3});$2.__halogenCached=true;$2.__halogenDirty=false;const h=$1;h.__halogenCaches||=new Set();h.__halogenCaches.add($2);if(!h.__halogenCacheTick){h.__halogenCacheTick=()=>{for(const o of h.__halogenCaches){if(o.destroyed||!o.__halogenCached){h.__halogenCaches.delete(o);continue}if(o.__halogenDirty){o.__halogenDirty=false;o.updateCacheTexture()}}};h.app.ticker.add(h.__halogenCacheTick)}" setCacheAsTexture :: Application -> Object -> Double -> IO ()
-foreign import javascript unsafe "$1.cacheAsTexture(false);delete $1.__halogenCached;delete $1.__halogenDirty" clearCacheAsTexture :: Object -> IO ()
-foreign import javascript unsafe "$1.on($2,$3)" onRaw :: Object -> JSVal -> Callback -> IO ()
-foreign import javascript unsafe "$1.off($2,$3)" offRaw :: Object -> JSVal -> Callback -> IO ()
-foreign import javascript unsafe "$1.eventMode=$2" setEventModeRaw :: Object -> JSVal -> IO ()
-foreign import javascript unsafe "$1.cursor=$2" setCursorRaw :: Object -> JSVal -> IO ()
-foreign import javascript unsafe "$2.hitArea=new $1.pixi.Rectangle($3,$4,$5,$6)" setRectHitArea :: Application -> Object -> Double -> Double -> Double -> Double -> IO ()
-foreign import javascript unsafe "$2.hitArea=new $1.pixi.Circle($3,$4,$5)" setCircleHitArea :: Application -> Object -> Double -> Double -> Double -> IO ()
-foreign import javascript unsafe "$2.hitArea=new $1.pixi.Polygon($3.split(',').map(Number))" setPolygonHitAreaRaw :: Application -> Object -> JSVal -> IO ()
-foreign import javascript unsafe "$1.hitArea=null" clearHitArea :: Object -> IO ()
-foreign import javascript unsafe "$1.app.stage.eventMode='static';$1.app.stage.hitArea=$1.app.screen" enableStageEvents :: Application -> IO ()
-foreign import javascript unsafe "$1.app.stage.on('pointerdown',$2)" onPointerDown :: Application -> Callback -> IO ()
-foreign import javascript unsafe "$1.app.stage.on('globalpointermove',$2)" onPointerMove :: Application -> Callback -> IO ()
-foreign import javascript unsafe "$1.app.stage.on('pointerup',$2);$1.app.stage.on('pointerupoutside',$2);$1.app.stage.on('pointercancel',$2)" onPointerEnd :: Application -> Callback -> IO ()
-foreign import javascript unsafe "$1.addEventListener('wheel',$2,{passive:false})" onWheel :: Canvas -> Callback -> IO ()
-foreign import javascript unsafe "$1.removeEventListener('wheel',$2)" removeWheel :: Canvas -> Callback -> IO ()
-foreign import javascript unsafe "$1.pointerId" pointerId :: Event -> Int
-foreign import javascript unsafe "$1.global.x" globalX :: Event -> Double
-foreign import javascript unsafe "$1.global.y" globalY :: Event -> Double
-foreign import javascript unsafe "$2.getLocalPosition($1).x" localX :: Object -> Event -> Double
-foreign import javascript unsafe "$2.getLocalPosition($1).y" localY :: Object -> Event -> Double
-foreign import javascript unsafe "$1.button" eventButton :: Event -> Int
-foreign import javascript unsafe "$1.currentTarget" currentTarget :: Event -> Object
-foreign import javascript unsafe "$1.preventDefault()" preventDefault :: Event -> IO ()
-foreign import javascript unsafe "$1.clientX" clientX :: Event -> Double
-foreign import javascript unsafe "$1.clientY" clientY :: Event -> Double
-foreign import javascript unsafe "$1.deltaY" deltaY :: Event -> Double
--- | What a handler reads of an event, copied as the event is dispatched: Pixi
--- hands one event object on from event to event, so a read made later, by a
--- thunk or after the handler has blocked, would read another event. A
--- callback called with no event (a timeout, a promise) gets what it was given.
-foreign import javascript unsafe "if(!$1||typeof $1!=='object')return $1;const g=$1.global?{x:$1.global.x,y:$1.global.y}:null;const t=$1.currentTarget;let l=null;if(g&&t&&$1.getLocalPosition){const p=$1.getLocalPosition(t);l={x:p.x,y:p.y}}const e=$1;return {pointerId:e.pointerId,global:g,button:e.button,currentTarget:t,clientX:e.clientX,clientY:e.clientY,deltaY:e.deltaY,preventDefault:()=>e.preventDefault(),getLocalPosition:o=>o===t&&l?l:o.toLocal(g)}" snapshot :: JSVal -> IO JSVal
-foreign import javascript unsafe "$1.getBoundingClientRect().left" canvasLeft :: Canvas -> IO Double
-foreign import javascript unsafe "$1.getBoundingClientRect().top" canvasTop :: Canvas -> IO Double
-foreign import javascript unsafe "$1.getBoundingClientRect().width" canvasWidth :: Canvas -> IO Double
-foreign import javascript unsafe "$1.getBoundingClientRect().height" canvasHeight :: Canvas -> IO Double
-foreign import javascript unsafe "$1.app.screen.width" screenWidth :: Application -> IO Double
-foreign import javascript unsafe "$1.app.screen.height" screenHeight :: Application -> IO Double
-foreign import javascript unsafe "setTimeout($1,$2)" scheduleTimeout :: Callback -> Int -> IO Timer
-foreign import javascript unsafe "clearTimeout($1)" cancelTimeout :: Timer -> IO ()
+$(wasmJS ["jsbits/pixi.js"]
+  [ ("newApplication", "halogen_pixi_new_application", Unsafe, [t| IO Application |])
+  , ("initializeApplicationRaw", "halogen_pixi_initialize_application", Unsafe, [t| Application -> JSVal -> Canvas -> Callback -> IO () |])
+  , ("applicationCreated", "halogen_pixi_application_created", Unsafe, [t| Application -> IO Bool |])
+  , ("applicationReady", "halogen_pixi_application_ready", Unsafe, [t| Application -> IO Bool |])
+  , ("destroyApplication", "halogen_pixi_destroy_application", Unsafe, [t| Application -> IO () |])
+  , ("newContainer", "halogen_pixi_new_container", Unsafe, [t| Application -> IO Object |])
+  , ("newGraphics", "halogen_pixi_new_graphics", Unsafe, [t| Application -> IO Object |])
+  , ("addToStage", "halogen_pixi_add_to_stage", Unsafe, [t| Application -> Object -> IO () |])
+  , ("addChild", "halogen_pixi_add_child", Unsafe, [t| Object -> Object -> IO () |])
+  , ("removeChild", "halogen_pixi_remove_child", Unsafe, [t| Object -> Object -> IO () |])
+  , ("parentOfRaw", "halogen_pixi_parent_of", Unsafe, [t| Object -> IO (Nullable Object) |])
+  , ("setChildIndex", "halogen_pixi_set_child_index", Unsafe, [t| Object -> Object -> Int -> IO () |])
+  , ("destroyObject", "halogen_pixi_destroy_object", Unsafe, [t| Object -> IO () |])
+  , ("clearGraphics", "halogen_pixi_clear_graphics", Unsafe, [t| Object -> IO () |])
+  , ("moveTo", "halogen_pixi_move_to", Unsafe, [t| Object -> Double -> Double -> IO () |])
+  , ("lineTo", "halogen_pixi_line_to", Unsafe, [t| Object -> Double -> Double -> IO () |])
+  , ("rect", "halogen_pixi_rect", Unsafe, [t| Object -> Double -> Double -> Double -> Double -> IO () |])
+  , ("circle", "halogen_pixi_circle", Unsafe, [t| Object -> Double -> Double -> Double -> IO () |])
+  , ("ellipse", "halogen_pixi_ellipse", Unsafe, [t| Object -> Double -> Double -> Double -> Double -> IO () |])
+  , ("quadraticCurveTo", "halogen_pixi_quadratic_curve_to", Unsafe, [t| Object -> Double -> Double -> Double -> Double -> IO () |])
+  , ("bezierCurveTo", "halogen_pixi_bezier_curve_to", Unsafe, [t| Object -> Double -> Double -> Double -> Double -> Double -> Double -> IO () |])
+  , ("arc", "halogen_pixi_arc", Unsafe, [t| Object -> Double -> Double -> Double -> Double -> Double -> Bool -> IO () |])
+  , ("svgPathRaw", "halogen_pixi_svg_path", Unsafe, [t| Application -> Object -> JSVal -> IO () |])
+  , ("fill", "halogen_pixi_fill", Unsafe, [t| Object -> Int -> Double -> IO () |])
+  , ("stroke", "halogen_pixi_stroke", Unsafe, [t| Object -> Int -> Double -> Double -> IO () |])
+  , ("newText", "halogen_pixi_new_text", Unsafe, [t| Application -> IO Object |])
+  , ("setSystemTextRaw", "halogen_pixi_set_system_text", Unsafe, [t| Object -> JSVal -> JSVal -> Double -> Int -> JSVal -> IO () |])
+  , ("setAssetTextRaw", "halogen_pixi_set_asset_text", Unsafe, [t| Application -> Object -> JSVal -> JSVal -> JSVal -> Double -> Int -> JSVal -> IO () |])
+  , ("newSprite", "halogen_pixi_new_sprite", Unsafe, [t| Application -> IO Object |])
+  , ("setTextureRaw", "halogen_pixi_set_texture", Unsafe, [t| Application -> Object -> JSVal -> IO () |])
+  , ("clearText", "halogen_pixi_clear_text", Unsafe, [t| Object -> IO () |])
+  , ("clearTexture", "halogen_pixi_clear_texture", Unsafe, [t| Application -> Object -> IO () |])
+  , ("centerAnchor", "halogen_pixi_center_anchor", Unsafe, [t| Object -> IO () |])
+  , ("setPosition", "halogen_pixi_set_position", Unsafe, [t| Object -> Double -> Double -> IO () |])
+  , ("setScale", "halogen_pixi_set_scale", Unsafe, [t| Object -> Double -> Double -> IO () |])
+  , ("setRotation", "halogen_pixi_set_rotation", Unsafe, [t| Object -> Double -> IO () |])
+  , ("setSize", "halogen_pixi_set_size", Unsafe, [t| Object -> Double -> Double -> IO () |])
+  , ("setOutline", "halogen_pixi_set_outline", Unsafe, [t| Application -> Object -> Int -> Double -> Double -> Double -> IO () |])
+  , ("clearOutline", "halogen_pixi_clear_outline", Unsafe, [t| Object -> IO () |])
+  , ("refreshOutline", "halogen_pixi_refresh_outline", Unsafe, [t| Object -> IO () |])
+  , ("setCacheAsTexture", "halogen_pixi_set_cache_as_texture", Unsafe, [t| Application -> Object -> Double -> IO () |])
+  , ("clearCacheAsTexture", "halogen_pixi_clear_cache_as_texture", Unsafe, [t| Object -> IO () |])
+  , ("onRaw", "halogen_pixi_on", Unsafe, [t| Object -> JSVal -> Callback -> IO () |])
+  , ("offRaw", "halogen_pixi_off", Unsafe, [t| Object -> JSVal -> Callback -> IO () |])
+  , ("setEventModeRaw", "halogen_pixi_set_event_mode", Unsafe, [t| Object -> JSVal -> IO () |])
+  , ("setCursorRaw", "halogen_pixi_set_cursor", Unsafe, [t| Object -> JSVal -> IO () |])
+  , ("setRectHitArea", "halogen_pixi_set_rect_hit_area", Unsafe, [t| Application -> Object -> Double -> Double -> Double -> Double -> IO () |])
+  , ("setCircleHitArea", "halogen_pixi_set_circle_hit_area", Unsafe, [t| Application -> Object -> Double -> Double -> Double -> IO () |])
+  , ("setPolygonHitAreaRaw", "halogen_pixi_set_polygon_hit_area", Unsafe, [t| Application -> Object -> JSVal -> IO () |])
+  , ("clearHitArea", "halogen_pixi_clear_hit_area", Unsafe, [t| Object -> IO () |])
+  , ("enableStageEvents", "halogen_pixi_enable_stage_events", Unsafe, [t| Application -> IO () |])
+  , ("onPointerDown", "halogen_pixi_on_pointer_down", Unsafe, [t| Application -> Callback -> IO () |])
+  , ("onPointerMove", "halogen_pixi_on_pointer_move", Unsafe, [t| Application -> Callback -> IO () |])
+  , ("onPointerEnd", "halogen_pixi_on_pointer_end", Unsafe, [t| Application -> Callback -> IO () |])
+  , ("onWheel", "halogen_pixi_on_wheel", Unsafe, [t| Canvas -> Callback -> IO () |])
+  , ("removeWheel", "halogen_pixi_remove_wheel", Unsafe, [t| Canvas -> Callback -> IO () |])
+  , ("pointerId", "halogen_pixi_pointer_id", Unsafe, [t| Event -> Int |])
+  , ("globalX", "halogen_pixi_global_x", Unsafe, [t| Event -> Double |])
+  , ("globalY", "halogen_pixi_global_y", Unsafe, [t| Event -> Double |])
+  , ("localX", "halogen_pixi_local_x", Unsafe, [t| Object -> Event -> Double |])
+  , ("localY", "halogen_pixi_local_y", Unsafe, [t| Object -> Event -> Double |])
+  , ("eventButton", "halogen_pixi_event_button", Unsafe, [t| Event -> Int |])
+  , ("currentTarget", "halogen_pixi_current_target", Unsafe, [t| Event -> Object |])
+  , ("preventDefault", "halogen_pixi_prevent_default", Unsafe, [t| Event -> IO () |])
+  , ("clientX", "halogen_pixi_client_x", Unsafe, [t| Event -> Double |])
+  , ("clientY", "halogen_pixi_client_y", Unsafe, [t| Event -> Double |])
+  , ("deltaY", "halogen_pixi_delta_y", Unsafe, [t| Event -> Double |])
+  , ("snapshot", "halogen_pixi_snapshot", Unsafe, [t| JSVal -> IO JSVal |])
+  , ("canvasLeft", "halogen_pixi_canvas_left", Unsafe, [t| Canvas -> IO Double |])
+  , ("canvasTop", "halogen_pixi_canvas_top", Unsafe, [t| Canvas -> IO Double |])
+  , ("canvasWidth", "halogen_pixi_canvas_width", Unsafe, [t| Canvas -> IO Double |])
+  , ("canvasHeight", "halogen_pixi_canvas_height", Unsafe, [t| Canvas -> IO Double |])
+  , ("screenWidth", "halogen_pixi_screen_width", Unsafe, [t| Application -> IO Double |])
+  , ("screenHeight", "halogen_pixi_screen_height", Unsafe, [t| Application -> IO Double |])
+  , ("scheduleTimeout", "halogen_pixi_schedule_timeout", Unsafe, [t| Callback -> Int -> IO Timer |])
+  , ("cancelTimeout", "halogen_pixi_cancel_timeout", Unsafe, [t| Timer -> IO () |])
+  ])
 
-newApplication :: IO Application
-newApplication = installHelpers >> newApplicationRaw
 initializeApplication :: Application -> Text -> Canvas -> Callback -> IO ()
 initializeApplication application url = initializeApplicationRaw application (case toJSString (toS url) of JSString value -> value)
 textValue :: Text -> JSVal

@@ -532,8 +532,7 @@ spec = describe "player" $ do
     (fake, backend) <- newFake
     player <- newPlayer backend config {musicVolume = 0}
     playTheme player T1
-    threadDelay 50000
-    es <- readIORef fake.events
+    es <- eventually fake (elem (Fetched "Menu"))
     startsOf es `shouldBe` []
     [t | Fetched t <- es, t `notElem` ["Menu", "Click"]] `shouldBe` []
     -- Persistent sounds are preloaded whatever the volume.

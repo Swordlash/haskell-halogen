@@ -5,7 +5,7 @@ This file provides guidance to AI coding agents working with code in this reposi
 ## What this is
 
 A port of purescript-halogen to GHC Haskell, as a multi-package cabal project: `core`
-(`haskell-halogen-core`, the port itself), `hooks` (`purescript-halogen-hooks` port), `material`
+(`haskell-halogen-core`, the port itself), `jsbits` (compile-time shared JavaScript embedding), `hooks` (`purescript-halogen-hooks` port), `material`
 (Material Components bindings), `pixi` (PixiJS v8 canvas backend), `sound` (music and sound
 effects: a player over an abstract backend, and a browser backend), `hspec-halogen`
 (an hspec harness that tests components in a real browser), and
@@ -151,11 +151,15 @@ reconciler. Keyed groups (`keyedGroup`, `withKeys`) preserve identity across reo
 
 ### FFI per backend
 
-JS-backend imports use arrow-function strings (`"((x) => x.child)"`) plus `js-sources` under each
-package's `jsbits/`; wasm imports use `$1` body syntax (`"$1.child"`) and `ghc-experimental`.
-Modules that need both switch on `javascript_HOST_ARCH` / `wasm32_HOST_ARCH` (see
-`core/test/Test/GHCJS.hs`). On wasm, `foreign import javascript "wrapper"` callbacks run
-synchronously until they block; on JS, `syncCallback1 ContinueAsync` gives the same behaviour.
+JS-backend imports link ordinary JavaScript from each package's `jsbits/` through
+`js-sources`; WASM uses `Halogen.JSBits.wasmJS` to embed those same files at compile
+time. Keep browser logic in jsbits and only representation conversions, callback
+adapters and scheduling primitives in backend-specific imports. The WASM project
+enables shared dependencies because its Template Haskell interpreter loads dynamic
+objects. Sources must ship in `extra-source-files`; `addDependentFile` tracks edits.
+Material's shared JS is already bundled with its external npm dependencies.
+On wasm, `foreign import javascript "wrapper"` callbacks run synchronously until
+they block; on JS, `syncCallback1 ContinueAsync` gives the same behaviour.
 
 ### Hooks
 

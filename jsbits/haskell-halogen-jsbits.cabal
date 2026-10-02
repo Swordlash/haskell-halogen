@@ -1,0 +1,35 @@
+cabal-version: 3.0
+name: haskell-halogen-jsbits
+version: 0.1.0
+synopsis: Compile shared JavaScript sources into Halogen WebAssembly FFI
+category: Web
+author: Mateusz Goślinowski
+maintainer: mateusz.goslinowski@gmail.com
+description: Embed shared browser JavaScript into typed WebAssembly FFI imports.
+license: MIT
+license-file: LICENSE
+build-type: Simple
+extra-source-files: README.md, CHANGELOG.md, test/fixture.js
+
+library
+  exposed-modules: Halogen.JSBits
+  hs-source-dirs: src
+  default-language: GHC2021
+  ghc-options: -Wall -Wextra
+  build-depends: base >= 4.20, template-haskell, directory, filepath
+
+test-suite jsbits-test
+  type: exitcode-stdio-1.0
+  main-is: Test.hs
+  hs-source-dirs: test
+  default-language: GHC2021
+  ghc-options: -Wall -Wextra
+  if arch(wasm32)
+    build-depends: base, ghc-experimental, haskell-halogen-jsbits
+  else
+    buildable: False
+
+source-repository head
+  type: git
+  location: https://github.com/Swordlash/haskell-halogen.git
+  subdir: jsbits
