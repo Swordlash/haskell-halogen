@@ -14,7 +14,7 @@ module Halogen.Sound.Order
   )
 where
 
-import Data.List ((!!))
+import Data.List (delete, (!!))
 import Protolude
 
 data Order a = Order
@@ -73,8 +73,8 @@ splitMix s =
       z2 = (z1 `xor` (z1 `shiftR` 27)) * 0x94d049bb133111eb
    in (z2 `xor` (z2 `shiftR` 31), s')
 
--- | Begin the current round with this track, preserving every member of
--- the album and playing each once in the round. An absent track leaves
+-- | Begin the current round with this track, preserving every entry of
+-- the album, including duplicates. An absent track leaves
 -- the order alone.
 startWith :: (Eq a) => a -> Order a -> Order a
 startWith t order
@@ -83,6 +83,6 @@ startWith t order
       Nothing -> order
       Just (headTrack, rest) ->
         rest
-          { queue = t : filter (/= t) (headTrack : rest.queue)
+          { queue = t : delete t (headTrack : rest.queue)
           , previous = order.previous
           }

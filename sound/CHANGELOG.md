@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+A restored album consumes its saved position on its first start; muting or
+setting the volume to zero and then restarting no longer reuses that position.
+Resuming an album preserves duplicate track entries in the first round.
+
 The JavaScript and WebAssembly backends now use the same browser jsbits, embedded
 at compile time for WASM. Applications need no additional scripts. WASM builds
 must enable shared dependencies for Template Haskell (`shared: True` in the

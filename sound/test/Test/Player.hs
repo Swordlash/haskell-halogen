@@ -184,6 +184,29 @@ spec = describe "player" $ do
     startsOf es `shouldBe` ["T4"]
     stopMusic player
 
+  mapM_
+    ( \(label, silence, restart) ->
+        it ("consumes the saved position before restarting music after " <> label) $ do
+          (fake, backend) <- newFake
+          player <- newPlayer backend config {startMuted = True, musicVolume = 0}
+          playAlbumFrom player album T4 31
+          setMuted player False
+          setMusicVolume player 0.5
+          es <- eventually fake (elem (Positioned "T4" 31))
+          [at | Positioned _ at <- es] `shouldBe` [31]
+          skipTrack player
+          es' <- eventually fake (\xs -> length [() | Positioned _ _ <- xs] >= 2)
+          [at | Positioned _ at <- es'] `shouldBe` [31, 0]
+          silence player
+          restart player
+          es'' <- eventually fake (\xs -> length [() | Positioned _ _ <- xs] >= 3)
+          [at | Positioned _ at <- es''] `shouldBe` [31, 0, 0]
+          stopMusic player
+    )
+    [ ("muting", \player -> setMuted player True, \player -> setMuted player False)
+    , ("zero volume", \player -> setMusicVolume player 0, \player -> setMusicVolume player 0.5)
+    ]
+
   it "starts an ordinary album if the saved track is no longer in it" $ do
     (fake, backend) <- newFake
     player <- newPlayer backend config

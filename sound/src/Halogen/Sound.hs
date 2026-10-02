@@ -371,7 +371,8 @@ run e c = do
             at = maybe 0 snd saved
         -- Known before this returns, for a skip right after it.
         atomicWriteIORef e.restRef (Just (c.playing + 1, afterFirst order))
-        start e c {shuffles = c.shuffles + 1} (\n -> album e n (isNothing saved) False at order)
+        -- The resume point belongs only to this first start, not later restarts.
+        start e c {music = Album ts Nothing, shuffles = c.shuffles + 1} (\n -> album e n (isNothing saved) False at order)
 
 -- | Start a thread for a piece of music, numbered anew.
 start :: (Sound t) => Engine t clip voice -> Control t -> (Int -> IO ()) -> IO (Control t)

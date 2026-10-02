@@ -21,6 +21,16 @@ spec = describe "album order" $ do
       ]
       `shouldBe` True
 
+  it "preserves duplicate entries when starting with a chosen track" $
+    and
+      [ take 1 ts == [current]
+          && [sort (take 3 (drop (3 * roundNo) ts)) | roundNo <- [0 .. 7]] == replicate 8 [1, 1, 2]
+      | seed <- [0 .. 200]
+      , current <- [1, 2]
+      , let ts = takeTracks 24 (startWith current (newOrder seed [1, 1, 2]))
+      ]
+      `shouldBe` True
+
   it "plays every track once a round, over many rounds and seeds" $
     and
       [ map sort (chunks (takeTracks 40 (newOrder s [1 .. 5]))) == replicate 8 [1 .. 5]
