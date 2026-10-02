@@ -33,7 +33,7 @@ wasmJS files bindings = do
   load <- newName "loadJSBits"
   api <- newName "jsbitsAPI"
   let names = [name | (_, name, _, _) <- bindings]
-      body = namespace <> " = (() => {\n" <> intercalate "\n" sources <> "\nreturn {" <> intercalate "," names <> "};})();"
+      body = namespace <> " = (() => {\n" <> intercalate "\n;\n" sources <> "\nreturn {" <> intercalate "," names <> "};})();"
       valueType = TupleT 0
       loader = ForeignD (ImportF JavaScript Unsafe body load (AppT (ConT ''IO) valueType))
       cache =

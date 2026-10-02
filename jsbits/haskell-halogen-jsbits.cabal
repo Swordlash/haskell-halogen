@@ -6,10 +6,10 @@ category: Web
 author: Mateusz Goślinowski
 maintainer: mateusz.goslinowski@gmail.com
 description: Embed shared browser JavaScript into typed WebAssembly FFI imports.
-license: MIT
+license: Apache-2.0
 license-file: LICENSE
 build-type: Simple
-extra-source-files: README.md, CHANGELOG.md, test/fixture.js
+extra-source-files: README.md, CHANGELOG.md, test/fixture.js, test/boundary-a.js, test/boundary-b.js
 
 library
   exposed-modules: Halogen.JSBits
