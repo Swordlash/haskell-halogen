@@ -3,7 +3,9 @@
 ## Unreleased
 
 * `eventuallyWithin` (and so `eventually`, `find` and everything that waits)
-  keeps its timeout as a deadline on the clock. It used to count attempts
+  keeps its timeout as a deadline on the clock, with `System.Timeout.timeout`:
+  an attempt still running when it passes is cut short, so not even one that
+  never ends can hold the suite. It used to count attempts
   (the timeout over 20 ms), so slow attempts stretched it: an `eventually`
   around a `find` that never matched waited the outer number of attempts
   times the inner two seconds, an hour and more for a minute's timeout,

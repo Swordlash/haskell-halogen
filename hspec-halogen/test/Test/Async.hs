@@ -32,8 +32,8 @@ spec m = do
     unsafeIOToPageM (threadDelay 200000)
     unsafeIOToPageM (readIORef counter) `shouldReturn` stopped
 
-  -- The timeout is a deadline on the clock: neither slow attempts nor a
-  -- waiting 'find' inside multiply it.
+  -- The timeout is a deadline on the clock: neither slow attempts, nor a
+  -- waiting 'find' inside, nor an attempt that never ends stretch it.
   it "gives up at its deadline when every attempt is slow" $ do
     started <- getMonotonicTime
     outcome <- try @SomeException $ runPage $
@@ -48,5 +48,13 @@ spec m = do
       ui <- mount m Loader.component (Loader.Input {delayMs = 0, result = "42"})
       eventuallyWithin 300 (void (find ui ".nowhere"))
     took <- subtract started <$> getMonotonicTime
-    unless (isLeft outcome && took < 6) $
-      panic ("expected a failure within 6 s, got " <> either (const "a failure") (const "a success") outcome <> " after " <> show took <> " s")
+    unless (isLeft outcome && took < 1.5) $
+      panic ("expected a failure within 1.5 s, got " <> either (const "a failure") (const "a success") outcome <> " after " <> show took <> " s")
+
+  it "cuts short an attempt that never ends" $ do
+    started <- getMonotonicTime
+    outcome <- try @SomeException $ runPage $
+      eventuallyWithin 300 (unsafeIOToPageM (threadDelay 1000000000))
+    took <- subtract started <$> getMonotonicTime
+    unless (isLeft outcome && took < 1.5) $
+      panic ("expected a failure within 1.5 s, got " <> either (const "a failure") (const "a success") outcome <> " after " <> show took <> " s")

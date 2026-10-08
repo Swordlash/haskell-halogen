@@ -124,7 +124,6 @@ where
 import Control.Monad.Fail qualified as Fail
 import Data.IORef (IORef, atomicModifyIORef', atomicWriteIORef, modifyIORef', newIORef, readIORef)
 import Data.Text qualified as T
-import GHC.Clock (getMonotonicTime)
 import Halogen.Component (Component)
 import Halogen.IO.Driver (HalogenSocket (..))
 import Halogen.Subscription qualified as HS
@@ -132,6 +131,7 @@ import Protolude hiding (find)
 import System.Environment (withArgs)
 import System.IO (BufferMode (..), hFlush, hSetBuffering)
 import System.IO.Unsafe (unsafePerformIO)
+import System.Timeout (timeout)
 import Test.HUnit.Lang (assertFailure)
 import Test.Hspec (Spec, SpecWith, context, describe, it, parallel, sequential, specify, xit)
 import Test.Hspec qualified as Hspec
@@ -471,20 +471,22 @@ eventually :: PageM s a -> PageM s a
 eventually = eventuallyWithin 2000
 
 -- | 'eventually' with a timeout in milliseconds. The timeout is a deadline
--- on the clock, not a number of attempts: an attempt that is slow itself
--- (one that waits, such as 'find', which is an 'eventually' of its own)
--- does not stretch it. Once the deadline has passed, the attempt under
--- way is the last.
+-- on the clock, kept by 'timeout': an attempt still running when it passes
+-- is cut short, however slow it is or whatever it waits for (a 'find'
+-- inside, a render that never comes). It then fails as the last finished
+-- attempt did, or, if none finished, says so.
 eventuallyWithin :: Int -> PageM s a -> PageM s a
 eventuallyWithin timeoutMs (PageM action) = PageM $ ReaderT $ \env -> do
-  deadline <- (+ fromIntegral timeoutMs / 1000) <$> getMonotonicTime
+  lastFailure <- newIORef Nothing
   let go =
         tryJust notAsync (runReaderT action env) >>= \case
           Right a -> pure a
-          Left e -> do
-            now <- getMonotonicTime
-            if now >= deadline then throwIO e else threadDelay (pollMs * 1000) >> go
-  go
+          Left e -> atomicWriteIORef lastFailure (Just e) >> threadDelay (pollMs * 1000) >> go
+  timeout (timeoutMs * 1000) go >>= \case
+    Just a -> pure a
+    Nothing ->
+      readIORef lastFailure
+        >>= maybe (assertFailure ("no attempt finished within " <> show timeoutMs <> " ms")) throwIO
   where
     pollMs = 20
     notAsync e = case fromException e of
