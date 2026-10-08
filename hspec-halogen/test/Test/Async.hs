@@ -58,3 +58,6 @@ spec m = do
     took <- subtract started <$> getMonotonicTime
     unless (isLeft outcome && took < 1.5) $
       panic ("expected a failure within 1.5 s, got " <> either (const "a failure") (const "a success") outcome <> " after " <> show took <> " s")
+
+  it "makes one attempt when the timeout is zero" $ runPage $
+    eventuallyWithin 0 (pure ()) `shouldReturn` ()

@@ -124,6 +124,7 @@ where
 import Control.Monad.Fail qualified as Fail
 import Data.IORef (IORef, atomicModifyIORef', atomicWriteIORef, modifyIORef', newIORef, readIORef)
 import Data.Text qualified as T
+import Data.Unique (Unique, newUnique)
 import Halogen.Component (Component)
 import Halogen.IO.Driver (HalogenSocket (..))
 import Halogen.Subscription qualified as HS
@@ -131,7 +132,7 @@ import Protolude hiding (find)
 import System.Environment (withArgs)
 import System.IO (BufferMode (..), hFlush, hSetBuffering)
 import System.IO.Unsafe (unsafePerformIO)
-import System.Timeout (timeout)
+import Text.Show (Show (showsPrec))
 import Test.HUnit.Lang (assertFailure)
 import Test.Hspec (Spec, SpecWith, context, describe, it, parallel, sequential, specify, xit)
 import Test.Hspec qualified as Hspec
@@ -471,24 +472,54 @@ eventually :: PageM s a -> PageM s a
 eventually = eventuallyWithin 2000
 
 -- | 'eventually' with a timeout in milliseconds. The timeout is a deadline
--- on the clock, kept by 'timeout': an attempt still running when it passes
--- is cut short, however slow it is or whatever it waits for (a 'find'
--- inside, a render that never comes). It then fails as the last finished
--- attempt did, or, if none finished, says so.
+-- on the clock: an attempt still running when it passes is cut short,
+-- however slow it is or whatever it waits for (a 'find' inside, a render
+-- that never comes). It then fails as the last finished attempt did, or, if
+-- none finished, says so. A timeout of zero or less makes one attempt.
 eventuallyWithin :: Int -> PageM s a -> PageM s a
-eventuallyWithin timeoutMs (PageM action) = PageM $ ReaderT $ \env -> do
-  lastFailure <- newIORef Nothing
-  let go =
-        tryJust notAsync (runReaderT action env) >>= \case
-          Right a -> pure a
-          Left e -> atomicWriteIORef lastFailure (Just e) >> threadDelay (pollMs * 1000) >> go
-  timeout (timeoutMs * 1000) go >>= \case
-    Just a -> pure a
-    Nothing ->
-      readIORef lastFailure
-        >>= maybe (assertFailure ("no attempt finished within " <> show timeoutMs <> " ms")) throwIO
+eventuallyWithin timeoutMs (PageM action)
+  | timeoutMs <= 0 = PageM action
+  | otherwise = PageM $ ReaderT $ \env -> do
+      lastFailure <- newIORef Nothing
+      let go =
+            tryJust notAsync (runReaderT action env) >>= \case
+              Right a -> pure a
+              Left e -> atomicWriteIORef lastFailure (Just e) >> threadDelay (pollMs * 1000) >> go
+      withinMs timeoutMs go >>= \case
+        Just a -> pure a
+        Nothing ->
+          readIORef lastFailure
+            >>= maybe (assertFailure ("no attempt finished within " <> show timeoutMs <> " ms")) throwIO
   where
     pollMs = 20
     notAsync e = case fromException e of
       Just (_ :: SomeAsyncException) -> Nothing
       Nothing -> Just e
+
+-- | 'System.Timeout.timeout' in milliseconds, without its microsecond 'Int',
+-- which overflows after 35 minutes where 'Int' has 32 bits (the WebAssembly
+-- and JavaScript backends): the timer sleeps in steps short enough for any
+-- 'Int'.
+withinMs :: Int -> IO a -> IO (Maybe a)
+withinMs ms act = do
+  key <- newUnique
+  me <- myThreadId
+  let sleep left
+        | left <= 0 = pure ()
+        | otherwise = threadDelay (min left stepMs * 1000) >> sleep (left - min left stepMs)
+      timer = sleep ms >> throwTo me (Expired key)
+  handleJust (\(Expired k) -> guard (k == key)) (const (pure Nothing)) $
+    bracket (forkIOWithUnmask (\unmask -> unmask timer)) killThread (const (Just <$> act))
+  where
+    stepMs = 1000000
+
+-- | What 'withinMs' throws to cut its action short, told apart from another
+-- 'withinMs' by its key.
+newtype Expired = Expired Unique
+
+instance Show Expired where
+  showsPrec _ _ = ("Expired" ++)
+
+instance Exception Expired where
+  toException = asyncExceptionToException
+  fromException = asyncExceptionFromException
