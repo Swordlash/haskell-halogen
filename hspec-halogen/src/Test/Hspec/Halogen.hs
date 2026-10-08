@@ -124,6 +124,7 @@ where
 import Control.Monad.Fail qualified as Fail
 import Data.IORef (IORef, atomicModifyIORef', atomicWriteIORef, modifyIORef', newIORef, readIORef)
 import Data.Text qualified as T
+import GHC.Clock (getMonotonicTime)
 import Halogen.Component (Component)
 import Halogen.IO.Driver (HalogenSocket (..))
 import Halogen.Subscription qualified as HS
@@ -469,17 +470,23 @@ shouldBeSameElement actual expected =
 eventually :: PageM s a -> PageM s a
 eventually = eventuallyWithin 2000
 
--- | 'eventually' with a timeout in milliseconds.
+-- | 'eventually' with a timeout in milliseconds. The timeout is a deadline
+-- on the clock, not a number of attempts: an attempt that is slow itself
+-- (one that waits, such as 'find', which is an 'eventually' of its own)
+-- does not stretch it. Once the deadline has passed, the attempt under
+-- way is the last.
 eventuallyWithin :: Int -> PageM s a -> PageM s a
-eventuallyWithin timeoutMs (PageM action) = PageM $ ReaderT $ \env -> go env (timeoutMs `div` pollMs)
+eventuallyWithin timeoutMs (PageM action) = PageM $ ReaderT $ \env -> do
+  deadline <- (+ fromIntegral timeoutMs / 1000) <$> getMonotonicTime
+  let go =
+        tryJust notAsync (runReaderT action env) >>= \case
+          Right a -> pure a
+          Left e -> do
+            now <- getMonotonicTime
+            if now >= deadline then throwIO e else threadDelay (pollMs * 1000) >> go
+  go
   where
     pollMs = 20
-    go env attempts =
-      tryJust notAsync (runReaderT action env) >>= \case
-        Right a -> pure a
-        Left e
-          | attempts <= 0 -> throwIO e
-          | otherwise -> threadDelay (pollMs * 1000) >> go env (attempts - 1)
     notAsync e = case fromException e of
       Just (_ :: SomeAsyncException) -> Nothing
       Nothing -> Just e
