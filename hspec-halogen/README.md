@@ -213,6 +213,12 @@ other `IO`, there is `unsafeIOToPageM`, unsafe in the same way as
 
 - `click`, `typeText element "text"` and `clear` go through Playwright:
   trusted events, to an element it has checked it can reach.
+- `dragTo source target` drags one element onto another with Playwright's
+  mouse: the page sees pointer and mouse events on the way, and Chromium's
+  HTML5 `dragstart`, `dragover` and `drop`, so it tests either kind of drag.
+  A pointer drag should not select text (`user-select: none`), or the next
+  press on the selection drags the text and cancels the pointer, as it would
+  for a user.
 - `press "Enter"` presses a key on the focused element. Key names are
   Playwright's (`Backspace`, `ArrowDown`, `Shift+Tab`, …).
 - `focus` and `blur`.

@@ -39,7 +39,9 @@ where
 import Data.Row
 import Protolude
 import Web.UIEvent.KeyboardEvent (KeyboardEvent)
+import Web.HTML.Event.DragEvent (DragEvent)
 import Web.UIEvent.MouseEvent (MouseEvent)
+import Web.UIEvent.PointerEvent (PointerEvent)
 import Web.UIEvent.WheelEvent (WheelEvent)
 
 {-
@@ -72,7 +74,8 @@ C indicates that the collection of attributes does not apply to that element
 -- These core attributes are applicable to every element
 type CoreAttributes r = ("id" .== Text .+ "class" .== Text .+ "style" .== Text .+ "tabIndex" .== Int .+ "lang" .== Text .+ r)
 
--- Subset of events that work on Firefox 60/Chromium 66
+-- Subset of events that work on Firefox 60/Chromium 66, with pointer events
+-- and drag and drop's, which every SVG element gets as well
 type GlobalEventAttributes r =
   ( "onClick" .== MouseEvent
       .+ "onDoubleClick" .== MouseEvent
@@ -88,6 +91,24 @@ type GlobalEventAttributes r =
       .+ "onMouseOver" .== MouseEvent
       .+ "onMouseUp" .== MouseEvent
       .+ "onWheel" .== WheelEvent
+      .+ "onPointerOver" .== PointerEvent
+      .+ "onPointerEnter" .== PointerEvent
+      .+ "onPointerDown" .== PointerEvent
+      .+ "onPointerMove" .== PointerEvent
+      .+ "onPointerUp" .== PointerEvent
+      .+ "onPointerCancel" .== PointerEvent
+      .+ "onPointerOut" .== PointerEvent
+      .+ "onPointerLeave" .== PointerEvent
+      .+ "onGotPointerCapture" .== PointerEvent
+      .+ "onLostPointerCapture" .== PointerEvent
+      .+ "onDrag" .== DragEvent
+      .+ "onDragEnd" .== DragEvent
+      .+ "onDragEnter" .== DragEvent
+      .+ "onDragExit" .== DragEvent
+      .+ "onDragLeave" .== DragEvent
+      .+ "onDragOver" .== DragEvent
+      .+ "onDragStart" .== DragEvent
+      .+ "onDrop" .== DragEvent
       .+ r
   )
 

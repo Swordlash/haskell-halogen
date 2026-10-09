@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* `dragTo source target` drags one element onto another through Playwright's
+  mouse, which fires pointer, mouse and HTML5 drag and drop events alike.
+  Without the runner it dispatches the same events itself.
+
 * `eventuallyWithin` (and so `eventually`, `find` and everything that waits)
   keeps its timeout as a deadline on the clock: an attempt still running when
   it passes is cut short, so not even one that never ends can hold the suite.

@@ -96,6 +96,7 @@ test-suite hspec-halogen-test
                       Example.Counter
                       Example.Digits
                       Example.Dispatch
+                      Example.Drag
                       Example.Family
                       Example.Loader
                       Example.Reconcile
@@ -105,6 +106,7 @@ test-suite hspec-halogen-test
                       Test.Counter
                       Test.Digits
                       Test.Dispatch
+                      Test.Drag
                       Test.Family
                       Test.Reconcile
                       Test.Todo

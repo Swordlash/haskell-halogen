@@ -251,11 +251,15 @@ try {
     else if (action === "clear") await target.clear();
     else throw new Error(`unknown action ${action}`);
   });
+  // Playwright's mouse drag: pointer and mouse events along the way, and in
+  // Chromium HTML5 drag and drop's too.
+  await tab.exposeFunction("__halogenTestDrag", (source, target) => tab.locator(source).dragTo(tab.locator(target)));
   await tab.exposeFunction("__halogenTestPress", (key) => tab.keyboard.press(key));
   await tab.addInitScript((args) => {
     globalThis.__halogenTestArgs = args;
     globalThis.__halogenTest = {
       act: (action, selector, text) => globalThis.__halogenTestAct(action, selector, text),
+      drag: (source, target) => globalThis.__halogenTestDrag(source, target),
       press: (key) => globalThis.__halogenTestPress(key),
       done: (count) => globalThis.__halogenTestDone(count),
     };

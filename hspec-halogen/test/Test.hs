@@ -14,6 +14,7 @@ import Test.Async qualified
 import Test.Counter qualified
 import Test.Digits qualified
 import Test.Dispatch qualified
+import Test.Drag qualified
 import Test.Family qualified
 import Test.Hspec.Halogen (describe, runBrowserTests)
 import Test.Reconcile qualified
@@ -29,6 +30,7 @@ main = runBrowserTests $ do
   describe "Async" (Test.Async.spec BrowserDOM)
   describe "Reconciliation" (Test.Reconcile.spec BrowserDOM)
   describe "Dispatch" (Test.Dispatch.spec BrowserDOM)
+  describe "Drag" (Test.Drag.spec BrowserDOM)
 
 #if defined(wasm32_HOST_ARCH) && !defined(INTERACTIVE)
 foreign export javascript "hs_start" main :: IO ()

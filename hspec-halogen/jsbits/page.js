@@ -53,6 +53,38 @@ async function halogen_test_act(action, element, text) {
   }
 }
 
+async function halogen_test_drag(source, target) {
+  const counter = () => 'halogen-test-' + (globalThis.__halogenTestTargets = (globalThis.__halogenTestTargets ?? 0) + 1);
+  const [from, to] = [counter(), counter()];
+  source.setAttribute('data-halogen-test-target', from);
+  target.setAttribute('data-halogen-test-target', to);
+  try {
+    const bridge = globalThis.__halogenTest;
+    if (bridge) {
+      await bridge.drag('[data-halogen-test-target="' + from + '"]', '[data-halogen-test-target="' + to + '"]');
+    } else {
+      // Pointer events for a drag the page follows itself, then HTML5 drag
+      // and drop's, sharing one DataTransfer as a browser's would.
+      const centre = (element) => {
+        const box = element.getBoundingClientRect();
+        return {clientX: box.left + box.width / 2, clientY: box.top + box.height / 2, bubbles: true, cancelable: true, isPrimary: true, pointerId: 1, button: 0};
+      };
+      source.dispatchEvent(new PointerEvent('pointerdown', {...centre(source), buttons: 1}));
+      target.dispatchEvent(new PointerEvent('pointermove', {...centre(target), buttons: 1}));
+      target.dispatchEvent(new PointerEvent('pointerup', centre(target)));
+      const dataTransfer = new DataTransfer();
+      source.dispatchEvent(new DragEvent('dragstart', {...centre(source), dataTransfer}));
+      target.dispatchEvent(new DragEvent('dragenter', {...centre(target), dataTransfer}));
+      target.dispatchEvent(new DragEvent('dragover', {...centre(target), dataTransfer}));
+      target.dispatchEvent(new DragEvent('drop', {...centre(target), dataTransfer}));
+      source.dispatchEvent(new DragEvent('dragend', {...centre(target), dataTransfer}));
+    }
+  } finally {
+    source.removeAttribute('data-halogen-test-target');
+    target.removeAttribute('data-halogen-test-target');
+  }
+}
+
 async function halogen_test_press(key) {
   const bridge = globalThis.__halogenTest;
   if (bridge) {
