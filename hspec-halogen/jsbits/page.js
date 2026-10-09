@@ -60,7 +60,7 @@ async function halogen_test_drag(source, target) {
   target.setAttribute('data-halogen-test-target', to);
   try {
     const bridge = globalThis.__halogenTest;
-    if (bridge) {
+    if (bridge?.drag) {
       await bridge.drag('[data-halogen-test-target="' + from + '"]', '[data-halogen-test-target="' + to + '"]');
     } else {
       // Pointer events for a drag the page follows itself, then HTML5 drag
