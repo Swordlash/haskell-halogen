@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+`Halogen.Canvas.Pixi.FFI` declares its bindings once, without CPP; natively
+they are `browserJS`'s inert stubs. `Callback` is `Halogen.JSBits.Callback`,
+and `Application`, `Object` and `Timer` have `Inert` instances.
+
 The JavaScript and WebAssembly backends now use the same browser jsbits, embedded
 at compile time for WASM. Applications need no additional scripts. WASM builds
 must enable shared dependencies for Template Haskell (`shared: True` in the

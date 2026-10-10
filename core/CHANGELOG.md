@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+The browser bindings (`Web.Event.Event`, `Web.HTML.Window`,
+`Web.HTML.HTMLDocument`, `Control.Monad.UUID`) are declared once, without CPP,
+through `Halogen.JSBits.browserJS`; core depends on `haskell-halogen-jsbits` on
+every architecture. Natively `Foreign` is `Halogen.JSBits.JSVal` and an
+`EventListener` holds a `Halogen.JSBits.Callback`. Two native stubs changed:
+`currentTarget` returns `Nothing` and `innerWidth`/`innerHeight` return 0,
+where they panicked.
+
 `onPointerDown`, `onPointerMove`, `onPointerUp` and the other pointer event
 handlers, and pointer and drag and drop events on SVG elements, which only
 accepted mouse and keyboard ones.

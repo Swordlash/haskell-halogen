@@ -1,15 +1,9 @@
-{-# LANGUAGE CPP #-}
-
 module Web.DOM.Internal.Types where
 
 import Data.Foreign (Foreign)
+import Halogen.JSBits (Callback)
 import HPrelude
 import Unsafe.Coerce (unsafeCoerce)
-
-#if defined(javascript_HOST_ARCH)
-import GHC.JS.Prim
-import GHC.JS.Foreign.Callback
-#endif
 
 newtype Node = Node (Foreign Node)
 
@@ -21,13 +15,7 @@ newtype HTMLElement = HTMLElement (Foreign HTMLElement)
 
 newtype HTMLCollection = HTMLCollection (Foreign HTMLCollection)
 
-#if defined(javascript_HOST_ARCH)
-newtype EventListener = EventListener (Callback (JSVal -> IO ()))
-#elif defined(wasm32_HOST_ARCH)
-newtype EventListener = EventListener (Foreign EventListener)
-#else
-newtype EventListener = EventListener (Foreign EventListener)
-#endif
+newtype EventListener = EventListener Callback
 
 newtype Document = Document (Foreign Document)
 

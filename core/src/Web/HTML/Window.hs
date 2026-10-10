@@ -16,45 +16,29 @@ module Web.HTML.Window
   )
 where
 
-#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
-import Data.Foreign
-import Halogen.JSBits (browserJS, Safety (..))
-#endif
-
+import Halogen.JSBits (JSText, Safety (..), browserJS, fromJSText)
 import HPrelude
 import Web.DOM.Internal.Types (Window (..))
 
-#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 $(browserJS ["jsbits/web_browser.js"]
-  [ ("js_window_inner_width", "js_window_inner_width", Unsafe, [t| Window -> IO (Foreign Int) |])
-  , ("js_window_inner_height", "js_window_inner_height", Unsafe, [t| Window -> IO (Foreign Int) |])
-  , ("js_window_location_hash", "js_window_location_hash", Unsafe, [t| Window -> IO (Foreign Text) |])
+  [ ("js_window_inner_width", "js_window_inner_width", Unsafe, [t| Window -> IO Int |])
+  , ("js_window_inner_height", "js_window_inner_height", Unsafe, [t| Window -> IO Int |])
+  , ("js_window_location_hash", "js_window_location_hash", Unsafe, [t| Window -> IO JSText |])
   ])
-#endif
 
--- | The width of the viewport, in CSS pixels.
+-- | The width of the viewport, in CSS pixels. Natively, with no viewport, 0.
 innerWidth :: (MonadIO m) => Window -> m Int
+innerWidth = liftIO . js_window_inner_width
 
--- | The height of the viewport, in CSS pixels.
+-- | The height of the viewport, in CSS pixels. Natively 0.
 innerHeight :: (MonadIO m) => Window -> m Int
+innerHeight = liftIO . js_window_inner_height
 
 -- | The fragment of the page's URL, @#@ included, or empty when there is
 -- none. A link to @#/somewhere@ changes it without loading a page, adds a
 -- history entry, and fires @hashchange@ on the window, which together make it
 -- the router a page served from static files can have: back, forward, reload
--- and deep links all arrive as the same event and the same read.
+-- and deep links all arrive as the same event and the same read. A page that
+-- was not loaded from a URL, natively, has no fragment.
 locationHash :: (MonadIO m) => Window -> m Text
-
-#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
-innerWidth w = liftIO $ foreignToInt <$> js_window_inner_width w
-innerHeight w = liftIO $ foreignToInt <$> js_window_inner_height w
-locationHash w = liftIO $ foreignToString <$> js_window_location_hash w
-#else
--- There is no viewport to measure, and no number that would be less of a lie
--- than another.
-innerWidth _ = panic "innerWidth: not available in GHC"
-innerHeight _ = panic "innerHeight: not available in GHC"
-
--- A page that was not loaded from a URL has no fragment in it.
-locationHash _ = pure ""
-#endif
+locationHash w = liftIO $ fromJSText <$> js_window_location_hash w

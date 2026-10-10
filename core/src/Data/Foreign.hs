@@ -4,16 +4,20 @@
 module Data.Foreign where
 
 import GHC.Base (isTrue#, reallyUnsafePtrEquality, reallyUnsafePtrEquality#)
+import Halogen.JSBits (JSVal)
 import HPrelude
 import Unsafe.Coerce (unsafeCoerce)
 
 #if defined(javascript_HOST_ARCH)
 import GHC.Base (Int#)
-import GHC.JS.Prim
+import GHC.JS.Prim hiding (JSVal)
+import Halogen.JSBits (Inert (..))
 
 type Foreign tag = JSVal
 
 newtype Nullable tag = Nullable (Foreign tag)
+
+instance Inert (Nullable tag) where inert = Nullable inert
 
 foreign import javascript unsafe "(($1) => { return (!!$1 ? 1 : 0); })" foreignToBool' :: Foreign tag -> Int#
 
@@ -50,11 +54,14 @@ foreignToInt = fromJSInt
 foreignToBool :: Foreign tag -> Bool
 foreignToBool x = isTrue# (foreignToBool' x)
 #elif defined(wasm32_HOST_ARCH)
-import GHC.Wasm.Prim
+import GHC.Wasm.Prim hiding (JSVal)
+import Halogen.JSBits (Inert (..))
 
 type Foreign tag = JSVal
 
 newtype Nullable tag = Nullable (Foreign tag)
+
+instance Inert (Nullable tag) where inert = Nullable inert
 
 foreign import javascript unsafe "$1 == null"
   foreignIsNullish :: Foreign tag -> Bool
@@ -93,7 +100,8 @@ foreignToString :: Foreign tag -> Text
 foreignToString = toS . fromJSString . JSString
 #else
 
-newtype Foreign tag = Foreign Any
+-- | A placeholder for what an engine would hold: a newtype over 'Any'.
+type Foreign tag = JSVal
 
 type Nullable tag = Maybe (Foreign tag)
 
@@ -101,10 +109,10 @@ nullableToMaybe :: Nullable tag -> Maybe (Foreign tag)
 nullableToMaybe = identity
 
 toForeign :: a -> Foreign tag
-toForeign = Foreign . unsafeCoerce
+toForeign = unsafeCoerce
 
 unsafeFromForeign :: Foreign tag -> a
-unsafeFromForeign (Foreign o) = unsafeCoerce o
+unsafeFromForeign = unsafeCoerce
 
 stringToForeign :: Text -> Foreign tag
 stringToForeign = toForeign

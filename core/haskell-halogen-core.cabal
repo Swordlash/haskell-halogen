@@ -83,12 +83,11 @@ common commons
       safe-exceptions,
       exceptions,
       clay >= 0.16.0,
-      data-default
+      data-default,
+      haskell-halogen-jsbits
 
   if arch(wasm32)
-    build-depends: ghc-experimental, haskell-halogen-jsbits
-  if arch(javascript)
-    build-depends: haskell-halogen-jsbits
+    build-depends: ghc-experimental
 
 library
     import: commons

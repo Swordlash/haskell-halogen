@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+`browserJS` needs no CPP around it: natively it declares each binding as an
+`inert` stub. `Halogen.JSBits.Value` (re-exported from `Halogen.JSBits`) gives
+the types that differ between the backends one name on all of them: `JSVal`,
+`JSText` (`toJSText`, `fromJSText`, `jsValText`), `Callback` (`mkCallback`,
+`mkSyncCallback`, `freeCallback`, `invokeCallback`), with `isNull`, `inBrowser`
+and the `Inert` class. Packages using it now depend on it on every architecture.
+
 `browserJS` takes one list of bindings for both browser backends: `wasmJS` on
 WebAssembly, `foreign import`s by name on the JavaScript backend (an awaited one
 `interruptible`, its rejection thrown as an `IOError`).

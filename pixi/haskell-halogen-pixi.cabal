@@ -55,12 +55,8 @@ library
         containers,
         primitive,
         unliftio-core,
-        haskell-halogen-core
-
-    if arch(wasm32)
-      build-depends: ghc-experimental, haskell-halogen-jsbits
-    if arch(javascript)
-      build-depends: haskell-halogen-jsbits
+        haskell-halogen-core,
+        haskell-halogen-jsbits
 
     exposed-modules:
       Halogen.Canvas.Pixi

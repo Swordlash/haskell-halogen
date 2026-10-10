@@ -131,8 +131,9 @@ function halogen_test_is_visible(element) {
   return element.checkVisibility();
 }
 
+// 1 or 0: a number crosses both backends' pure imports the same way.
 function halogen_test_same_element(a, b) {
-  return a === b;
+  return a === b ? 1 : 0;
 }
 
 function halogen_test_is_connected(element) {
@@ -140,7 +141,7 @@ function halogen_test_is_connected(element) {
 }
 
 function halogen_test_is_null(value) {
-  return value == null;
+  return value == null ? 1 : 0;
 }
 
 function halogen_test_length(array) {

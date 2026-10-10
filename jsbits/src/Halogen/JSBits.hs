@@ -4,15 +4,22 @@
 
 -- | Compile ordinary jsbits into the WASM JSFFI module. The same files are
 -- linked by the JavaScript backend through Cabal's @js-sources@ field.
-module Halogen.JSBits (browserJS, wasmJS, Safety (..)) where
+module Halogen.JSBits
+  ( browserJS
+  , wasmJS
+  , Safety (..)
+  , module Halogen.JSBits.Value
+  )
+where
 
 import Control.Monad (forM)
 #if defined(javascript_HOST_ARCH)
 import Control.Exception (throwIO)
 import Control.Monad (unless)
-import GHC.JS.Prim (JSVal, fromJSString, isNull)
+import GHC.JS.Prim (fromJSString)
 #endif
 import Data.List (intercalate)
+import Halogen.JSBits.Value
 import Language.Haskell.TH
 import Language.Haskell.TH.Syntax (addDependentFile)
 import System.Directory (doesFileExist, makeAbsolute)
@@ -68,12 +75,15 @@ wasmJS files bindings = do
     arity (SigT ty _) = arity ty
     arity _ = 0
 
--- | One list of bindings for both browser backends: on WebAssembly it is
--- 'wasmJS'; on the JavaScript backend, where Cabal links the same files
--- through @js-sources@, each binding imports its JavaScript function by name.
--- A safe binding there is @interruptible@: it awaits the function's Promise
--- and throws its rejection as an 'IOError'. It must return @IO ()@, and the
--- module splicing it needs @InterruptibleFFI@.
+-- | One list of bindings for every backend: on WebAssembly it is 'wasmJS'; on
+-- the JavaScript backend, where Cabal links the same files through
+-- @js-sources@, each binding imports its JavaScript function by name. A safe
+-- binding there is @interruptible@: it awaits the function's Promise and
+-- throws its rejection as an 'IOError'. It must return @IO ()@, and the module
+-- splicing it needs @InterruptibleFFI@.
+--
+-- Natively, with no engine to call, each binding is 'inert': it does nothing
+-- and returns nothing in particular.
 browserJS :: [FilePath] -> [(String, String, Safety, Q Type)] -> Q [Dec]
 #if defined(javascript_HOST_ARCH)
 browserJS _ bindings = concat <$> forM bindings importByName
@@ -114,8 +124,15 @@ browserJS _ bindings = concat <$> forM bindings importByName
     arity :: Type -> Int
     arity (AppT (AppT ArrowT _) result) = 1 + arity result
     arity _ = 0
-#else
+#elif defined(wasm32_HOST_ARCH)
 browserJS = wasmJS
+#else
+browserJS _ bindings = concat <$> forM bindings stub
+  where
+    stub (haskell, _, _, quotedType) = do
+      ty <- quotedType
+      let function = mkName haskell
+      pure [SigD function ty, ValD (VarP function) (NormalB (VarE 'inert)) []]
 #endif
 
 -- Locate sources relative to the package, even when Cabal compiles from a
