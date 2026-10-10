@@ -85,9 +85,9 @@ and wired into `test/Test.hs`.
   On the JS backend the same suites run in Chromium too: `ghcjs-test-wrapper.sh` recognises a
   program that uses hspec-halogen's page functions and hands it to `hspec-halogen test`, which
   bundles `<suite>.jsexe/all.js` with esbuild and loads it; its FFI is
-  `Test.Hspec.Halogen.Internal.JS` (`interruptible` imports for the async calls). Both
+  `Test.Hspec.Halogen.Internal.Page` (`interruptible` imports for the async calls). Both
   browser suites therefore also test core's JS-backend DOM code (`core/jsbits/monad_dom.js`).
-  Natively `hspec-halogen` builds (its page functions panic, see
+  Natively `hspec-halogen` builds (its page functions do nothing, see
   `Test.Hspec.Halogen.Internal.Page`) so suites type-check for HLS; there `runBrowserTests`
   only reports a skip.
 - `core/jsbits/polyfills.js`, one of core's `js-sources`, defines the `h$` functions other
@@ -153,11 +153,14 @@ reconciler. Keyed groups (`keyedGroup`, `withKeys`) preserve identity across reo
 
 JS-backend imports link ordinary JavaScript from each package's `jsbits/` through
 `js-sources`; WASM embeds those same files at compile time. Declare the imports
-once with `Halogen.JSBits.browserJS` (a binding list for both backends: `wasmJS`
-on WASM, imports by name on JS) under `#if defined(javascript_HOST_ARCH) ||
-defined(wasm32_HOST_ARCH)`; a type that differs between the backends goes through
-a per-backend synonym. Keep browser logic in jsbits and only representation conversions, callback
-adapters and scheduling primitives in backend-specific imports. The WASM project
+once with `Halogen.JSBits.browserJS`, without CPP: one binding list for every
+backend (`wasmJS` on WASM, imports by name on JS, `inert` stubs natively). Types
+that differ between the backends are `Halogen.JSBits`' own (`JSVal`, `JSText`,
+`Callback`, with `toJSText`, `mkCallback` and the rest), so the only CPP for FFI
+is in `jsbits/src/Halogen/JSBits/Value.hs`; a wrapper that must do something else
+natively asks `inBrowser`. A result type needs an `Inert` instance (derive it for
+a newtype over `Foreign`). Keep browser logic in jsbits and only representation
+conversions, callback adapters and scheduling primitives in backend-specific imports. The WASM project
 enables shared dependencies because its Template Haskell interpreter loads dynamic
 objects. Sources must ship in `extra-source-files`; `addDependentFile` tracks edits.
 Material's shared JS is already bundled with its external npm dependencies.

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* The page functions are one module for both browser backends, without CPP;
+  natively they do nothing rather than panic (no suite reaches them there).
+
 * `dragTo source target` drags one element onto another through Playwright's
   mouse, which fires pointer, mouse and HTML5 drag and drop events alike.
   Without the runner it dispatches the same events itself.

@@ -8,22 +8,18 @@ module Web.HTML.HTMLDocument
   )
 where
 
-#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
-import Halogen.JSBits (browserJS, Safety (..))
-#endif
-
 import Data.Coerce
-import Data.Foreign
+import Halogen.JSBits (JSText, Safety (..), browserJS, fromJSText, toJSText)
 import HPrelude
 import Web.DOM.Internal.Types
 import Web.DOM.ParentNode (ParentNode (..))
 
-#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+-- No browser, no cookie jar: natively reads find nothing and writes go
+-- nowhere, as with "Web.Storage.Storage".
 $(browserJS ["jsbits/web_browser.js"]
-  [ ("js_document_cookie", "js_document_cookie", Unsafe, [t| HTMLDocument -> IO (Foreign Text) |])
-  , ("js_document_set_cookie", "js_document_set_cookie", Unsafe, [t| Foreign Text -> HTMLDocument -> IO () |])
+  [ ("js_document_cookie", "js_document_cookie", Unsafe, [t| HTMLDocument -> IO JSText |])
+  , ("js_document_set_cookie", "js_document_set_cookie", Unsafe, [t| JSText -> HTMLDocument -> IO () |])
   ])
-#endif
 
 toParentNode :: HTMLDocument -> ParentNode
 toParentNode = coerce
@@ -32,17 +28,10 @@ toParentNode = coerce
 -- separated by @"; "@. "Web.HTML.Cookie" reads and writes this in terms of
 -- single cookies, which is almost always what is wanted.
 cookie :: (MonadIO m) => HTMLDocument -> m Text
+cookie doc = liftIO $ fromJSText <$> js_document_cookie doc
 
 -- | Write one cookie. The string is a single cookie and its attributes, and
 -- assigning it adds or replaces that cookie rather than replacing the lot.
 setCookie :: (MonadIO m) => Text -> HTMLDocument -> m ()
+setCookie value doc = liftIO $ js_document_set_cookie (toJSText value) doc
 
-#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
-cookie doc = liftIO $ foreignToString <$> js_document_cookie doc
-setCookie value doc = liftIO $ js_document_set_cookie (stringToForeign value) doc
-#else
--- No browser, no cookie jar: reads find nothing and writes go nowhere, as
--- with "Web.Storage.Storage".
-cookie _ = pure ""
-setCookie _ _ = pass
-#endif

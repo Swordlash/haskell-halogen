@@ -1,27 +1,42 @@
 # Shared JavaScript FFI
 
 `Halogen.JSBits.browserJS` declares a package's JavaScript functions once for
-both browser backends. On WebAssembly it is `wasmJS`, which embeds the files; on
-the JavaScript backend, which links the same files through `js-sources`, each
-binding is a `foreign import javascript` of the function by name. Keep browser
-logic in `jsbits/`; Haskell declarations specify only the function name, safety
-and typed signature. Backend-specific value conversions and callback adapters
-remain in Haskell: where a type differs between the backends (a string is a
-`JSString` on one, a `JSVal` on the other), name it with a type synonym defined
-per backend before the splice.
+every backend, with no CPP in the module that splices it. On WebAssembly it is
+`wasmJS`, which embeds the files; on the JavaScript backend, which links the
+same files through `js-sources`, each binding is a `foreign import javascript`
+of the function by name; natively, with no engine to call, each binding is
+`inert`: an `IO` one does nothing and returns `False`, `0`, `""`, `Nothing`,
+`()` or a placeholder handle. Keep browser logic in `jsbits/`; Haskell
+declarations specify only the function name, safety and typed signature.
 
 ```haskell
-#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 $(browserJS ["jsbits/sound.js"]
-  [("js_pause", "halogen_sound_pause", Unsafe, [t| JSVal -> IO () |])])
-#endif
+  [ ("js_fetch", "halogen_sound_fetch", Unsafe, [t| JSText -> Callback -> IO () |])
+  , ("js_pause", "halogen_sound_pause", Unsafe, [t| JSVal -> IO () |]) ])
 ```
+
+The types that differ between the backends are this package's, the same name
+on all of them (`Halogen.JSBits.Value`, re-exported here):
+
+- `JSVal`: the engine's value; natively an opaque placeholder.
+- `JSText`, a string as a binding passes it (a `JSVal` holding one in a
+  browser, `Text` natively), with `toJSText` and `fromJSText`;
+  `jsValText` reads a `JSVal` known to hold a string.
+- `Callback`, a Haskell function JavaScript calls with one `JSVal`:
+  `mkCallback`, `mkSyncCallback` (runs at once, so a handler can still prevent
+  an event's default), `freeCallback`, `invokeCallback`.
+- `isNull`, and `inBrowser` for the rare wrapper that must do something else
+  natively than nothing.
+
+A binding's result type needs an `Inert` instance: there is one for `()`,
+`Bool`, `Int`, `Double`, `Text`, `Maybe`, `JSVal`, functions and `IO`; a
+newtype over a `JSVal` derives it (`deriving newtype (Inert)`).
 
 A `Safe` binding awaits the function's Promise. On WebAssembly that is an async
 import; on the JavaScript backend an `interruptible` one, whose rejection is
 thrown as an `IOError`. There it must return `IO ()`, and the module splicing it
-needs `InterruptibleFFI`. The package depends on `haskell-halogen-jsbits` for
-both architectures.
+needs `InterruptibleFFI`. The package depends on `haskell-halogen-jsbits` on
+every architecture.
 
 The splice reads sources relative to the package, records them with
 `addDependentFile`, and emits an initialization import plus small typed wrappers.

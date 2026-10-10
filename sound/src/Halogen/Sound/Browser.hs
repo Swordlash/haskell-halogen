@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 -- | The backend for a page: HTML audio elements, playing files fetched
@@ -18,32 +17,12 @@ module Halogen.Sound.Browser
   )
 where
 
-#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
-import Halogen.JSBits (browserJS, Safety (..))
-#endif
-
+import Halogen.JSBits
 import Halogen.Sound.Backend
 import Protolude
 
-#if defined(javascript_HOST_ARCH)
-import GHC.JS.Foreign.Callback qualified as JS
-import GHC.JS.Prim (JSVal, isNull, toJSString)
-#elif defined(wasm32_HOST_ARCH)
-import GHC.Wasm.Prim (JSString (..), JSVal, freeJSVal, toJSString)
-#endif
-
-#if defined(javascript_HOST_ARCH)
-type Callback = JS.Callback (JSVal -> IO ())
-
--- | A string as the backend passes it to JavaScript.
-type JSText = JSVal
-#elif defined(wasm32_HOST_ARCH)
-type Callback = JSVal
-
-type JSText = JSString
-#endif
-
-#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+-- Natively nothing is fetched (a fetch never calls back) and a voice never
+-- ends. 'fetchClip' does not wait there.
 $(browserJS ["jsbits/sound.js"]
   [ ("js_fetch", "halogen_sound_fetch", Unsafe, [t| JSText -> Callback -> IO () |])
   , ("js_release", "halogen_sound_release", Unsafe, [t| JSVal -> IO () |])
@@ -55,7 +34,6 @@ $(browserJS ["jsbits/sound.js"]
   , ("js_time", "halogen_sound_time", Unsafe, [t| JSVal -> IO Double |])
   , ("js_duration", "halogen_sound_duration", Unsafe, [t| JSVal -> IO Double |])
   ])
-#endif
 
 browser :: Backend Clip Voice
 browser =
@@ -70,8 +48,6 @@ browser =
     , voiceProgress
     }
 
-#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
-
 -- | A blob URL.
 newtype Clip = Clip JSVal
 
@@ -80,10 +56,11 @@ newtype Clip = Clip JSVal
 data Voice = Voice JSVal Callback Callback
 
 fetchClip :: Text -> IO (Maybe Clip)
+fetchClip _ | not inBrowser = pure Nothing
 fetchClip url = do
   result <- newEmptyMVar
-  done <- mkCallback $ \value -> putMVar result (if jsIsNull value then Nothing else Just (Clip value))
-  js_fetch (jsText url) done
+  done <- mkCallback $ \value -> putMVar result (if isNull value then Nothing else Just (Clip value))
+  js_fetch (toJSText url) done
   clip <- takeMVar result
   freeCallback done
   pure clip
@@ -119,62 +96,3 @@ voiceProgress (Voice audio _ _) = do
   total <- js_duration audio
   pure (if isNaN total || isInfinite total || total <= 0 then Nothing else Just (at, total))
 
-#endif
-
-#if defined(javascript_HOST_ARCH)
-
-mkCallback :: (JSVal -> IO ()) -> IO Callback
-mkCallback = JS.asyncCallback1
-
-freeCallback :: Callback -> IO ()
-freeCallback = JS.releaseCallback
-
-jsText :: Text -> JSText
-jsText = toJSString . toS
-
-jsIsNull :: JSVal -> Bool
-jsIsNull = isNull
-
-#elif defined(wasm32_HOST_ARCH)
-
-foreign import javascript "wrapper" mkCallback :: (JSVal -> IO ()) -> IO Callback
-
-freeCallback :: Callback -> IO ()
-freeCallback = freeJSVal
-
-jsText :: Text -> JSText
-jsText = toJSString . toS
-
-foreign import javascript unsafe "$1 === null" jsIsNull :: JSVal -> Bool
-#else
-
--- | Never had: nothing is fetched here.
-data Clip
-
-data Voice = Voice
-
-fetchClip :: Text -> IO (Maybe Clip)
-fetchClip _ = pure Nothing
-
-releaseClip :: Clip -> IO ()
-releaseClip _ = pass
-
-startVoice :: Clip -> Voicing -> IO () -> IO () -> IO Voice
-startVoice _ _ _ _ = pure Voice
-
-stopVoice :: Voice -> IO ()
-stopVoice _ = pass
-
-setVolume :: Voice -> Double -> IO ()
-setVolume _ _ = pass
-
-pauseVoice :: Voice -> IO ()
-pauseVoice _ = pass
-
-resumeVoice :: Voice -> IO ()
-resumeVoice _ = pass
-
-voiceProgress :: Voice -> IO (Maybe (Double, Double))
-voiceProgress _ = pure Nothing
-
-#endif

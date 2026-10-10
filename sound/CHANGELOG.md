@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+The browser backend is declared once, without CPP: natively its bindings are
+`browserJS`'s inert stubs, and `fetchClip` returns `Nothing` without waiting.
+
 A restored album consumes its saved position on its first start; muting or
 setting the volume to zero and then restarting no longer reuses that position.
 Resuming an album preserves duplicate track entries in the first round.
@@ -36,6 +39,9 @@ backend seeks after metadata is loaded, before any audio is heard.
 
 ## Unreleased
 
+The browser backend is declared once, without CPP: natively its bindings are
+`browserJS`'s inert stubs, and `fetchClip` returns `Nothing` without waiting.
+
 * `musicProgress`: how far the music's track has played and how long it
   is, for a page to show.
 * **Breaking:** `Backend` has `voiceProgress`.
@@ -44,6 +50,9 @@ backend seeks after metadata is loaded, before any audio is heard.
   album goes on to its next track instead of waiting forever.
 
 ## Unreleased
+
+The browser backend is declared once, without CPP: natively its bindings are
+`browserJS`'s inert stubs, and `fetchClip` returns `Nothing` without waiting.
 
 * `skipTrack`: skips the album's track playing, or the one waiting out its
   gap, and plays the one after it at once; each call skips one more, also

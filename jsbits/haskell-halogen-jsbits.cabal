@@ -12,11 +12,13 @@ build-type: Simple
 extra-source-files: README.md, CHANGELOG.md, test/fixture.js, test/boundary-a.js, test/boundary-b.js
 
 library
-  exposed-modules: Halogen.JSBits
+  exposed-modules: Halogen.JSBits, Halogen.JSBits.Value
   hs-source-dirs: src
   default-language: GHC2021
   ghc-options: -Wall -Wextra
-  build-depends: base >= 4.20, template-haskell, directory, filepath
+  build-depends: base >= 4.20, template-haskell, directory, filepath, text
+  if arch(wasm32)
+    build-depends: ghc-experimental
 
 test-suite jsbits-test
   type: exitcode-stdio-1.0

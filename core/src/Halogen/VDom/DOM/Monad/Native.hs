@@ -161,7 +161,7 @@ newNode k = do
     <*> newIORef []
 
 -- | Reinterpret one of the DOM newtypes as a node. Sound because they are all
--- @newtype X = X (Foreign X)@ and @Foreign tag = Foreign Any@ on native.
+-- @newtype X = X (Foreign X)@ and @Foreign tag@ a newtype over @Any@ on native.
 toNative :: a -> NativeNode
 toNative = unsafeCoerce
 

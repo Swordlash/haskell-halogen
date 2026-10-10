@@ -107,4 +107,4 @@ wrong: whether the mismatch comes from how the wasm GHC is built (its
 - **JavaScript backend, `interruptible` imports.** They need
   `InterruptibleFFI`, and the JavaScript gets its continuation as a trailing
   `$c` argument. The guide's JavaScript FFI section could show an example like
-  those in `hspec-halogen/src/Test/Hspec/Halogen/Internal/JS.hs`.
+  those `browserJS` generates for a safe binding (`jsbits/src/Halogen/JSBits.hs`).
