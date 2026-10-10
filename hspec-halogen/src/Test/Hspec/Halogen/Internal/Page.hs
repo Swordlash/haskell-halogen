@@ -18,6 +18,7 @@ module Test.Hspec.Halogen.Internal.Page
   , querySelector
   , querySelectorAll
   , act
+  , drag
   , pressKey
   , focusElement
   , blurElement
@@ -74,6 +75,9 @@ querySelectorAll :: Element -> Text -> IO [Element]
 -- has.
 act :: Text -> Element -> Text -> IO ()
 
+-- | Have the runner drag one element onto another, and wait until it has.
+drag :: Element -> Element -> IO ()
+
 -- | Have the runner press a key on the focused element, and wait until it has.
 pressKey :: Text -> IO ()
 
@@ -120,6 +124,8 @@ querySelector _ _ = needsBrowser
 querySelectorAll _ _ = needsBrowser
 
 act _ _ _ = needsBrowser
+
+drag _ _ = needsBrowser
 
 pressKey _ = needsBrowser
 

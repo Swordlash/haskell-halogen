@@ -22,6 +22,7 @@ module Test.Hspec.Halogen.Internal.JS
   , querySelector
   , querySelectorAll
   , act
+  , drag
   , pressKey
   , focusElement
   , blurElement
@@ -78,6 +79,9 @@ querySelectorAll scope selector = map Element <$> (fromJSArray =<< js_query_sele
 
 act :: Text -> Element -> Text -> IO ()
 act action element argument = awaitOk $ js_act (jsText action) element (jsText argument)
+
+drag :: Element -> Element -> IO ()
+drag source target = awaitOk $ js_drag source target
 
 pressKey :: Text -> IO ()
 pressKey key = awaitOk $ js_press (jsText key)
@@ -162,6 +166,9 @@ foreign import javascript unsafe "halogen_test_query_selector_all"
 -- for most components, though focus and key events differ from a user's.
 foreign import javascript interruptible "((a1, a2, a3, done) => { halogen_test_act(a1, a2, a3).then(() => done(null), error => done(String(error?.message ?? error))); })"
   js_act :: JSVal -> Element -> JSVal -> IO JSVal
+
+foreign import javascript interruptible "((a1, a2, done) => { halogen_test_drag(a1, a2).then(() => done(null), error => done(String(error?.message ?? error))); })"
+  js_drag :: Element -> Element -> IO JSVal
 
 foreign import javascript interruptible "((a1, done) => { halogen_test_press(a1).then(() => done(null), error => done(String(error?.message ?? error))); })"
   js_press :: JSVal -> IO JSVal

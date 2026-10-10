@@ -19,6 +19,7 @@ import Web.UIEvent.KeyboardEvent
 import Web.UIEvent.KeyboardEvent.EventTypes qualified as KET
 import Web.UIEvent.MouseEvent
 import Web.UIEvent.MouseEvent.EventTypes qualified as MET
+import Web.UIEvent.PointerEvent
 import Web.UIEvent.TouchEvent
 import Web.UIEvent.WheelEvent
 import Web.UIEvent.WheelEvent.EventTypes qualified as WET
@@ -187,6 +188,36 @@ onTouchMove = handler (EventType "touchmove") . touchHandler
 onTouchStart :: forall r i. (HasType "onTouchStart" TouchEvent r) => (TouchEvent -> i) -> IProp r i
 onTouchStart = handler (EventType "touchstart") . touchHandler
 
+onPointerOver :: forall r i. (HasType "onPointerOver" PointerEvent r) => (PointerEvent -> i) -> IProp r i
+onPointerOver = handler (EventType "pointerover") . pointerHandler
+
+onPointerEnter :: forall r i. (HasType "onPointerEnter" PointerEvent r) => (PointerEvent -> i) -> IProp r i
+onPointerEnter = handler (EventType "pointerenter") . pointerHandler
+
+onPointerDown :: forall r i. (HasType "onPointerDown" PointerEvent r) => (PointerEvent -> i) -> IProp r i
+onPointerDown = handler (EventType "pointerdown") . pointerHandler
+
+onPointerMove :: forall r i. (HasType "onPointerMove" PointerEvent r) => (PointerEvent -> i) -> IProp r i
+onPointerMove = handler (EventType "pointermove") . pointerHandler
+
+onPointerUp :: forall r i. (HasType "onPointerUp" PointerEvent r) => (PointerEvent -> i) -> IProp r i
+onPointerUp = handler (EventType "pointerup") . pointerHandler
+
+onPointerCancel :: forall r i. (HasType "onPointerCancel" PointerEvent r) => (PointerEvent -> i) -> IProp r i
+onPointerCancel = handler (EventType "pointercancel") . pointerHandler
+
+onPointerOut :: forall r i. (HasType "onPointerOut" PointerEvent r) => (PointerEvent -> i) -> IProp r i
+onPointerOut = handler (EventType "pointerout") . pointerHandler
+
+onPointerLeave :: forall r i. (HasType "onPointerLeave" PointerEvent r) => (PointerEvent -> i) -> IProp r i
+onPointerLeave = handler (EventType "pointerleave") . pointerHandler
+
+onGotPointerCapture :: forall r i. (HasType "onGotPointerCapture" PointerEvent r) => (PointerEvent -> i) -> IProp r i
+onGotPointerCapture = handler (EventType "gotpointercapture") . pointerHandler
+
+onLostPointerCapture :: forall r i. (HasType "onLostPointerCapture" PointerEvent r) => (PointerEvent -> i) -> IProp r i
+onLostPointerCapture = handler (EventType "lostpointercapture") . pointerHandler
+
 onResize :: forall r i. (HasType "onResize" Event r) => (Event -> i) -> IProp r i
 onResize = handler (EventType "resize")
 
@@ -195,6 +226,9 @@ keyHandler = coerce
 
 mouseHandler :: forall i. (MouseEvent -> i) -> Event -> i
 mouseHandler = coerce
+
+pointerHandler :: forall i. (PointerEvent -> i) -> Event -> i
+pointerHandler = coerce
 
 wheelHandler :: forall i. (WheelEvent -> i) -> Event -> i
 wheelHandler = coerce

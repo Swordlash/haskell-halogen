@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+`onPointerDown`, `onPointerMove`, `onPointerUp` and the other pointer event
+handlers, and pointer and drag and drop events on SVG elements, which only
+accepted mouse and keyboard ones.
+
 `currentTarget` now consistently returns the node running the handler on both
 browser backends, including when an event bubbles from a descendant. Legacy DOM
 tracing instrumentation and its Cabal flag have been removed.

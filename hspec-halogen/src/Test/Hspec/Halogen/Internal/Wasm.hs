@@ -14,6 +14,7 @@ module Test.Hspec.Halogen.Internal.Wasm
   , querySelector
   , querySelectorAll
   , act
+  , drag
   , pressKey
   , focusElement
   , blurElement
@@ -45,6 +46,7 @@ $( wasmJS
      , ("js_query_selector", "halogen_test_query_selector", Unsafe, [t|Element -> JSVal -> IO JSVal|])
      , ("js_query_selector_all", "halogen_test_query_selector_all", Unsafe, [t|Element -> JSVal -> IO JSVal|])
      , ("js_act", "halogen_test_act", Safe, [t|JSVal -> Element -> JSVal -> IO ()|])
+     , ("js_drag", "halogen_test_drag", Safe, [t|Element -> Element -> IO ()|])
      , ("js_press", "halogen_test_press", Safe, [t|JSVal -> IO ()|])
      , ("js_settle", "halogen_test_settle", Safe, [t|IO ()|])
      , ("js_focus", "halogen_test_focus", Unsafe, [t|Element -> IO ()|])
@@ -87,6 +89,9 @@ querySelectorAll :: Element -> Text -> IO [Element]
 -- | Have the runner click, type into or clear an element, and wait until it
 -- has.
 act :: Text -> Element -> Text -> IO ()
+
+-- | Have the runner drag one element onto another, and wait until it has.
+drag :: Element -> Element -> IO ()
 
 -- | Have the runner press a key on the focused element, and wait until it has.
 pressKey :: Text -> IO ()
@@ -132,6 +137,8 @@ querySelector scope selector = do
 querySelectorAll scope selector = map Element . fromJSVals <$> js_query_selector_all scope (jsText selector)
 
 act action element argument = awaitJS $ js_act (jsText action) element (jsText argument)
+
+drag source target = awaitJS $ js_drag source target
 
 pressKey key = awaitJS $ js_press (jsText key)
 

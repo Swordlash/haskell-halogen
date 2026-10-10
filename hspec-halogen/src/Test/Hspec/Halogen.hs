@@ -85,6 +85,7 @@ module Test.Hspec.Halogen
 
     -- * Acting
   , click
+  , dragTo
   , typeText
   , clear
   , press
@@ -326,6 +327,13 @@ findAllIn (Element element) selector = unsafeIOToPageM $ map Element <$> Page.qu
 -- stable, enabled and not covered, then clicks its centre.
 click :: Element s -> PageM s ()
 click = viaRunner "click" ""
+
+-- | Drag the first element onto the second as a user would with the mouse:
+-- press on its centre, move to the other's, release. Under the runner
+-- Playwright does it, so the page sees pointer and mouse events along the
+-- way, and Chromium's HTML5 @dragstart@, @dragover@ and @drop@.
+dragTo :: Element s -> Element s -> PageM s ()
+dragTo (Element source) (Element target) = unsafeIOToPageM (Page.drag source target) >> settle
 
 -- | Type text into an element key by key, after what it already holds.
 typeText :: Element s -> Text -> PageM s ()

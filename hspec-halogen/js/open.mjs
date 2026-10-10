@@ -59,10 +59,12 @@ await page.exposeFunction("__halogenTestAct", async (action, selector, text) => 
   else if (action === "clear") await target.clear();
   else throw new Error(`unknown action ${action}`);
 });
+await page.exposeFunction("__halogenTestDrag", (source, target) => page.locator(source).dragTo(page.locator(target)));
 await page.exposeFunction("__halogenTestPress", (key) => page.keyboard.press(key));
 await page.addInitScript(() => {
   globalThis.__halogenTest = {
     act: (action, selector, text) => globalThis.__halogenTestAct(action, selector, text),
+    drag: (source, target) => globalThis.__halogenTestDrag(source, target),
     press: (key) => globalThis.__halogenTestPress(key),
   };
 });
