@@ -8,8 +8,8 @@ module Web.HTML.HTMLDocument
   )
 where
 
-#if defined(wasm32_HOST_ARCH)
-import Halogen.JSBits (wasmJS, Safety (..))
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+import Halogen.JSBits (browserJS, Safety (..))
 #endif
 
 import Data.Coerce
@@ -18,8 +18,8 @@ import HPrelude
 import Web.DOM.Internal.Types
 import Web.DOM.ParentNode (ParentNode (..))
 
-#if defined(wasm32_HOST_ARCH)
-$(wasmJS ["jsbits/web_browser.js"]
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+$(browserJS ["jsbits/web_browser.js"]
   [ ("js_document_cookie", "js_document_cookie", Unsafe, [t| HTMLDocument -> IO (Foreign Text) |])
   , ("js_document_set_cookie", "js_document_set_cookie", Unsafe, [t| Foreign Text -> HTMLDocument -> IO () |])
   ])
@@ -36,11 +36,6 @@ cookie :: (MonadIO m) => HTMLDocument -> m Text
 -- | Write one cookie. The string is a single cookie and its attributes, and
 -- assigning it adds or replaces that cookie rather than replacing the lot.
 setCookie :: (MonadIO m) => Text -> HTMLDocument -> m ()
-
-#if defined(javascript_HOST_ARCH)
-foreign import javascript unsafe "js_document_cookie" js_document_cookie :: HTMLDocument -> IO (Foreign Text)
-foreign import javascript unsafe "js_document_set_cookie" js_document_set_cookie :: Foreign Text -> HTMLDocument -> IO ()
-#endif
 
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 cookie doc = liftIO $ foreignToString <$> js_document_cookie doc

@@ -17,18 +17,15 @@ module Web.HTML.Window
 where
 
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
-#if defined(wasm32_HOST_ARCH)
-import Halogen.JSBits (wasmJS, Safety (..))
-#endif
-
 import Data.Foreign
+import Halogen.JSBits (browserJS, Safety (..))
 #endif
 
 import HPrelude
 import Web.DOM.Internal.Types (Window (..))
 
-#if defined(wasm32_HOST_ARCH)
-$(wasmJS ["jsbits/web_browser.js"]
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+$(browserJS ["jsbits/web_browser.js"]
   [ ("js_window_inner_width", "js_window_inner_width", Unsafe, [t| Window -> IO (Foreign Int) |])
   , ("js_window_inner_height", "js_window_inner_height", Unsafe, [t| Window -> IO (Foreign Int) |])
   , ("js_window_location_hash", "js_window_location_hash", Unsafe, [t| Window -> IO (Foreign Text) |])
@@ -47,12 +44,6 @@ innerHeight :: (MonadIO m) => Window -> m Int
 -- the router a page served from static files can have: back, forward, reload
 -- and deep links all arrive as the same event and the same read.
 locationHash :: (MonadIO m) => Window -> m Text
-
-#if defined(javascript_HOST_ARCH)
-foreign import javascript unsafe "js_window_inner_width" js_window_inner_width :: Window -> IO (Foreign Int)
-foreign import javascript unsafe "js_window_inner_height" js_window_inner_height :: Window -> IO (Foreign Int)
-foreign import javascript unsafe "js_window_location_hash" js_window_location_hash :: Window -> IO (Foreign Text)
-#endif
 
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 innerWidth w = liftIO $ foreignToInt <$> js_window_inner_width w
