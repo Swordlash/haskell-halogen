@@ -89,8 +89,8 @@ module Halogen.Canvas.Pixi.FFI
   )
 where
 
-#if defined(wasm32_HOST_ARCH)
-import Halogen.JSBits (wasmJS, Safety (..))
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+import Halogen.JSBits (browserJS, Safety (..))
 #endif
 
 import Data.Foreign
@@ -125,118 +125,8 @@ newtype Callback = Callback (Event -> IO ())
 canvas :: HTMLElement -> Canvas
 canvas (HTMLElement value) = Canvas value
 
-#if defined(javascript_HOST_ARCH)
-foreign import javascript unsafe "halogen_pixi_new_application" newApplication :: IO Application
-foreign import javascript unsafe "halogen_pixi_initialize_application" initializeApplicationRaw :: Application -> JSVal -> Canvas -> Callback -> IO ()
-foreign import javascript unsafe "halogen_pixi_application_created" applicationCreated :: Application -> IO Bool
-foreign import javascript unsafe "halogen_pixi_application_ready" applicationReady :: Application -> IO Bool
-foreign import javascript unsafe "halogen_pixi_destroy_application" destroyApplication :: Application -> IO ()
-foreign import javascript unsafe "halogen_pixi_new_container" newContainer :: Application -> IO Object
-foreign import javascript unsafe "halogen_pixi_new_graphics" newGraphics :: Application -> IO Object
-foreign import javascript unsafe "halogen_pixi_add_to_stage" addToStage :: Application -> Object -> IO ()
-foreign import javascript unsafe "halogen_pixi_add_child" addChild :: Object -> Object -> IO ()
-foreign import javascript unsafe "halogen_pixi_remove_child" removeChild :: Object -> Object -> IO ()
-foreign import javascript unsafe "halogen_pixi_parent_of" parentOfRaw :: Object -> IO (Nullable Object)
-foreign import javascript unsafe "halogen_pixi_set_child_index" setChildIndex :: Object -> Object -> Int -> IO ()
-foreign import javascript unsafe "halogen_pixi_destroy_object" destroyObject :: Object -> IO ()
-foreign import javascript unsafe "halogen_pixi_clear_graphics" clearGraphics :: Object -> IO ()
-foreign import javascript unsafe "halogen_pixi_move_to" moveTo :: Object -> Double -> Double -> IO ()
-foreign import javascript unsafe "halogen_pixi_line_to" lineTo :: Object -> Double -> Double -> IO ()
-foreign import javascript unsafe "halogen_pixi_rect" rect :: Object -> Double -> Double -> Double -> Double -> IO ()
-foreign import javascript unsafe "halogen_pixi_circle" circle :: Object -> Double -> Double -> Double -> IO ()
-foreign import javascript unsafe "halogen_pixi_ellipse" ellipse :: Object -> Double -> Double -> Double -> Double -> IO ()
-foreign import javascript unsafe "halogen_pixi_quadratic_curve_to" quadraticCurveTo :: Object -> Double -> Double -> Double -> Double -> IO ()
-foreign import javascript unsafe "halogen_pixi_bezier_curve_to" bezierCurveTo :: Object -> Double -> Double -> Double -> Double -> Double -> Double -> IO ()
-foreign import javascript unsafe "halogen_pixi_arc" arc :: Object -> Double -> Double -> Double -> Double -> Double -> Bool -> IO ()
-foreign import javascript unsafe "halogen_pixi_svg_path" svgPathRaw :: Application -> Object -> JSVal -> IO ()
-foreign import javascript unsafe "halogen_pixi_fill" fill :: Object -> Int -> Double -> IO ()
-foreign import javascript unsafe "halogen_pixi_stroke" stroke :: Object -> Int -> Double -> Double -> IO ()
-foreign import javascript unsafe "halogen_pixi_new_text" newText :: Application -> IO Object
-foreign import javascript unsafe "halogen_pixi_set_system_text" setSystemTextRaw :: Object -> JSVal -> JSVal -> Double -> Int -> JSVal -> IO ()
-foreign import javascript unsafe "halogen_pixi_set_asset_text" setAssetTextRaw :: Application -> Object -> JSVal -> JSVal -> JSVal -> Double -> Int -> JSVal -> IO ()
-foreign import javascript unsafe "halogen_pixi_new_sprite" newSprite :: Application -> IO Object
-foreign import javascript unsafe "halogen_pixi_set_texture" setTextureRaw :: Application -> Object -> JSVal -> IO ()
-foreign import javascript unsafe "halogen_pixi_clear_text" clearText :: Object -> IO ()
-foreign import javascript unsafe "halogen_pixi_clear_texture" clearTexture :: Application -> Object -> IO ()
-foreign import javascript unsafe "halogen_pixi_center_anchor" centerAnchor :: Object -> IO ()
-foreign import javascript unsafe "halogen_pixi_set_position" setPosition :: Object -> Double -> Double -> IO ()
-foreign import javascript unsafe "halogen_pixi_set_scale" setScale :: Object -> Double -> Double -> IO ()
-foreign import javascript unsafe "halogen_pixi_set_rotation" setRotation :: Object -> Double -> IO ()
-foreign import javascript unsafe "halogen_pixi_set_size" setSize :: Object -> Double -> Double -> IO ()
-foreign import javascript unsafe "halogen_pixi_set_outline" setOutline :: Application -> Object -> Int -> Double -> Double -> Double -> IO ()
-foreign import javascript unsafe "halogen_pixi_clear_outline" clearOutline :: Object -> IO ()
-foreign import javascript unsafe "halogen_pixi_refresh_outline" refreshOutline :: Object -> IO ()
-foreign import javascript unsafe "halogen_pixi_set_cache_as_texture" setCacheAsTexture :: Application -> Object -> Double -> IO ()
-foreign import javascript unsafe "halogen_pixi_clear_cache_as_texture" clearCacheAsTexture :: Object -> IO ()
-foreign import javascript unsafe "halogen_pixi_on" onRaw :: Object -> JSVal -> Callback -> IO ()
-foreign import javascript unsafe "halogen_pixi_off" offRaw :: Object -> JSVal -> Callback -> IO ()
-foreign import javascript unsafe "halogen_pixi_set_event_mode" setEventModeRaw :: Object -> JSVal -> IO ()
-foreign import javascript unsafe "halogen_pixi_set_cursor" setCursorRaw :: Object -> JSVal -> IO ()
-foreign import javascript unsafe "halogen_pixi_set_rect_hit_area" setRectHitArea :: Application -> Object -> Double -> Double -> Double -> Double -> IO ()
-foreign import javascript unsafe "halogen_pixi_set_circle_hit_area" setCircleHitArea :: Application -> Object -> Double -> Double -> Double -> IO ()
-foreign import javascript unsafe "halogen_pixi_set_polygon_hit_area" setPolygonHitAreaRaw :: Application -> Object -> JSVal -> IO ()
-foreign import javascript unsafe "halogen_pixi_clear_hit_area" clearHitArea :: Object -> IO ()
-foreign import javascript unsafe "halogen_pixi_enable_stage_events" enableStageEvents :: Application -> IO ()
-foreign import javascript unsafe "halogen_pixi_on_pointer_down" onPointerDown :: Application -> Callback -> IO ()
-foreign import javascript unsafe "halogen_pixi_on_pointer_move" onPointerMove :: Application -> Callback -> IO ()
-foreign import javascript unsafe "halogen_pixi_on_pointer_end" onPointerEnd :: Application -> Callback -> IO ()
-foreign import javascript unsafe "halogen_pixi_on_wheel" onWheel :: Canvas -> Callback -> IO ()
-foreign import javascript unsafe "halogen_pixi_remove_wheel" removeWheel :: Canvas -> Callback -> IO ()
-foreign import javascript unsafe "halogen_pixi_pointer_id" pointerId :: Event -> Int
-foreign import javascript unsafe "halogen_pixi_global_x" globalX :: Event -> Double
-foreign import javascript unsafe "halogen_pixi_global_y" globalY :: Event -> Double
-foreign import javascript unsafe "halogen_pixi_local_x" localX :: Object -> Event -> Double
-foreign import javascript unsafe "halogen_pixi_local_y" localY :: Object -> Event -> Double
-foreign import javascript unsafe "halogen_pixi_event_button" eventButton :: Event -> Int
-foreign import javascript unsafe "halogen_pixi_current_target" currentTarget :: Event -> Object
-foreign import javascript unsafe "halogen_pixi_prevent_default" preventDefault :: Event -> IO ()
-foreign import javascript unsafe "halogen_pixi_client_x" clientX :: Event -> Double
-foreign import javascript unsafe "halogen_pixi_client_y" clientY :: Event -> Double
-foreign import javascript unsafe "halogen_pixi_delta_y" deltaY :: Event -> Double
--- | See @halogen_pixi_snapshot@: the event as it is now, copied.
-foreign import javascript unsafe "halogen_pixi_snapshot" snapshot :: JSVal -> IO JSVal
-foreign import javascript unsafe "halogen_pixi_canvas_left" canvasLeft :: Canvas -> IO Double
-foreign import javascript unsafe "halogen_pixi_canvas_top" canvasTop :: Canvas -> IO Double
-foreign import javascript unsafe "halogen_pixi_canvas_width" canvasWidth :: Canvas -> IO Double
-foreign import javascript unsafe "halogen_pixi_canvas_height" canvasHeight :: Canvas -> IO Double
-foreign import javascript unsafe "halogen_pixi_screen_width" screenWidth :: Application -> IO Double
-foreign import javascript unsafe "halogen_pixi_screen_height" screenHeight :: Application -> IO Double
-foreign import javascript unsafe "halogen_pixi_schedule_timeout" scheduleTimeout :: Callback -> Int -> IO Timer
-foreign import javascript unsafe "halogen_pixi_cancel_timeout" cancelTimeout :: Timer -> IO ()
-
-initializeApplication :: Application -> Text -> Canvas -> Callback -> IO ()
-initializeApplication application url = initializeApplicationRaw application (toJSString $ toS url)
-setSystemText :: Object -> Text -> Text -> Double -> Int -> Text -> IO ()
-setSystemText object value family size color align = setSystemTextRaw object (toJSString $ toS value) (toJSString $ toS family) size color (toJSString $ toS align)
-setAssetText :: Application -> Object -> Text -> Text -> Text -> Double -> Int -> Text -> IO ()
-setAssetText application object value family source size color align = setAssetTextRaw application object (toJSString $ toS value) (toJSString $ toS family) (toJSString $ toS source) size color (toJSString $ toS align)
-setTexture :: Application -> Object -> Text -> IO ()
-setTexture application object asset = setTextureRaw application object (toJSString $ toS asset)
-svgPath :: Application -> Object -> Text -> IO ()
-svgPath application object commands = svgPathRaw application object (toJSString $ toS commands)
-parentOf :: Object -> IO (Maybe Object)
-parentOf object = fmap Object . nullableToMaybe <$> parentOfRaw object
-addListener :: Object -> Text -> Callback -> IO ()
-addListener object eventType = onRaw object (toJSString $ toS eventType)
-removeListener :: Object -> Text -> Callback -> IO ()
-removeListener object eventType = offRaw object (toJSString $ toS eventType)
-setEventMode :: Object -> Text -> IO ()
-setEventMode object mode = setEventModeRaw object (toJSString $ toS mode)
-setCursor :: Object -> Text -> IO ()
-setCursor object cursor = setCursorRaw object (toJSString $ toS cursor)
-setPolygonHitArea :: Application -> Object -> [Double] -> IO ()
-setPolygonHitArea application object coordinates = setPolygonHitAreaRaw application object (toJSString (toS (polygonText coordinates)))
--- | A polygon's coordinates as Pixi's Polygon takes them, flat: "x,y,x,y,…".
-polygonText :: [Double] -> Text
-polygonText = mconcat . intersperse "," . map show
-mkCallback :: (Event -> IO ()) -> IO Callback
-mkCallback handler = JS.syncCallback1 JS.ContinueAsync (\event -> snapshot event >>= handler . Event)
-freeCallback :: Callback -> IO ()
-freeCallback = JS.releaseCallback
-
-#elif defined(wasm32_HOST_ARCH)
-
-$(wasmJS ["jsbits/pixi.js"]
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+$(browserJS ["jsbits/pixi.js"]
   [ ("newApplication", "halogen_pixi_new_application", Unsafe, [t| IO Application |])
   , ("initializeApplicationRaw", "halogen_pixi_initialize_application", Unsafe, [t| Application -> JSVal -> Canvas -> Callback -> IO () |])
   , ("applicationCreated", "halogen_pixi_application_created", Unsafe, [t| Application -> IO Bool |])
@@ -314,6 +204,40 @@ $(wasmJS ["jsbits/pixi.js"]
   , ("scheduleTimeout", "halogen_pixi_schedule_timeout", Unsafe, [t| Callback -> Int -> IO Timer |])
   , ("cancelTimeout", "halogen_pixi_cancel_timeout", Unsafe, [t| Timer -> IO () |])
   ])
+#endif
+
+#if defined(javascript_HOST_ARCH)
+initializeApplication :: Application -> Text -> Canvas -> Callback -> IO ()
+initializeApplication application url = initializeApplicationRaw application (toJSString $ toS url)
+setSystemText :: Object -> Text -> Text -> Double -> Int -> Text -> IO ()
+setSystemText object value family size color align = setSystemTextRaw object (toJSString $ toS value) (toJSString $ toS family) size color (toJSString $ toS align)
+setAssetText :: Application -> Object -> Text -> Text -> Text -> Double -> Int -> Text -> IO ()
+setAssetText application object value family source size color align = setAssetTextRaw application object (toJSString $ toS value) (toJSString $ toS family) (toJSString $ toS source) size color (toJSString $ toS align)
+setTexture :: Application -> Object -> Text -> IO ()
+setTexture application object asset = setTextureRaw application object (toJSString $ toS asset)
+svgPath :: Application -> Object -> Text -> IO ()
+svgPath application object commands = svgPathRaw application object (toJSString $ toS commands)
+parentOf :: Object -> IO (Maybe Object)
+parentOf object = fmap Object . nullableToMaybe <$> parentOfRaw object
+addListener :: Object -> Text -> Callback -> IO ()
+addListener object eventType = onRaw object (toJSString $ toS eventType)
+removeListener :: Object -> Text -> Callback -> IO ()
+removeListener object eventType = offRaw object (toJSString $ toS eventType)
+setEventMode :: Object -> Text -> IO ()
+setEventMode object mode = setEventModeRaw object (toJSString $ toS mode)
+setCursor :: Object -> Text -> IO ()
+setCursor object cursor = setCursorRaw object (toJSString $ toS cursor)
+setPolygonHitArea :: Application -> Object -> [Double] -> IO ()
+setPolygonHitArea application object coordinates = setPolygonHitAreaRaw application object (toJSString (toS (polygonText coordinates)))
+-- | A polygon's coordinates as Pixi's Polygon takes them, flat: "x,y,x,y,…".
+polygonText :: [Double] -> Text
+polygonText = mconcat . intersperse "," . map show
+mkCallback :: (Event -> IO ()) -> IO Callback
+mkCallback handler = JS.syncCallback1 JS.ContinueAsync (\event -> snapshot event >>= handler . Event)
+freeCallback :: Callback -> IO ()
+freeCallback = JS.releaseCallback
+
+#elif defined(wasm32_HOST_ARCH)
 
 initializeApplication :: Application -> Text -> Canvas -> Callback -> IO ()
 initializeApplication application url = initializeApplicationRaw application (case toJSString (toS url) of JSString value -> value)

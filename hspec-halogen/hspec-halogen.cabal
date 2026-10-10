@@ -54,11 +54,12 @@ library
     -- JavaScript backend's FFI; natively the functions that would drive it
     -- panic (see Internal.Page).
     if arch(wasm32)
-        other-modules: Test.Hspec.Halogen.Internal.Wasm
+        other-modules: Test.Hspec.Halogen.Internal.Wasm, Test.Hspec.Halogen.Internal.Bindings
         build-depends: ghc-experimental, haskell-halogen-jsbits
 
     if arch(javascript)
-        other-modules: Test.Hspec.Halogen.Internal.JS
+        other-modules: Test.Hspec.Halogen.Internal.JS, Test.Hspec.Halogen.Internal.Bindings
+        build-depends: haskell-halogen-jsbits
         js-sources: jsbits/page.js
 
 -- The host side, run with the host compiler: cabal's test wrapper for wasm

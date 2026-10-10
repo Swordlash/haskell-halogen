@@ -1,14 +1,27 @@
 # Shared JavaScript FFI
 
-`Halogen.JSBits.wasmJS` embeds the same ordinary JavaScript files that the GHC
-JavaScript backend links through `js-sources`. Keep browser logic in `jsbits/`;
-Haskell declarations specify only the function name, safety and typed signature.
-Backend-specific value conversions and callback adapters remain in Haskell.
+`Halogen.JSBits.browserJS` declares a package's JavaScript functions once for
+both browser backends. On WebAssembly it is `wasmJS`, which embeds the files; on
+the JavaScript backend, which links the same files through `js-sources`, each
+binding is a `foreign import javascript` of the function by name. Keep browser
+logic in `jsbits/`; Haskell declarations specify only the function name, safety
+and typed signature. Backend-specific value conversions and callback adapters
+remain in Haskell: where a type differs between the backends (a string is a
+`JSString` on one, a `JSVal` on the other), name it with a type synonym defined
+per backend before the splice.
 
 ```haskell
-$(wasmJS ["jsbits/sound.js"]
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+$(browserJS ["jsbits/sound.js"]
   [("js_pause", "halogen_sound_pause", Unsafe, [t| JSVal -> IO () |])])
+#endif
 ```
+
+A `Safe` binding awaits the function's Promise. On WebAssembly that is an async
+import; on the JavaScript backend an `interruptible` one, whose rejection is
+thrown as an `IOError`. There it must return `IO ()`, and the module splicing it
+needs `InterruptibleFFI`. The package depends on `haskell-halogen-jsbits` for
+both architectures.
 
 The splice reads sources relative to the package, records them with
 `addDependentFile`, and emits an initialization import plus small typed wrappers.

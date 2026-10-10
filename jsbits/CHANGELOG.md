@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+`browserJS` takes one list of bindings for both browser backends: `wasmJS` on
+WebAssembly, `foreign import`s by name on the JavaScript backend (an awaited one
+`interruptible`, its rejection thrown as an `IOError`).
+
 Embedded scripts are separated with explicit semicolons so expression boundaries
 retain their meaning across files. Package metadata declares Apache-2.0, matching
 the bundled license and the other Halogen packages.

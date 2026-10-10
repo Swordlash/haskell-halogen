@@ -152,8 +152,11 @@ reconciler. Keyed groups (`keyedGroup`, `withKeys`) preserve identity across reo
 ### FFI per backend
 
 JS-backend imports link ordinary JavaScript from each package's `jsbits/` through
-`js-sources`; WASM uses `Halogen.JSBits.wasmJS` to embed those same files at compile
-time. Keep browser logic in jsbits and only representation conversions, callback
+`js-sources`; WASM embeds those same files at compile time. Declare the imports
+once with `Halogen.JSBits.browserJS` (a binding list for both backends: `wasmJS`
+on WASM, imports by name on JS) under `#if defined(javascript_HOST_ARCH) ||
+defined(wasm32_HOST_ARCH)`; a type that differs between the backends goes through
+a per-backend synonym. Keep browser logic in jsbits and only representation conversions, callback
 adapters and scheduling primitives in backend-specific imports. The WASM project
 enables shared dependencies because its Template Haskell interpreter loads dynamic
 objects. Sources must ship in `extra-source-files`; `addDependentFile` tracks edits.

@@ -18,8 +18,8 @@ module Halogen.Sound.Browser
   )
 where
 
-#if defined(wasm32_HOST_ARCH)
-import Halogen.JSBits (wasmJS, Safety (..))
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+import Halogen.JSBits (browserJS, Safety (..))
 #endif
 
 import Halogen.Sound.Backend
@@ -32,11 +32,20 @@ import GHC.JS.Prim (JSVal, isNull, toJSString)
 import GHC.Wasm.Prim (JSString (..), JSVal, freeJSVal, toJSString)
 #endif
 
-#if defined(wasm32_HOST_ARCH)
+#if defined(javascript_HOST_ARCH)
+type Callback = JS.Callback (JSVal -> IO ())
+
+-- | A string as the backend passes it to JavaScript.
+type JSText = JSVal
+#elif defined(wasm32_HOST_ARCH)
 type Callback = JSVal
 
-$(wasmJS ["jsbits/sound.js"]
-  [ ("js_fetch", "halogen_sound_fetch", Unsafe, [t| JSString -> Callback -> IO () |])
+type JSText = JSString
+#endif
+
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+$(browserJS ["jsbits/sound.js"]
+  [ ("js_fetch", "halogen_sound_fetch", Unsafe, [t| JSText -> Callback -> IO () |])
   , ("js_release", "halogen_sound_release", Unsafe, [t| JSVal -> IO () |])
   , ("js_start", "halogen_sound_start", Unsafe, [t| JSVal -> Double -> Bool -> Bool -> Double -> Callback -> Callback -> IO JSVal |])
   , ("js_stop", "halogen_sound_stop", Unsafe, [t| JSVal -> IO () |])
@@ -114,29 +123,17 @@ voiceProgress (Voice audio _ _) = do
 
 #if defined(javascript_HOST_ARCH)
 
-type Callback = JS.Callback (JSVal -> IO ())
-
 mkCallback :: (JSVal -> IO ()) -> IO Callback
 mkCallback = JS.asyncCallback1
 
 freeCallback :: Callback -> IO ()
 freeCallback = JS.releaseCallback
 
-jsText :: Text -> JSVal
+jsText :: Text -> JSText
 jsText = toJSString . toS
 
 jsIsNull :: JSVal -> Bool
 jsIsNull = isNull
-
-foreign import javascript unsafe "halogen_sound_fetch" js_fetch :: JSVal -> Callback -> IO ()
-foreign import javascript unsafe "halogen_sound_release" js_release :: JSVal -> IO ()
-foreign import javascript unsafe "halogen_sound_start" js_start :: JSVal -> Double -> Bool -> Bool -> Double -> Callback -> Callback -> IO JSVal
-foreign import javascript unsafe "halogen_sound_stop" js_stop :: JSVal -> IO ()
-foreign import javascript unsafe "halogen_sound_volume" js_volume :: JSVal -> Double -> IO ()
-foreign import javascript unsafe "halogen_sound_pause" js_pause :: JSVal -> IO ()
-foreign import javascript unsafe "halogen_sound_resume" js_resume :: JSVal -> IO ()
-foreign import javascript unsafe "halogen_sound_time" js_time :: JSVal -> IO Double
-foreign import javascript unsafe "halogen_sound_duration" js_duration :: JSVal -> IO Double
 
 #elif defined(wasm32_HOST_ARCH)
 
@@ -145,7 +142,7 @@ foreign import javascript "wrapper" mkCallback :: (JSVal -> IO ()) -> IO Callbac
 freeCallback :: Callback -> IO ()
 freeCallback = freeJSVal
 
-jsText :: Text -> JSString
+jsText :: Text -> JSText
 jsText = toJSString . toS
 
 foreign import javascript unsafe "$1 === null" jsIsNull :: JSVal -> Bool

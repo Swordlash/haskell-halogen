@@ -61,6 +61,8 @@ library
 
     if arch(wasm32)
       build-depends: ghc-experimental, haskell-halogen-jsbits
+    if arch(javascript)
+      build-depends: haskell-halogen-jsbits
 
     exposed-modules:
       Halogen.Sound

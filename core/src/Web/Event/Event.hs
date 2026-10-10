@@ -12,11 +12,8 @@ module Web.Event.Event
 where
 
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
-#if defined(wasm32_HOST_ARCH)
-import Halogen.JSBits (wasmJS, Safety (..))
-#endif
-
 import Data.Foreign
+import Halogen.JSBits (browserJS, Safety (..))
 #endif
 
 import HPrelude
@@ -24,8 +21,8 @@ import Web.Event.Internal.Types
 
 newtype EventType = EventType Text
 
-#if defined(wasm32_HOST_ARCH)
-$(wasmJS ["jsbits/web_event.js"]
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+$(browserJS ["jsbits/web_event.js"]
   [ ("js_current_target", "js_current_target", Unsafe, [t| Event -> Nullable EventTarget |])
   , ("js_prevent_default", "js_prevent_default", Unsafe, [t| Event -> IO () |])
   , ("js_stop_propagation", "js_stop_propagation", Unsafe, [t| Event -> IO () |])
@@ -50,19 +47,7 @@ stopPropagation :: (MonadIO m) => Event -> m ()
 -- handlers on this target from running.
 stopImmediatePropagation :: (MonadIO m) => Event -> m ()
 
-#if defined(javascript_HOST_ARCH)
-foreign import javascript unsafe "js_current_target" js_current_target :: Event -> Nullable EventTarget
-currentTarget e = EventTarget <$> nullableToMaybe (js_current_target e)
-
-foreign import javascript unsafe "js_prevent_default" js_prevent_default :: Event -> IO ()
-preventDefault = liftIO . js_prevent_default
-
-foreign import javascript unsafe "js_stop_propagation" js_stop_propagation :: Event -> IO ()
-stopPropagation = liftIO . js_stop_propagation
-
-foreign import javascript unsafe "js_stop_immediate_propagation" js_stop_immediate_propagation :: Event -> IO ()
-stopImmediatePropagation = liftIO . js_stop_immediate_propagation
-#elif defined(wasm32_HOST_ARCH)
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 
 currentTarget e = EventTarget <$> nullableToMaybe (js_current_target e)
 
