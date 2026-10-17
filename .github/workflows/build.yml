@@ -312,14 +312,15 @@ jobs:
     # it only unpacked a copy over the image's, which tar cannot re-time.)
     # Before the build: th's ghc-lib-parser runs alex and happy while it
     # compiles. cabal builds them for wasm (alex.wasm, happy.wasm), which it
-    # cannot run, and falls back to PATH, where native ones have to be.
+    # cannot run, and falls back to PATH, where native ones have to be: a
+    # happy ghc-lib-parser accepts (not 2.2).
     - name: Install host GHC, alex and happy
       run: |
         if ! ghcup whereis ghc "$GHC_VERSION" >/dev/null 2>&1; then
           ghcup install ghc "$GHC_VERSION"
         fi
         ghcup set ghc "$GHC_VERSION"
-        cabal install alex happy --ignore-project --with-compiler="$(ghcup whereis ghc "$GHC_VERSION")" --installdir="$CABAL_DIR/bin" --install-method=copy --overwrite-policy=always
+        cabal install alex 'happy <2.2' --ignore-project --with-compiler="$(ghcup whereis ghc "$GHC_VERSION")" --installdir="$CABAL_DIR/bin" --install-method=copy --overwrite-policy=always
         echo "$CABAL_DIR/bin" >> "$GITHUB_PATH"
 
     - name: Build every example
