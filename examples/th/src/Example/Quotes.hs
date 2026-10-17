@@ -10,6 +10,7 @@ import Halogen qualified as H
 import Halogen.TH (clay, hh)
 import Protolude hiding (State)
 import UnliftIO (MonadUnliftIO)
+import Web.Event.Event (Event, preventDefault)
 
 data State = State
   { items :: [(Int, Text)]
@@ -21,7 +22,8 @@ data State = State
 
 data Action
   = Draft Text
-  | Add
+  | Add Event
+  -- ^ The form's submit: the page must not reload.
   | Toggle Int
   | Remove Int
   | ShowDone Bool
@@ -44,7 +46,7 @@ component =
           The markup is an <code>[hh| … |&#93;</code> quote and the style a
           <code>[clay| … |&#93;</code> quote, with Haskell in <code>{{ "{{ }}" :: Text }}</code>.
         </p>
-        <form onSubmit={{ const Add }}>
+        <form onSubmit={{ Add }}>
           <input class="draft" placeholder="Something to do" value={{ st.draft }} onValueInput={{ Draft }}>
           <button type="submit" disabled={{ T.null (T.strip st.draft) }}>Add</button>
         </form>
@@ -74,9 +76,11 @@ component =
 
     handleAction = \case
       Draft t -> modify $ \st -> st {draft = t}
-      Add -> modify $ \st ->
-        let t = T.strip st.draft
-        in if T.null t then st else st {items = st.items <> [(st.next, t)], next = st.next + 1, draft = ""}
+      Add ev -> do
+        H.liftEffect (preventDefault ev)
+        modify $ \st ->
+          let t = T.strip st.draft
+          in if T.null t then st else st {items = st.items <> [(st.next, t)], next = st.next + 1, draft = ""}
       Toggle i -> modify $ \st -> st {done = if i `elem` st.done then filter (/= i) st.done else i : st.done}
       Remove i -> modify $ \st -> st {items = filter ((/= i) . fst) st.items, done = filter (/= i) st.done}
       ShowDone b -> modify $ \st -> st {showDone = b}
