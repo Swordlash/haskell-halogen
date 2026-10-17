@@ -320,7 +320,7 @@ jobs:
           ghcup install ghc "$GHC_VERSION"
         fi
         ghcup set ghc "$GHC_VERSION"
-        cabal install alex 'happy <2.2' --ignore-project --with-compiler="$(ghcup whereis ghc "$GHC_VERSION")" --installdir="$CABAL_DIR/bin" --install-method=copy --overwrite-policy=always
+        cabal install alex happy --constraint='happy <2.2' --ignore-project --with-compiler="$(ghcup whereis ghc "$GHC_VERSION")" --installdir="$CABAL_DIR/bin" --install-method=copy --overwrite-policy=always
         echo "$CABAL_DIR/bin" >> "$GITHUB_PATH"
 
     - name: Build every example
