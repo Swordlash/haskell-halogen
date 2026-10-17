@@ -15,7 +15,9 @@ Pages deploys). `hooks`, `material`, `pixi`, `hspec-halogen` and `th` depend onl
 `cabal.project`, so a `core` change is type-checked against every dependent and example.
 
 Every package is compiled for three targets: native GHC, the GHC JavaScript backend, and GHC
-WebAssembly (the default browser and deployment target).
+WebAssembly (the default browser and deployment target), except `th`: `ghc-lib-parser` does not
+build with the JavaScript backend, so `th` is not buildable there and `examples/th` shows a note
+instead (its `src-js/`).
 
 ## Commands
 

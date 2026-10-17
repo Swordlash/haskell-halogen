@@ -51,6 +51,12 @@ library
         ghc-lib-parser >= 9.14 && < 9.15,
         haskell-halogen-core
 
+    -- ghc-lib-parser does not build with the JavaScript backend (its
+    -- ghc-heap part wants RTS headers that backend does not ship), so
+    -- neither does this package: native and WebAssembly only.
+    if arch(javascript)
+        buildable: False
+
 test-suite th-test
     import:           defaults
     type:             exitcode-stdio-1.0
@@ -70,6 +76,9 @@ test-suite th-test
         clay,
         haskell-halogen-core,
         haskell-halogen-th
+
+    if arch(javascript)
+        buildable: False
 
 source-repository head
     type:     git

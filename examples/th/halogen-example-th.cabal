@@ -32,13 +32,18 @@ common shared
       clay >= 0.16.0,
       text,
       unliftio,
-      haskell-halogen-core,
-      haskell-halogen-th
+      haskell-halogen-core
 
 library
   import:           shared
-  hs-source-dirs:   src
   exposed-modules:  Example.Quotes
+  -- haskell-halogen-th builds natively and for WebAssembly, not with the
+  -- JavaScript backend; there the example is a note saying so.
+  if arch(javascript)
+    hs-source-dirs: src-js
+  else
+    hs-source-dirs: src
+    build-depends:  haskell-halogen-th
 
 executable halogen-example-th
   import:           shared
