@@ -124,4 +124,7 @@ markup or style written by hand.
 Building a quote on the WebAssembly backend needs Template Haskell there,
 that is `shared: True` in the wasm project (as the jsbits already do); the
 first build compiles `ghc-lib-parser`, which takes a while and is then in the
-store.
+store. That build runs `alex` and `happy`, and they have to be native
+programs on `PATH` (`cabal install alex happy` with the host GHC): cabal
+builds them for wasm too, as `alex.wasm` and `happy.wasm`, which it then
+cannot run, and falls back to `PATH`.
