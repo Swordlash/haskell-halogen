@@ -84,9 +84,10 @@ spec = do
     it "event handlers, in any case" $
       [hh|<button onClick={{ const Inc }} onvalueinput={{ Typed }}>+</button>|]
         `same` HH.button [HE.onClick (const Inc), HE.onValueInput Typed] [HH.text "+"]
-    it "style: text, or Clay" $
-      [hh|<div style="color: red"><span style={{ C.color C.red }}></span></div>|]
-        `same` HH.div [HP.styleText "color: red"] [HH.span [HP.style (C.color C.red)] []]
+    it "style: text, Clay, or a Text" $ do
+      let inline = "color: blue" :: Text
+      [hh|<div style="color: red"><span style={{ C.color C.red }}></span><b style={{ inline }}></b></div>|]
+        `same` HH.div [HP.styleText "color: red"] [HH.span [HP.style (C.color C.red)] [], HH.b [HP.styleText inline] []]
     it "a property or a list of them among the attributes" $
       [hh|<div {{ HP.id "a" }} {{ [HP.title "t", HP.hidden True] }}></div>|]
         `same` HH.div [HP.id "a", HP.title "t", HP.hidden True] []

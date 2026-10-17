@@ -26,7 +26,7 @@ import Halogen.HTML.Core (AttrName (..), ClassName (..), ElemName (..))
 import Halogen.HTML.Core qualified as HH
 import Halogen.HTML.Elements qualified as HHE
 import Halogen.HTML.Properties qualified as HP
-import Halogen.TH.Html.Children (children, props)
+import Halogen.TH.Html.Children (children, props, styled)
 import Halogen.TH.Html.Names
 import Halogen.TH.Template
 import Language.Haskell.TH (Exp (..), Lit (..), Q)
@@ -171,7 +171,7 @@ attrExp env holes ln (Attr name value) = case event lower of
       Just i -> AppE (VarE n) <$> hole i
       Nothing -> attr
     Just StyleProp -> case single of
-      Just i -> AppE (VarE 'HP.style) <$> hole i
+      Just i -> AppE (VarE 'styled) <$> hole i
       Nothing -> AppE (VarE 'HP.styleText) <$> text
     Just RefProp -> case single of
       Just i -> AppE (VarE 'HP.ref) <$> hole i

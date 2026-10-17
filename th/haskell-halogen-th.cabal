@@ -48,6 +48,7 @@ library
         tagsoup >= 0.14,
         css-syntax >= 0.1,
         clay >= 0.16,
+        row-types,
         ghc-lib-parser >= 9.14 && < 9.15,
         haskell-halogen-core
 

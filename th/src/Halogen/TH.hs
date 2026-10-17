@@ -36,6 +36,7 @@ module Halogen.TH
   , clay
   , Children (..)
   , Props (..)
+  , Styled (..)
   )
 where
 
@@ -44,7 +45,7 @@ import Data.Text qualified as T
 import Halogen.TH.Clay (cssExp)
 import Halogen.TH.Haskell (Failure (..), parseExp, parsePat)
 import Halogen.TH.Html (htmlExp)
-import Halogen.TH.Html.Children (Children (..), Props (..))
+import Halogen.TH.Html.Children (Children (..), Props (..), Styled (..))
 import Halogen.TH.Template (Env (..))
 import Language.Haskell.TH (Exp, Q, location, loc_filename, loc_start)
 import Language.Haskell.TH.Quote (QuasiQuoter (..))

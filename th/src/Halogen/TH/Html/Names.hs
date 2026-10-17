@@ -78,7 +78,8 @@ data PropKind
   -- ^ A type of its own ('HP.type_', 'HP.value', 'HP.step', …): with
   -- Haskell it is the function; written as text it is the attribute.
   | StyleProp
-  -- ^ @style@: 'HP.style' over Clay's 'Css', or 'HP.styleText' over text.
+  -- ^ @style@: Clay's 'Css' or a 'Text' from Haskell (the 'Styled' class),
+  -- 'HP.styleText' over text written.
   | RefProp
   -- ^ @ref@: 'HP.ref' over a 'RefLabel'.
 
