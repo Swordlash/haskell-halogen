@@ -1,0 +1,77 @@
+cabal-version:      3.4
+name:               haskell-halogen-th
+version:            0.1.0.0
+synopsis:           HTML and CSS quasi-quoters for haskell-halogen and Clay
+description:
+  Two quasi-quoters: @hh@ turns HTML with Haskell inside into a Halogen
+  @HTML w i@ (elements, properties and event handlers as the typed functions
+  of "Halogen.HTML"), and @clay@ turns CSS with Haskell inside into Clay's
+  @Css@. Both take @{{ expression }}@ for values, and
+  @{% if %}@, @{% for %}@ and @{% let %}@ for control; the expressions are
+  parsed by GHC's own parser, with the extensions of the module they are in.
+homepage:           https://github.com/Swordlash/haskell-halogen
+license:            Apache-2.0
+license-file:       LICENSE
+author:             Mateusz Goślinowski
+maintainer:         mateusz.goslinowski@gmail.com
+category:           Web, Template Haskell
+build-type:         Simple
+extra-doc-files:    CHANGELOG.md
+                    README.md
+
+common defaults
+    default-language: GHC2021
+    ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules
+    default-extensions:
+        OverloadedStrings
+        OverloadedRecordDot
+        LambdaCase
+        StrictData
+
+library
+    import:           defaults
+    hs-source-dirs:   src
+    ghc-options:      -Wmissing-export-lists
+    exposed-modules:  Halogen.TH
+                      Halogen.TH.Html
+                      Halogen.TH.Clay
+                      Halogen.TH.Haskell
+                      Halogen.TH.Template
+    other-modules:    Halogen.TH.Html.Names
+                      Halogen.TH.Html.Children
+    build-depends:
+        base >= 4.20 && < 5,
+        text >= 2.0,
+        bytestring,
+        containers,
+        template-haskell >= 2.22,
+        tagsoup >= 0.14,
+        css-syntax >= 0.1,
+        clay >= 0.16,
+        ghc-lib-parser >= 9.14 && < 9.15,
+        haskell-halogen-core
+
+test-suite th-test
+    import:           defaults
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          Test.hs
+    other-modules:    Test.Html
+                      Test.Clay
+                      Test.Haskell
+                      Test.Render
+    default-extensions: QuasiQuotes
+    build-depends:
+        base,
+        text,
+        containers,
+        hspec,
+        template-haskell,
+        clay,
+        haskell-halogen-core,
+        haskell-halogen-th
+
+source-repository head
+    type:     git
+    location: https://github.com/Swordlash/haskell-halogen.git
+    subdir:   th

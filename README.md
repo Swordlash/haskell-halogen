@@ -23,9 +23,10 @@ AI usage disclaimer: All code until tag `0.9.0` was hand-written. Any later comm
 | [jsbits/](jsbits/) | `haskell-halogen-jsbits` | Compile-time embedding of shared browser JavaScript into WASM FFI. |
 | [sound/](sound/) | `haskell-halogen-sound` | Music and sound effects for a page: a theme to loop, a shuffled album fetched ahead, effects on top. |
 | [hspec-halogen/](hspec-halogen/) | `hspec-halogen` | Test components in a real browser with hspec: mount, click, type, check. |
+| [th/](th/) | `haskell-halogen-th` | HTML and CSS as written, with Haskell inside: the `hh` and `clay` quasi-quoters. |
 | [examples/](examples/) | `halogen-example-*` | One runnable browser app per library, and `all`, which mounts them in one page. |
 
-`hooks`, `material`, `pixi` and `hspec-halogen` depend on `core`; `sound` is
+`hooks`, `material`, `pixi`, `hspec-halogen` and `th` depend on `core`; `sound` is
 independent of those runtime libraries. WASM backends also use the `jsbits`
 compile-time helper. Every package builds from the one `cabal.project` at the
 repository root, so a change to

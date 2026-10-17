@@ -1,0 +1,54 @@
+cabal-version:      3.0
+name:               halogen-example-th
+version:            0.1.0.0
+synopsis:           haskell-halogen-th example app: HTML and CSS quoted
+license:            Apache-2.0
+author:             Mateusz Goślinowski
+maintainer:         mateusz.goslinowski@gmail.com
+category:           Web
+
+common shared
+  default-language: GHC2021
+  ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture
+
+  default-extensions:
+      CPP
+      DataKinds
+      DerivingStrategies
+      DuplicateRecordFields
+      LambdaCase
+      NamedFieldPuns
+      NoImplicitPrelude
+      OverloadedRecordDot
+      OverloadedStrings
+      QuasiQuotes
+      StrictData
+      TypeOperators
+
+  build-depends:
+      base >= 4.20,
+      protolude,
+      row-types,
+      clay >= 0.16.0,
+      text,
+      unliftio,
+      haskell-halogen-core,
+      haskell-halogen-th
+
+library
+  import:           shared
+  hs-source-dirs:   src
+  exposed-modules:  Example.Quotes
+
+executable halogen-example-th
+  import:           shared
+  main-is:          Main.hs
+  hs-source-dirs:   .
+  build-depends:    halogen-example-th
+
+  if arch(wasm32)
+    build-depends: ghc-experimental
+    ghc-options:
+      -no-hs-main
+      -optl-mexec-model=reactor
+      "-optl-Wl,--export=hs_start"

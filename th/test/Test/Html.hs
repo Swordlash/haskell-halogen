@@ -1,0 +1,129 @@
+{-# LANGUAGE OverloadedRecordDot #-}
+
+-- | The @hh@ and @hhs@ quoters, each case against the same markup written
+-- with "Halogen.HTML" by hand.
+module Test.Html (spec) where
+
+import Clay qualified as C
+import DOM.HTML.Indexed qualified as I
+import Data.Text (Text)
+import Data.Text qualified as T
+import Halogen.HTML qualified as HH
+import Halogen.HTML.Core (AttrName (..), ClassName (..), ElemName (..))
+import Halogen.HTML.Events qualified as HE
+import Halogen.HTML.Properties qualified as HP
+import Halogen.TH (hh, hhs)
+import Test.Hspec
+import Test.Render (render)
+
+data Action = Inc | Dec | Typed Text
+  deriving (Eq, Show)
+
+type Html = HH.HTML () Action
+
+data Person = Person {name :: Text, age :: Int}
+
+same :: Html -> Html -> Expectation
+same quoted written = render quoted `shouldBe` render written
+
+sameAll :: [Html] -> [Html] -> Expectation
+sameAll quoted written = map render quoted `shouldBe` map render written
+
+spec :: Spec
+spec = do
+  describe "elements" $ do
+    it "an element with a class and text" $
+      [hh|<div class="panel">Hi</div>|] `same` HH.div [HP.class_ (ClassName "panel")] [HH.text "Hi"]
+    it "nested elements, indented: indentation is not text" $
+      [hh|
+        <ul class="list">
+          <li>one</li>
+          <li>two</li>
+        </ul>
+      |]
+        `same` HH.ul [HP.class_ (ClassName "list")] [HH.li_ [HH.text "one"], HH.li_ [HH.text "two"]]
+    it "a space on one line between elements stays" $
+      [hh|<p><b>a</b> <i>b</i></p>|] `same` HH.p_ [HH.b_ [HH.text "a"], HH.text " ", HH.i_ [HH.text "b"]]
+    it "a text over several lines is one line" $
+      [hh|<p>
+            one
+            two
+          </p>|]
+        `same` HH.p_ [HH.text "one two"]
+    it "void elements, with or without a slash, and with an end tag" $
+      [hh|<p>a<br>b<br/>c<br></br>d<input type="text"></p>|]
+        `same` HH.p_ [HH.text "a", HH.br_, HH.text "b", HH.br_, HH.text "c", HH.br_, HH.text "d", HH.input [HP.attr (AttrName "type") "text"]]
+    it "an element Halogen has no function for" $
+      [hh|<my-widget size="3">x</my-widget>|] `same` HH.element (ElemName "my-widget") [HP.attr (AttrName "size") "3"] [HH.text "x"]
+    it "entities and comments" $
+      [hh|<p>a &amp; b<!-- not this -->{# nor this #}</p>|] `same` HH.p_ [HH.text "a & b"]
+    it "hhs: several roots" $
+      [hhs|<b>a</b><i>b</i>|] `sameAll` [HH.b_ [HH.text "a"], HH.i_ [HH.text "b"]]
+
+  describe "attributes" $ do
+    it "text properties, with Haskell in them" $ do
+      let ident = "main" :: Text
+          extra = "open" :: Text
+      [hh|<section id={{ ident }} class="panel {{ extra }}" title="t"></section>|]
+        `same` HH.section [HP.id ident, HP.class_ (ClassName ("panel " <> extra)), HP.title "t"] []
+    it "boolean attributes: alone, or with a Bool" $ do
+      let off = False
+      [hh|<form novalidate><input disabled><input disabled={{ off }}><option selected="selected"></option></form>|]
+        `same` HH.form [HP.noValidate True] [HH.input [HP.disabled True], HH.input [HP.disabled off], HH.option [HP.selected True] []]
+    it "numbers: as written, or in Haskell" $ do
+      let n = 3 :: Int
+      [hh|<table><tr><td colspan="2" rowspan={{ n }}><input min="0" max="1.5"></td></tr></table>|]
+        `same` HH.table_ [HH.tr_ [HH.td [HP.colSpan 2, HP.rowSpan n] [HH.input [HP.min 0, HP.max 1.5]]]]
+    it "properties of their own type: Haskell is the property, text the attribute" $ do
+      let txt = "typed" :: Text
+      [hh|<input type={{ I.InputText }} value={{ txt }} step="any">|]
+        `same` HH.input [HP.type_ I.InputText, HP.value txt, HP.attr (AttrName "step") "any"]
+    it "attributes Halogen has no function for" $
+      [hh|<div data-x="1" aria-label="l" role="button"></div>|]
+        `same` HH.div [HP.attr (AttrName "data-x") "1", HP.attr (AttrName "aria-label") "l", HP.attr (AttrName "role") "button"] []
+    it "event handlers, in any case" $
+      [hh|<button onClick={{ const Inc }} onvalueinput={{ Typed }}>+</button>|]
+        `same` HH.button [HE.onClick (const Inc), HE.onValueInput Typed] [HH.text "+"]
+    it "style: text, or Clay" $
+      [hh|<div style="color: red"><span style={{ C.color C.red }}></span></div>|]
+        `same` HH.div [HP.styleText "color: red"] [HH.span [HP.style (C.color C.red)] []]
+    it "a property or a list of them among the attributes" $
+      [hh|<div {{ HP.id "a" }} {{ [HP.title "t", HP.hidden True] }}></div>|]
+        `same` HH.div [HP.id "a", HP.title "t", HP.hidden True] []
+    it "an if among the attributes" $ do
+      let open = True
+      [hh|<details {% if open %}open{% else %}class="shut"{% end %}></details>|]
+        `same` HH.details [HP.attr (AttrName "open") ""] []
+
+  describe "children in Haskell" $ do
+    it "a text, a node, a list, a maybe" $ do
+      let who = "you" :: Text
+          strong = HH.strong_ [HH.text "!"] :: Html
+          items = [HH.li_ [HH.text "x"], HH.li_ [HH.text "y"]] :: [Html]
+          none = Nothing :: Maybe Html
+      [hh|<p>Hi {{ who }}{{ strong }}<ul>{{ items }}</ul>{{ none }}</p>|]
+        `same` HH.p_ [HH.text "Hi ", HH.text who, strong, HH.ul_ items]
+    it "the expression is any Haskell: fields, lambdas, case" $ do
+      let p = Person {name = "Ann", age = 41}
+      [hh|<p>{{ p.name }} is {{ T.pack (show p.age) }}, {{ (\case { Person {age = a} | a > 40 -> "over"; _ -> "under" :: Text }) p }} forty</p>|]
+        `same` HH.p_ [HH.text "Ann", HH.text " is ", HH.text "41", HH.text ", ", HH.text "over", HH.text " forty"]
+
+  describe "statements" $ do
+    it "if, elif, else" $ do
+      let n = 5 :: Int
+      [hhs|{% if n > 9 %}<b>many</b>{% elif n > 3 %}<i>some</i>{% else %}<u>few</u>{% end %}|]
+        `sameAll` [HH.i_ [HH.text "some"]]
+    it "if without else" $
+      [hhs|<a></a>{% if False %}<b></b>{% end %}<c></c>|] `sameAll` [HH.a_ [], HH.element (ElemName "c") [] []]
+    it "for over a pattern" $ do
+      let names = ["a", "b"] :: [Text]
+      [hh|<ol>{% for (i, x) in zip [1 :: Int ..] names %}<li>{{ T.pack (show i) }}. {{ x }}</li>{% end %}</ol>|]
+        `same` HH.ol_ [HH.li_ [HH.text "1", HH.text ". ", HH.text "a"], HH.li_ [HH.text "2", HH.text ". ", HH.text "b"]]
+    it "let, over the rest" $ do
+      let n = 2 :: Int
+      [hh|<p>{% let m = n * 2 %}{{ T.pack (show m) }} and {{ T.pack (show (m + 1)) }}</p>|]
+        `same` HH.p_ [HH.text "4", HH.text " and ", HH.text "5"]
+    it "nested statements" $ do
+      let rows = [[1, 2], [3]] :: [[Int]]
+      [hh|<table>{% for r in rows %}<tr>{% for c in r %}{% if even c %}<td>{{ T.pack (show c) }}</td>{% end %}{% end %}</tr>{% end %}</table>|]
+        `same` HH.table_ [HH.tr_ [HH.td_ [HH.text "2"]], HH.tr_ []]

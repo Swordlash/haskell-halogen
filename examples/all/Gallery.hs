@@ -22,6 +22,7 @@ import Data.Text qualified as T
 import Example.Hooks qualified as Hooks
 import Example.Material qualified as Material
 import Example.Pixi qualified as Pixi
+import Example.Quotes qualified as Quotes
 import Example.Vanilla qualified as Vanilla
 import Halogen qualified as H
 import Halogen.HTML qualified as HH
@@ -33,7 +34,7 @@ import Protolude
 import Web.Event.Event (EventType (..))
 import Web.HTML.Window qualified as Window
 
-data Example = Vanilla | Hooks | Pixi | Material
+data Example = Vanilla | Hooks | Pixi | Material | Quotes
   deriving stock (Eq, Enum, Bounded)
 
 examples :: [Example]
@@ -46,6 +47,7 @@ slug = \case
   Hooks -> "hooks"
   Pixi -> "pixi"
   Material -> "material"
+  Quotes -> "th"
 
 title :: Example -> Text
 title = \case
@@ -53,6 +55,7 @@ title = \case
   Hooks -> "Hooks"
   Pixi -> "Pixi"
   Material -> "Material"
+  Quotes -> "Quotes"
 
 blurb :: Example -> Text
 blurb = \case
@@ -60,6 +63,7 @@ blurb = \case
   Hooks -> "Every hook in haskell-halogen-hooks, in one component."
   Pixi -> "A PixiJS canvas scene reconciled like any other HTML."
   Material -> "Material Components: tabs, lists, text fields, radios and checkboxes."
+  Quotes -> "HTML and CSS written as such, with Haskell inside: the hh and clay quoters of haskell-halogen-th."
 
 -- | Nothing is the landing page: no fragment, @#/@, or one that names no
 -- example.
@@ -78,6 +82,7 @@ type Slots =
     .+ ("hooks" .== H.Slot H.VoidF Hooks.Output ())
     .+ ("pixi" .== H.Slot H.VoidF Void ())
     .+ ("material" .== H.Slot H.VoidF () ())
+    .+ ("th" .== H.Slot H.VoidF () ())
 
 component :: H.Component H.VoidF () Void BrowserDOM
 component =
@@ -148,6 +153,7 @@ component =
       Hooks -> HH.slot_ "hooks" () Hooks.app ()
       Pixi -> HH.slot_ "pixi" () Pixi.parent ()
       Material -> HH.slot_ "material" () Material.component ()
+      Quotes -> HH.slot_ "th" () Quotes.component ()
 
     handleAction = \case
       Initialize -> do

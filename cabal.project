@@ -6,6 +6,7 @@ packages:
   material
   hooks
   hspec-halogen
+  th
   examples/*
 
 allow-newer: protolude:*

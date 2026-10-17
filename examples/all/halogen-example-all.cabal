@@ -38,6 +38,7 @@ executable halogen-example-all
       halogen-example-hooks,
       halogen-example-material,
       halogen-example-pixi,
+      halogen-example-th,
       halogen-example-vanilla
 
   if arch(wasm32) || arch(javascript)
