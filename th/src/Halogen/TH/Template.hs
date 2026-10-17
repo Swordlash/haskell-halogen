@@ -44,6 +44,7 @@ module Halogen.TH.Template
   )
 where
 
+import Data.Char (isAlphaNum, isSpace)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
 import Data.Text (Text)
@@ -109,14 +110,16 @@ extract src = go 1 0 [] IntMap.empty (T.unpack src)
 
     count = length . filter (== '\n')
 
-    -- A value ends at the first "}}" outside a string literal with every
-    -- brace opened inside it closed, so a record update can sit inside.
+    -- A value ends at the first "}}" outside a string or character literal
+    -- with every brace opened inside it closed, so a record update can sit
+    -- inside.
     value :: Int -> String -> Either Err (String, String)
     value ln = walk (0 :: Int) []
       where
         walk _ _ [] = Left (ln, "{{ is never closed by }}")
         walk 0 acc ('}' : '}' : rest) = Right (reverse acc, rest)
-        walk d acc ('"' : rest) = let (lit, rest') = stringLit rest in walk d (reverse lit ++ '"' : acc) rest'
+        walk d acc s
+          | Just (lit, rest) <- literal acc s = walk d (reverse lit ++ acc) rest
         walk d acc ('{' : rest) = walk (d + 1) ('{' : acc) rest
         walk d acc ('}' : rest) = walk (d - 1) ('}' : acc) rest
         walk d acc (c : rest) = walk d (c : acc) rest
@@ -127,8 +130,28 @@ extract src = go 1 0 [] IntMap.empty (T.unpack src)
         walk _ [] = Left (ln, "{" <> T.pack (take 1 end) <> " is never closed by " <> T.pack end)
         walk acc s@(c : rest)
           | take 2 s == end = Right (reverse acc, drop 2 s)
-          | c == '"' = let (lit, rest') = stringLit rest in walk (reverse lit ++ '"' : acc) rest'
+          | Just (lit, rest') <- literal acc s = walk (reverse lit ++ acc) rest'
           | otherwise = walk (c : acc) rest
+
+    -- A string or character literal starting here, and what follows it;
+    -- @acc@ is what came before, reversed. A quote after a name is part of
+    -- it (@x'@), and one before a name is a Template Haskell name
+    -- (@'foo@), so a character literal is only a quote that follows
+    -- nothing of a name and holds one character or an escape.
+    literal :: String -> String -> Maybe (String, String)
+    literal acc = \case
+      '"' : rest -> let (lit, rest') = stringLit rest in Just ('"' : lit, rest')
+      '\'' : rest
+        | not (nameChar acc) -> case rest of
+            '\\' : more -> let (esc, rest') = break (== '\'') more in case rest' of
+              '\'' : after -> Just ("'\\" ++ esc ++ "'", after)
+              _ -> Nothing
+            c : '\'' : after | c /= '\'' -> Just (['\'', c, '\''], after)
+            _ -> Nothing
+      _ -> Nothing
+      where
+        nameChar (c : _) = isAlphaNum c || c == '_' || c == '\''
+        nameChar [] = False
 
     -- The rest of a string literal after its opening quote, with the
     -- closing quote, and what follows it.
@@ -169,24 +192,40 @@ data Stmt
   -- ^ A pattern, and what it is bound to.
   deriving (Eq, Show)
 
+-- | The Haskell of a statement is kept as written (only trimmed): a string
+-- literal in it keeps its spaces.
 parseStmt :: Text -> Either Text Stmt
-parseStmt t = case T.words t of
-  ["else"] -> Right Else
-  [w] | w `elem` ["end", "endif", "endfor", "endlet"] -> Right End
-  "if" : rest | not (null rest) -> Right (If (T.unwords rest))
-  "elif" : rest | not (null rest) -> Right (Elif (T.unwords rest))
-  "for" : rest
-    | (pat, "in" : list) <- break (== "in") rest
-    , not (null pat)
-    , not (null list) ->
-        Right (For (T.unwords pat) (T.unwords list))
-  "let" : rest
-    | (pat, rhs) <- T.breakOn "=" (T.unwords rest)
+parseStmt t = case (keyword, body) of
+  ("else", "") -> Right Else
+  (w, "") | w `elem` ["end", "endif", "endfor", "endlet"] -> Right End
+  ("if", e) | not (T.null e) -> Right (If e)
+  ("elif", e) | not (T.null e) -> Right (Elif e)
+  ("for", e)
+    | Just (pat, list) <- splitIn e
+    , not (T.null pat)
+    , not (T.null list) ->
+        Right (For pat list)
+  ("let", e)
+    | (pat, rhs) <- T.breakOn "=" e
     , not (T.null (T.strip pat))
     , Just ('=', rhs') <- T.uncons rhs
     , not (T.null (T.strip rhs')) ->
         Right (Let (T.strip pat) (T.strip rhs'))
   _ -> Left ("not a statement: {% " <> t <> " %}; the statements are if, elif, else, for … in …, let … = …, end")
+  where
+    (keyword, rest) = T.break isSpace (T.strip t)
+    body = T.strip rest
+    -- At the first @in@ standing alone, which a pattern cannot hold.
+    splitIn e = go 0
+      where
+        go from = case T.breakOn "in" (T.drop from e) of
+          (_, "") -> Nothing
+          (pre, _) ->
+            let at = from + T.length pre
+                before = T.take at e
+                after = T.drop (at + 2) e
+                alone = maybe True (isSpace . snd) (T.unsnoc before) && maybe False (isSpace . fst) (T.uncons after)
+            in if alone then Just (T.strip before, T.strip after) else go (at + 2)
 
 -- | One thing of a sequence in a template, with the holes among them.
 data Item a

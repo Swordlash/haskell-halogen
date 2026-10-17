@@ -142,8 +142,10 @@ ruleExp env holes = \case
     (fn, ty, features) <- mediaQuery env holes q
     pure (AppE (AppE (AppE (VarE fn) ty) (ListE features)) body)
   Keyframes name items -> do
-    stops <- mapM stop =<< orFail (blocks holes items)
-    pure (AppE (AppE (VarE 'keyframes) (packE name)) (ListE (concat stops)))
+    -- The stops through the statements among them, each stop a list of
+    -- (percentage, declarations); Haskell among them is such a list.
+    stops <- blocksExp env holes (fmap ListE . stop) (\x -> ListE [x]) =<< orFail (blocks holes items)
+    pure (AppE (AppE (VarE 'keyframes) (packE name)) (AppE (VarE 'concat) stops))
   FontFace items -> AppE (VarE 'fontFace) <$> nested items
   Import url -> pure (AppE (VarE 'importUrl) (packE url))
   where
@@ -186,9 +188,9 @@ ruleExp env holes = \case
       [Ref i] -> hole i
       ps -> AppE (VarE 'Sel.element) <$> textExp env holes ps
 
-    stop :: Block Rule -> Q [Exp]
+    stop :: Rule -> Q [Exp]
     stop = \case
-      Leaf (Nested sels items) -> do
+      Nested sels items -> do
         body <- nested items
         mapM (\s -> do n <- orFail (stopNumber s); pure (TupE [Just (LitE (RationalL n)), Just body])) (splitCommas sels)
       _ -> failAt env 0 "@keyframes holds stops: from, to or a percentage, each with its declarations"
@@ -223,29 +225,42 @@ valueExp env holes = \case
 -- | The media query after @\@media@: @[not | only] [type] [and (feature[: value])]…@.
 mediaQuery :: Env -> Holes -> [Token] -> Q (Name, Exp, [Exp])
 mediaQuery env holes q = do
-  let ts = filter (/= Whitespace) q
-      (fn, ts') = case ts of
+  -- Whitespace is skipped between the parts, not inside a value, where
+  -- calc(100% - 1px) needs it.
+  let (fn, ts') = case spaced q of
         Ident "not" : rest -> ('queryNot, rest)
         Ident "only" : rest -> ('queryOnly, rest)
         rest -> ('query, rest)
-      (ty, ts'') = case ts' of
+      (ty, ts'') = case spaced ts' of
         Ident t : rest | t /= "and" -> (t, rest)
         rest -> ("all", rest)
   features <- featuresOf ts''
   pure (fn, AppE (ConE 'MediaType) (valueE ty), features)
   where
-    featuresOf = \case
+    spaced = dropWhile (== Whitespace)
+    featuresOf ts = case spaced ts of
       [] -> pure []
       Ident "and" : rest -> featuresOf rest
-      LeftParen : Ident name : rest -> do
-        let (inside, after) = break (== RightParen) rest
-        value <- case inside of
+      LeftParen : rest | Ident name : rest' <- spaced rest -> do
+        let (inside, after) = closing (0 :: Int) [] rest'
+        value <- case spaced inside of
           [] -> pure (ConE 'Nothing)
           Colon : v -> AppE (ConE 'Just) <$> featureValue (pieces (T.strip (serialize v)))
           _ -> failAt env 0 ("a media feature is (name) or (name: value): " <> serialize (LeftParen : Ident name : inside))
-        more <- featuresOf (drop 1 after)
+        more <- featuresOf after
         pure (AppE (AppE (ConE 'Feature) (packE name)) value : more)
       other -> failAt env 0 ("not a media query: " <> serialize other)
+
+    -- Up to the parenthesis closing the feature, past any function (such
+    -- as calc) in its value, and what follows it.
+    closing _ acc [] = (reverse acc, [])
+    closing 0 acc (RightParen : rest) = (reverse acc, rest)
+    closing d acc (t : rest) = closing (d + opens t) (t : acc) rest
+    opens = \case
+      LeftParen -> 1
+      Function _ -> 1
+      RightParen -> -1 :: Int
+      _ -> 0
 
     -- A 'Value', whatever the Haskell in it is.
     featureValue = \case

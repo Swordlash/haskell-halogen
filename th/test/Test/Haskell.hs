@@ -79,6 +79,9 @@ spec = do
     it "balances braces in a value" $ do
       let (_, holes) = extracted "{{ r {a = 1} }}{{ s{x=1}}}"
       map (.code) (IntMap.elems holes) `shouldBe` ["r {a = 1}", "s{x=1}"]
+    it "passes braces and quotes in character literals" $ do
+      let (_, holes) = extracted "{{ f '}' x' }}{{ g '{' }}{{ h '\\'' }}{{ k '\\x7d' }}{% if c == '%' %}{{ 'Just }}"
+      map (.code) (IntMap.elems holes) `shouldBe` ["f '}' x'", "g '{'", "h '\\''", "k '\\x7d'", "if c == '%'", "'Just"]
     it "counts lines" $ do
       let (_, holes) = extracted "\n\n{{ a }}\n{% if\n b %}"
       map (.line) (IntMap.elems holes) `shouldBe` [3, 4]
@@ -89,6 +92,9 @@ spec = do
       parseStmt "if a > b" `shouldBe` Right (If "a > b")
       parseStmt "for (i, x) in zip [1 ..] xs" `shouldBe` Right (For "(i, x)" "zip [1 ..] xs")
       parseStmt "let y = x + 1" `shouldBe` Right (Let "y" "x + 1")
+      parseStmt "  if  a ==  \"x  y\" " `shouldBe` Right (If "a ==  \"x  y\"")
+      parseStmt "for (inner, x)  in  [(\"a  b\", 1)]" `shouldBe` Right (For "(inner, x)" "[(\"a  b\", 1)]")
+      parseStmt "let s = \"in  deed\"" `shouldBe` Right (Let "s" "\"in  deed\"")
       parseStmt "endfor" `shouldBe` Right End
       parseStmt "unless x" `shouldSatisfy` either (const True) (const False)
     it "groups blocks and refuses the unbalanced" $ do

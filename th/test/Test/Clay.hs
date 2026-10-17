@@ -66,6 +66,14 @@ spec = do
     it "@keyframes" $
       [clay| @keyframes spin { from { opacity: 0 } 50% { opacity: 0.5 } to { opacity: 1 } } |]
         `same` C.keyframes "spin" [(0, "opacity" -: "0"), (50, "opacity" -: "0.5"), (100, "opacity" -: "1")]
+    it "@keyframes with statements and Haskell among the stops" $ do
+      let mid = True
+          late = [(90, "opacity" -: "0.9")] :: [(C.Number, Css)]
+      [clay| @keyframes fade { from { opacity: 0 } {% if mid %} 50% { opacity: 0.5 } {% end %} {{ late }} {% for o in ["0.99"] %} 99% { opacity: {{ o :: Text }} } {% end %} to { opacity: 1 } } |]
+        `same` C.keyframes "fade" [(0, "opacity" -: "0"), (50, "opacity" -: "0.5"), (90, "opacity" -: "0.9"), (99, "opacity" -: "0.99"), (100, "opacity" -: "1")]
+    it "@media with a function in a feature's value" $
+      [clay| @media (min-width: calc(100% - 1px)) and (hover) { color: red } |]
+        `same` C.query (MediaType "all") [Feature "min-width" (Just "calc(100% - 1px)"), Feature "hover" Nothing] ("color" -: "red")
     it "@font-face and @import" $
       [clay| @import "fonts.css"; @font-face { font-family: X; src: url(x.woff2); } |]
         `same` (do C.importUrl "fonts.css"; C.fontFace (do "font-family" -: "X"; "src" -: "url(x.woff2)"))
