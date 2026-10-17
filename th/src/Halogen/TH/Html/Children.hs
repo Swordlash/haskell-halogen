@@ -1,9 +1,5 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE UndecidableInstances #-}
--- The Styled method keeps HP.style's own constraint, HasType "style" Text r,
--- which GHC would rather see simplified; written as the instance it reduces
--- to, it would no longer read as the property's.
-{-# OPTIONS_GHC -Wno-simplifiable-class-constraints #-}
 
 -- | What a @{{ … }}@ among the children of an element, or among its
 -- attributes, may be. The quoter splices one in through these classes, so
@@ -16,13 +12,14 @@ module Halogen.TH.Html.Children
 where
 
 import Clay (Css)
-import Data.Row (HasType)
+import Clay.Render qualified as Clay
 import Data.Text (Text)
+import Data.Text.Lazy qualified as TL
 import GHC.TypeLits (ErrorMessage (..), TypeError)
-import Halogen.HTML.Core (HTML)
+import Halogen.HTML.Core (ElemName (..), HTML)
 import Halogen.HTML.Core qualified as HH
+import Halogen.HTML.Elements qualified as HHE
 import Halogen.HTML.Properties (IProp)
-import Halogen.HTML.Properties qualified as HP
 
 -- | A value among the children of an element.
 class Children w i a where
@@ -40,6 +37,11 @@ instance (Children w i a) => Children w i (Maybe a) where
 instance Children w i Text where
   children t = [HH.text t]
 
+-- | A style among the children is a @\<style>@ element with it, so a
+-- @clay@ quote is embedded with @{{ css }}@.
+instance Children w i Css where
+  children c = [HHE.element (ElemName "style") [] [HH.text (TL.toStrict (Clay.renderWith Clay.compact [] c))]]
+
 instance (TypeError ('Text "A String among the children of an element: use Text, or pack it." ':$$: 'Text "A character is not a child.")) => Children w i Char where
   children = error "unreachable"
 
@@ -56,12 +58,12 @@ instance (Props r i a) => Props r i [a] where
 instance (Props r i a) => Props r i (Maybe a) where
   props = maybe [] props
 
--- | The value of @style={{ … }}@: Clay, or text.
+-- | The value of @style={{ … }}@: Clay, or text, as the attribute's text.
 class Styled a where
-  styled :: (HasType "style" Text r) => a -> IProp r i
+  styled :: a -> Text
 
 instance Styled Css where
-  styled = HP.style
+  styled = TL.toStrict . Clay.renderWith Clay.htmlInline []
 
 instance Styled Text where
-  styled = HP.styleText
+  styled = id

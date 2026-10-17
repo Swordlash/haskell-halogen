@@ -171,7 +171,7 @@ attrExp env holes ln (Attr name value) = case event lower of
       Just i -> AppE (VarE n) <$> hole i
       Nothing -> attr
     Just StyleProp -> case single of
-      Just i -> AppE (VarE 'styled) <$> hole i
+      Just i -> AppE (VarE 'HP.styleText) . AppE (VarE 'styled) <$> hole i
       Nothing -> AppE (VarE 'HP.styleText) <$> text
     Just RefProp -> case single of
       Just i -> AppE (VarE 'HP.ref) <$> hole i

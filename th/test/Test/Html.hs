@@ -8,6 +8,8 @@ import Clay qualified as C
 import DOM.HTML.Indexed qualified as I
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Lazy qualified as TL
+import Halogen.Query.Input (RefLabel (..))
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Core (AttrName (..), ClassName (..), ElemName (..))
 import Halogen.HTML.Events qualified as HE
@@ -34,6 +36,9 @@ spec = do
   describe "elements" $ do
     it "an element with a class and text" $
       [hh|<div class="panel">Hi</div>|] `same` HH.div [HP.class_ (ClassName "panel")] [HH.text "Hi"]
+    it "a Css among the children is a style element" $ do
+      let sheet = ".a" C.? ("color" C.-: "red")
+      [hh|<div>{{ sheet }}<p>x</p></div>|] `same` HH.div [] [HH.element (ElemName "style") [] [HH.text (TL.toStrict (C.renderWith C.compact [] sheet))], HH.p [] [HH.text "x"]]
     it "nested elements, indented: indentation is not text" $
       [hh|
         <ul class="list">
@@ -88,6 +93,8 @@ spec = do
       let inline = "color: blue" :: Text
       [hh|<div style="color: red"><span style={{ C.color C.red }}></span><b style={{ inline }}></b></div>|]
         `same` HH.div [HP.styleText "color: red"] [HH.span [HP.style (C.color C.red)] [], HH.b [HP.styleText inline] []]
+    it "ref takes a RefLabel" $
+      [hh|<input ref={{ RefLabel "draft" }}>|] `same` HH.input [HP.ref (RefLabel "draft")]
     it "a property or a list of them among the attributes" $
       [hh|<div {{ HP.id "a" }} {{ [HP.title "t", HP.hidden True] }}></div>|]
         `same` HH.div [HP.id "a", HP.title "t", HP.hidden True] []

@@ -40,7 +40,7 @@ component =
     render :: State -> H.ComponentHTML Action Empty m
     render st = [hh|
       <section class="quotes">
-        <style>{{ toS (C.render style) :: Text }}</style>
+        {{ style }}
         <h2>A list, quoted</h2>
         <p class="hint">
           The markup is an <code>[hh| … |&#93;</code> quote and the style a

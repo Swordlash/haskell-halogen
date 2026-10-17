@@ -54,7 +54,7 @@ What a value may be depends on where it stands:
 
 | Where | What |
 | --- | --- |
-| among the children of an element | an `HTML w i`, a list of them, a `Text`, or a `Maybe` of one of those (the `Children` class) |
+| among the children of an element | an `HTML w i`, a list of them, a `Text`, a `Css` (embedded as a `<style>` element), or a `Maybe` of one of those (the `Children` class) |
 | the value of an attribute | what the property takes: `Text` for `id`, `Bool` for `disabled`, an `Int` for `colspan`, an `InputType` for `type`, a handler for `onClick`, a `Css` or a `Text` for `style`, a `RefLabel` for `ref` |
 | part of an attribute's text, `class="a {{ b }}"` | a `Text` |
 | among the attributes, `<div {{ p }}>` | an `IProp r i`, a list of them, or a `Maybe` (the `Props` class) |
@@ -92,7 +92,7 @@ children of one element ends among them. `{% end %}`, `{% endif %}` and
   takes a `Bool`; a number is written as a number. A property of its own type
   (`type`, `value`, `step`, `width`) takes its Haskell value, or, written as
   text, is set as the attribute.
-- `style="…"` is `HP.styleText`; `style={{ x }}` takes Clay's `Css` or a `Text` (the `Styled` class).
+- `style="…"` is `HP.styleText`; `style={{ x }}` takes Clay's `Css` or a `Text` (the `Styled` class). A `Css` among the children, `{{ style }}`, is a `<style>` element with it.
 - Text follows JSX: a text with a newline in it has every line trimmed and
   the lines joined by one space, so indentation never becomes a text node;
   a text on one line is kept as it is. Entities are decoded, `<!-- -->` is
