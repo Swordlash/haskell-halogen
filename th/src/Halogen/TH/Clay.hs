@@ -1,4 +1,6 @@
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE TemplateHaskellQuotes #-}
+{-# LANGUAGE TupleSections #-}
 
 -- | CSS with Haskell in it, as Clay's 'Css'.
 --
@@ -22,105 +24,23 @@ where
 import Clay.Property qualified as CP
 import Clay.Selector qualified as Sel
 import Clay.Stylesheet (Feature (..), MediaType (..), fontFace, importUrl, key, keyframes, query, queryNot, queryOnly, (&), (<?), (?))
-import Data.CSS.Syntax.Tokens (Token (..), serialize, tokenize)
+import Data.CSS.Syntax.Tokens (Token)
 import Data.IntMap.Strict qualified as IntMap
 import Data.Text (Text)
 import Data.Text qualified as T
+import Halogen.TH.Css
 import Halogen.TH.Template
 import Language.Haskell.TH (Exp (..), Lit (..), Name, Q)
 import Text.Read (readMaybe)
 
-data Rule
-  = Decl Text Text
-  -- ^ A property and its value, as written.
-  | Nested Text [Item Rule]
-  -- ^ A selector list, as written, and the rules under it.
-  | Media [Token] [Item Rule]
-  | Keyframes Text [Item Rule]
-  | FontFace [Item Rule]
-  | Import Text
-
 cssExp :: Env -> String -> Q Exp
 cssExp env src = do
   (template, holes) <- orFail (extract (T.pack src))
-  (items, rest) <- orFail (parseItems holes (tokenize template))
-  case rest of
-    [] -> pure ()
-    _ -> failAt env 0 "a } closes nothing"
+  items <- orFail (parseRules holes template)
   bs <- orFail (blocks holes items)
   bodyExp env holes bs
   where
     orFail = either (uncurry (failAt env)) pure
-
--- | The rules up to the @}@ that closes them (left in the rest), or the end.
-parseItems :: Holes -> [Token] -> Either Err ([Item Rule], [Token])
-parseItems holes = go []
-  where
-    go acc ts = case dropWhile skippable ts of
-      [] -> Right (reverse acc, [])
-      rest@(RightCurlyBracket : _) -> Right (reverse acc, rest)
-      Ident ph : rest
-        | Just i <- isPlaceholder ph
-        , Just h <- IntMap.lookup i holes ->
-            case h.kind of
-              StmtHole -> go (Ctl i : acc) rest
-              ValueHole -> case dropWhile (== Whitespace) rest of
-                LeftCurlyBracket : _ -> rule (Ident ph : rest)
-                Colon : _ -> Left (h.line, "a property name cannot be Haskell")
-                _ -> go (Val i : acc) rest
-      rest -> rule rest
-      where
-        rule ts' = do
-          (prelude, after) <- splitPrelude ts'
-          case after of
-            LeftCurlyBracket : body -> do
-              (items, rest') <- parseItems holes body
-              case rest' of
-                RightCurlyBracket : rest'' -> do
-                  r <- block prelude items
-                  go (One r : acc) rest''
-                _ -> Left (0, "{ after " <> T.strip (serialize prelude) <> " is never closed by }")
-            _ -> do
-              r <- statement prelude
-              go (One r : acc) after
-
-    skippable t = t == Whitespace || t == Semicolon
-
-    -- The tokens before the next ; { or } outside brackets.
-    splitPrelude :: [Token] -> Either Err ([Token], [Token])
-    splitPrelude = walk (0 :: Int) []
-      where
-        walk _ acc [] = Right (reverse acc, [])
-        walk 0 acc rest@(t : _) | t `elem` [Semicolon, LeftCurlyBracket, RightCurlyBracket] = Right (reverse acc, rest)
-        walk d acc (t : rest) = walk (d + delta t) (t : acc) rest
-        delta = \case
-          LeftParen -> 1
-          Function _ -> 1
-          LeftSquareBracket -> 1
-          RightParen -> -1
-          RightSquareBracket -> -1
-          _ -> 0
-
-    block :: [Token] -> [Item Rule] -> Either Err Rule
-    block prelude items = case dropWhile (== Whitespace) prelude of
-      AtKeyword "media" : q -> Right (Media q items)
-      AtKeyword "keyframes" : q -> case filter (/= Whitespace) q of
-        [Ident name] -> Right (Keyframes name items)
-        [String name] -> Right (Keyframes name items)
-        _ -> Left (0, "@keyframes takes a name: " <> T.strip (serialize prelude))
-      AtKeyword "font-face" : _ -> Right (FontFace items)
-      AtKeyword other : _ -> Left (0, "Clay has no @" <> other <> " rule")
-      _ -> Right (Nested (T.strip (serialize prelude)) items)
-
-    statement :: [Token] -> Either Err Rule
-    statement prelude = case dropWhile (== Whitespace) prelude of
-      AtKeyword "import" : q -> case filter (/= Whitespace) q of
-        [String url] -> Right (Import url)
-        [Url url] -> Right (Import url)
-        _ -> Left (0, "@import takes a quoted file: " <> T.strip (serialize prelude))
-      AtKeyword other : _ -> Left (0, "Clay has no @" <> other <> " rule")
-      Ident name : rest | Colon : value <- dropWhile (== Whitespace) rest -> Right (Decl name (T.strip (serialize value)))
-      _ -> Left (0, "not a declaration: " <> T.strip (serialize prelude))
 
 -- | Rules as one 'Css'.
 bodyExp :: Env -> Holes -> [Block Rule] -> Q Exp
@@ -225,43 +145,15 @@ valueExp env holes = \case
 -- | The media query after @\@media@: @[not | only] [type] [and (feature[: value])]…@.
 mediaQuery :: Env -> Holes -> [Token] -> Q (Name, Exp, [Exp])
 mediaQuery env holes q = do
-  -- Whitespace is skipped between the parts, not inside a value, where
-  -- calc(100% - 1px) needs it.
-  let (fn, ts') = case spaced q of
-        Ident "not" : rest -> ('queryNot, rest)
-        Ident "only" : rest -> ('queryOnly, rest)
-        rest -> ('query, rest)
-      (ty, ts'') = case spaced ts' of
-        Ident t : rest | t /= "and" -> (t, rest)
-        rest -> ("all", rest)
-  features <- featuresOf ts''
-  pure (fn, AppE (ConE 'MediaType) (valueE ty), features)
+  m <- either (uncurry (failAt env)) pure (parseMedia q)
+  let fn = case m.modifier of
+        Just "not" -> 'queryNot
+        Just "only" -> 'queryOnly
+        _ -> 'query
+  features <- mapM feature m.features
+  pure (fn, AppE (ConE 'MediaType) (valueE m.mediaType), features)
   where
-    spaced = dropWhile (== Whitespace)
-    featuresOf ts = case spaced ts of
-      [] -> pure []
-      Ident "and" : rest -> featuresOf rest
-      LeftParen : rest | Ident name : rest' <- spaced rest -> do
-        let (inside, after) = closing (0 :: Int) [] rest'
-        value <- case spaced inside of
-          [] -> pure (ConE 'Nothing)
-          Colon : v -> AppE (ConE 'Just) <$> featureValue (pieces (T.strip (serialize v)))
-          _ -> failAt env 0 ("a media feature is (name) or (name: value): " <> serialize (LeftParen : Ident name : inside))
-        more <- featuresOf after
-        pure (AppE (AppE (ConE 'Feature) (packE name)) value : more)
-      other -> failAt env 0 ("not a media query: " <> serialize other)
-
-    -- Up to the parenthesis closing the feature, past any function (such
-    -- as calc) in its value, and what follows it.
-    closing _ acc [] = (reverse acc, [])
-    closing 0 acc (RightParen : rest) = (reverse acc, rest)
-    closing d acc (t : rest) = closing (d + opens t) (t : acc) rest
-    opens = \case
-      LeftParen -> 1
-      Function _ -> 1
-      RightParen -> -1 :: Int
-      _ -> 0
-
+    feature (name, value) = AppE (AppE (ConE 'Feature) (packE name)) <$> maybe (pure (ConE 'Nothing)) (fmap (AppE (ConE 'Just)) . featureValue . pieces) value
     -- A 'Value', whatever the Haskell in it is.
     featureValue = \case
       [Ref i] -> AppE (VarE 'CP.value) <$> hole i
@@ -274,45 +166,15 @@ mediaQuery env holes q = do
 -- pseudo-elements and attribute selectors, in any number.
 refinementE :: Text -> Either Err Exp
 refinementE t = do
-  ps <- predicates t
-  case ps of
-    [] -> Left (0, "& needs a class, id, pseudo-class or attribute after it")
-    _ -> Right (AppE (ConE 'Sel.Refinement) (ListE ps))
+  ps <- either (Left . (0,)) Right (parseRefinement t)
+  Right (AppE (ConE 'Sel.Refinement) (ListE (map predicate ps)))
   where
-    predicates s = case T.uncons s of
-      Nothing -> Right []
-      Just ('.', rest) -> simple 'Sel.Class rest
-      Just ('#', rest) -> simple 'Sel.Id rest
-      Just (':', rest) | Just (':', rest') <- T.uncons rest -> simple 'Sel.PseudoElem rest'
-      Just (':', rest) -> simple 'Sel.Pseudo rest
-      Just ('[', rest) ->
-        let (inside, after) = T.break (== ']') rest
-        in (AppE (ConE 'Sel.Attr) (packE inside) :) <$> predicates (T.drop 1 after)
-      _ -> Left (0, "not a refinement of the selector: &" <> t)
-    simple con rest =
-      let (name, after) = nameAndRest rest
-      in (AppE (ConE con) (packE name) :) <$> predicates after
-    -- A name runs to the next . # : or [ outside parentheses.
-    nameAndRest = walk (0 :: Int) []
-      where
-        walk _ acc "" = (T.pack (reverse acc), "")
-        walk d acc s = case T.uncons s of
-          Just (c, rest)
-            | d == 0 && c `elem` (".#:[" :: String) -> (T.pack (reverse acc), s)
-            | c == '(' -> walk (d + 1) (c : acc) rest
-            | c == ')' -> walk (d - 1) (c : acc) rest
-            | otherwise -> walk d (c : acc) rest
-          Nothing -> (T.pack (reverse acc), "")
-
--- | A selector list split at its commas, outside parentheses.
-splitCommas :: Text -> [Text]
-splitCommas = map T.strip . walk (0 :: Int) [] []
-  where
-    walk _ acc parts "" = reverse (T.pack (reverse acc) : parts)
-    walk d acc parts s = case T.uncons s of
-      Just (',', rest) | d == 0 -> walk d [] (T.pack (reverse acc) : parts) rest
-      Just (c, rest) -> walk (d + (if c == '(' || c == '[' then 1 else if c == ')' || c == ']' then -1 else 0)) (c : acc) parts rest
-      Nothing -> reverse (T.pack (reverse acc) : parts)
+    predicate = \case
+      Class n -> AppE (ConE 'Sel.Class) (packE n)
+      Id n -> AppE (ConE 'Sel.Id) (packE n)
+      Pseudo n -> AppE (ConE 'Sel.Pseudo) (packE n)
+      PseudoElem n -> AppE (ConE 'Sel.PseudoElem) (packE n)
+      Attr n -> AppE (ConE 'Sel.Attr) (packE n)
 
 keyE :: Text -> Exp
 keyE name = AppE (ConE 'CP.Key) (AppE (ConE 'CP.Plain) (packE name))

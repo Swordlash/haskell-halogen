@@ -35,6 +35,7 @@ library
     exposed-modules:  Halogen.TH
                       Halogen.TH.Html
                       Halogen.TH.Clay
+                      Halogen.TH.Css
                       Halogen.TH.Haskell
                       Halogen.TH.Template
     other-modules:    Halogen.TH.Html.Names
@@ -46,14 +47,17 @@ library
         containers,
         template-haskell >= 2.22,
         tagsoup >= 0.14,
+        megaparsec >= 9,
         css-syntax >= 0.1,
         clay >= 0.16,
         row-types,
         ghc-lib-parser >= 9.14 && < 9.15,
         haskell-halogen-core
 
-    -- ghc-lib-parser does not build with the JavaScript backend (its
-    -- ghc-heap part wants RTS headers that backend does not ship), so
+    -- ghc-lib-parser does not build with the JavaScript backend: its
+    -- ghc-heap part (FFIClosures_ProfilingDisabled.hsc) includes Rts.h,
+    -- and that backend's rts/include/Stg.h asks for stg/DLL.h, which it
+    -- does not ship ("fatal error: 'stg/DLL.h' file not found"). So
     -- neither does this package: native and WebAssembly only.
     if arch(javascript)
         buildable: False
@@ -66,6 +70,7 @@ test-suite th-test
     other-modules:    Test.Html
                       Test.Clay
                       Test.Haskell
+                      Test.Property
                       Test.Render
     default-extensions: QuasiQuotes
     build-depends:
@@ -73,6 +78,7 @@ test-suite th-test
         text,
         containers,
         hspec,
+        QuickCheck,
         template-haskell,
         clay,
         haskell-halogen-core,

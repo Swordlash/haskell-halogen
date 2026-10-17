@@ -44,13 +44,18 @@ module Halogen.TH.Template
   )
 where
 
-import Data.Char (isAlphaNum, isSpace)
+import Data.Char (isAlphaNum, isDigit)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
+import Data.List.NonEmpty qualified as NE
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Void (Void)
 import Language.Haskell.TH (Exp (..), Lit (..), Pat, Q)
 import Language.Haskell.TH qualified as TH
+import Text.Megaparsec
+import Text.Megaparsec.Char (space, space1)
 
 -- | A piece of Haskell cut out of the template.
 data Hole = Hole
@@ -90,78 +95,97 @@ type Err = (Int, Text)
 -- | Cut the Haskell out of a template: the template with placeholders, and
 -- the holes by index.
 extract :: Text -> Either Err (Text, Holes)
-extract src = go 1 0 [] IntMap.empty (T.unpack src)
+extract src = case parse (many part <* eof) "" src of
+  Left bundle -> Left (bundleErr bundle)
+  Right parts -> Right (assemble parts)
   where
-    go :: Int -> Int -> [Text] -> Holes -> String -> Either Err (Text, Holes)
-    go _ _ acc holes [] = Right (T.concat (reverse acc), holes)
-    go ln n acc holes s = case s of
-      '{' : '{' : rest -> do
-        (body, rest') <- value ln rest
-        let h = Hole ValueHole ln (T.strip (T.pack body))
-        go (ln + count body) (n + 1) (placeholder n : acc) (IntMap.insert n h holes) rest'
-      '{' : '%' : rest -> do
-        (body, rest') <- untilClose "%}" ln rest
-        let h = Hole StmtHole ln (T.strip (T.pack body))
-        go (ln + count body) (n + 1) (placeholder n : acc) (IntMap.insert n h holes) rest'
-      '{' : '#' : rest -> do
-        (body, rest') <- untilClose "#}" ln rest
-        go (ln + count body) n acc holes rest'
-      c : rest -> go (if c == '\n' then ln + 1 else ln) n (T.singleton c : acc) holes rest
+    bundleErr bundle = case NE.head (bundleErrors bundle) of
+      FancyError o es
+        | [ErrorCustom (Unclosed opener closer)] <- Set.toList es -> (lineAt o, opener <> " is never closed by " <> closer)
+      e -> (lineAt (errorOffset e), T.pack (parseErrorTextPretty e))
+    lineAt o = 1 + T.count "\n" (T.take o src)
 
-    count = length . filter (== '\n')
-
-    -- A value ends at the first "}}" outside a string or character literal
-    -- with every brace opened inside it closed, so a record update can sit
-    -- inside.
-    value :: Int -> String -> Either Err (String, String)
-    value ln = walk (0 :: Int) []
+    assemble = go 0 [] IntMap.empty
       where
-        walk _ _ [] = Left (ln, "{{ is never closed by }}")
-        walk 0 acc ('}' : '}' : rest) = Right (reverse acc, rest)
-        walk d acc s
-          | Just (lit, rest) <- literal acc s = walk d (reverse lit ++ acc) rest
-        walk d acc ('{' : rest) = walk (d + 1) ('{' : acc) rest
-        walk d acc ('}' : rest) = walk (d - 1) ('}' : acc) rest
-        walk d acc (c : rest) = walk d (c : acc) rest
+        go _ acc holes [] = (T.concat (reverse acc), holes)
+        go n acc holes (Plain t : rest) = go n (t : acc) holes rest
+        go n acc holes (Comment : rest) = go n acc holes rest
+        go n acc holes (Code kind ln code : rest) = go (n + 1) (placeholder n : acc) (IntMap.insert n (Hole kind ln code) holes) rest
 
-    untilClose :: String -> Int -> String -> Either Err (String, String)
-    untilClose end ln = walk []
-      where
-        walk _ [] = Left (ln, "{" <> T.pack (take 1 end) <> " is never closed by " <> T.pack end)
-        walk acc s@(c : rest)
-          | take 2 s == end = Right (reverse acc, drop 2 s)
-          | Just (lit, rest') <- literal acc s = walk (reverse lit ++ acc) rest'
-          | otherwise = walk (c : acc) rest
+-- | A part of a template: plain text, a hole with its kind and line, or a
+-- comment.
+data Part
+  = Plain Text
+  | Code HoleKind Int Text
+  | Comment
 
-    -- A string or character literal starting here, and what follows it;
-    -- @acc@ is what came before, reversed. A quote after a name is part of
-    -- it (@x'@), and one before a name is a Template Haskell name
-    -- (@'foo@), so a character literal is only a quote that follows
-    -- nothing of a name and holds one character or an escape.
-    literal :: String -> String -> Maybe (String, String)
-    literal acc = \case
-      '"' : rest -> let (lit, rest') = stringLit rest in Just ('"' : lit, rest')
-      '\'' : rest
-        | not (nameChar acc) -> case rest of
-            '\\' : more -> let (esc, rest') = break (== '\'') more in case rest' of
-              '\'' : after -> Just ("'\\" ++ esc ++ "'", after)
-              _ -> Nothing
-            c : '\'' : after | c /= '\'' -> Just (['\'', c, '\''], after)
-            _ -> Nothing
-      _ -> Nothing
-      where
-        nameChar (c : _) = isAlphaNum c || c == '_' || c == '\''
-        nameChar [] = False
+-- | What a scan of the template can say that megaparsec's own words do not.
+data TemplateError = Unclosed Text Text
+  deriving (Eq, Ord, Show)
 
-    -- The rest of a string literal after its opening quote, with the
-    -- closing quote, and what follows it.
-    stringLit :: String -> (String, String)
-    stringLit = walk []
-      where
-        walk acc [] = (reverse acc, [])
-        walk acc ('\\' : c : rest) = walk (c : '\\' : acc) rest
-        walk acc ('"' : rest) = (reverse ('"' : acc), rest)
-        walk acc (c : rest) = walk (c : acc) rest
+instance ShowErrorComponent TemplateError where
+  showErrorComponent (Unclosed opener closer) = T.unpack (opener <> " is never closed by " <> closer)
+
+type Scanner = Parsec TemplateError Text
+
+part :: Scanner Part
+part =
+  choice
+    [ holePart ValueHole "{{" "}}" valueBody
+    , holePart StmtHole "{%" "%}" codeBody
+    , Comment <$ (chunk "{#" *> plainBody "#}")
+    , Plain <$> takeWhile1P Nothing (/= '{')
+    , Plain . T.singleton <$> single '{'
+    ]
+
+-- | A hole from its opening to its closing delimiter; never closed, the
+-- error is the hole's, at the line it opens on.
+holePart :: HoleKind -> Text -> Text -> (Text -> Scanner Text) -> Scanner Part
+holePart kind opener closer body = do
+  o <- getOffset
+  ln <- unPos . sourceLine <$> getSourcePos
+  _ <- chunk opener
+  code <- region (const (FancyError o (Set.singleton (ErrorCustom (Unclosed opener closer))))) (body closer)
+  pure (Code kind ln (T.strip code))
+
+-- | A value ends at the first @}}@ outside a string or character literal
+-- with every brace opened inside it closed, so a record update can sit
+-- inside.
+valueBody :: Text -> Scanner Text
+valueBody closer = T.concat <$> manyTill piece (chunk closer)
+  where
+    piece = choice [literal, braced, T.singleton <$> anySingleBut '}']
+    braced = do
+      inner <- single '{' *> manyTill piece (single '}')
+      pure ("{" <> T.concat inner <> "}")
+
+-- | A statement ends at the first @%}@ outside a literal.
+codeBody :: Text -> Scanner Text
+codeBody closer = T.concat <$> manyTill (literal <|> (T.singleton <$> anySingle)) (chunk closer)
+
+plainBody :: Text -> Scanner Text
+plainBody closer = T.concat <$> manyTill (T.singleton <$> anySingle) (chunk closer)
+
+-- | A string literal, a character literal, or a name, each taken whole,
+-- so that a brace or a quote inside a literal is not a delimiter. A quote
+-- after a name is part of it (@x'@), and one before a name is a Template
+-- Haskell name (@'foo@): a character literal is only a quote that holds
+-- one character or an escape and is closed by another.
+literal :: Scanner Text
+literal = choice [stringLit, charLit, name]
+  where
+    stringLit = do
+      body <- single '"' *> manyTill (escape <|> (T.singleton <$> anySingle)) (single '"')
+      pure ("\"" <> T.concat body <> "\"")
+    charLit = try $ do
+      body <- single '\'' *> (escape <|> (T.singleton <$> anySingleBut '\'')) <* single '\''
+      pure ("'" <> body <> "'")
+    -- An escape: one character, or a numeric code (\x7d, \65).
+    escape = do
+      c <- single '\\' *> anySingle
+      more <- if c == 'x' || c == 'o' || isDigit c then takeWhileP Nothing isAlphaNum else pure ""
+      pure (T.cons '\\' (T.cons c more))
+    name = takeWhile1P Nothing (\c -> isAlphaNum c || c == '_' || c == '\'')
 
 -- | Text with placeholders, split around them.
 data Piece
@@ -195,37 +219,27 @@ data Stmt
 -- | The Haskell of a statement is kept as written (only trimmed): a string
 -- literal in it keeps its spaces.
 parseStmt :: Text -> Either Text Stmt
-parseStmt t = case (keyword, body) of
-  ("else", "") -> Right Else
-  (w, "") | w `elem` ["end", "endif", "endfor", "endlet"] -> Right End
-  ("if", e) | not (T.null e) -> Right (If e)
-  ("elif", e) | not (T.null e) -> Right (Elif e)
-  ("for", e)
-    | Just (pat, list) <- splitIn e
-    , not (T.null pat)
-    , not (T.null list) ->
-        Right (For pat list)
-  ("let", e)
-    | (pat, rhs) <- T.breakOn "=" e
-    , not (T.null (T.strip pat))
-    , Just ('=', rhs') <- T.uncons rhs
-    , not (T.null (T.strip rhs')) ->
-        Right (Let (T.strip pat) (T.strip rhs'))
-  _ -> Left ("not a statement: {% " <> t <> " %}; the statements are if, elif, else, for … in …, let … = …, end")
+parseStmt t = case parse (space *> stmt <* eof) "" t of
+  Right s -> Right s
+  Left _ -> Left ("not a statement: {% " <> t <> " %}; the statements are if, elif, else, for … in …, let … = …, end")
   where
-    (keyword, rest) = T.break isSpace (T.strip t)
-    body = T.strip rest
-    -- At the first @in@ standing alone, which a pattern cannot hold.
-    splitIn e = go 0
-      where
-        go from = case T.breakOn "in" (T.drop from e) of
-          (_, "") -> Nothing
-          (pre, _) ->
-            let at = from + T.length pre
-                before = T.take at e
-                after = T.drop (at + 2) e
-                alone = maybe True (isSpace . snd) (T.unsnoc before) && maybe False (isSpace . fst) (T.uncons after)
-            in if alone then Just (T.strip before, T.strip after) else go (at + 2)
+    stmt :: Parsec Void Text Stmt
+    stmt =
+      choice
+        [ Else <$ keyword "else"
+        , End <$ choice (map keyword ["end", "endif", "endfor", "endlet"])
+        , If <$> (keyword "if" *> rest)
+        , Elif <$> (keyword "elif" *> rest)
+        , For <$> (keyword "for" *> upTo (space1 *> chunk "in" *> space1)) <*> rest
+        , Let <$> (keyword "let" *> upTo (single '=')) <*> rest
+        ]
+    -- A keyword is followed by space or the end, so "endif" is not "end".
+    keyword w = try (chunk w <* (space1 <|> eof))
+    -- Everything up to a delimiter, which a pattern cannot hold.
+    upTo end = T.strip . T.pack <$> someTill anySingle (try end)
+    rest = do
+      r <- T.strip <$> takeRest
+      if T.null r then fail "nothing after the keyword" else pure r
 
 -- | One thing of a sequence in a template, with the holes among them.
 data Item a
@@ -333,6 +347,7 @@ blocksExp :: Env -> Holes -> (a -> Q Exp) -> (Exp -> Exp) -> [Block a] -> Q Exp
 blocksExp env holes leaf splice = fmap join . mapM segment . group
   where
     join = \case
+      [] -> ListE []
       [e] -> e
       es -> AppE (VarE 'concat) (ListE es)
 
