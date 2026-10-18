@@ -86,7 +86,7 @@ environment who = do
       at ln
         | ln > 0 = file <> ":" <> T.pack (show (startLine + ln - 1)) <> ": "
         | otherwise = ""
-      report ln msg = T.unpack (who <> ": " <> at ln <> msg)
+      report ln msg = fail (T.unpack (who <> ": " <> at ln <> msg))
       -- A hole's columns are the file's already; its lines are the template's.
       inFile (ln, col) = (startLine + ln - 1, col)
       -- GHC parses the code from its place in the file, so a failure is
@@ -95,7 +95,7 @@ environment who = do
         Right x -> pure x
         Left (Failure l c msg)
           | l > 0 -> fail (T.unpack (who <> ": " <> file <> ":" <> T.pack (show l) <> ": column " <> T.pack (show c) <> ": " <> msg))
-          | otherwise -> fail (report (fst origin) msg)
+          | otherwise -> report (fst origin) msg
   pure
     Env
       { expression = \origin src -> parsed origin (parseExpAt exts (inFile origin) src)

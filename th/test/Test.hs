@@ -1,5 +1,6 @@
 module Main (main) where
 
+import Test.Check qualified
 import Test.Clay qualified
 import Test.Haskell qualified
 import Test.Hspec
@@ -12,3 +13,4 @@ main = hspec $ do
   describe "clay" Test.Clay.spec
   describe "Haskell" Test.Haskell.spec
   describe "properties" Test.Property.spec
+  describe "check" Test.Check.spec

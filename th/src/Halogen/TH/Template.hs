@@ -377,18 +377,18 @@ holeLine holes i = maybe 0 (.line) (IntMap.lookup i holes)
 
 -- | How the Haskell in a hole becomes code, and how a quoter fails: the
 -- parser of expressions and patterns, given the line and column of the
--- template the code starts at, and the message of a failure, given the
--- line (0: none).
+-- template the code starts at, and the failure, given the line of the
+-- template (0: none) and a message.
 data Env = Env
   { expression :: (Int, Int) -> Text -> Q Exp
   , pattern :: (Int, Int) -> Text -> Q Pat
-  , report :: Int -> Text -> String
+  , report :: forall a. Int -> Text -> Q a
   , startColumn :: Int
   -- ^ The column of the file the template starts on, from 1.
   }
 
 failAt :: Env -> Int -> Text -> Q a
-failAt env ln msg = fail (env.report ln msg)
+failAt env = report env
 
 -- | The blocks as one expression of a list: the plain things through
 -- @leaf@, each one element, the values through @splice@, each a list.

@@ -47,8 +47,10 @@ handler of the wrong type is a type error, at the line of the quote.
 parser (through `ghc-lib-parser`), with the extensions of the module the
 quote is in, so `OverloadedRecordDot`, `LambdaCase`, `BlockArguments` and the
 rest work as they do in that module. A parse error names the file, the line
-and the column (in the file: `hh: Mod.hs:12: column 31: …`), which a
-language server can read. Two things cannot be inside a quote: another quasi-quote
+and the column (in the file: `hh: Mod.hs:12: column 31: …`). GHC still
+reports it at the quote; the GHC plugin of `haskell-halogen-th-plugin`
+(`-fplugin=Halogen.TH.Plugin`) reports it where it is, in the compiler and
+in a language server alike. Two things cannot be inside a quote: another quasi-quote
 (`|]` would end the outer one) and a splice.
 
 What a value may be depends on where it stands:

@@ -38,6 +38,7 @@ library
                       Halogen.TH.Css
                       Halogen.TH.Haskell
                       Halogen.TH.Template
+                      Halogen.TH.Check
     other-modules:    Halogen.TH.Html.Names
                       Halogen.TH.Html.Children
     build-depends:
@@ -68,6 +69,7 @@ test-suite th-test
     hs-source-dirs:   test
     main-is:          Test.hs
     other-modules:    Test.Html
+                      Test.Check
                       Test.Clay
                       Test.Haskell
                       Test.Property
