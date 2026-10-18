@@ -35,7 +35,7 @@ import Text.Read (readMaybe)
 
 cssExp :: Env -> String -> Q Exp
 cssExp env src = do
-  (template, holes) <- orFail (extract (T.pack src))
+  (template, holes) <- orFail (extract env.startColumn (T.pack src))
   items <- orFail (parseRules holes template)
   bs <- orFail (blocks holes items)
   bodyExp env holes bs

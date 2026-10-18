@@ -30,6 +30,7 @@ env =
     { expression = \_ t -> either (fail . show) pure (parseExp [] t)
     , pattern = \_ t -> either (fail . show) pure (parsePat [] t)
     , report = \_ m -> T.unpack m
+    , startColumn = 1
     }
 
 ----------------------------------------------------------------------

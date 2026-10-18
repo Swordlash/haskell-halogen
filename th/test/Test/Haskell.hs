@@ -4,7 +4,7 @@ module Test.Haskell (spec) where
 
 import Data.IntMap.Strict qualified as IntMap
 import Data.Text (Text)
-import Halogen.TH.Haskell (Failure (..), parseExp, parsePat)
+import Halogen.TH.Haskell (Failure (..), parseExp, parseExpAt, parsePat)
 import Halogen.TH.Template
 import Language.Haskell.TH (Extension (..))
 import Language.Haskell.TH qualified as TH
@@ -17,7 +17,7 @@ pprinted :: Either Failure TH.Exp -> Either Failure String
 pprinted = fmap TH.pprint
 
 extracted :: Text -> (Text, Holes)
-extracted = either (error . show) id . extract
+extracted = either (error . show) id . extract 1
 
 spec :: Spec
 spec = do
@@ -49,6 +49,11 @@ spec = do
         Left (Failure l c _) -> l == 2 && c > 0
         _ -> False
       fmap (const ()) (parseExp exts "show n) x") `shouldBe` Left (Failure 1 7 "parse error on input `)'")
+      fmap (const ()) (parseExpAt exts (10, 5) "show n) x") `shouldBe` Left (Failure 10 11 "parse error on input `)'")
+      -- A lexical error is at its literal, as GHC reports it.
+      parseExp exts "show \"\\q\"" `shouldSatisfy` \case
+        Left (Failure 1 c _) -> c == 6
+        _ -> False
     it "what a template cannot hold is refused with a reason" $
       parseExp [Arrows] "proc x -> f -< x" `shouldBe` Left (Failure 0 0 "an arrow is not supported in a template: proc x -> f -< x")
     it "a parse error is GHC's message" $
@@ -87,9 +92,16 @@ spec = do
       let (_, holes) = extracted "\n\n{{ a }}\n{% if\n b %}  {{\n\n  c\n }}"
       map (\h -> (h.line, h.column)) (IntMap.elems holes) `shouldBe` [(3, 4), (4, 4), (7, 3)]
       map (\h -> (position h 0, position h 4)) (take 1 (drop 1 (IntMap.elems holes))) `shouldBe` [((4, 4), (5, 2))]
+    it "advances a tab to the next tab stop, as GHC does" $ do
+      let (_, holes) = extracted "x {{\tf\t x }}"
+      map (.column) (IntMap.elems holes) `shouldBe` [9]
+      map (`position` 2) (IntMap.elems holes) `shouldBe` [(1, 17)]
+    it "counts the first line's columns from where the template starts" $ do
+      let (_, holes) = either (error . show) id (extract 11 "<p>{{\tx }}\n{{ y }}")
+      map (\h -> (h.line, h.column)) (IntMap.elems holes) `shouldBe` [(1, 17), (2, 4)]
     it "reports what is never closed" $ do
-      extract "x {{ y" `shouldBe` Left (1, "{{ is never closed by }}")
-      extract "\n{% y" `shouldBe` Left (2, "{% is never closed by %}")
+      extract 1 "x {{ y" `shouldBe` Left (1, "{{ is never closed by }}")
+      extract 1 "\n{% y" `shouldBe` Left (2, "{% is never closed by %}")
     it "reads statements" $ do
       parseStmt "if a > b" `shouldBe` Right (If (Snippet 3 "a > b"))
       parseStmt "for (i, x) in zip [1 ..] xs" `shouldBe` Right (For (Snippet 4 "(i, x)") (Snippet 14 "zip [1 ..] xs"))

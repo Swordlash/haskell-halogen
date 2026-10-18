@@ -13,7 +13,9 @@
 -- arrows, pattern synonyms, implicit parameters) is refused with a message.
 module Halogen.TH.Haskell
   ( parseExp
+  , parseExpAt
   , parsePat
+  , parsePatAt
   , Failure (..)
   )
 where
@@ -44,7 +46,7 @@ import GHC.Types.Name (nameOccName)
 import GHC.Types.Name.Occurrence (isDataOcc, occNameString)
 import GHC.Types.Name.Reader (RdrName (..), isRdrTyVar, rdrNameOcc)
 import GHC.Types.SourceText (IntegralLit (..), rationalFromFractionalLit)
-import GHC.Types.SrcLoc (GenLocated (..), mkRealSrcLoc, psRealSpan, realSrcSpanStart, srcLocCol, srcLocLine, unLoc)
+import GHC.Types.SrcLoc (GenLocated (..), SrcSpan (..), mkRealSrcLoc, psRealSpan, realSrcSpanStart, srcLocCol, srcLocLine, unLoc)
 import GHC.Types.Var (Specificity (..))
 import GHC.Utils.Error (emptyDiagOpts)
 import GHC.Utils.Outputable (Outputable, defaultSDocContext, ppr, renderWithContext)
@@ -52,34 +54,45 @@ import Language.Haskell.Syntax.Basic (FieldLabelString (..))
 import Language.Haskell.TH qualified as TH
 import Language.Haskell.TH.Syntax qualified as THS
 
--- | Where and why parsing failed: the line and column in the text given,
--- from 1, and the message.
+-- | Where and why parsing failed: the line and column, counted on from
+-- where the text was said to start (0 0: not a position), and the message.
 data Failure = Failure Int Int Text
   deriving (Eq, Show)
 
 parseExp :: [TH.Extension] -> Text -> Either Failure TH.Exp
-parseExp exts src = do
-  e <- run exts (Parser.parseExpression >>= \ecp -> (runPV (unECP ecp) :: P (LHsExpr GhcPs))) src
-  translation (expr (unLoc e))
+parseExp exts = parseExpAt exts (1, 1)
 
 parsePat :: [TH.Extension] -> Text -> Either Failure TH.Pat
-parsePat exts src = do
-  p <- run exts Parser.parsePattern src
+parsePat exts = parsePatAt exts (1, 1)
+
+-- | Parse text that starts at a line and column of its file, so a
+-- failure is placed in the file.
+parseExpAt :: [TH.Extension] -> (Int, Int) -> Text -> Either Failure TH.Exp
+parseExpAt exts origin src = do
+  e <- run exts origin (Parser.parseExpression >>= \ecp -> (runPV (unECP ecp) :: P (LHsExpr GhcPs))) src
+  translation (expr (unLoc e))
+
+parsePatAt :: [TH.Extension] -> (Int, Int) -> Text -> Either Failure TH.Pat
+parsePatAt exts origin src = do
+  p <- run exts origin Parser.parsePattern src
   translation (pat (unLoc p))
 
 translation :: Either Text a -> Either Failure a
 translation = either (Left . Failure 0 0) Right
 
-run :: [TH.Extension] -> P a -> Text -> Either Failure a
-run exts p src = case unP p st of
+run :: [TH.Extension] -> (Int, Int) -> P a -> Text -> Either Failure a
+run exts (line, column) p src = case unP p st of
   POk _ a -> Right a
   PFailed s ->
-    -- The failure is at the last token read, where GHC itself puts it.
-    let l = realSrcSpanStart (psRealSpan s.last_loc)
+    -- The failure is where GHC's message puts it (a lexical error is inside
+    -- its token), else at the last token read.
+    let l = case [sp | MsgEnvelope {errMsgSpan = RealSrcSpan sp _} <- bagToList (getMessages s.errors)] of
+          sp : _ -> realSrcSpanStart sp
+          [] -> realSrcSpanStart (psRealSpan s.last_loc)
     in Left (Failure (srcLocLine l) (srcLocCol l) (T.pack (messages s.errors)))
   where
     opts = mkParserOpts (extensions exts) emptyDiagOpts False False False False
-    st = initParserState opts (stringToStringBuffer (T.unpack src)) (mkRealSrcLoc (mkFastString "<template>") 1 1)
+    st = initParserState opts (stringToStringBuffer (T.unpack src)) (mkRealSrcLoc (mkFastString "<template>") line column)
 
 -- | The module's extensions, by name: Template Haskell and ghc-lib-parser
 -- each have the type.

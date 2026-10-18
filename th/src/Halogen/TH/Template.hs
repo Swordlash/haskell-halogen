@@ -97,12 +97,27 @@ isPlaceholder t = case T.uncons t of
 type Err = (Int, Text)
 
 -- | Cut the Haskell out of a template: the template with placeholders, and
--- the holes by index.
-extract :: Text -> Either Err (Text, Holes)
-extract src = case parse (many part <* eof) "" src of
+-- the holes by index, each at its line of the template and its column of
+-- the file, counted from the column the template starts on.
+extract :: Int -> Text -> Either Err (Text, Holes)
+extract startColumn src = case snd (runParser' (many part <* eof) start) of
   Left bundle -> Left (bundleErr bundle)
   Right parts -> Right (assemble parts)
   where
+    start =
+      State
+        { stateInput = src
+        , stateOffset = 0
+        , statePosState =
+            PosState
+              { pstateInput = src
+              , pstateOffset = 0
+              , pstateSourcePos = SourcePos "" pos1 (mkPos startColumn)
+              , pstateTabWidth = defaultTabWidth
+              , pstateLinePrefix = ""
+              }
+        , stateParseErrors = []
+        }
     bundleErr bundle = case NE.head (bundleErrors bundle) of
       FancyError o es
         | [ErrorCustom (Unclosed opener closer)] <- Set.toList es -> (lineAt o, opener <> " is never closed by " <> closer)
@@ -153,16 +168,23 @@ holePart kind opener closer body = do
   raw <- region (const (FancyError o (Set.singleton (ErrorCustom (Unclosed opener closer))))) (body closer)
   let (ln, col) = case T.breakOnEnd "\n" (T.takeWhile isSpace raw) of
         (before, after)
-          | T.null before -> (unPos openLine, unPos openColumn + T.length opener + T.length after)
-          | otherwise -> (unPos openLine + T.count "\n" before, 1 + T.length after)
+          | T.null before -> (unPos openLine, T.foldl' advance (unPos openColumn + T.length opener) after)
+          | otherwise -> (unPos openLine + T.count "\n" before, T.foldl' advance 1 after)
   pure (Code kind ln col (T.strip raw))
 
 -- | The line and column of an offset into a hole's code.
 position :: Hole -> Int -> (Int, Int)
 position h o = case T.breakOnEnd "\n" (T.take o h.code) of
   (before, after)
-    | T.null before -> (h.line, h.column + o)
-    | otherwise -> (h.line + T.count "\n" before, 1 + T.length after)
+    | T.null before -> (h.line, T.foldl' advance h.column after)
+    | otherwise -> (h.line + T.count "\n" before, T.foldl' advance 1 after)
+
+-- | The column after a character, as GHC counts: a tab goes to the next
+-- tab stop of eight.
+advance :: Int -> Char -> Int
+advance col = \case
+  '\t' -> ((col - 1) `div` 8 + 1) * 8 + 1
+  _ -> col + 1
 
 -- | A value ends at the first @}}@ outside a string or character literal
 -- with every brace opened inside it closed, so a record update can sit
@@ -361,6 +383,8 @@ data Env = Env
   { expression :: (Int, Int) -> Text -> Q Exp
   , pattern :: (Int, Int) -> Text -> Q Pat
   , report :: Int -> Text -> String
+  , startColumn :: Int
+  -- ^ The column of the file the template starts on, from 1.
   }
 
 failAt :: Env -> Int -> Text -> Q a

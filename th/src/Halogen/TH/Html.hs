@@ -46,7 +46,7 @@ data Attr = Attr Text Text
 -- | The quote as an expression: one element (@single@), or a list of nodes.
 htmlExp :: Env -> Bool -> String -> Q Exp
 htmlExp env single src = do
-  (template, holes) <- orFail (extract (T.pack src))
+  (template, holes) <- orFail (extract env.startColumn (T.pack src))
   let tags = parseTagsOptions parseOptions {optTagPosition = True, optTagWarning = True} template
   items <- orFail (build holes tags)
   bs <- orFail (blocks holes items)
