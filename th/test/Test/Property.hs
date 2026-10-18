@@ -29,7 +29,8 @@ env =
   Env
     { expression = \_ t -> either (fail . show) pure (parseExp [] t)
     , pattern = \_ t -> either (fail . show) pure (parsePat [] t)
-    , report = \_ m -> T.unpack m
+    , report = \_ m -> fail (T.unpack m)
+    , startColumn = 1
     }
 
 ----------------------------------------------------------------------

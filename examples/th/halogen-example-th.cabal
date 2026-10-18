@@ -44,6 +44,11 @@ library
   else
     hs-source-dirs: src
     build-depends:  haskell-halogen-th
+    -- Natively, the plugin reports an error in a quote where it is; a
+    -- plugin cannot run in the WebAssembly cross compiler.
+    if !arch(wasm32)
+      build-depends: haskell-halogen-th-plugin
+      ghc-options:   -fplugin=Halogen.TH.Plugin
 
 executable halogen-example-th
   import:           shared

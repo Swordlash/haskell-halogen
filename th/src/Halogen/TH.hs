@@ -43,7 +43,7 @@ where
 import Data.Text (Text)
 import Data.Text qualified as T
 import Halogen.TH.Clay (cssExp)
-import Halogen.TH.Haskell (Failure (..), parseExp, parsePat)
+import Halogen.TH.Haskell (Failure (..), parseExpAt, parsePatAt)
 import Halogen.TH.Html (htmlExp)
 import Halogen.TH.Html.Children (Children (..), Props (..), Styled (..))
 import Halogen.TH.Template (Env (..))
@@ -75,25 +75,31 @@ quoter who run =
     other _ = fail (T.unpack who <> " quotes an expression only")
 
 -- | The Haskell inside the quote is parsed with the quoting module's
--- extensions; an error names the file and the line, counted from the
--- line the quote opens on.
+-- extensions; an error names the file, the line and the column, counted
+-- in the file: the quote's text starts where the quote opens.
 environment :: Text -> Q Env
 environment who = do
   exts <- extsEnabled
   loc <- location
-  let (startLine, _) = loc_start loc
+  let (startLine, startColumn) = loc_start loc
+      file = T.pack (loc_filename loc)
       at ln
-        | ln > 0 = T.pack (loc_filename loc) <> ":" <> T.pack (show (startLine + ln - 1)) <> ": "
+        | ln > 0 = file <> ":" <> T.pack (show (startLine + ln - 1)) <> ": "
         | otherwise = ""
-      report ln msg = T.unpack (who <> ": " <> at ln <> msg)
-      parsed ln = \case
+      report ln msg = fail (T.unpack (who <> ": " <> at ln <> msg))
+      -- A hole's columns are the file's already; its lines are the template's.
+      inFile (ln, col) = (startLine + ln - 1, col)
+      -- GHC parses the code from its place in the file, so a failure is
+      -- already placed there.
+      parsed origin = \case
         Right x -> pure x
         Left (Failure l c msg)
-          | l > 0 -> fail (report (ln + l - 1) ("column " <> T.pack (show c) <> ": " <> msg))
-          | otherwise -> fail (report ln msg)
+          | l > 0 -> fail (T.unpack (who <> ": " <> file <> ":" <> T.pack (show l) <> ": column " <> T.pack (show c) <> ": " <> msg))
+          | otherwise -> report (fst origin) msg
   pure
     Env
-      { expression = \ln src -> parsed ln (parseExp exts src)
-      , pattern = \ln src -> parsed ln (parsePat exts src)
+      { expression = \origin src -> parsed origin (parseExpAt exts (inFile origin) src)
+      , pattern = \origin src -> parsed origin (parsePatAt exts (inFile origin) src)
       , report
+      , startColumn
       }

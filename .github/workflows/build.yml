@@ -81,6 +81,13 @@ jobs:
     - name: Test
       run: cabal test all --builddir=dist-newstyle/native
 
+    # The th plugin on a compiler: a module with every kind of broken quote
+    # has each error at its place, and one with good quotes compiles.
+    - name: Test the th plugin
+      run: th-plugin/test/run.sh
+      env:
+        CABAL_BUILDDIR: dist-newstyle/native
+
   build-js:
     runs-on: ubuntu-latest
 

@@ -29,6 +29,7 @@ module Halogen.TH.Template
 
     -- * Statements and blocks
   , Stmt (..)
+  , Snippet (..)
   , parseStmt
   , Item (..)
   , Block (..)
@@ -41,10 +42,11 @@ module Halogen.TH.Template
   , blocksExp
   , textExp
   , holeLine
+  , position
   )
 where
 
-import Data.Char (isAlphaNum, isDigit)
+import Data.Char (isAlphaNum, isDigit, isSpace)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
 import Data.List.NonEmpty qualified as NE
@@ -61,7 +63,9 @@ import Text.Megaparsec.Char (space, space1)
 data Hole = Hole
   { kind :: HoleKind
   , line :: Int
-  -- ^ The line of the template it starts on, from 1.
+  -- ^ The line of the template its code starts on, from 1.
+  , column :: Int
+  -- ^ The column of that line, from 1.
   , code :: Text
   }
   deriving (Eq, Show)
@@ -93,12 +97,27 @@ isPlaceholder t = case T.uncons t of
 type Err = (Int, Text)
 
 -- | Cut the Haskell out of a template: the template with placeholders, and
--- the holes by index.
-extract :: Text -> Either Err (Text, Holes)
-extract src = case parse (many part <* eof) "" src of
+-- the holes by index, each at its line of the template and its column of
+-- the file, counted from the column the template starts on.
+extract :: Int -> Text -> Either Err (Text, Holes)
+extract startColumn src = case snd (runParser' (many part <* eof) start) of
   Left bundle -> Left (bundleErr bundle)
   Right parts -> Right (assemble parts)
   where
+    start =
+      State
+        { stateInput = src
+        , stateOffset = 0
+        , statePosState =
+            PosState
+              { pstateInput = src
+              , pstateOffset = 0
+              , pstateSourcePos = SourcePos "" pos1 (mkPos startColumn)
+              , pstateTabWidth = defaultTabWidth
+              , pstateLinePrefix = ""
+              }
+        , stateParseErrors = []
+        }
     bundleErr bundle = case NE.head (bundleErrors bundle) of
       FancyError o es
         | [ErrorCustom (Unclosed opener closer)] <- Set.toList es -> (lineAt o, opener <> " is never closed by " <> closer)
@@ -110,13 +129,13 @@ extract src = case parse (many part <* eof) "" src of
         go _ acc holes [] = (T.concat (reverse acc), holes)
         go n acc holes (Plain t : rest) = go n (t : acc) holes rest
         go n acc holes (Comment : rest) = go n acc holes rest
-        go n acc holes (Code kind ln code : rest) = go (n + 1) (placeholder n : acc) (IntMap.insert n (Hole kind ln code) holes) rest
+        go n acc holes (Code kind ln col code : rest) = go (n + 1) (placeholder n : acc) (IntMap.insert n (Hole kind ln col code) holes) rest
 
--- | A part of a template: plain text, a hole with its kind and line, or a
--- comment.
+-- | A part of a template: plain text, a hole with its kind, line and
+-- column, or a comment.
 data Part
   = Plain Text
-  | Code HoleKind Int Text
+  | Code HoleKind Int Int Text
   | Comment
 
 -- | What a scan of the template can say that megaparsec's own words do not.
@@ -139,14 +158,33 @@ part =
     ]
 
 -- | A hole from its opening to its closing delimiter; never closed, the
--- error is the hole's, at the line it opens on.
+-- error is the hole's, at the line it opens on. The code is placed where
+-- it starts, after the opener and the whitespace behind it.
 holePart :: HoleKind -> Text -> Text -> (Text -> Scanner Text) -> Scanner Part
 holePart kind opener closer body = do
   o <- getOffset
-  ln <- unPos . sourceLine <$> getSourcePos
+  SourcePos _ openLine openColumn <- getSourcePos
   _ <- chunk opener
-  code <- region (const (FancyError o (Set.singleton (ErrorCustom (Unclosed opener closer))))) (body closer)
-  pure (Code kind ln (T.strip code))
+  raw <- region (const (FancyError o (Set.singleton (ErrorCustom (Unclosed opener closer))))) (body closer)
+  let (ln, col) = case T.breakOnEnd "\n" (T.takeWhile isSpace raw) of
+        (before, after)
+          | T.null before -> (unPos openLine, T.foldl' advance (unPos openColumn + T.length opener) after)
+          | otherwise -> (unPos openLine + T.count "\n" before, T.foldl' advance 1 after)
+  pure (Code kind ln col (T.strip raw))
+
+-- | The line and column of an offset into a hole's code.
+position :: Hole -> Int -> (Int, Int)
+position h o = case T.breakOnEnd "\n" (T.take o h.code) of
+  (before, after)
+    | T.null before -> (h.line, T.foldl' advance h.column after)
+    | otherwise -> (h.line + T.count "\n" before, T.foldl' advance 1 after)
+
+-- | The column after a character, as GHC counts: a tab goes to the next
+-- tab stop of eight.
+advance :: Int -> Char -> Int
+advance col = \case
+  '\t' -> ((col - 1) `div` 8 + 1) * 8 + 1
+  _ -> col + 1
 
 -- | A value ends at the first @}}@ outside a string or character literal
 -- with every brace opened inside it closed, so a record update can sit
@@ -206,14 +244,21 @@ pieces t
 
 -- | A statement: what a @{% … %}@ says.
 data Stmt
-  = If Text
-  | Elif Text
+  = If Snippet
+  | Elif Snippet
   | Else
   | End
-  | For Text Text
+  | For Snippet Snippet
   -- ^ A pattern, and the list it ranges over.
-  | Let Text Text
+  | Let Snippet Snippet
   -- ^ A pattern, and what it is bound to.
+  deriving (Eq, Show)
+
+-- | Haskell in a statement, and where it starts in the statement's code.
+data Snippet = Snippet
+  { offset :: Int
+  , source :: Text
+  }
   deriving (Eq, Show)
 
 -- | The Haskell of a statement is kept as written (only trimmed): a string
@@ -236,10 +281,11 @@ parseStmt t = case parse (space *> stmt <* eof) "" t of
     -- A keyword is followed by space or the end, so "endif" is not "end".
     keyword w = try (chunk w <* (space1 <|> eof))
     -- Everything up to a delimiter, which a pattern cannot hold.
-    upTo end = T.strip . T.pack <$> someTill anySingle (try end)
+    upTo end = snippet <$> getOffset <*> (T.pack <$> someTill anySingle (try end))
     rest = do
-      r <- T.strip <$> takeRest
-      if T.null r then fail "nothing after the keyword" else pure r
+      s <- snippet <$> getOffset <*> takeRest
+      if T.null s.source then fail "nothing after the keyword" else pure s
+    snippet o s = Snippet (o + T.length (T.takeWhile isSpace s)) (T.strip s)
 
 -- | One thing of a sequence in a template, with the holes among them.
 data Item a
@@ -330,16 +376,19 @@ holeLine :: Holes -> Int -> Int
 holeLine holes i = maybe 0 (.line) (IntMap.lookup i holes)
 
 -- | How the Haskell in a hole becomes code, and how a quoter fails: the
--- parser of expressions and patterns, and the message of a failure, each
--- given the line of the template (0: none).
+-- parser of expressions and patterns, given the line and column of the
+-- template the code starts at, and the failure, given the line of the
+-- template (0: none) and a message.
 data Env = Env
-  { expression :: Int -> Text -> Q Exp
-  , pattern :: Int -> Text -> Q Pat
-  , report :: Int -> Text -> String
+  { expression :: (Int, Int) -> Text -> Q Exp
+  , pattern :: (Int, Int) -> Text -> Q Pat
+  , report :: forall a. Int -> Text -> Q a
+  , startColumn :: Int
+  -- ^ The column of the file the template starts on, from 1.
   }
 
 failAt :: Env -> Int -> Text -> Q a
-failAt env ln msg = fail (env.report ln msg)
+failAt env = report env
 
 -- | The blocks as one expression of a list: the plain things through
 -- @leaf@, each one element, the values through @splice@, each a list.
@@ -381,25 +430,28 @@ blocksExp env holes leaf splice = fmap join . mapM segment . group
 
     value i = do
       h <- hole i
-      env.expression h.line h.code
+      env.expression (position h 0) h.code
+
+    snippetExp h s = env.expression (position h s.offset) s.source
+    snippetPat h s = env.pattern (position h s.offset) s.source
 
     condition i = do
       h <- hole i
       case parseStmt h.code of
-        Right (If c) -> env.expression h.line c
-        Right (Elif c) -> env.expression h.line c
+        Right (If c) -> snippetExp h c
+        Right (Elif c) -> snippetExp h c
         _ -> failAt env (holeLine holes i) "impossible: a branch that is not an if"
 
     loop i = do
       h <- hole i
       case parseStmt h.code of
-        Right (For p list) -> (,) <$> env.pattern h.line p <*> env.expression h.line list
+        Right (For p list) -> (,) <$> snippetPat h p <*> snippetExp h list
         _ -> failAt env (holeLine holes i) "impossible: a loop that is not a for"
 
     binding i = do
       h <- hole i
       case parseStmt h.code of
-        Right (Let p rhs) -> (,) <$> env.pattern h.line p <*> env.expression h.line rhs
+        Right (Let p rhs) -> (,) <$> snippetPat h p <*> snippetExp h rhs
         _ -> failAt env (holeLine holes i) "impossible: a binding that is not a let"
 
 -- | Text with holes as an expression of 'Text': the holes must be 'Text'
@@ -420,7 +472,7 @@ textExp env holes ps = case ps of
     lit t = AppE (VarE 'T.pack) (LitE (StringL (T.unpack t)))
     piece (Lit t) = pure (lit t)
     piece (Ref i) = case IntMap.lookup i holes of
-      Just h -> env.expression h.line h.code
+      Just h -> env.expression (position h 0) h.code
       Nothing -> failAt env 0 ("no hole " <> T.pack (show i))
     statement = \case
       Ref i | Just h <- IntMap.lookup i holes -> h.kind == StmtHole

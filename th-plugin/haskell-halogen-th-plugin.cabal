@@ -1,0 +1,44 @@
+cabal-version:      3.4
+name:               haskell-halogen-th-plugin
+version:            0.1.0.0
+synopsis:           Errors in hh and clay quotes at their place in the file
+description:
+  A GHC plugin for haskell-halogen-th. GHC reports an error inside an
+  @[hh| … |]@, @[hhs| … |]@ or @[clay| … |]@ quote at the quote; with
+  @-fplugin=Halogen.TH.Plugin@ each is reported at its line and column as
+  the module is parsed, in the compiler's output and in any language
+  server built on it.
+homepage:           https://github.com/Swordlash/haskell-halogen
+license:            Apache-2.0
+license-file:       LICENSE
+author:             Mateusz Goślinowski
+maintainer:         mateusz.goslinowski@gmail.com
+category:           Web, Development
+build-type:         Simple
+extra-doc-files:    CHANGELOG.md
+                    README.md
+
+common defaults
+    default-language: GHC2021
+    ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules
+    default-extensions:
+        OverloadedStrings
+        LambdaCase
+        StrictData
+
+library
+    import:           defaults
+    hs-source-dirs:   src
+    ghc-options:      -Wmissing-export-lists
+    exposed-modules:  Halogen.TH.Plugin
+    build-depends:
+        base >= 4.20 && < 5,
+        ghc >= 9.12 && < 9.15,
+        haskell-halogen-th,
+        syb >= 0.7,
+        text >= 2.0
+
+    -- A plugin runs inside the compiler, so there is none for the targets
+    -- of a cross compiler.
+    if arch(javascript) || arch(wasm32)
+        buildable: False

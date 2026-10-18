@@ -46,7 +46,7 @@ data Attr = Attr Text Text
 -- | The quote as an expression: one element (@single@), or a list of nodes.
 htmlExp :: Env -> Bool -> String -> Q Exp
 htmlExp env single src = do
-  (template, holes) <- orFail (extract (T.pack src))
+  (template, holes) <- orFail (extract env.startColumn (T.pack src))
   let tags = parseTagsOptions parseOptions {optTagPosition = True, optTagWarning = True} template
   items <- orFail (build holes tags)
   bs <- orFail (blocks holes items)
@@ -187,7 +187,7 @@ attrExp env holes ln (Attr name value) = case event lower of
     attr = AppE (AppE (VarE 'HP.attr) (AppE (ConE 'AttrName) (packE name))) <$> text
     bad = failAt env ln
     hole i = case IntMap.lookup i holes of
-      Just h -> env.expression h.line h.code
+      Just h -> env.expression (position h 0) h.code
       Nothing -> bad ("no hole " <> T.pack (show i))
 
 packE :: Text -> Exp
