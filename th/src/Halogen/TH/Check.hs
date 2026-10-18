@@ -8,6 +8,7 @@ module Halogen.TH.Check
   , quoterName
   , Complaint (..)
   , check
+  , quoted
   )
 where
 
@@ -18,7 +19,7 @@ import Halogen.TH.Clay (cssExp)
 import Halogen.TH.Haskell (Failure (..), parseExpAt, parsePatAt)
 import Halogen.TH.Html (htmlExp)
 import Halogen.TH.Template (Env (..))
-import Language.Haskell.TH (Extension, Q, runIO, runQ)
+import Language.Haskell.TH (Exp, Extension, Q, runIO, runQ)
 
 -- | The three quoters of "Halogen.TH".
 data Quoter = Hh | Hhs | Clay
@@ -50,18 +51,21 @@ data Complaint = Complaint
 
 instance Exception Complaint
 
+-- | A quote's text through its quoter, in an environment of the caller's.
+quoted :: Quoter -> Env -> String -> Q Exp
+quoted = \case
+  Hh -> \env -> htmlExp env True
+  Hhs -> \env -> htmlExp env False
+  Clay -> cssExp
+
 -- | A quote's text, starting at a line and column of its file, run through
 -- its quoter with the module's extensions: what the quoter would fail
 -- with, or nothing. Of the Q monad the quoters use only failure, so the
 -- run is in IO, with the failure an exception.
 check :: [Extension] -> Quoter -> (Int, Int) -> Text -> IO (Maybe Complaint)
 check exts quoter (startLine, startColumn) src =
-  either Just (const Nothing) <$> try (runQ (quote env (T.unpack src)))
+  either Just (const Nothing) <$> try (runQ (quoted quoter env (T.unpack src)))
   where
-    quote = case quoter of
-      Hh -> \e -> htmlExp e True
-      Hhs -> \e -> htmlExp e False
-      Clay -> cssExp
     env =
       Env
         { expression = \origin s -> parsed origin (parseExpAt exts (inFile origin) s)

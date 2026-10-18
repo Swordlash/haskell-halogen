@@ -13,6 +13,7 @@
 * A parse error in the Haskell of a hole names the line and the column in
   the file (`hh: Mod.hs:12: column 31: …`), counted from the quote's
   opening; a hole whose code starts on a later line than its `{{` names
-  that line. A language server can put the error there, and the GHC plugin
-  of `haskell-halogen-th-plugin` does: `Halogen.TH.Check` runs a quote's
-  checks outside a splice for it.
+  that line. `Halogen.TH.Check` runs a quote through its quoter outside a
+  splice, for the GHC plugin of `haskell-halogen-th-plugin`, which expands
+  the quotes as a module is parsed so that every error, type errors in the
+  holes included, is reported where it is.

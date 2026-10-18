@@ -48,9 +48,10 @@ parser (through `ghc-lib-parser`), with the extensions of the module the
 quote is in, so `OverloadedRecordDot`, `LambdaCase`, `BlockArguments` and the
 rest work as they do in that module. A parse error names the file, the line
 and the column (in the file: `hh: Mod.hs:12: column 31: …`). GHC still
-reports it at the quote; the GHC plugin of `haskell-halogen-th-plugin`
-(`-fplugin=Halogen.TH.Plugin`) reports it where it is, in the compiler and
-in a language server alike. Two things cannot be inside a quote: another quasi-quote
+reports it, and a type error in a hole, at the quote; the GHC plugin of
+`haskell-halogen-th-plugin` (`-fplugin=Halogen.TH.Plugin`) expands the
+quotes as the module is parsed, so the compiler and a language server
+report each error where it is, in the hole. Two things cannot be inside a quote: another quasi-quote
 (`|]` would end the outer one) and a splice.
 
 What a value may be depends on where it stands:
