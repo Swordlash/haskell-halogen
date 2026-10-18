@@ -122,7 +122,7 @@ ruleExp env holes = \case
       _ -> Left (0, "a keyframe is from, to or a percentage: " <> s)
 
     hole i = case IntMap.lookup i holes of
-      Just h -> env.expression h.line h.code
+      Just h -> env.expression (position h 0) h.code
       Nothing -> failAt env 0 ("no hole " <> T.pack (show i))
 
 -- | A value as written: a 'Val' alone, text alone, or text with Haskell
@@ -139,7 +139,7 @@ valueExp env holes = \case
     piece (Lit t) = pure (valueE t)
     piece (Ref i) = AppE (VarE 'CP.value) <$> hole i
     hole i = case IntMap.lookup i holes of
-      Just h -> env.expression h.line h.code
+      Just h -> env.expression (position h 0) h.code
       Nothing -> failAt env 0 ("no hole " <> T.pack (show i))
 
 -- | The media query after @\@media@: @[not | only] [type] [and (feature[: value])]…@.
@@ -159,7 +159,7 @@ mediaQuery env holes q = do
       [Ref i] -> AppE (VarE 'CP.value) <$> hole i
       ps -> valueExp env holes ps
     hole i = case IntMap.lookup i holes of
-      Just h -> env.expression h.line h.code
+      Just h -> env.expression (position h 0) h.code
       Nothing -> failAt env 0 ("no hole " <> T.pack (show i))
 
 -- | What follows @&@ as a 'Refinement': classes, ids, pseudo-classes,

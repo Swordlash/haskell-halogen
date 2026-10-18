@@ -44,10 +44,11 @@ spec = do
     it "the extensions are the module's" $ do
       parseExp [] "a.b" `shouldBe` Right (TH.UInfixE (TH.VarE (TH.mkName "a")) (TH.VarE (TH.mkName ".")) (TH.VarE (TH.mkName "b")))
       parseExp exts "a.b" `shouldBe` Right (TH.GetFieldE (TH.VarE (TH.mkName "a")) "b")
-    it "a parse error has its position" $
+    it "a parse error has its position" $ do
       parseExp exts "f (1 +\n  2" `shouldSatisfy` \case
         Left (Failure l c _) -> l == 2 && c > 0
         _ -> False
+      fmap (const ()) (parseExp exts "show n) x") `shouldBe` Left (Failure 1 7 "parse error on input `)'")
     it "what a template cannot hold is refused with a reason" $
       parseExp [Arrows] "proc x -> f -< x" `shouldBe` Left (Failure 0 0 "an arrow is not supported in a template: proc x -> f -< x")
     it "a parse error is GHC's message" $
@@ -75,30 +76,31 @@ spec = do
     it "cuts the Haskell out" $ do
       let (t, holes) = extracted "a {{ f \"}}\" x }} b {% for x in xs %} c {# gone #} d"
       pieces t `shouldBe` [Lit "a ", Ref 0, Lit " b ", Ref 1, Lit " c  d"]
-      IntMap.elems holes `shouldBe` [Hole ValueHole 1 "f \"}}\" x", Hole StmtHole 1 "for x in xs"]
+      IntMap.elems holes `shouldBe` [Hole ValueHole 1 6 "f \"}}\" x", Hole StmtHole 1 23 "for x in xs"]
     it "balances braces in a value" $ do
       let (_, holes) = extracted "{{ r {a = 1} }}{{ s{x=1}}}"
       map (.code) (IntMap.elems holes) `shouldBe` ["r {a = 1}", "s{x=1}"]
     it "passes braces and quotes in character literals" $ do
       let (_, holes) = extracted "{{ f '}' x' }}{{ g '{' }}{{ h '\\'' }}{{ k '\\x7d' }}{% if c == '%' %}{{ 'Just }}"
       map (.code) (IntMap.elems holes) `shouldBe` ["f '}' x'", "g '{'", "h '\\''", "k '\\x7d'", "if c == '%'", "'Just"]
-    it "counts lines" $ do
-      let (_, holes) = extracted "\n\n{{ a }}\n{% if\n b %}"
-      map (.line) (IntMap.elems holes) `shouldBe` [3, 4]
+    it "counts lines and columns" $ do
+      let (_, holes) = extracted "\n\n{{ a }}\n{% if\n b %}  {{\n\n  c\n }}"
+      map (\h -> (h.line, h.column)) (IntMap.elems holes) `shouldBe` [(3, 4), (4, 4), (7, 3)]
+      map (\h -> (position h 0, position h 4)) (take 1 (drop 1 (IntMap.elems holes))) `shouldBe` [((4, 4), (5, 2))]
     it "reports what is never closed" $ do
       extract "x {{ y" `shouldBe` Left (1, "{{ is never closed by }}")
       extract "\n{% y" `shouldBe` Left (2, "{% is never closed by %}")
     it "reads statements" $ do
-      parseStmt "if a > b" `shouldBe` Right (If "a > b")
-      parseStmt "for (i, x) in zip [1 ..] xs" `shouldBe` Right (For "(i, x)" "zip [1 ..] xs")
-      parseStmt "let y = x + 1" `shouldBe` Right (Let "y" "x + 1")
-      parseStmt "  if  a ==  \"x  y\" " `shouldBe` Right (If "a ==  \"x  y\"")
-      parseStmt "for (inner, x)  in  [(\"a  b\", 1)]" `shouldBe` Right (For "(inner, x)" "[(\"a  b\", 1)]")
-      parseStmt "let s = \"in  deed\"" `shouldBe` Right (Let "s" "\"in  deed\"")
+      parseStmt "if a > b" `shouldBe` Right (If (Snippet 3 "a > b"))
+      parseStmt "for (i, x) in zip [1 ..] xs" `shouldBe` Right (For (Snippet 4 "(i, x)") (Snippet 14 "zip [1 ..] xs"))
+      parseStmt "let y = x + 1" `shouldBe` Right (Let (Snippet 4 "y") (Snippet 8 "x + 1"))
+      parseStmt "  if  a ==  \"x  y\" " `shouldBe` Right (If (Snippet 6 "a ==  \"x  y\""))
+      parseStmt "for (inner, x)  in  [(\"a  b\", 1)]" `shouldBe` Right (For (Snippet 4 "(inner, x)") (Snippet 20 "[(\"a  b\", 1)]"))
+      parseStmt "let s = \"in  deed\"" `shouldBe` Right (Let (Snippet 4 "s") (Snippet 8 "\"in  deed\""))
       parseStmt "endfor" `shouldBe` Right End
       parseStmt "unless x" `shouldSatisfy` either (const True) (const False)
     it "groups blocks and refuses the unbalanced" $ do
-      let holes = IntMap.fromList [(0, Hole StmtHole 1 "if a"), (1, Hole StmtHole 2 "else"), (2, Hole StmtHole 3 "end"), (3, Hole StmtHole 4 "for x in xs")]
+      let holes = IntMap.fromList [(0, Hole StmtHole 1 1 "if a"), (1, Hole StmtHole 2 1 "else"), (2, Hole StmtHole 3 1 "end"), (3, Hole StmtHole 4 1 "for x in xs")]
           grouped = blocks holes :: [Item Char] -> Either Err [Block Char]
       grouped [One 'a', Ctl 0, One 'b', Ctl 1, One 'c', Ctl 2, One 'd']
         `shouldBe` Right [Leaf 'a', Cond [(0, [Leaf 'b'])] (Just [Leaf 'c']), Leaf 'd']

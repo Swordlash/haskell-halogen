@@ -187,7 +187,7 @@ attrExp env holes ln (Attr name value) = case event lower of
     attr = AppE (AppE (VarE 'HP.attr) (AppE (ConE 'AttrName) (packE name))) <$> text
     bad = failAt env ln
     hole i = case IntMap.lookup i holes of
-      Just h -> env.expression h.line h.code
+      Just h -> env.expression (position h 0) h.code
       Nothing -> bad ("no hole " <> T.pack (show i))
 
 packE :: Text -> Exp

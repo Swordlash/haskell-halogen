@@ -75,25 +75,28 @@ quoter who run =
     other _ = fail (T.unpack who <> " quotes an expression only")
 
 -- | The Haskell inside the quote is parsed with the quoting module's
--- extensions; an error names the file and the line, counted from the
--- line the quote opens on.
+-- extensions; an error names the file, the line and the column, counted
+-- in the file: the quote's text starts where the quote opens.
 environment :: Text -> Q Env
 environment who = do
   exts <- extsEnabled
   loc <- location
-  let (startLine, _) = loc_start loc
+  let (startLine, startColumn) = loc_start loc
       at ln
         | ln > 0 = T.pack (loc_filename loc) <> ":" <> T.pack (show (startLine + ln - 1)) <> ": "
         | otherwise = ""
       report ln msg = T.unpack (who <> ": " <> at ln <> msg)
-      parsed ln = \case
+      -- The first line of the quote's text begins after its opening.
+      fileColumn ln col = if ln == 1 then startColumn + col - 1 else col
+      parsed (ln, col) = \case
         Right x -> pure x
         Left (Failure l c msg)
-          | l > 0 -> fail (report (ln + l - 1) ("column " <> T.pack (show c) <> ": " <> msg))
+          | l == 1 -> fail (report ln ("column " <> T.pack (show (fileColumn ln col + c - 1)) <> ": " <> msg))
+          | l > 1 -> fail (report (ln + l - 1) ("column " <> T.pack (show c) <> ": " <> msg))
           | otherwise -> fail (report ln msg)
   pure
     Env
-      { expression = \ln src -> parsed ln (parseExp exts src)
-      , pattern = \ln src -> parsed ln (parsePat exts src)
+      { expression = \at' src -> parsed at' (parseExp exts src)
+      , pattern = \at' src -> parsed at' (parsePat exts src)
       , report
       }

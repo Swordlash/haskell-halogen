@@ -44,7 +44,7 @@ import GHC.Types.Name (nameOccName)
 import GHC.Types.Name.Occurrence (isDataOcc, occNameString)
 import GHC.Types.Name.Reader (RdrName (..), isRdrTyVar, rdrNameOcc)
 import GHC.Types.SourceText (IntegralLit (..), rationalFromFractionalLit)
-import GHC.Types.SrcLoc (GenLocated (..), mkRealSrcLoc, psRealLoc, srcLocCol, srcLocLine, unLoc)
+import GHC.Types.SrcLoc (GenLocated (..), mkRealSrcLoc, psRealSpan, realSrcSpanStart, srcLocCol, srcLocLine, unLoc)
 import GHC.Types.Var (Specificity (..))
 import GHC.Utils.Error (emptyDiagOpts)
 import GHC.Utils.Outputable (Outputable, defaultSDocContext, ppr, renderWithContext)
@@ -74,7 +74,8 @@ run :: [TH.Extension] -> P a -> Text -> Either Failure a
 run exts p src = case unP p st of
   POk _ a -> Right a
   PFailed s ->
-    let l = psRealLoc s.loc
+    -- The failure is at the last token read, where GHC itself puts it.
+    let l = realSrcSpanStart (psRealSpan s.last_loc)
     in Left (Failure (srcLocLine l) (srcLocCol l) (T.pack (messages s.errors)))
   where
     opts = mkParserOpts (extensions exts) emptyDiagOpts False False False False

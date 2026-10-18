@@ -47,7 +47,8 @@ handler of the wrong type is a type error, at the line of the quote.
 parser (through `ghc-lib-parser`), with the extensions of the module the
 quote is in, so `OverloadedRecordDot`, `LambdaCase`, `BlockArguments` and the
 rest work as they do in that module. A parse error names the file, the line
-and the column. Two things cannot be inside a quote: another quasi-quote
+and the column (in the file: `hh: Mod.hs:12: column 31: …`), which a
+language server can read. Two things cannot be inside a quote: another quasi-quote
 (`|]` would end the outer one) and a splice.
 
 What a value may be depends on where it stands:
