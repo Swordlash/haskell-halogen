@@ -46,6 +46,7 @@ const routes = {
   "#/hooks": { name: "Hooks", marker: "main :text-is('Halogen Hooks')" },
   "#/pixi": { name: "Pixi", marker: "main canvas" },
   "#/material": { name: "Material", marker: "main .mdc-tab-bar" },
+  "#/th": { name: "Quotes", marker: "main :text-is('A list, quoted')" },
 };
 
 const browser = await chromium.launch();
@@ -119,7 +120,7 @@ try {
     assert.fail(`Pixi kept stale metrics for the title's font: ${JSON.stringify(last)}`);
   };
 
-  const visited = ["#/vanilla", "#/hooks", "#/pixi", "#/material"];
+  const visited = ["#/vanilla", "#/hooks", "#/pixi", "#/material", "#/th"];
   for (const hash of visited) {
     await page.locator("nav a", { hasText: routes[hash].name }).click();
     await expectRoute(hash, `click ${routes[hash].name}`);
@@ -140,6 +141,16 @@ try {
   await plus.click();
   await page.locator("main :text-is('2')").waitFor({ timeout: 5000 });
   console.log("ok  vanilla counter counts");
+
+  // The quoted list adds what is typed: the hh quote's handlers and the
+  // {% for %} over the items work once mounted.
+  await page.goto(`${url}#/th`);
+  await expectRoute("#/th", "goto the quoted list");
+  await page.locator("main input.draft").fill("Quote some CSS");
+  await page.locator("main button", { hasText: /^Add$/ }).click();
+  await page.locator("main li.item", { hasText: "Quote some CSS" }).waitFor({ timeout: 5000 });
+  assert.equal(await page.locator("main li.item").count(), 3, "three items after adding one");
+  console.log("ok  quoted list adds an item");
 
   await page.goto(`${url}#/material`);
   await page.reload();

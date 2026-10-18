@@ -307,24 +307,30 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-wasm-${{ env.WASM_GHC_VERSION }}-cabal-store-
 
-    - name: Build every example
-      run: npm run build-wasm-all
-
-    # Before the tests: the suites built with hspec-halogen (material's) run
-    # in headless Chromium, driven by the hspec-halogen executable, which is a
-    # native program and so needs the host GHC as well as the wasm one.
-    - name: Install Chromium
-      run: npx playwright install --with-deps --only-shell chromium
-
     # The runner image already ships this GHC under ghcup, so this only sets
     # it as the default; it installs one if a later image does not. (Caching
     # it only unpacked a copy over the image's, which tar cannot re-time.)
-    - name: Install host GHC
+    # Before the build: th's ghc-lib-parser runs alex and happy while it
+    # compiles. cabal builds them for wasm (alex.wasm, happy.wasm), which it
+    # cannot run, and falls back to PATH, where native ones have to be: a
+    # happy ghc-lib-parser accepts (not 2.2).
+    - name: Install host GHC, alex and happy
       run: |
         if ! ghcup whereis ghc "$GHC_VERSION" >/dev/null 2>&1; then
           ghcup install ghc "$GHC_VERSION"
         fi
         ghcup set ghc "$GHC_VERSION"
+        cabal install alex happy --constraint='happy <2.2' --ignore-project --with-compiler="$(ghcup whereis ghc "$GHC_VERSION")" --installdir="$CABAL_DIR/bin" --install-method=copy --overwrite-policy=always
+        echo "$CABAL_DIR/bin" >> "$GITHUB_PATH"
+
+    - name: Build every example
+      run: npm run build-wasm-all
+
+    # Before the tests: the suites built with hspec-halogen (material's) run
+    # in headless Chromium, driven by the hspec-halogen executable, which is a
+    # native program, built with the host GHC installed above.
+    - name: Install Chromium
+      run: npx playwright install --with-deps --only-shell chromium
 
     - name: Test
       run: npm run test-wasm

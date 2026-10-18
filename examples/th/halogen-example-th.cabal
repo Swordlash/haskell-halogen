@@ -1,0 +1,59 @@
+cabal-version:      3.0
+name:               halogen-example-th
+version:            0.1.0.0
+synopsis:           haskell-halogen-th example app: HTML and CSS quoted
+license:            Apache-2.0
+author:             Mateusz Goślinowski
+maintainer:         mateusz.goslinowski@gmail.com
+category:           Web
+
+common shared
+  default-language: GHC2021
+  ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture
+
+  default-extensions:
+      CPP
+      DataKinds
+      DerivingStrategies
+      DuplicateRecordFields
+      LambdaCase
+      NamedFieldPuns
+      NoImplicitPrelude
+      OverloadedRecordDot
+      OverloadedStrings
+      QuasiQuotes
+      StrictData
+      TypeOperators
+
+  build-depends:
+      base >= 4.20,
+      protolude,
+      row-types,
+      clay >= 0.16.0,
+      text,
+      unliftio,
+      haskell-halogen-core
+
+library
+  import:           shared
+  exposed-modules:  Example.Quotes
+  -- haskell-halogen-th builds natively and for WebAssembly, not with the
+  -- JavaScript backend; there the example is a note saying so.
+  if arch(javascript)
+    hs-source-dirs: src-js
+  else
+    hs-source-dirs: src
+    build-depends:  haskell-halogen-th
+
+executable halogen-example-th
+  import:           shared
+  main-is:          Main.hs
+  hs-source-dirs:   .
+  build-depends:    halogen-example-th
+
+  if arch(wasm32)
+    build-depends: ghc-experimental
+    ghc-options:
+      -no-hs-main
+      -optl-mexec-model=reactor
+      "-optl-Wl,--export=hs_start"
