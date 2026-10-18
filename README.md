@@ -24,7 +24,7 @@ AI usage disclaimer: All code until tag `0.9.0` was hand-written. Any later comm
 | [sound/](sound/) | `haskell-halogen-sound` | Music and sound effects for a page: a theme to loop, a shuffled album fetched ahead, effects on top. |
 | [hspec-halogen/](hspec-halogen/) | `hspec-halogen` | Test components in a real browser with hspec: mount, click, type, check. |
 | [th/](th/) | `haskell-halogen-th` | HTML and CSS as written, with Haskell inside: the `hh` and `clay` quasi-quoters. |
-| [th-plugin/](th-plugin/) | `haskell-halogen-th-plugin` | A GHC plugin that reports an error in a quote at its line and column. |
+| [th-plugin/](th-plugin/) | `haskell-halogen-th-plugin` | A GHC plugin that expands the quotes as a module is parsed, so every error, type errors included, is at its place in the file. |
 | [examples/](examples/) | `halogen-example-*` | One runnable browser app per library, and `all`, which mounts them in one page. |
 
 `hooks`, `material`, `pixi`, `hspec-halogen` and `th` depend on `core`; `sound` is

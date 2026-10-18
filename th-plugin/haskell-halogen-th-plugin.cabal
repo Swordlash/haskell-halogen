@@ -33,12 +33,47 @@ library
     exposed-modules:  Halogen.TH.Plugin
     build-depends:
         base >= 4.20 && < 5,
+        containers,
         ghc >= 9.12 && < 9.15,
         haskell-halogen-th,
         syb >= 0.7,
+        template-haskell,
         text >= 2.0
 
     -- A plugin runs inside the compiler, so there is none for the targets
     -- of a cross compiler.
+    if arch(javascript) || arch(wasm32)
+        buildable: False
+
+-- The th package's own tests, compiled with the plugin: every quote in them
+-- is expanded by the plugin instead of run by its quoter, and must build
+-- the same HTML and CSS. test/parity links to th/test (a test suite of th
+-- itself could not depend on this package: cabal's solver sees a cycle).
+test-suite parity-test
+    import:           defaults
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test/parity
+    main-is:          Test.hs
+    other-modules:    Test.Html
+                      Test.Check
+                      Test.Clay
+                      Test.Haskell
+                      Test.Property
+                      Test.Render
+    default-extensions: QuasiQuotes
+                        OverloadedRecordDot
+    ghc-options:      -fplugin=Halogen.TH.Plugin
+    build-depends:
+        base,
+        text,
+        containers,
+        hspec,
+        QuickCheck,
+        template-haskell,
+        clay,
+        haskell-halogen-core,
+        haskell-halogen-th,
+        haskell-halogen-th-plugin
+
     if arch(javascript) || arch(wasm32)
         buildable: False
