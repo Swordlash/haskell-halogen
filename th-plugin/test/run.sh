@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The plugin on a compiler: a module with every kind of broken quote has
 # each error at its place, a module with good quotes compiles, and a module
-# whose quotes do not type check has each type error at its hole. Run from
+# whose quotes do not type check has each type error at its hole, and what
+# the quoter refuses in a hole is refused there too. Run from
 # anywhere after `cabal build all`; CABAL_BUILDDIR names cabal's build
 # directory when it is not the default.
 set -euo pipefail
@@ -58,3 +59,11 @@ if ! grep -qF -- "Instance.hs:12:28: error:" <<<"$out" || ! grep -qF -- "No inst
   exit 1
 fi
 echo "Instance.hs: the missing instance is at its hole"
+
+out=$(ghc th-plugin/test/Unsupported.hs 2>&1 || true)
+if ! grep -qF -- "Unsupported.hs:13:20: error:" <<<"$out" || ! grep -qF -- "hh: an arrow is not supported in a template" <<<"$out"; then
+  echo "what the quoter refuses is not refused at the hole" >&2
+  echo "$out" >&2
+  exit 1
+fi
+echo "Unsupported.hs: what the quoter refuses is refused at the hole"

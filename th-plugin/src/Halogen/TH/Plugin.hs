@@ -27,6 +27,7 @@ import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Data.Bag (bagToList)
+import GHC.Data.EnumSet qualified as EnumSet
 import GHC.Data.StringBuffer (stringToStringBuffer)
 import GHC.Driver.Config.Parser (initParserOpts)
 import GHC.Hs (GhcPs, HsBind, HsBindLR (..), HsExpr (..), HsParsedModule (..), HsUntypedSplice (..), LHsExpr, LPat, Pat (..))
@@ -41,6 +42,7 @@ import GHC.ThToHs (convertToHsExpr)
 import GHC.Types.Error (Diagnostic (..), MsgEnvelope, addMessage, defaultDiagnosticOpts, getMessages, mkPlainError, mkSimpleUnknownDiagnostic, noHints, unDecorated)
 import GHC.Utils.Error (mkErrorMsgEnvelope)
 import Halogen.TH.Check (Complaint (Complaint), Quoter, quoted, quoterName, quoterNamed)
+import Halogen.TH.Haskell (Failure (..), namedExtensions, parseExpAt, parsePatAt)
 import Halogen.TH.Template (Env (..))
 import Language.Haskell.TH (runIO, runQ)
 import Language.Haskell.TH.Syntax qualified as TH
@@ -100,23 +102,29 @@ data Filling
 -- | The code a quote's quoter makes, with the Haskell of every hole as GHC
 -- parses it at its place in the file, or the problems that stop it. The
 -- quoter gets an environment whose holes are placeholders, named so that
--- no code can contain them; the quoter's Template Haskell is converted to
+-- no hole can contain them; the quoter's Template Haskell is converted to
 -- GHC's syntax, and the holes take their placeholders' places. A quoter
--- failure (a template error, with a line) is placed on that line.
+-- failure (a template error, with a line) is placed on that line. What
+-- the quoter's own parser would refuse in a hole (a splice, an arrow) is
+-- refused here too, so a module builds the same with the plugin and
+-- without it.
 expandQuote :: DynFlags -> Quoter -> RdrName -> SrcSpan -> Text -> IO (Either [MsgEnvelope PsMessage] (LHsExpr GhcPs))
 expandQuote dflags quoter name at body = do
   kept <- newIORef Map.empty
-  let keep filling = atomicModifyIORef' kept $ \m ->
-        let placeholder = "haskellHalogenThHole" <> show (Map.size m)
+  let -- A placeholder's stem is not in the quote's text, so no hole holds
+      -- it, nor any name that extends it.
+      stem = until (\s -> not (T.pack s `T.isInfixOf` body)) (<> "x") "haskellHalogenThHole"
+      keep filling = atomicModifyIORef' kept $ \m ->
+        let placeholder = stem <> show (Map.size m)
         in (Map.insert placeholder filling m, TH.mkName placeholder)
       env =
         Env
-          { expression = \origin src -> runIO (TH.VarE <$> (keep . AnExpression =<< parseHole expression origin src))
+          { expression = \origin src -> runIO (TH.VarE <$> (keep . AnExpression =<< parseHole expression (parseExpAt exts) origin src))
           , -- A variable stays a variable (a let of one is a function binding,
             -- as the quoter makes it); any other pattern hides behind an
             -- as-pattern, so a let of it stays a pattern binding.
             pattern = \origin src -> runIO $ do
-              p <- parseHole Parser.parsePattern origin src
+              p <- parseHole Parser.parsePattern (parsePatAt exts) origin src
               placeholder <- keep (APattern p)
               pure $ case p of
                 L _ (VarPat _ _) -> TH.VarP placeholder
@@ -140,6 +148,7 @@ expandQuote dflags quoter name at body = do
       UnhelpfulSpan _ -> (mkFastString "<quote>", 1, 1)
     fileLine ln = if ln > 0 then startLine + ln - 1 else startLine
     opts = initParserOpts dflags
+    exts = namedExtensions (map show (EnumSet.toList (extensionFlags dflags)))
 
     -- Generated code, as GHC itself treats the result of a splice.
 #if MIN_VERSION_ghc(9,14,0)
@@ -150,11 +159,17 @@ expandQuote dflags quoter name at body = do
 
     expression = Parser.parseExpression >>= \ecp -> runPV (unECP ecp) :: P (LHsExpr GhcPs)
 
-    parseHole :: P a -> (Int, Int) -> Text -> IO a
-    parseHole p (ln, col) src =
+    -- GHC parses the hole at its place; then the quoter's parser must take
+    -- it too, or the module would build here and not where the quoter runs.
+    parseHole :: P a -> ((Int, Int) -> Text -> Either Failure b) -> (Int, Int) -> Text -> IO a
+    parseHole p quoters (ln, col) src =
       case unP p (initParserState opts (stringToStringBuffer (T.unpack src)) (mkRealSrcLoc file (fileLine ln) col)) of
-        POk _ a -> pure a
         PFailed s -> throwIO (Problems (bagToList (getMessages (getPsErrorMessages s))))
+        POk _ a -> case quoters (fileLine ln, col) src of
+          Left (Failure l c what)
+            | l > 0 -> throwIO (Problems [complaint (Complaint l (Just c) what)])
+            | otherwise -> throwIO (Problems [complaint (Complaint (fileLine ln) (Just col) what)])
+          Right _ -> pure a
 
     -- The quoter's name as the module wrote it, qualified or not.
     rendered = \case

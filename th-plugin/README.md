@@ -14,9 +14,12 @@ every hole parsed by GHC itself at its place in the file. So
   takes no children) is reported at its line.
 
 The quoter never runs for a quote the plugin has expanded, and the code is
-the same: the th package's own tests, compiled with the plugin, build the
-same HTML and CSS (`plugin-test`). The import that brings the quoter stays
-used.
+the same: the th package's own tests, compiled with the plugin
+(`parity-test`, over `test/parity`, which links to `th/test`), build the
+same HTML and CSS. What the quoter's
+own parser would refuse in a hole (a splice, an arrow) the plugin refuses
+too, so a module builds the same with the plugin and without it. The
+import that brings the quoter stays used.
 
 ```cabal
 build-depends: haskell-halogen-th, haskell-halogen-th-plugin
@@ -36,4 +39,5 @@ another `hh` in scope would be read as this one.
 `test/run.sh` runs the plugin on a compiler, after `cabal build all`: a
 module with every kind of broken quote (each error at its place), one with
 good quotes, one whose quotes do not type check (each type error at its
-hole) and one with a hole no element can hold.
+hole), one with a hole no element can hold and one with a hole the quoter
+would refuse.

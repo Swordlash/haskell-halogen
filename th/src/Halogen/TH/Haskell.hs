@@ -17,6 +17,7 @@ module Halogen.TH.Haskell
   , parsePat
   , parsePatAt
   , Failure (..)
+  , namedExtensions
   )
 where
 
@@ -30,6 +31,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.List (intercalate)
 import GHC.Data.Bag (bagToList)
+import Data.Set qualified as Set
 import GHC.Data.EnumSet qualified as EnumSet
 import GHC.Data.FastString (mkFastString, unpackFS)
 import GHC.Data.StringBuffer (stringToStringBuffer)
@@ -93,6 +95,13 @@ run exts (line, column) p src = case unP p st of
   where
     opts = mkParserOpts (extensions exts) emptyDiagOpts False False False False
     st = initParserState opts (stringToStringBuffer (T.unpack src)) (mkRealSrcLoc (mkFastString "<template>") line column)
+
+-- | Extensions by their names, for a caller that has GHC's own: the
+-- names are the same.
+namedExtensions :: [String] -> [TH.Extension]
+namedExtensions names = filter ((`Set.member` wanted) . show) [minBound .. maxBound]
+  where
+    wanted = Set.fromList names
 
 -- | The module's extensions, by name: Template Haskell and ghc-lib-parser
 -- each have the type.
