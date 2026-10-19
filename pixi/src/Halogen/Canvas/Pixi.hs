@@ -18,6 +18,7 @@ module Halogen.Canvas.Pixi
   , stagePosition
   , localPosition
   , button
+  , shiftKey
 
     -- * Running it
   , Config (..)
@@ -127,6 +128,11 @@ localPosition event =
 -- | Which mouse button, in the @MouseEvent.button@ numbering.
 button :: PixiEvent -> Int
 button = FFI.eventButton
+
+-- | Whether Shift was held: for a scene where a drag with it draws and one
+-- without it pans (the scene turns 'pan' off while it draws).
+shiftKey :: PixiEvent -> Bool
+shiftKey = FFI.eventShift
 
 ----------------------------------------------------------------------
 -- Running it

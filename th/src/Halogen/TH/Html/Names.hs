@@ -82,6 +82,11 @@ data PropKind
   -- 'HP.styleText' over text written.
   | RefProp
   -- ^ @ref@: 'HP.ref' over a 'RefLabel'.
+  | SvgClassProp
+  -- ^ @class@ on an SVG element: an attribute (@Halogen.Svg.Attributes.class_@), since an SVG
+  -- element's @className@ cannot be set.
+  | ViewBoxProp
+  -- ^ @viewBox@: four numbers as text, or a tuple of four 'Double's.
 
 -- | By the attribute's name, in any case.
 property :: Text -> Maybe PropKind

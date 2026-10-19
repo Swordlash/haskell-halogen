@@ -14,7 +14,9 @@ import Halogen.HTML qualified as HH
 import Halogen.HTML.Core (AttrName (..), ClassName (..), ElemName (..))
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
-import Halogen.TH (hh, hhs)
+import Halogen.Svg.Attributes qualified as SA
+import Halogen.Svg.Elements qualified as SE
+import Halogen.TH (hh, hhs, svg, svgs)
 import Test.Hspec
 import Test.Render (render)
 
@@ -33,6 +35,22 @@ sameAll quoted written = map render quoted `shouldBe` map render written
 
 spec :: Spec
 spec = do
+  describe "SVG" $ do
+    it "an <svg> in hh is SVG: its elements in SVG's namespace, numbers and paths typed, the class an attribute" $ do
+      let w = 30 :: Double
+          cmds = [SA.m SA.Abs 0 0, SA.l SA.Abs 10 10]
+      [hh|<div><svg viewBox={{ (0, 0, w, 20) }} class="map"><path d={{ cmds }} stroke-width="2" class="road"/><circle cx={{ w / 2 }} cy="5" r="3"/></svg></div>|]
+        `same` HH.div_ [SE.svg [SA.viewBox 0 0 w 20, SA.class_ (ClassName "map")] [SE.path [SA.d cmds, SA.strokeWidth 2, SA.class_ (ClassName "road")], SE.circle [SA.cx (w / 2), SA.cy 5, SA.r 3]]]
+    it "keeps the case of SVG names, takes an attribute by its function's name, and an unknown one as written" $
+      [svg|<g><foo-bar stroke-linecap="round" strokeLineJoin="bevel" data-x="1"></foo-bar></g>|]
+        `same` SE.g [] [SE.element (ElemName "foo-bar") [HP.attr (AttrName "stroke-linecap") "round", HP.attr (AttrName "stroke-linejoin") "bevel", HP.attr (AttrName "data-x") "1"] []]
+    it "a viewBox written as text, and a foreignObject holding HTML" $
+      [hh|<svg viewBox="0 0 10 10"><foreignObject><div class="x">hi<br></div></foreignObject></svg>|]
+        `same` SE.svg [HP.attr (AttrName "viewBox") "0 0 10 10"] [SE.foreignObject [] [HH.div [HP.class_ (ClassName "x")] [HH.text "hi", HH.br_]]]
+    it "svgs: several nodes, with statements and handlers" $
+      sameAll
+        [svgs|{% for x in [1, 2 :: Double] %}<rect x={{ x }} y="0" width="1" height="1" onClick={{ const Inc }}/>{% end %}<text x="0" y="0">t</text>|]
+        ([SE.rect [SA.x x, SA.y 0, SA.width 1, SA.height 1, HE.onClick (const Inc)] | x <- [1, 2]] <> [SE.text [SA.x 0, SA.y 0] [HH.text "t"]])
   describe "elements" $ do
     it "an element with a class and text" $
       [hh|<div class="panel">Hi</div>|] `same` HH.div [HP.class_ (ClassName "panel")] [HH.text "Hi"]

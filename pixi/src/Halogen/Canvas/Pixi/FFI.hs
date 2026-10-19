@@ -71,6 +71,7 @@ module Halogen.Canvas.Pixi.FFI
   , localX
   , localY
   , eventButton
+  , eventShift
   , currentTarget
   , preventDefault
   , clientX
@@ -174,6 +175,7 @@ $(browserJS ["jsbits/pixi.js"]
   , ("localX", "halogen_pixi_local_x", Unsafe, [t| Object -> Event -> Double |])
   , ("localY", "halogen_pixi_local_y", Unsafe, [t| Object -> Event -> Double |])
   , ("eventButton", "halogen_pixi_event_button", Unsafe, [t| Event -> Int |])
+  , ("eventShift", "halogen_pixi_event_shift", Unsafe, [t| Event -> Bool |])
   , ("currentTarget", "halogen_pixi_current_target", Unsafe, [t| Event -> Object |])
   , ("preventDefault", "halogen_pixi_prevent_default", Unsafe, [t| Event -> IO () |])
   , ("clientX", "halogen_pixi_client_x", Unsafe, [t| Event -> Double |])

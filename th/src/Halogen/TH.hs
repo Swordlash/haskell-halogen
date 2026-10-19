@@ -30,9 +30,16 @@
 -- @{% for pattern in list %} … {% end %}@ and a @{% let pattern = e %}@
 -- (over the rest of its sequence) work among children, attributes and
 -- rules alike. A @{# … #}@ is a comment.
+--
+-- An @\<svg>@ in an @hh@ quote, and all of an @svg@ quote, is SVG: its
+-- elements and attributes are those of "Halogen.Svg" (@\<path d={{ cmds }}>@,
+-- @\<circle cx={{ x }} r="4">@, @viewBox={{ (0, 0, w, h) }}@), its class an
+-- attribute, as an SVG element needs.
 module Halogen.TH
   ( hh
   , hhs
+  , svg
+  , svgs
   , clay
   , Children (..)
   , Props (..)
@@ -44,7 +51,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Halogen.TH.Clay (cssExp)
 import Halogen.TH.Haskell (Failure (..), parseExpAt, parsePatAt)
-import Halogen.TH.Html (htmlExp)
+import Halogen.TH.Html (Dialect (..), htmlExp)
 import Halogen.TH.Html.Children (Children (..), Props (..), Styled (..))
 import Halogen.TH.Template (Env (..))
 import Language.Haskell.TH (Exp, Q, location, loc_filename, loc_start)
@@ -53,11 +60,20 @@ import Language.Haskell.TH.Syntax (extsEnabled)
 
 -- | One element with Haskell in it, as @HTML w i@.
 hh :: QuasiQuoter
-hh = quoter "hh" (\env -> htmlExp env True)
+hh = quoter "hh" (\env -> htmlExp Html env True)
 
 -- | Any number of nodes with Haskell in them, as @[HTML w i]@.
 hhs :: QuasiQuoter
-hhs = quoter "hhs" (\env -> htmlExp env False)
+hhs = quoter "hhs" (\env -> htmlExp Html env False)
+
+-- | One SVG element with Haskell in it, as @HTML w i@: what goes inside an
+-- @\<svg>@ (which in an @hh@ quote is SVG already), written on its own.
+svg :: QuasiQuoter
+svg = quoter "svg" (\env -> htmlExp Svg env True)
+
+-- | Any number of SVG nodes with Haskell in them, as @[HTML w i]@.
+svgs :: QuasiQuoter
+svgs = quoter "svgs" (\env -> htmlExp Svg env False)
 
 -- | Rules with Haskell in them, as 'Clay.Css'.
 clay :: QuasiQuoter

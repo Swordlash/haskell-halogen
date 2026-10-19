@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wno-simplifiable-class-constraints #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -8,6 +9,7 @@ module Halogen.TH.Html.Children
   ( Children (..)
   , Props (..)
   , Styled (..)
+  , viewBoxOf
   )
 where
 
@@ -20,6 +22,8 @@ import Halogen.HTML.Core (ElemName (..), HTML)
 import Halogen.HTML.Core qualified as HH
 import Halogen.HTML.Elements qualified as HHE
 import Halogen.HTML.Properties (IProp)
+import Halogen.Svg.Attributes qualified as SA
+import Data.Row (HasType)
 
 -- | A value among the children of an element.
 class Children w i a where
@@ -67,3 +71,7 @@ instance Styled Css where
 
 instance Styled Text where
   styled = id
+
+-- | A @viewBox@ from Haskell: its four numbers, as a tuple.
+viewBoxOf :: (HasType "viewBox" Text r) => (Double, Double, Double, Double) -> IProp r i
+viewBoxOf (x, y, w, h) = SA.viewBox x y w h

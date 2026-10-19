@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+* SVG: an `<svg>` in an `hh` quote is SVG down to a `<foreignObject>`, its
+  elements those of `Halogen.Svg.Elements` (in SVG's namespace), its
+  attributes those of `Halogen.Svg.Attributes` by their SVG or function
+  names, typed (`cx={{ x }}`, `d={{ commands }}`,
+  `viewBox={{ (0, 0, w, h) }}`), its `class` an attribute. The `svg` and
+  `svgs` quoters start in SVG. A hole right before `/>` no longer takes the
+  slash into its value.
+
 * First version: the `hh` and `hhs` quasi-quoters, HTML with Haskell inside
   as a Halogen `HTML w i` (one element, or a list of nodes), and `clay`, CSS
   with Haskell inside as Clay's `Css`. A `{{ … }}` is a Haskell expression,

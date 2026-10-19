@@ -7,7 +7,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Halogen.TH.Clay (cssExp)
 import Halogen.TH.Haskell (parseExp, parsePat)
-import Halogen.TH.Html (htmlExp)
+import Halogen.TH.Html (Dialect (..), htmlExp)
 import Halogen.TH.Template (Env (..))
 import Language.Haskell.TH (Exp (..), Lit (..), nameBase, runQ)
 import Test.Hspec
@@ -17,7 +17,7 @@ import Test.QuickCheck
 spec :: Spec
 spec = do
   prop "a tree written as HTML is quoted as the code of that tree" $ \(Tree nodes) -> ioProperty $ do
-    e <- runQ (htmlExp env False (T.unpack (foldMap html nodes)))
+    e <- runQ (htmlExp Html env False (T.unpack (foldMap html nodes)))
     pure (readNodes e === Right (normal nodes))
   prop "rules written as CSS are quoted as the code of those rules" $ \(Sheet rules) -> ioProperty $ do
     e <- runQ (cssExp env (T.unpack (T.unwords (map css rules))))

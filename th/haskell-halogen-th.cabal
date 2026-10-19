@@ -41,6 +41,7 @@ library
                       Halogen.TH.Check
     other-modules:    Halogen.TH.Html.Names
                       Halogen.TH.Html.Children
+                      Halogen.TH.Svg.Names
     build-depends:
         base >= 4.20 && < 5,
         text >= 2.0,

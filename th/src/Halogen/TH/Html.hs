@@ -13,8 +13,14 @@
 -- Text between tags follows JSX: a text with a newline in it has every
 -- line trimmed and the lines joined by one space, so indentation is not
 -- content; a text on one line is kept as it is, spaces and all.
+--
+-- An @\<svg>@ element and everything in it are SVG: elements from
+-- "Halogen.Svg.Elements", attributes from "Halogen.Svg.Attributes" (see
+-- "Halogen.TH.Svg.Names"), names in their case; a @\<foreignObject>@ holds
+-- HTML again. The @svg@ quoters start in SVG.
 module Halogen.TH.Html
-  ( htmlExp
+  ( Dialect (..)
+  , htmlExp
   )
 where
 
@@ -26,8 +32,11 @@ import Halogen.HTML.Core (AttrName (..), ClassName (..), ElemName (..))
 import Halogen.HTML.Core qualified as HH
 import Halogen.HTML.Elements qualified as HHE
 import Halogen.HTML.Properties qualified as HP
-import Halogen.TH.Html.Children (children, props, styled)
+import Halogen.Svg.Attributes qualified as SA
+import Halogen.Svg.Elements qualified as SE
+import Halogen.TH.Html.Children (children, props, styled, viewBoxOf)
 import Halogen.TH.Html.Names
+import Halogen.TH.Svg.Names qualified as Svg
 import Halogen.TH.Template
 import Language.Haskell.TH (Exp (..), Lit (..), Q)
 import Text.HTML.TagSoup (ParseOptions (..), Tag (..), parseOptions, parseTagsOptions)
@@ -43,25 +52,39 @@ data Node
 -- without a value has an empty one.
 data Attr = Attr Text Text
 
--- | The quote as an expression: one element (@single@), or a list of nodes.
-htmlExp :: Env -> Bool -> String -> Q Exp
-htmlExp env single src = do
+-- | Which names a template's elements and attributes are read as.
+data Dialect = Html | Svg
+  deriving (Eq, Show)
+
+-- | The quote as an expression: one element (@single@), or a list of nodes,
+-- starting in a dialect.
+htmlExp :: Dialect -> Env -> Bool -> String -> Q Exp
+htmlExp dialect env single src = do
   (template, holes) <- orFail (extract env.startColumn (T.pack src))
-  let tags = parseTagsOptions parseOptions {optTagPosition = True, optTagWarning = True} template
-  items <- orFail (build holes tags)
+  let tags = parseTagsOptions parseOptions {optTagPosition = True, optTagWarning = True} (selfClosing template)
+  items <- orFail (build dialect holes tags)
   bs <- orFail (blocks holes items)
   if single
     then case bs of
-      [Leaf n] -> nodeExp env holes n
+      [Leaf n] -> nodeExp dialect env holes n
       [] -> failAt env 0 "nothing in the quote"
-      _ -> failAt env 0 "one element, please; for several, or for {% for %} or {% if %} at the top, hhs gives a list"
-    else blocksExp env holes (nodeExp env holes) (AppE (VarE 'children)) bs
+      _ -> failAt env 0 "one element, please; for several, or for {% for %} or {% if %} at the top, hhs (or svgs) gives a list"
+    else blocksExp env holes (nodeExp dialect env holes) (AppE (VarE 'children)) bs
   where
     orFail = either (uncurry (failAt env)) pure
 
--- | The tag stream as a tree, strictly.
-build :: Holes -> [Tag Text] -> Either Err [Item Node]
-build holes = go 1 [] []
+-- | A hole right before the @/>@ of a self-closing tag (@\<path d={{ p }}/>@)
+-- would take the slash into its unquoted value: a space keeps them apart.
+selfClosing :: Text -> Text
+selfClosing = T.replace (T.singleton placeholderClose <> "/>") (T.singleton placeholderClose <> " />")
+  where
+    -- The last character of a placeholder ("Halogen.TH.Template").
+    placeholderClose = '\xE001'
+
+-- | The tag stream as a tree, strictly. Only HTML has void elements, and
+-- only outside an @\<svg>@.
+build :: Dialect -> Holes -> [Tag Text] -> Either Err [Item Node]
+build dialect holes = go 1 [] []
   where
     -- The line, the open elements (innermost first, each with its children
     -- so far reversed), the roots so far reversed.
@@ -77,7 +100,7 @@ build holes = go 1 [] []
         | otherwise -> Left (ln, w)
       TagText t -> continue (textItems holes t) rest
       TagOpen name attrs
-        | isVoid name ->
+        | isVoid name && dialectAt stack == Html ->
             -- A void element's end tag, if written, closes nothing.
             continue [One (Element ln name (attrItems holes attrs) [])] (skipClose name rest)
         | otherwise -> go ln ((ln, name, attrItems holes attrs, []) : stack) roots rest
@@ -88,6 +111,9 @@ build holes = go 1 [] []
         [] -> Left (ln, "</" <> name <> "> closes nothing")
       where
         continue items rest' = let (stack', roots') = add items stack roots in go ln stack' roots' rest'
+
+    -- The dialect inside the open elements.
+    dialectAt stack = foldr (\(_, n, _, _) d -> inside d n) dialect stack
 
     add items stack roots = case stack of
       (l, n, as, kids) : stack' -> ((l, n, as, reverse items <> kids) : stack', roots)
@@ -126,30 +152,50 @@ item holes i = case (.kind) <$> IntMap.lookup i holes of
   Just StmtHole -> Ctl i
   _ -> Val i
 
-nodeExp :: Env -> Holes -> Node -> Q Exp
-nodeExp env holes = \case
+-- | The dialect of an element's own name and attributes, inside a parent
+-- in one: an @\<svg>@ starts SVG.
+own :: Dialect -> Text -> Dialect
+own d name
+  | d == Html && T.map toLower name == "svg" = Svg
+  | otherwise = d
+
+-- | The dialect of an element's children: a @\<foreignObject>@ holds HTML.
+inside :: Dialect -> Text -> Dialect
+inside d name = case own d name of
+  Svg | name == "foreignObject" -> Html
+  d' -> d'
+
+nodeExp :: Dialect -> Env -> Holes -> Node -> Q Exp
+nodeExp parent env holes = \case
   TextNode t -> pure (AppE (VarE 'HH.text) (packE t))
   Element ln name attrs kids -> do
+    let dialect = own parent name
     attrBlocks <- orFail (blocks holes attrs)
     kidBlocks <- orFail (blocks holes kids)
-    propsE <- blocksExp env holes (attrExp env holes ln) (AppE (VarE 'props)) attrBlocks
-    kidsE <- blocksExp env holes (nodeExp env holes) (AppE (VarE 'children)) kidBlocks
-    case element name of
+    propsE <- blocksExp env holes (attrExp dialect env holes ln) (AppE (VarE 'props)) attrBlocks
+    kidsE <- blocksExp env holes (nodeExp (inside parent name) env holes) (AppE (VarE 'children)) kidBlocks
+    let lookUp = case dialect of
+          Html -> element name
+          Svg -> Svg.element name
+        plain = case dialect of
+          Html -> 'HHE.element
+          Svg -> 'SE.element
+    case lookUp of
       Just (WithChildren n) -> pure (AppE (AppE (VarE n) propsE) kidsE)
       Just (NoChildren n)
         | null kids -> pure (AppE (VarE n) propsE)
         | otherwise -> failAt env ln ("<" <> name <> "> takes no children")
-      Nothing -> pure (AppE (AppE (AppE (VarE 'HHE.element) (AppE (ConE 'ElemName) (packE name))) propsE) kidsE)
+      Nothing -> pure (AppE (AppE (AppE (VarE plain) (AppE (ConE 'ElemName) (packE name))) propsE) kidsE)
   where
     orFail = either (uncurry (failAt env)) pure
 
 -- | One attribute as a property, handler or attribute.
-attrExp :: Env -> Holes -> Int -> Attr -> Q Exp
-attrExp env holes ln (Attr name value) = case event lower of
+attrExp :: Dialect -> Env -> Holes -> Int -> Attr -> Q Exp
+attrExp dialect env holes ln (Attr name value) = case event lower of
   Just handler -> case single of
     Just i -> AppE (VarE handler) <$> hole i
     Nothing -> bad (name <> " takes a handler in {{ }}")
-  Nothing -> case property lower of
+  Nothing -> case (case dialect of Html -> property lower; Svg -> Svg.property name) of
     Just (TextProp n) -> AppE (VarE n) <$> text
     Just ClassProp -> AppE (VarE 'HP.class_) . AppE (ConE 'ClassName) <$> text
     Just (BoolProp n) -> case (ps, single) of
@@ -176,6 +222,10 @@ attrExp env holes ln (Attr name value) = case event lower of
     Just RefProp -> case single of
       Just i -> AppE (VarE 'HP.ref) <$> hole i
       Nothing -> bad "ref takes a RefLabel in {{ }}"
+    Just SvgClassProp -> AppE (VarE 'SA.class_) . AppE (ConE 'ClassName) <$> text
+    Just ViewBoxProp -> case single of
+      Just i -> AppE (VarE 'viewBoxOf) <$> hole i
+      Nothing -> attr
     Nothing -> attr
   where
     lower = T.map toLower name
@@ -184,7 +234,10 @@ attrExp env holes ln (Attr name value) = case event lower of
       [Ref i] -> Just i
       _ -> Nothing
     text = textExp env holes ps
-    attr = AppE (AppE (VarE 'HP.attr) (AppE (ConE 'AttrName) (packE name))) <$> text
+    written = case dialect of
+      Html -> name
+      Svg -> Svg.attributeName name
+    attr = AppE (AppE (VarE 'HP.attr) (AppE (ConE 'AttrName) (packE written))) <$> text
     bad = failAt env ln
     hole i = case IntMap.lookup i holes of
       Just h -> env.expression (position h 0) h.code

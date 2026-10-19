@@ -213,6 +213,7 @@ function halogen_pixi_local_x(object, event) { return event.getLocalPosition(obj
 function halogen_pixi_local_y(object, event) { return event.getLocalPosition(object).y; }
 function halogen_pixi_current_target(event) { return event.currentTarget; }
 function halogen_pixi_event_button(event) { return event.button; }
+function halogen_pixi_event_shift(event) { return !!event.shiftKey; }
 function halogen_pixi_prevent_default(event) { event.preventDefault(); }
 function halogen_pixi_client_x(event) { return event.clientX; }
 function halogen_pixi_client_y(event) { return event.clientY; }

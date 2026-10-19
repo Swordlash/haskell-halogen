@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+`shiftKey` on a pointer event: whether Shift was held, for a scene where a
+drag with it draws and a plain drag pans.
+
 `Halogen.Canvas.Pixi.FFI` declares its bindings once, without CPP; natively
 they are `browserJS`'s inert stubs. `Callback` is `Halogen.JSBits.Callback`,
 and `Application`, `Object` and `Timer` have `Inert` instances.

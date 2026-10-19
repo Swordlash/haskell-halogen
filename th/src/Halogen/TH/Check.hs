@@ -18,11 +18,12 @@ import Data.Text qualified as T
 import Halogen.TH.Clay (cssExp)
 import Halogen.TH.Haskell (Failure (..), parseExpAt, parsePatAt)
 import Halogen.TH.Html (htmlExp)
+import Halogen.TH.Html qualified as Html
 import Halogen.TH.Template (Env (..))
 import Language.Haskell.TH (Exp, Extension, Q, runIO, runQ)
 
--- | The three quoters of "Halogen.TH".
-data Quoter = Hh | Hhs | Clay
+-- | The quoters of "Halogen.TH".
+data Quoter = Hh | Hhs | Svg | Svgs | Clay
   deriving (Eq, Show)
 
 -- | A quoter by the name it is used under.
@@ -30,6 +31,8 @@ quoterNamed :: Text -> Maybe Quoter
 quoterNamed = \case
   "hh" -> Just Hh
   "hhs" -> Just Hhs
+  "svg" -> Just Svg
+  "svgs" -> Just Svgs
   "clay" -> Just Clay
   _ -> Nothing
 
@@ -37,6 +40,8 @@ quoterName :: Quoter -> Text
 quoterName = \case
   Hh -> "hh"
   Hhs -> "hhs"
+  Svg -> "svg"
+  Svgs -> "svgs"
   Clay -> "clay"
 
 -- | What is wrong with a quote: the line of the file, the column when it
@@ -54,8 +59,10 @@ instance Exception Complaint
 -- | A quote's text through its quoter, in an environment of the caller's.
 quoted :: Quoter -> Env -> String -> Q Exp
 quoted = \case
-  Hh -> \env -> htmlExp env True
-  Hhs -> \env -> htmlExp env False
+  Hh -> \env -> htmlExp Html.Html env True
+  Hhs -> \env -> htmlExp Html.Html env False
+  Svg -> \env -> htmlExp Html.Svg env True
+  Svgs -> \env -> htmlExp Html.Svg env False
   Clay -> cssExp
 
 -- | A quote's text, starting at a line and column of its file, run through
