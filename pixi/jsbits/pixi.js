@@ -213,7 +213,10 @@ function halogen_pixi_local_x(object, event) { return event.getLocalPosition(obj
 function halogen_pixi_local_y(object, event) { return event.getLocalPosition(object).y; }
 function halogen_pixi_current_target(event) { return event.currentTarget; }
 function halogen_pixi_event_button(event) { return event.button; }
-function halogen_pixi_event_shift(event) { return !!event.shiftKey; }
+// The modifier keys held, as bits: Shift 1, Ctrl 2, Alt 4, Meta 8.
+function halogen_pixi_event_modifiers(event) {
+  return (event.shiftKey ? 1 : 0) | (event.ctrlKey ? 2 : 0) | (event.altKey ? 4 : 0) | (event.metaKey ? 8 : 0);
+}
 function halogen_pixi_prevent_default(event) { event.preventDefault(); }
 function halogen_pixi_client_x(event) { return event.clientX; }
 function halogen_pixi_client_y(event) { return event.clientY; }

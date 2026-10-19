@@ -2,8 +2,10 @@
 
 ## Unreleased
 
-`shiftKey` on a pointer event: whether Shift was held, for a scene where a
-drag with it draws and a plain drag pans.
+`modifiers` on a pointer event: the modifier keys held (`Modifiers`: Shift,
+Ctrl, Alt, Meta, named as the browser names them), for a scene where, say,
+a drag with Shift draws and a plain drag pans; `commandKey` is Ctrl, or Cmd
+on a Mac.
 
 `Halogen.Canvas.Pixi.FFI` declares its bindings once, without CPP; natively
 they are `browserJS`'s inert stubs. `Callback` is `Halogen.JSBits.Callback`,

@@ -18,7 +18,10 @@ module Halogen.Canvas.Pixi
   , stagePosition
   , localPosition
   , button
-  , shiftKey
+  , Modifiers (..)
+  , noModifiers
+  , modifiers
+  , commandKey
 
     -- * Running it
   , Config (..)
@@ -129,10 +132,29 @@ localPosition event =
 button :: PixiEvent -> Int
 button = FFI.eventButton
 
--- | Whether Shift was held: for a scene where a drag with it draws and one
--- without it pans (the scene turns 'pan' off while it draws).
-shiftKey :: PixiEvent -> Bool
-shiftKey = FFI.eventShift
+-- | The modifier keys held during a pointer event, with the names the
+-- browser gives them: for a scene where, say, a drag with Shift draws and
+-- one without pans (the scene turns 'pan' off while it draws).
+data Modifiers = Modifiers
+  { shiftKey :: Bool
+  , ctrlKey :: Bool
+  , altKey :: Bool
+  , metaKey :: Bool
+  -- ^ Cmd on a Mac, the Windows key elsewhere.
+  }
+  deriving stock (Eq, Show)
+
+noModifiers :: Modifiers
+noModifiers = Modifiers {shiftKey = False, ctrlKey = False, altKey = False, metaKey = False}
+
+modifiers :: PixiEvent -> Modifiers
+modifiers event =
+  let held = FFI.eventModifiers event
+   in Modifiers {shiftKey = testBit held 0, ctrlKey = testBit held 1, altKey = testBit held 2, metaKey = testBit held 3}
+
+-- | The key shortcuts go with: Ctrl, or Cmd on a Mac.
+commandKey :: Modifiers -> Bool
+commandKey Modifiers {ctrlKey, metaKey} = ctrlKey || metaKey
 
 ----------------------------------------------------------------------
 -- Running it
