@@ -6,6 +6,7 @@ module Test.Html (spec) where
 
 import Clay qualified as C
 import DOM.HTML.Indexed qualified as I
+import Data.Row (Empty)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Lazy qualified as TL
@@ -16,6 +17,7 @@ import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
 import Halogen.Svg.Attributes qualified as SA
 import Halogen.Svg.Elements qualified as SE
+import Halogen.Svg.Indexed qualified as SI
 import Halogen.TH (hh, hhs, svg, svgs)
 import Test.Hspec
 import Test.Render (render)
@@ -44,6 +46,11 @@ spec = do
     it "keeps the case of SVG names, takes an attribute by its function's name, and an unknown one as written" $
       [svg|<g><foo-bar stroke-linecap="round" strokeLineJoin="bevel" data-x="1"></foo-bar></g>|]
         `same` SE.g [] [SE.element (ElemName "foo-bar") [HP.attr (AttrName "stroke-linecap") "round", HP.attr (AttrName "stroke-linejoin") "bevel", HP.attr (AttrName "data-x") "1"] []]
+    it "an element without a function: its attributes as text, the style and handlers typed" $ do
+      let colour = "red" :: Text
+      [svg|<linearGradient id="sky" x1="0" y2="1"><stop offset="0" style={{ "stop-color:" <> colour }} onClick={{ const Inc }}/></linearGradient>|]
+        `same` SE.element (ElemName "linearGradient") [HP.attr (AttrName "id") "sky", HP.attr (AttrName "x1") "0", HP.attr (AttrName "y2") "1"]
+          [SE.element (ElemName "stop") ([HP.attr (AttrName "offset") "0", HP.styleText "stop-color:red", HE.onClick (const Inc)] :: [HP.IProp (SI.GlobalAttributes Empty) Action]) []]
     it "a viewBox written as text, and a foreignObject holding HTML" $
       [hh|<svg viewBox="0 0 10 10"><foreignObject><div class="x">hi<br></div></foreignObject></svg>|]
         `same` SE.svg [HP.attr (AttrName "viewBox") "0 0 10 10"] [SE.foreignObject [] [HH.div [HP.class_ (ClassName "x")] [HH.text "hi", HH.br_]]]

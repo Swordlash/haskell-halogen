@@ -120,8 +120,9 @@ board towns road = [hh|
 ```
 
 - An element is its function from `Halogen.Svg.Elements`, in SVG's
-  namespace; a name without one is `Halogen.Svg.Elements.element`, in the
-  namespace too. Names keep their case (`foreignObject`, `viewBox`). A
+  namespace; a name without one (`<stop>`, `<linearGradient>`) is
+  `Halogen.Svg.Elements.element`, in the namespace too, and takes its
+  attributes as text, but for `class`, `style`, `ref` and handlers. Names keep their case (`foreignObject`, `viewBox`). A
   `<foreignObject>` holds HTML again.
 - An attribute is its function from `Halogen.Svg.Attributes`, by its SVG
   name (`stroke-width`) or its function's (`strokeWidth`): a number

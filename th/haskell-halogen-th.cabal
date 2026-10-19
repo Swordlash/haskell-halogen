@@ -84,6 +84,7 @@ test-suite th-test
         QuickCheck,
         template-haskell,
         clay,
+        row-types,
         haskell-halogen-core,
         haskell-halogen-th
 

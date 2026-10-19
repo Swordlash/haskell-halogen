@@ -26,15 +26,14 @@ where
 
 import Data.Char (toLower)
 import Data.IntMap.Strict qualified as IntMap
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Halogen.HTML.Core (AttrName (..), ClassName (..), ElemName (..))
 import Halogen.HTML.Core qualified as HH
-import Halogen.HTML.Elements qualified as HHE
 import Halogen.HTML.Properties qualified as HP
 import Halogen.Svg.Attributes qualified as SA
-import Halogen.Svg.Elements qualified as SE
-import Halogen.TH.Html.Children (children, props, styled, viewBoxOf)
+import Halogen.TH.Html.Children (children, props, styled, unknownHtml, unknownSvg, viewBoxOf)
 import Halogen.TH.Html.Names
 import Halogen.TH.Svg.Names qualified as Svg
 import Halogen.TH.Template
@@ -172,14 +171,14 @@ nodeExp parent env holes = \case
     let dialect = own parent name
     attrBlocks <- orFail (blocks holes attrs)
     kidBlocks <- orFail (blocks holes kids)
-    propsE <- blocksExp env holes (attrExp dialect env holes ln) (AppE (VarE 'props)) attrBlocks
-    kidsE <- blocksExp env holes (nodeExp (inside parent name) env holes) (AppE (VarE 'children)) kidBlocks
     let lookUp = case dialect of
           Html -> element name
           Svg -> Svg.element name
         plain = case dialect of
-          Html -> 'HHE.element
-          Svg -> 'SE.element
+          Html -> 'unknownHtml
+          Svg -> 'unknownSvg
+    propsE <- blocksExp env holes (attrExp dialect (isJust lookUp) env holes ln) (AppE (VarE 'props)) attrBlocks
+    kidsE <- blocksExp env holes (nodeExp (inside parent name) env holes) (AppE (VarE 'children)) kidBlocks
     case lookUp of
       Just (WithChildren n) -> pure (AppE (AppE (VarE n) propsE) kidsE)
       Just (NoChildren n)
@@ -189,13 +188,15 @@ nodeExp parent env holes = \case
   where
     orFail = either (uncurry (failAt env)) pure
 
--- | One attribute as a property, handler or attribute.
-attrExp :: Dialect -> Env -> Holes -> Int -> Attr -> Q Exp
-attrExp dialect env holes ln (Attr name value) = case event lower of
+-- | One attribute as a property, handler or attribute. On an element
+-- without a function of its own ('unknownHtml', 'unknownSvg') only the
+-- class, the style, a ref and handlers are typed; the rest is text.
+attrExp :: Dialect -> Bool -> Env -> Holes -> Int -> Attr -> Q Exp
+attrExp dialect known env holes ln (Attr name value) = case event lower of
   Just handler -> case single of
     Just i -> AppE (VarE handler) <$> hole i
     Nothing -> bad (name <> " takes a handler in {{ }}")
-  Nothing -> case (case dialect of Html -> property lower; Svg -> Svg.property name) of
+  Nothing -> case typed =<< (case dialect of Html -> property lower; Svg -> Svg.property name) of
     Just (TextProp n) -> AppE (VarE n) <$> text
     Just ClassProp -> AppE (VarE 'HP.class_) . AppE (ConE 'ClassName) <$> text
     Just (BoolProp n) -> case (ps, single) of
@@ -228,6 +229,14 @@ attrExp dialect env holes ln (Attr name value) = case event lower of
       Nothing -> attr
     Nothing -> attr
   where
+    typed kind
+      | known = Just kind
+      | otherwise = case kind of
+          ClassProp -> Just kind
+          SvgClassProp -> Just kind
+          StyleProp -> Just kind
+          RefProp -> Just kind
+          _ -> Nothing
     lower = T.map toLower name
     ps = pieces value
     single = case ps of

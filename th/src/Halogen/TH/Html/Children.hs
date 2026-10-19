@@ -10,6 +10,8 @@ module Halogen.TH.Html.Children
   , Props (..)
   , Styled (..)
   , viewBoxOf
+  , unknownHtml
+  , unknownSvg
   )
 where
 
@@ -22,8 +24,11 @@ import Halogen.HTML.Core (ElemName (..), HTML)
 import Halogen.HTML.Core qualified as HH
 import Halogen.HTML.Elements qualified as HHE
 import Halogen.HTML.Properties (IProp)
+import DOM.HTML.Indexed qualified as I
+import Data.Row (Empty, HasType)
 import Halogen.Svg.Attributes qualified as SA
-import Data.Row (HasType)
+import Halogen.Svg.Elements qualified as SE
+import Halogen.Svg.Indexed qualified as SI
 
 -- | A value among the children of an element.
 class Children w i a where
@@ -75,3 +80,14 @@ instance Styled Text where
 -- | A @viewBox@ from Haskell: its four numbers, as a tuple.
 viewBoxOf :: (HasType "viewBox" Text r) => (Double, Double, Double, Double) -> IProp r i
 viewBoxOf (x, y, w, h) = SA.viewBox x y w h
+
+-- | An HTML element Halogen has no function for. Its attributes are those
+-- any element has (and its handlers), so they are typed: on an open row
+-- a property would be ambiguous.
+unknownHtml :: ElemName -> [IProp (I.Interactive Empty) i] -> [HTML w i] -> HTML w i
+unknownHtml = HHE.element
+
+-- | The same for an SVG element ("Halogen.Svg.Elements" has no
+-- @\<stop>@ or @\<linearGradient>@, for one).
+unknownSvg :: ElemName -> [IProp (SI.GlobalAttributes Empty) i] -> [HTML w i] -> HTML w i
+unknownSvg = SE.element

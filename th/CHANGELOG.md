@@ -10,6 +10,11 @@
   `svgs` quoters start in SVG. A hole right before `/>` no longer takes the
   slash into its value.
 
+* An element with no function of its own (`<stop>`, `<linearGradient>`, a
+  custom element) takes the attributes any element has: its class, style,
+  ref and handlers are typed, the rest is text. Its typed attributes used
+  to be ambiguous (`x1="0"`, `style={{ … }}` failed to compile).
+
 * First version: the `hh` and `hhs` quasi-quoters, HTML with Haskell inside
   as a Halogen `HTML w i` (one element, or a list of nodes), and `clay`, CSS
   with Haskell inside as Clay's `Css`. A `{{ … }}` is a Haskell expression,
