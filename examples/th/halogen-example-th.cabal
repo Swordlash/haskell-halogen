@@ -9,7 +9,7 @@ category:           Web
 
 common shared
   default-language: GHC2021
-  ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture
+  ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture -Wredundant-constraints -Wunused-packages
 
   default-extensions:
       CPP
@@ -25,25 +25,25 @@ common shared
       StrictData
       TypeOperators
 
-  build-depends:
-      base >= 4.20,
-      protolude,
-      row-types,
-      clay >= 0.16.0,
-      text,
-      unliftio,
-      haskell-halogen-core
 
 library
   import:           shared
   exposed-modules:  Example.Quotes
+  build-depends:
+      protolude,
+      row-types,
+      unliftio,
+      haskell-halogen-core
   -- haskell-halogen-th builds natively and for WebAssembly, not with the
   -- JavaScript backend; there the example is a note saying so.
   if arch(javascript)
     hs-source-dirs: src-js
   else
     hs-source-dirs: src
-    build-depends:  haskell-halogen-th
+    build-depends:
+        clay >= 0.16.0,
+        text,
+        haskell-halogen-th
     -- Natively, the plugin reports an error in a quote where it is; a
     -- plugin cannot run in the WebAssembly cross compiler.
     if !arch(wasm32)
@@ -54,10 +54,15 @@ executable halogen-example-th
   import:           shared
   main-is:          Main.hs
   hs-source-dirs:   .
-  build-depends:    halogen-example-th
+  build-depends:
+      protolude,
+      haskell-halogen-core
+
+  -- The example itself only runs in a browser: on a host GHC, Main says so.
+  if arch(wasm32) || arch(javascript)
+    build-depends: halogen-example-th
 
   if arch(wasm32)
-    build-depends: ghc-experimental
     ghc-options:
       -no-hs-main
       -optl-mexec-model=reactor

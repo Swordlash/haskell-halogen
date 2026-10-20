@@ -21,7 +21,7 @@ extra-doc-files:    CHANGELOG.md
 
 common defaults
     default-language: GHC2021
-    ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules
+    ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wunused-packages
     default-extensions:
         OverloadedStrings
         OverloadedRecordDot

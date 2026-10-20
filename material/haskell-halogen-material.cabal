@@ -17,7 +17,7 @@ flag interactive
     manual:      True
 
 common warnings
-    ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists -Wno-ambiguous-fields
+    ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists -Wno-ambiguous-fields -Wunused-packages
     default-extensions:
         OverloadedStrings
         CPP
@@ -30,12 +30,13 @@ common warnings
         NoImplicitPrelude
         RequiredTypeArguments
         TypeAbstractions
+
+library
+    import:           warnings
     build-depends:
         base,
         protolude,
-        unliftio,
         text,
-        containers,
         haskell-halogen-core,
         clay,
         row-types,
@@ -44,9 +45,6 @@ common warnings
 
     if arch(wasm32)
         build-depends: ghc-experimental
-
-library
-    import:           warnings
     exposed-modules:
         Halogen.Material.Button
         Halogen.Material.Checkbox
@@ -76,6 +74,9 @@ test-suite Halogen-material-test
                       Test.TextField
     default-language: GHC2024
     build-depends:
+        protolude,
+        row-types,
+        haskell-halogen-core,
         haskell-halogen-material,
         hspec-halogen,
         hspec

@@ -9,7 +9,7 @@ category:           Web
 
 executable halogen-example-all
   default-language: GHC2021
-  ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture
+  ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture -Wredundant-constraints -Wunused-packages
 
   default-extensions:
       CPP
@@ -28,24 +28,23 @@ executable halogen-example-all
   main-is:          Main.hs
   hs-source-dirs:   .
 
-  build-depends:
-      base >= 4.20,
-      clay >= 0.16.0,
-      protolude,
-      row-types,
-      text,
-      haskell-halogen-core,
-      halogen-example-hooks,
-      halogen-example-material,
-      halogen-example-pixi,
-      halogen-example-th,
-      halogen-example-vanilla
+  build-depends:    protolude
 
+  -- The gallery only runs in a browser: on a host GHC, Main says so.
   if arch(wasm32) || arch(javascript)
     other-modules: Gallery
+    build-depends:
+        clay >= 0.16.0,
+        row-types,
+        text,
+        haskell-halogen-core,
+        halogen-example-hooks,
+        halogen-example-material,
+        halogen-example-pixi,
+        halogen-example-th,
+        halogen-example-vanilla
 
   if arch(wasm32)
-    build-depends: ghc-experimental
     ghc-options:
       -no-hs-main
       -optl-mexec-model=reactor

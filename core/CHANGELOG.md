@@ -31,6 +31,9 @@
 - `Halogen.join` on a fork that was killed cancels the joining program
   (purescript-halogen throws an error there); the haddock says so, and so
   does this entry, since a program cannot `catch` it.
+- The warning set grew by `-Wredundant-constraints` and `-Wunused-packages`,
+  in this and every other package of the repository; `async` and
+  `unordered-containers` were dependencies nothing used.
 
 SVG: `SE.animateTransform` and `SE.set` (their rows `SVGanimateTransform`
 and `SVGset`, so `SA.fillAnim` types on them); `SE.mask` takes its own row,

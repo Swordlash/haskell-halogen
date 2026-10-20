@@ -9,7 +9,7 @@ category:           Web
 
 common shared
   default-language: GHC2021
-  ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture
+  ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture -Wredundant-constraints -Wunused-packages
 
   default-extensions:
       RankNTypes
@@ -43,27 +43,31 @@ common shared
       RequiredTypeArguments
       ExplicitNamespaces
 
+
+library
+  import:           shared
+  hs-source-dirs:   src
+  exposed-modules:  Example.Pixi
   build-depends:
-      base >= 4.20,
       clay >= 0.16.0,
       protolude,
       row-types,
       haskell-halogen-core,
       haskell-halogen-pixi
 
-library
-  import:           shared
-  hs-source-dirs:   src
-  exposed-modules:  Example.Pixi
-
 executable halogen-example-pixi
   import:           shared
   main-is:          Main.hs
   hs-source-dirs:   .
-  build-depends:    halogen-example-pixi
+  build-depends:    protolude
+
+  -- The example itself only runs in a browser: on a host GHC, Main says so.
+  if arch(wasm32) || arch(javascript)
+    build-depends:
+        haskell-halogen-core,
+        halogen-example-pixi
 
   if arch(wasm32)
-    build-depends: ghc-experimental
     ghc-options:
       -no-hs-main
       -optl-mexec-model=reactor

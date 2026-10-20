@@ -21,7 +21,7 @@ flag js-polyfills
 
 common defaults
   default-language: GHC2021
-  ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture
+  ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture -Wredundant-constraints -Wunused-packages
 
   default-extensions:
       RankNTypes
@@ -71,8 +71,6 @@ common commons
       bytestring,
       stm,
       deepseq,
-      unordered-containers,
-      async,
       row-types,
       hashable,
       containers,
@@ -247,10 +245,8 @@ test-suite Halogen-core-test
                       haskell-halogen-core,
                       hspec >= 2,
                       mtl,
-                      primitive,
                       row-types,
-                      text,
-                      transformers
+                      text
     
     other-modules:  Test.Canvas
                     Test.CanvasMachine

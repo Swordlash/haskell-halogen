@@ -17,7 +17,7 @@ extra-source-files: CHANGELOG.md, README.md, test/browser-offset.cjs, jsbits/*.j
 
 common defaults
   default-language: GHC2021
-  ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture
+  ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture -Wredundant-constraints -Wunused-packages
 
   default-extensions:
       RankNTypes
