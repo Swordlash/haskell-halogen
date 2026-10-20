@@ -54,7 +54,7 @@ import Halogen.TH.Haskell (Failure (..), parseExpAt, parsePatAt)
 import Halogen.TH.Html (Dialect (..), htmlExp)
 import Halogen.TH.Html.Children (Children (..), Props (..), Styled (..))
 import Halogen.TH.Template (Env (..))
-import Language.Haskell.TH (Exp, Q, location, loc_filename, loc_start)
+import Language.Haskell.TH (Exp, Q, loc_filename, loc_start, location)
 import Language.Haskell.TH.Quote (QuasiQuoter (..))
 import Language.Haskell.TH.Syntax (extsEnabled)
 

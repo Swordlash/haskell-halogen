@@ -16,15 +16,17 @@ module Web.HTML.Window
   )
 where
 
-import Halogen.JSBits (JSText, Safety (..), browserJS, fromJSText)
 import HPrelude
+import Halogen.JSBits (JSText, Safety (..), browserJS, fromJSText)
 import Web.DOM.Internal.Types (Window (..))
 
-$(browserJS ["jsbits/web_browser.js"]
-  [ ("js_window_inner_width", "js_window_inner_width", Unsafe, [t| Window -> IO Int |])
-  , ("js_window_inner_height", "js_window_inner_height", Unsafe, [t| Window -> IO Int |])
-  , ("js_window_location_hash", "js_window_location_hash", Unsafe, [t| Window -> IO JSText |])
-  ])
+$( browserJS
+     ["jsbits/web_browser.js"]
+     [ ("js_window_inner_width", "js_window_inner_width", Unsafe, [t|Window -> IO Int|])
+     , ("js_window_inner_height", "js_window_inner_height", Unsafe, [t|Window -> IO Int|])
+     , ("js_window_location_hash", "js_window_location_hash", Unsafe, [t|Window -> IO JSText|])
+     ]
+ )
 
 -- | The width of the viewport, in CSS pixels. Natively, with no viewport, 0.
 innerWidth :: (MonadIO m) => Window -> m Int

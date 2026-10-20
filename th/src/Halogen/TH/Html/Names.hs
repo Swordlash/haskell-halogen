@@ -25,10 +25,10 @@ import Halogen.HTML.Properties qualified as HP
 import Language.Haskell.TH (Name)
 
 data ElementKind
-  = WithChildren Name
-  -- ^ Takes properties and children.
-  | NoChildren Name
-  -- ^ Takes properties only.
+  = -- | Takes properties and children.
+    WithChildren Name
+  | -- | Takes properties only.
+    NoChildren Name
 
 element :: Text -> Maybe ElementKind
 element = (`Map.lookup` elements) . T.map toLower
@@ -39,25 +39,116 @@ elements =
     [(n, WithChildren x) | (n, x) <- nodes] <> [(n, NoChildren x) | (n, x) <- leaves]
   where
     nodes =
-      [ ("a", 'HH.a), ("abbr", 'HH.abbr), ("address", 'HH.address), ("article", 'HH.article), ("aside", 'HH.aside), ("audio", 'HH.audio)
-      , ("b", 'HH.b), ("bdi", 'HH.bdi), ("bdo", 'HH.bdo), ("blockquote", 'HH.blockquote), ("body", 'HH.body), ("button", 'HH.button)
-      , ("caption", 'HH.caption), ("cite", 'HH.cite), ("code", 'HH.code), ("colgroup", 'HH.colgroup)
-      , ("datalist", 'HH.datalist), ("dd", 'HH.dd), ("del", 'HH.del), ("details", 'HH.details), ("dfn", 'HH.dfn), ("dialog", 'HH.dialog), ("div", 'HH.div), ("dl", 'HH.dl), ("dt", 'HH.dt)
-      , ("em", 'HH.em), ("embed", 'HH.embed)
-      , ("fieldset", 'HH.fieldset), ("figcaption", 'HH.figcaption), ("figure", 'HH.figure), ("footer", 'HH.footer), ("form", 'HH.form)
-      , ("h1", 'HH.h1), ("h2", 'HH.h2), ("h3", 'HH.h3), ("h4", 'HH.h4), ("h5", 'HH.h5), ("h6", 'HH.h6), ("head", 'HH.head), ("header", 'HH.header), ("html", 'HH.html)
-      , ("i", 'HH.i), ("ins", 'HH.ins), ("kbd", 'HH.kbd), ("label", 'HH.label), ("legend", 'HH.legend), ("li", 'HH.li)
-      , ("main", 'HH.main), ("map", 'HH.map), ("mark", 'HH.mark), ("menu", 'HH.menu), ("menuitem", 'HH.menuitem), ("meter", 'HH.meter)
-      , ("nav", 'HH.nav), ("noscript", 'HH.noscript), ("object", 'HH.object), ("ol", 'HH.ol), ("optgroup", 'HH.optgroup), ("option", 'HH.option), ("output", 'HH.output)
-      , ("p", 'HH.p), ("pre", 'HH.pre), ("progress", 'HH.progress), ("q", 'HH.q), ("rp", 'HH.rp), ("rt", 'HH.rt), ("ruby", 'HH.ruby)
-      , ("samp", 'HH.samp), ("script", 'HH.script), ("section", 'HH.section), ("select", 'HH.select), ("small", 'HH.small), ("span", 'HH.span), ("strong", 'HH.strong), ("style", 'HH.style), ("sub", 'HH.sub), ("summary", 'HH.summary), ("sup", 'HH.sup)
-      , ("table", 'HH.table), ("tbody", 'HH.tbody), ("td", 'HH.td), ("tfoot", 'HH.tfoot), ("th", 'HH.th), ("thead", 'HH.thead), ("time", 'HH.time), ("title", 'HH.title), ("tr", 'HH.tr)
-      , ("u", 'HH.u), ("ul", 'HH.ul), ("var", 'HH.var), ("video", 'HH.video)
+      [ ("a", 'HH.a)
+      , ("abbr", 'HH.abbr)
+      , ("address", 'HH.address)
+      , ("article", 'HH.article)
+      , ("aside", 'HH.aside)
+      , ("audio", 'HH.audio)
+      , ("b", 'HH.b)
+      , ("bdi", 'HH.bdi)
+      , ("bdo", 'HH.bdo)
+      , ("blockquote", 'HH.blockquote)
+      , ("body", 'HH.body)
+      , ("button", 'HH.button)
+      , ("caption", 'HH.caption)
+      , ("cite", 'HH.cite)
+      , ("code", 'HH.code)
+      , ("colgroup", 'HH.colgroup)
+      , ("datalist", 'HH.datalist)
+      , ("dd", 'HH.dd)
+      , ("del", 'HH.del)
+      , ("details", 'HH.details)
+      , ("dfn", 'HH.dfn)
+      , ("dialog", 'HH.dialog)
+      , ("div", 'HH.div)
+      , ("dl", 'HH.dl)
+      , ("dt", 'HH.dt)
+      , ("em", 'HH.em)
+      , ("embed", 'HH.embed)
+      , ("fieldset", 'HH.fieldset)
+      , ("figcaption", 'HH.figcaption)
+      , ("figure", 'HH.figure)
+      , ("footer", 'HH.footer)
+      , ("form", 'HH.form)
+      , ("h1", 'HH.h1)
+      , ("h2", 'HH.h2)
+      , ("h3", 'HH.h3)
+      , ("h4", 'HH.h4)
+      , ("h5", 'HH.h5)
+      , ("h6", 'HH.h6)
+      , ("head", 'HH.head)
+      , ("header", 'HH.header)
+      , ("html", 'HH.html)
+      , ("i", 'HH.i)
+      , ("ins", 'HH.ins)
+      , ("kbd", 'HH.kbd)
+      , ("label", 'HH.label)
+      , ("legend", 'HH.legend)
+      , ("li", 'HH.li)
+      , ("main", 'HH.main)
+      , ("map", 'HH.map)
+      , ("mark", 'HH.mark)
+      , ("menu", 'HH.menu)
+      , ("menuitem", 'HH.menuitem)
+      , ("meter", 'HH.meter)
+      , ("nav", 'HH.nav)
+      , ("noscript", 'HH.noscript)
+      , ("object", 'HH.object)
+      , ("ol", 'HH.ol)
+      , ("optgroup", 'HH.optgroup)
+      , ("option", 'HH.option)
+      , ("output", 'HH.output)
+      , ("p", 'HH.p)
+      , ("pre", 'HH.pre)
+      , ("progress", 'HH.progress)
+      , ("q", 'HH.q)
+      , ("rp", 'HH.rp)
+      , ("rt", 'HH.rt)
+      , ("ruby", 'HH.ruby)
+      , ("samp", 'HH.samp)
+      , ("script", 'HH.script)
+      , ("section", 'HH.section)
+      , ("select", 'HH.select)
+      , ("small", 'HH.small)
+      , ("span", 'HH.span)
+      , ("strong", 'HH.strong)
+      , ("style", 'HH.style)
+      , ("sub", 'HH.sub)
+      , ("summary", 'HH.summary)
+      , ("sup", 'HH.sup)
+      , ("table", 'HH.table)
+      , ("tbody", 'HH.tbody)
+      , ("td", 'HH.td)
+      , ("tfoot", 'HH.tfoot)
+      , ("th", 'HH.th)
+      , ("thead", 'HH.thead)
+      , ("time", 'HH.time)
+      , ("title", 'HH.title)
+      , ("tr", 'HH.tr)
+      , ("u", 'HH.u)
+      , ("ul", 'HH.ul)
+      , ("var", 'HH.var)
+      , ("video", 'HH.video)
       ]
     leaves =
-      [ ("area", 'HH.area), ("base", 'HH.base), ("br", 'HH.br), ("canvas", 'HH.canvas), ("col", 'HH.col), ("command", 'HH.command)
-      , ("hr", 'HH.hr), ("iframe", 'HH.iframe), ("img", 'HH.img), ("input", 'HH.input), ("link", 'HH.link), ("meta", 'HH.meta)
-      , ("param", 'HH.param), ("source", 'HH.source), ("textarea", 'HH.textarea), ("track", 'HH.track), ("wbr", 'HH.wbr)
+      [ ("area", 'HH.area)
+      , ("base", 'HH.base)
+      , ("br", 'HH.br)
+      , ("canvas", 'HH.canvas)
+      , ("col", 'HH.col)
+      , ("command", 'HH.command)
+      , ("hr", 'HH.hr)
+      , ("iframe", 'HH.iframe)
+      , ("img", 'HH.img)
+      , ("input", 'HH.input)
+      , ("link", 'HH.link)
+      , ("meta", 'HH.meta)
+      , ("param", 'HH.param)
+      , ("source", 'HH.source)
+      , ("textarea", 'HH.textarea)
+      , ("track", 'HH.track)
+      , ("wbr", 'HH.wbr)
       ]
 
 -- | The elements HTML gives no end tag: their start tag is the whole
@@ -68,25 +159,25 @@ isVoid n = T.map toLower n `elem` ["area", "base", "br", "col", "embed", "hr", "
 -- | What a property takes.
 data PropKind
   = TextProp Name
-  | ClassProp
-  -- ^ @class@: 'HP.class_' over a 'ClassName'.
-  | BoolProp Name
-  -- ^ Present without a value, or with a Haskell 'Bool'.
+  | -- | @class@: 'HP.class_' over a 'ClassName'.
+    ClassProp
+  | -- | Present without a value, or with a Haskell 'Bool'.
+    BoolProp Name
   | IntProp Name
   | DoubleProp Name
-  | TypedProp Name
-  -- ^ A type of its own ('HP.type_', 'HP.value', 'HP.step', …): with
-  -- Haskell it is the function; written as text it is the attribute.
-  | StyleProp
-  -- ^ @style@: Clay's 'Css' or a 'Text' from Haskell (the 'Styled' class),
-  -- 'HP.styleText' over text written.
-  | RefProp
-  -- ^ @ref@: 'HP.ref' over a 'RefLabel'.
-  | SvgClassProp
-  -- ^ @class@ on an SVG element: an attribute (@Halogen.Svg.Attributes.class_@), since an SVG
-  -- element's @className@ cannot be set.
-  | ViewBoxProp
-  -- ^ @viewBox@: four numbers as text, or a tuple of four 'Double's.
+  | -- | A type of its own ('HP.type_', 'HP.value', 'HP.step', …): with
+    -- Haskell it is the function; written as text it is the attribute.
+    TypedProp Name
+  | -- | @style@: Clay's 'Css' or a 'Text' from Haskell (the 'Styled' class),
+    -- 'HP.styleText' over text written.
+    StyleProp
+  | -- | @ref@: 'HP.ref' over a 'RefLabel'.
+    RefProp
+  | -- | @class@ on an SVG element: an attribute (@Halogen.Svg.Attributes.class_@), since an SVG
+    -- element's @className@ cannot be set.
+    SvgClassProp
+  | -- | @viewBox@: four numbers as text, or a tuple of four 'Double's.
+    ViewBoxProp
 
 -- | By the attribute's name, in any case.
 property :: Text -> Maybe PropKind

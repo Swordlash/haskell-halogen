@@ -133,13 +133,13 @@ import Protolude hiding (find)
 import System.Environment (withArgs)
 import System.IO (BufferMode (..), hFlush, hSetBuffering)
 import System.IO.Unsafe (unsafePerformIO)
-import Text.Show (Show (showsPrec))
 import Test.HUnit.Lang (assertFailure)
 import Test.Hspec (Spec, SpecWith, context, describe, it, parallel, sequential, specify, xit)
 import Test.Hspec qualified as Hspec
 import Test.Hspec.Halogen.Internal.Monad (MonadBrowserTest (..))
 import Test.Hspec.Halogen.Internal.Page qualified as Page
 import Test.Hspec.Runner (Summary (..), defaultConfig, hspecWithResult)
+import Text.Show (Show (showsPrec))
 import Web.DOM.Internal.Types qualified as DOM
 
 --------------------------------------------------------------------------------

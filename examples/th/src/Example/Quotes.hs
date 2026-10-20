@@ -22,8 +22,8 @@ data State = State
 
 data Action
   = Draft Text
-  | Add Event
-  -- ^ The form's submit: the page must not reload.
+  | -- | The form's submit: the page must not reload.
+    Add Event
   | Toggle Int
   | Remove Int
   | ShowDone Bool
@@ -38,7 +38,8 @@ component =
       }
   where
     render :: State -> H.ComponentHTML Action Empty m
-    render st = [hh|
+    render st =
+      [hh|
       <section class="quotes">
         {{ style }}
         <h2>A list, quoted</h2>
@@ -80,14 +81,15 @@ component =
         H.liftEffect (preventDefault ev)
         modify $ \st ->
           let t = T.strip st.draft
-          in if T.null t then st else st {items = st.items <> [(st.next, t)], next = st.next + 1, draft = ""}
+           in if T.null t then st else st {items = st.items <> [(st.next, t)], next = st.next + 1, draft = ""}
       Toggle i -> modify $ \st -> st {done = if i `elem` st.done then filter (/= i) st.done else i : st.done}
       Remove i -> modify $ \st -> st {items = filter ((/= i) . fst) st.items, done = filter (/= i) st.done}
       ShowDone b -> modify $ \st -> st {showDone = b}
 
 -- | The stylesheet: CSS as written, with the palette from Haskell.
 style :: Css
-style = [clay|
+style =
+  [clay|
   .quotes {
     max-width: 480px; margin: 32px auto; padding: 0 20px;
     font-family: system-ui, sans-serif; color: {{ ink }};

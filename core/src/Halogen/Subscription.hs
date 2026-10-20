@@ -110,7 +110,7 @@ filter :: (Applicative m) => (a -> Bool) -> Emitter m a -> Emitter m a
 filter p (Emitter e) = Emitter $ \k -> e $ \a -> when (p a) (k a)
 
 {-
--- | Compute a fixed point.
+-- \| Compute a fixed point.
 fix :: forall i o. (Emitter i -> (Emitter i, Emitter o)) -> Emitter o
 fix f = Emitter $ \k -> do
   Subscription c1 <- subscribe input (notify listener)

@@ -21,6 +21,7 @@ module Halogen.Hooks.Internal.Eval
   )
 where
 
+import Control.Monad.Catch qualified as Catch
 import Control.Monad.Free.Church (foldF, liftF)
 import Control.Monad.State.Class qualified as State
 import Data.Foreign (unsafeRefEq)
@@ -35,7 +36,6 @@ import Halogen.Hooks.Internal.Types (StateId (..))
 import Halogen.Query.HalogenM qualified as HM
 import Halogen.Query.HalogenQ (HalogenQ (..))
 import Protolude hiding (get, gets, modify, put, state)
-import Control.Monad.Catch qualified as Catch
 
 -- | The handler a 'Halogen.Hooks.useQuery' installed, kept under a newtype
 -- because it is a rank-2 function. Its @q@ is the component's own query

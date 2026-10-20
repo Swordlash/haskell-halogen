@@ -71,10 +71,10 @@ data Hole = Hole
   deriving (Eq, Show)
 
 data HoleKind
-  = ValueHole
-  -- ^ @{{ … }}@
-  | StmtHole
-  -- ^ @{% … %}@
+  = -- | @{{ … }}@
+    ValueHole
+  | -- | @{% … %}@
+    StmtHole
   deriving (Eq, Show)
 
 type Holes = IntMap Hole
@@ -236,11 +236,11 @@ pieces t
   | T.null t = []
   | otherwise =
       let (before, rest) = T.break (== open) t
-      in [Lit before | not (T.null before)] <> case T.uncons rest of
-        Nothing -> []
-        Just (_, rest') ->
-          let (digits, rest'') = T.break (== close) rest'
-          in Ref (read (T.unpack digits)) : pieces (T.drop 1 rest'')
+       in [Lit before | not (T.null before)] <> case T.uncons rest of
+            Nothing -> []
+            Just (_, rest') ->
+              let (digits, rest'') = T.break (== close) rest'
+               in Ref (read (T.unpack digits)) : pieces (T.drop 1 rest'')
 
 -- | A statement: what a @{% … %}@ says.
 data Stmt
@@ -248,10 +248,10 @@ data Stmt
   | Elif Snippet
   | Else
   | End
-  | For Snippet Snippet
-  -- ^ A pattern, and the list it ranges over.
-  | Let Snippet Snippet
-  -- ^ A pattern, and what it is bound to.
+  | -- | A pattern, and the list it ranges over.
+    For Snippet Snippet
+  | -- | A pattern, and what it is bound to.
+    Let Snippet Snippet
   deriving (Eq, Show)
 
 -- | Haskell in a statement, and where it starts in the statement's code.
@@ -298,11 +298,11 @@ data Item a
 data Block a
   = Leaf a
   | Splice Int
-  | Cond [(Int, [Block a])] (Maybe [Block a])
-  -- ^ The @if@ and @elif@ branches, each by its hole, and the @else@.
+  | -- | The @if@ and @elif@ branches, each by its hole, and the @else@.
+    Cond [(Int, [Block a])] (Maybe [Block a])
   | Loop Int [Block a]
-  | Bind Int [Block a]
-  -- ^ A @let@, over the rest of the sequence.
+  | -- | A @let@, over the rest of the sequence.
+    Bind Int [Block a]
   deriving (Eq, Show, Functor)
 
 -- | Group a sequence by its statements. Every block opened must be closed

@@ -22,9 +22,9 @@ module Halogen.Canvas.Core
   )
 where
 
+import Data.Foreign (unsafeRefEq)
 import HPrelude
 import Halogen.Canvas.Types
-import Data.Foreign (unsafeRefEq)
 import Halogen.VDom.Thunk (Thunk, mkThunk, unsafeThunkId)
 import Halogen.VDom.Types (ElemName (..), VDom (..))
 
