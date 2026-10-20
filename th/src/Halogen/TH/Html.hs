@@ -167,8 +167,11 @@ inside d name = case own d name of
 nodeExp :: Dialect -> Env -> Holes -> Node -> Q Exp
 nodeExp parent env holes = \case
   TextNode t -> pure (AppE (VarE 'HH.text) (packE t))
-  Element ln name attrs kids -> do
-    let dialect = own parent name
+  Element ln written attrs kids -> do
+    let dialect = own parent written
+        -- An <svg> in HTML, whatever its case (<SVG> is HTML too), is the
+        -- SVG element, whose name SVG writes in lower case.
+        name = if parent == Html && dialect == Svg then "svg" else written
     attrBlocks <- orFail (blocks holes attrs)
     kidBlocks <- orFail (blocks holes kids)
     let lookUp = case dialect of
@@ -177,7 +180,7 @@ nodeExp parent env holes = \case
         plain = case dialect of
           Html -> 'unknownHtml
           Svg -> 'unknownSvg
-    propsE <- blocksExp env holes (attrExp dialect (isJust lookUp) env holes ln) (AppE (VarE 'props)) attrBlocks
+    propsE <- blocksExp env holes (attrExp dialect name (isJust lookUp) env holes ln) (AppE (VarE 'props)) attrBlocks
     kidsE <- blocksExp env holes (nodeExp (inside parent name) env holes) (AppE (VarE 'children)) kidBlocks
     case lookUp of
       Just (WithChildren n) -> pure (AppE (AppE (VarE n) propsE) kidsE)
@@ -191,12 +194,12 @@ nodeExp parent env holes = \case
 -- | One attribute as a property, handler or attribute. On an element
 -- without a function of its own ('unknownHtml', 'unknownSvg') only the
 -- class, the style, a ref and handlers are typed; the rest is text.
-attrExp :: Dialect -> Bool -> Env -> Holes -> Int -> Attr -> Q Exp
-attrExp dialect known env holes ln (Attr name value) = case event lower of
+attrExp :: Dialect -> Text -> Bool -> Env -> Holes -> Int -> Attr -> Q Exp
+attrExp dialect tag known env holes ln (Attr name value) = case event lower of
   Just handler -> case single of
     Just i -> AppE (VarE handler) <$> hole i
     Nothing -> bad (name <> " takes a handler in {{ }}")
-  Nothing -> case typed =<< (case dialect of Html -> property lower; Svg -> Svg.property name) of
+  Nothing -> case typed =<< (case dialect of Html -> property lower; Svg -> Svg.property tag name) of
     Just (TextProp n) -> AppE (VarE n) <$> text
     Just ClassProp -> AppE (VarE 'HP.class_) . AppE (ConE 'ClassName) <$> text
     Just (BoolProp n) -> case (ps, single) of

@@ -10,6 +10,12 @@
   `svgs` quoters start in SVG. A hole right before `/>` no longer takes the
   slash into its value.
 
+* In SVG, `fill` on an animation (`<animate>`, `<animateMotion>`,
+  `<animateTransform>`, `<set>`) is the state it leaves (`SA.fillAnim`), not
+  a colour; `fontStretch`, `fontVariant`, `path`, `markerUnits`,
+  `maskUnits` and `maskContentUnits` are typed too, and an `<SVG>` written
+  in upper case in HTML is the `svg` element.
+
 * An element with no function of its own (`<stop>`, `<linearGradient>`, a
   custom element) takes the attributes any element has: its class, style,
   ref and handlers are typed, the rest is text. Its typed attributes used

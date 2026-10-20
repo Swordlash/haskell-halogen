@@ -51,6 +51,14 @@ spec = do
       [svg|<linearGradient id="sky" x1="0" y2="1"><stop offset="0" style={{ "stop-color:" <> colour }} onClick={{ const Inc }}/></linearGradient>|]
         `same` SE.element (ElemName "linearGradient") [HP.attr (AttrName "id") "sky", HP.attr (AttrName "x1") "0", HP.attr (AttrName "y2") "1"]
           [SE.element (ElemName "stop") ([HP.attr (AttrName "offset") "0", HP.styleText "stop-color:red", HE.onClick (const Inc)] :: [HP.IProp (SI.GlobalAttributes Empty) Action]) []]
+    it "an <SVG> in HTML is the svg element; fill on an animation is the state it leaves; a function's name stands for its attribute" $
+      [hh|<div><SVG viewBox="0 0 1 1"><animate attributeName="x" fill={{ SA.Freeze }}/><text fontStretch="condensed" fontVariant="small-caps">t</text></SVG></div>|]
+        `same` HH.div_
+          [ SE.svg [HP.attr (AttrName "viewBox") "0 0 1 1"]
+              [ SE.animate [HP.attr (AttrName "attributeName") "x", SA.fillAnim SA.Freeze]
+              , SE.text [HP.attr (AttrName "font-stretch") "condensed", SA.fontVariant "small-caps"] [HH.text "t"]
+              ]
+          ]
     it "a viewBox written as text, and a foreignObject holding HTML" $
       [hh|<svg viewBox="0 0 10 10"><foreignObject><div class="x">hi<br></div></foreignObject></svg>|]
         `same` SE.svg [HP.attr (AttrName "viewBox") "0 0 10 10"] [SE.foreignObject [] [HH.div [HP.class_ (ClassName "x")] [HH.text "hi", HH.br_]]]

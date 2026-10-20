@@ -39,8 +39,12 @@ elements =
       ]
 
 -- | By the attribute's name as SVG writes it, or as its function is named.
-property :: Text -> Maybe PropKind
-property = (`Map.lookup` properties)
+-- | An attribute of an element: @fill@ on an animation is the state it
+-- leaves ('SA.fillAnim', @freeze@ or @remove@), not a colour.
+property :: Text -> Text -> Maybe PropKind
+property el name
+  | name == "fill" && el `elem` ["animate", "animateMotion", "animateTransform", "set"] = Just (TypedProp 'SA.fillAnim)
+  | otherwise = Map.lookup name properties
 
 properties :: Map Text PropKind
 properties =
@@ -54,6 +58,8 @@ properties =
     , ("xlink:href", TextProp 'SA.xlinkHref)
     , ("font-family", TextProp 'SA.fontFamily)
     , ("fontFamily", TextProp 'SA.fontFamily)
+    , ("font-variant", TextProp 'SA.fontVariant)
+    , ("fontVariant", TextProp 'SA.fontVariant)
     ]
       <> [(n, DoubleProp x) | (n, x) <- numbers]
       <> [(n, TypedProp x) | (n, x) <- typed]
@@ -71,13 +77,15 @@ properties =
           ]
     typed =
       [ ("fill", 'SA.fill), ("stroke", 'SA.stroke), ("d", 'SA.d), ("points", 'SA.points), ("transform", 'SA.transform)
-      , ("patternTransform", 'SA.patternTransform), ("orient", 'SA.orient), ("dur", 'SA.dur)
+      , ("patternTransform", 'SA.patternTransform), ("orient", 'SA.orient), ("dur", 'SA.dur), ("path", 'SA.path)
+      , ("markerUnits", 'SA.markerUnits), ("maskUnits", 'SA.maskUnits), ("maskContentUnits", 'SA.maskContentUnits)
       ]
         <> both
           [ ("stroke-linecap", "strokeLineCap", 'SA.strokeLineCap), ("stroke-linejoin", "strokeLineJoin", 'SA.strokeLineJoin)
           , ("stroke-miterlimit", "strokeMiterLimit", 'SA.strokeMiterLimit), ("stroke-dasharray", "strokeDashArray", 'SA.strokeDashArray)
           , ("text-anchor", "textAnchor", 'SA.textAnchor), ("dominant-baseline", "dominantBaseline", 'SA.dominantBaseline)
           , ("font-size", "fontSize", 'SA.fontSize), ("font-weight", "fontWeight", 'SA.fontWeight), ("font-style", "fontStyle", 'SA.fontStyle)
+          , ("font-stretch", "fontStretch", 'SA.fontStretch)
           , ("marker-start", "markerStart", 'SA.markerStart), ("marker-mid", "markerMid", 'SA.markerMid), ("marker-end", "markerEnd", 'SA.markerEnd)
           ]
     both xs = concat [[(svgName, x), (fnName, x)] | (svgName, fnName, x) <- xs]
@@ -94,5 +102,5 @@ attributeName n = Map.findWithDefault n n kebab
         , ("strokeLineJoin", "stroke-linejoin"), ("strokeMiterLimit", "stroke-miterlimit"), ("strokeDashArray", "stroke-dasharray")
         , ("textAnchor", "text-anchor"), ("dominantBaseline", "dominant-baseline"), ("fontSize", "font-size")
         , ("fontWeight", "font-weight"), ("fontStyle", "font-style"), ("fontFamily", "font-family"), ("markerStart", "marker-start")
-        , ("markerMid", "marker-mid"), ("markerEnd", "marker-end")
+        , ("markerMid", "marker-mid"), ("markerEnd", "marker-end"), ("fontStretch", "font-stretch"), ("fontVariant", "font-variant")
         ]

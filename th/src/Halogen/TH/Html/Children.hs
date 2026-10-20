@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -Wno-simplifiable-class-constraints #-}
+{-# LANGUAGE MonoLocalBinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE UndecidableInstances #-}
 
