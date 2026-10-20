@@ -58,6 +58,7 @@ properties =
     , ("id", TextProp 'SA.id)
     , ("href", TextProp 'SA.href)
     , ("xlink:href", TextProp 'SA.xlinkHref)
+    , ("xlinkHref", TextProp 'SA.xlinkHref)
     , ("font-family", TextProp 'SA.fontFamily)
     , ("fontFamily", TextProp 'SA.fontFamily)
     , ("font-variant", TextProp 'SA.fontVariant)

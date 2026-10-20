@@ -40,10 +40,13 @@ where
 
 import Data.Row
 import Protolude
+import Web.Event.Event (Event)
+import Web.UIEvent.FocusEvent (FocusEvent)
 import Web.UIEvent.KeyboardEvent (KeyboardEvent)
 import Web.HTML.Event.DragEvent (DragEvent)
 import Web.UIEvent.MouseEvent (MouseEvent)
 import Web.UIEvent.PointerEvent (PointerEvent)
+import Web.UIEvent.TouchEvent (TouchEvent)
 import Web.UIEvent.WheelEvent (WheelEvent)
 
 {-
@@ -76,10 +79,20 @@ C indicates that the collection of attributes does not apply to that element
 -- These core attributes are applicable to every element
 type CoreAttributes r = ("id" .== Text .+ "class" .== Text .+ "style" .== Text .+ "tabIndex" .== Int .+ "lang" .== Text .+ r)
 
--- Subset of events that work on Firefox 60/Chromium 66, with pointer events
--- and drag and drop's, which every SVG element gets as well
+-- Subset of events that work on Firefox 60/Chromium 66, with pointer events,
+-- drag and drop's, focus, touch and transitions, which every SVG element
+-- gets as well
 type GlobalEventAttributes r =
   ( "onClick" .== MouseEvent
+      .+ "onFocus" .== FocusEvent
+      .+ "onBlur" .== FocusEvent
+      .+ "onFocusIn" .== FocusEvent
+      .+ "onFocusOut" .== FocusEvent
+      .+ "onTouchStart" .== TouchEvent
+      .+ "onTouchEnd" .== TouchEvent
+      .+ "onTouchMove" .== TouchEvent
+      .+ "onTouchCancel" .== TouchEvent
+      .+ "onTransitionEnd" .== Event
       .+ "onDoubleClick" .== MouseEvent
       .+ "onContextMenu" .== MouseEvent
       .+ "onKeyDown" .== KeyboardEvent
@@ -188,6 +201,8 @@ type SVGsvg =
             .+ "height" .== Double
             .+ "viewBox" .== Text
             .+ "preserveAspectRatio" .== Text
+            .+ "onLoad" .== Event
+            .+ "onError" .== Event
         )
     )
 
@@ -243,6 +258,7 @@ type SVGcircle =
                         .+ "cy" .== Double
                         .+ "r" .== Double
                         .+ "transform" .== Text
+                        .+ "pathLength" .== Double
                     )
                 )
             )
@@ -260,6 +276,7 @@ type SVGellipse =
                         .+ "rx" .== Double
                         .+ "ry" .== Double
                         .+ "transform" .== Text
+                        .+ "pathLength" .== Double
                     )
                 )
             )
@@ -277,6 +294,7 @@ type SVGline =
                         .+ "x2" .== Double
                         .+ "y2" .== Double
                         .+ "transform" .== Text
+                        .+ "pathLength" .== Double
                     )
                 )
             )
@@ -321,6 +339,7 @@ type SVGpath =
                         ( MarkerAttributes
                             ( "d" .== Text
                                 .+ "transform" .== Text
+                                .+ "pathLength" .== Double
                             )
                         )
                     )
@@ -358,6 +377,7 @@ type SVGrect =
                             .+ "width" .== Double
                             .+ "height" .== Double
                             .+ "transform" .== Text
+                            .+ "pathLength" .== Double
                         )
                     )
                 )
@@ -441,6 +461,8 @@ type SVGimage =
         .+ "href" .== Text
         .+ "xlinkHref" .== Text
         .+ "preserveAspectRatio" .== Text
+        .+ "onLoad" .== Event
+        .+ "onError" .== Event
     )
 
 -- TODO should this have GlobalAttributes?

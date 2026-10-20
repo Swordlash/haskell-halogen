@@ -74,9 +74,20 @@ htmlExp dialect env single src = do
 
 -- | A hole right before the @/>@ of a self-closing tag (@\<path d={{ p }}/>@)
 -- would take the slash into its unquoted value: a space keeps them apart.
+-- Only in a tag, outside quotes: in text or a quoted value, @/>@ is text.
 selfClosing :: Text -> Text
-selfClosing = T.replace (T.singleton placeholderClose <> "/>") (T.singleton placeholderClose <> " />")
+selfClosing = T.pack . go Nothing . T.unpack
   where
+    -- In a tag (Just), and in which quote if any.
+    go :: Maybe (Maybe Char) -> String -> String
+    go _ [] = []
+    go Nothing (c : cs) = c : go (if c == '<' then Just Nothing else Nothing) cs
+    go (Just Nothing) (c : '/' : '>' : cs) | c == placeholderClose = c : ' ' : '/' : '>' : go Nothing cs
+    go (Just Nothing) (c : cs)
+      | c == '>' = c : go Nothing cs
+      | c == '"' || c == '\'' = c : go (Just (Just c)) cs
+      | otherwise = c : go (Just Nothing) cs
+    go (Just (Just q)) (c : cs) = c : go (Just (if c == q then Nothing else Just q)) cs
     -- The last character of a placeholder ("Halogen.TH.Template").
     placeholderClose = '\xE001'
 

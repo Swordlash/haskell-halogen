@@ -6,7 +6,9 @@ SVG: `SE.animateTransform` and `SE.set` (their rows `SVGanimateTransform`
 and `SVGset`, so `SA.fillAnim` types on them); `SE.mask` takes its own row,
 `SVGmask`, whose field `maskContentsUnits` is now spelled
 `maskContentUnits`, as `SA.maskContentUnits` wants; `SVGuse` and `SVGimage`
-take `xlinkHref`.
+take `xlinkHref`. Every SVG element takes focus, touch and `onTransitionEnd`
+handlers, `<svg>` and `<image>` `onLoad` and `onError`; `<path>`,
+`<circle>`, `<ellipse>`, `<line>` and `<rect>` take `pathLength`.
 
 The browser bindings (`Web.Event.Event`, `Web.HTML.Window`,
 `Web.HTML.HTMLDocument`, `Control.Monad.UUID`) are declared once, without CPP,

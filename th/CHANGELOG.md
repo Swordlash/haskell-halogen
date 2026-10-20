@@ -7,8 +7,9 @@
   attributes those of `Halogen.Svg.Attributes` by their SVG or function
   names, typed (`cx={{ x }}`, `d={{ commands }}`,
   `viewBox={{ (0, 0, w, h) }}`), its `class` an attribute. The `svg` and
-  `svgs` quoters start in SVG. A hole right before `/>` no longer takes the
-  slash into its value.
+  `svgs` quoters start in SVG. A hole right before the `/>` of a tag no
+  longer takes the slash into its value (a `/>` in text or in a quoted
+  value stays as written).
 
 * In SVG, `fill` on an animation (`<animate>`, `<animateMotion>`,
   `<animateTransform>`, `<set>`) is the state it leaves (`SA.fillAnim`), not

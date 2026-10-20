@@ -70,6 +70,13 @@ spec = do
           , SE.image [SA.xlinkHref "b.png"]
           , SE.mask [SA.maskContentUnits SA.ObjectBoundingBox] []
           ]
+    it "onLoad on the svg, pathLength on shapes, xlinkHref by the function's name" $
+      [svg|<svg onLoad={{ const Inc }}><path pathLength={{ 10 }} d="M0 0"/><circle pathLength="5" r="1"/><use xlinkHref={{ "#a" :: Text }}/></svg>|]
+        `same` SE.svg [HE.onLoad (const Inc)]
+          [ SE.path [SA.pathLength 10, HP.attr (AttrName "d") "M0 0"]
+          , SE.circle [SA.pathLength 5, SA.r 1]
+          , SE.use [SA.xlinkHref "#a"]
+          ]
     it "a viewBox written as text, and a foreignObject holding HTML" $
       [hh|<svg viewBox="0 0 10 10"><foreignObject><div class="x">hi<br></div></foreignObject></svg>|]
         `same` SE.svg [HP.attr (AttrName "viewBox") "0 0 10 10"] [SE.foreignObject [] [HH.div [HP.class_ (ClassName "x")] [HH.text "hi", HH.br_]]]
@@ -99,6 +106,9 @@ spec = do
             two
           </p>|]
         `same` HH.p_ [HH.text "one two"]
+    it "a hole before /> in text or in a quoted value keeps the /> as text" $ do
+      let label = "a" :: Text
+      [hh|<p title="{{ label }}/>">{{ label }}/></p>|] `same` HH.p [HP.title "a/>"] [HH.text "a", HH.text "/>"]
     it "void elements, with or without a slash, and with an end tag" $
       [hh|<p>a<br>b<br/>c<br></br>d<input type="text"></p>|]
         `same` HH.p_ [HH.text "a", HH.br_, HH.text "b", HH.br_, HH.text "c", HH.br_, HH.text "d", HH.input [HP.attr (AttrName "type") "text"]]
