@@ -624,4 +624,4 @@ href :: forall r i. (HasType "href" Text r) => Text -> IProp r i
 href = attr (H.AttrName "href")
 
 xlinkHref :: forall r i. (HasType "xlinkHref" Text r) => Text -> IProp r i
-xlinkHref = attrNS (H.Namespace "xlink") (H.AttrName "xlink:href")
+xlinkHref = attrNS (H.Namespace "http://www.w3.org/1999/xlink") (H.AttrName "xlink:href")

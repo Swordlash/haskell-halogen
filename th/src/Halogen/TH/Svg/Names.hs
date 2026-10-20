@@ -18,6 +18,7 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Halogen.Svg.Attributes qualified as SA
 import Halogen.Svg.Elements qualified as SE
+import Halogen.TH.Html.Children qualified as C
 import Halogen.TH.Html.Names (ElementKind (..), PropKind (..))
 
 element :: Text -> Maybe ElementKind
@@ -25,20 +26,19 @@ element = (`Map.lookup` elements)
 
 elements :: Map Text ElementKind
 elements =
-  Map.fromList $
-    [(n, WithChildren x) | (n, x) <- nodes] <> [(n, NoChildren x) | (n, x) <- leaves]
-  where
-    nodes =
-      [ ("svg", 'SE.svg), ("g", 'SE.g), ("text", 'SE.text), ("defs", 'SE.defs), ("mask", 'SE.mask), ("marker", 'SE.marker)
-      , ("pattern", 'SE.pattern_), ("foreignObject", 'SE.foreignObject), ("title", 'SE.title), ("animateMotion", 'SE.animateMotion)
-      , -- A circle may hold an animation.
-        ("circle", 'SE.circleNode)
-      ]
-    leaves =
-      [ ("ellipse", 'SE.ellipse), ("image", 'SE.image), ("line", 'SE.line), ("path", 'SE.path)
-      , ("polygon", 'SE.polygon), ("polyline", 'SE.polyline), ("rect", 'SE.rect), ("use", 'SE.use), ("animate", 'SE.animate)
-      , ("animateTransform", 'SE.animateTransform), ("set", 'SE.set), ("mpath", 'SE.mpath)
-      ]
+  -- Every SVG element may hold children (an animation, a title), so all
+  -- are nodes: the leaves of "Halogen.Svg.Elements" through the node
+  -- variants in "Halogen.TH.Html.Children".
+  Map.fromList
+    [ (n, WithChildren x)
+    | (n, x) <-
+        [ ("svg", 'SE.svg), ("g", 'SE.g), ("text", 'SE.text), ("defs", 'SE.defs), ("mask", 'SE.mask), ("marker", 'SE.marker)
+        , ("pattern", 'SE.pattern_), ("foreignObject", 'SE.foreignObject), ("title", 'SE.title), ("animateMotion", 'SE.animateMotion)
+        , ("circle", 'SE.circleNode), ("ellipse", 'C.ellipseNode), ("image", 'C.imageNode), ("line", 'C.lineNode), ("path", 'C.pathNode)
+        , ("polygon", 'C.polygonNode), ("polyline", 'C.polylineNode), ("rect", 'C.rectNode), ("use", 'C.useNode), ("animate", 'C.animateNode)
+        , ("animateTransform", 'C.animateTransformNode), ("set", 'C.setNode), ("mpath", 'C.mpathNode)
+        ]
+    ]
 
 -- | By the attribute's name as SVG writes it, or as its function is named.
 -- | An attribute of an element: @fill@ on an animation is the state it

@@ -13,7 +13,10 @@ handlers, `<svg>` and `<image>` `onLoad` and `onError`; `<path>`,
 `strokeWidth` it had twice, which made every typed attribute on it fail);
 `<svg>`, `<polygon>`, `<polyline>`, `<image>` and `<foreignObject>` take
 `transform`; the animations take `href` and `xlinkHref`; `<mpath>` takes the
-global attributes and `href`.
+global attributes and `href`. The basic shapes (`<rect>`, `<circle>`,
+`<ellipse>`, `<line>`, `<polyline>`, `<polygon>`, `<path>`) take every
+presentation attribute, as `<g>` does. `SA.xlinkHref` puts the attribute in
+the XLink namespace (`http://www.w3.org/1999/xlink`), not one named `xlink`.
 
 The browser bindings (`Web.Event.Event`, `Web.HTML.Window`,
 `Web.HTML.HTMLDocument`, `Control.Monad.UUID`) are declared once, without CPP,

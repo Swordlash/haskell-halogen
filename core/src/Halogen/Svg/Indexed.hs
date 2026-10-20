@@ -253,103 +253,63 @@ type SVGmask =
 
 type SVGcircle =
   GlobalAttributes
-    ( CanBeMaskedAttributes
-        ( StrokeAttributes
-            ( FillAttributes
-                ( MarkerAttributes
-                    ( "cx" .== Double
-                        .+ "cy" .== Double
-                        .+ "r" .== Double
-                        .+ "transform" .== Text
-                        .+ "pathLength" .== Double
-                    )
-                )
-            )
+    ( AllPresentationAttributes
+        ( "cx" .== Double
+            .+ "cy" .== Double
+            .+ "r" .== Double
+            .+ "transform" .== Text
+            .+ "pathLength" .== Double
         )
     )
 
 type SVGellipse =
   GlobalAttributes
-    ( CanBeMaskedAttributes
-        ( StrokeAttributes
-            ( FillAttributes
-                ( MarkerAttributes
-                    ( "cx" .== Double
-                        .+ "cy" .== Double
-                        .+ "rx" .== Double
-                        .+ "ry" .== Double
-                        .+ "transform" .== Text
-                        .+ "pathLength" .== Double
-                    )
-                )
-            )
+    ( AllPresentationAttributes
+        ( "cx" .== Double
+            .+ "cy" .== Double
+            .+ "rx" .== Double
+            .+ "ry" .== Double
+            .+ "transform" .== Text
+            .+ "pathLength" .== Double
         )
     )
 
 type SVGline =
   GlobalAttributes
-    ( CanBeMaskedAttributes
-        ( StrokeAttributes
-            ( StokeEndAttributes
-                ( MarkerAttributes
-                    ( "x1" .== Double
-                        .+ "y1" .== Double
-                        .+ "x2" .== Double
-                        .+ "y2" .== Double
-                        .+ "transform" .== Text
-                        .+ "pathLength" .== Double
-                    )
-                )
-            )
+    ( AllPresentationAttributes
+        ( "x1" .== Double
+            .+ "y1" .== Double
+            .+ "x2" .== Double
+            .+ "y2" .== Double
+            .+ "transform" .== Text
+            .+ "pathLength" .== Double
         )
     )
 
 type SVGpolyline =
   GlobalAttributes
-    ( CanBeMaskedAttributes
-        ( StrokeAttributes
-            ( StokeEndAttributes
-                ( MarkerAttributes
-                    ( "points" .== Text
-                        .+ "pathLength" .== Double
-                        .+ "transform" .== Text
-                    )
-                )
-            )
+    ( AllPresentationAttributes
+        ( "points" .== Text
+            .+ "pathLength" .== Double
+            .+ "transform" .== Text
         )
     )
 
 type SVGpolygon =
   GlobalAttributes
-    ( CanBeMaskedAttributes
-        ( StrokeAttributes
-            ( StokeEndAttributes
-                ( MarkerAttributes
-                    ( "points" .== Text
-                        .+ "pathLength" .== Double
-                        .+ "transform" .== Text
-                    )
-                )
-            )
+    ( AllPresentationAttributes
+        ( "points" .== Text
+            .+ "pathLength" .== Double
+            .+ "transform" .== Text
         )
     )
 
 type SVGpath =
   GlobalAttributes
-    ( CanBeMaskedAttributes
-        ( StrokeAttributes
-            ( StokeEndAttributes
-                ( StrokeJoinAttributes
-                    ( FillAttributes
-                        ( MarkerAttributes
-                            ( "d" .== Text
-                                .+ "transform" .== Text
-                                .+ "pathLength" .== Double
-                            )
-                        )
-                    )
-                )
-            )
+    ( AllPresentationAttributes
+        ( "d" .== Text
+            .+ "transform" .== Text
+            .+ "pathLength" .== Double
         )
     )
 
@@ -370,23 +330,15 @@ type SVGpattern =
 
 type SVGrect =
   GlobalAttributes
-    ( CanBeMaskedAttributes
-        ( StrokeAttributes
-            ( StrokeJoinAttributes
-                ( FillAttributes
-                    ( MarkerAttributes
-                        ( "x" .== Double
-                            .+ "y" .== Double
-                            .+ "rx" .== Double
-                            .+ "ry" .== Double
-                            .+ "width" .== Double
-                            .+ "height" .== Double
-                            .+ "transform" .== Text
-                            .+ "pathLength" .== Double
-                        )
-                    )
-                )
-            )
+    ( AllPresentationAttributes
+        ( "x" .== Double
+            .+ "y" .== Double
+            .+ "rx" .== Double
+            .+ "ry" .== Double
+            .+ "width" .== Double
+            .+ "height" .== Double
+            .+ "transform" .== Text
+            .+ "pathLength" .== Double
         )
     )
 

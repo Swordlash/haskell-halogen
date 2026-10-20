@@ -87,6 +87,13 @@ spec = do
           , SE.animate [SA.href "#c", HP.attr (AttrName "attributeName") "r"]
           , SE.rect [HP.attr (AttrName "width") "100%", HP.attr (AttrName "height") "10em", SA.x 1]
           ]
+    it "a rect holding an animation, fill on a polygon" $ do
+      let colour = C.red
+      [svg|<g><rect width="2" height="2"><animate attributeName="x" to="3"/></rect><polygon points="0,0 1,1" fill={{ colour }}/></g>|]
+        `same` SE.g []
+          [ SE.element (ElemName "rect") ([SA.width 2, SA.height 2] :: [HP.IProp SI.SVGrect Action]) [SE.animate [HP.attr (AttrName "attributeName") "x", HP.attr (AttrName "to") "3"]]
+          , SE.polygon [HP.attr (AttrName "points") "0,0 1,1", SA.fill colour]
+          ]
     it "a viewBox written as text, and a foreignObject holding HTML" $
       [hh|<svg viewBox="0 0 10 10"><foreignObject><div class="x">hi<br></div></foreignObject></svg>|]
         `same` SE.svg [HP.attr (AttrName "viewBox") "0 0 10 10"] [SE.foreignObject [] [HH.div [HP.class_ (ClassName "x")] [HH.text "hi", HH.br_]]]
