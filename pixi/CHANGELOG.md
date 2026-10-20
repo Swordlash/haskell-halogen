@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+One render at a time: a render asked for while one is under way (a Pixi
+callback lets another Haskell thread run meanwhile) is left to it, and it
+renders the latest view again when done. Two renders of the first view
+could each build a world and put it on the stage, and the one left behind
+stayed drawn where the camera was. The stage now keeps only the current
+world.
+
 `modifiers` on a pointer event: the modifier keys held (`Modifiers`: Shift,
 Ctrl, Alt, Meta, named as the browser names them), for a scene where, say,
 a drag with Shift draws and a plain drag pans; `commandKey` is Ctrl, or Cmd

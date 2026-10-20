@@ -14,7 +14,13 @@ function halogen_pixi_application_ready(holder) { return holder.ready; }
 function halogen_pixi_destroy_application(holder) { holder.app.destroy(false, { children: true, texture: false, textureSource: false }); }
 function halogen_pixi_new_container(holder) { return new holder.pixi.Container(); }
 function halogen_pixi_new_graphics(holder) { return new holder.pixi.Graphics(); }
-function halogen_pixi_add_to_stage(holder, child) { holder.app.stage.addChild(child); }
+// The world is the stage's only child: anything else there is a world left
+// behind, and would be drawn where the camera was.
+function halogen_pixi_add_to_stage(holder, child) {
+  var stage = holder.app.stage;
+  for (var i = stage.children.length - 1; i >= 0; i--) if (stage.children[i] !== child) stage.removeChildAt(i);
+  if (child.parent !== stage) stage.addChild(child);
+}
 function halogen_pixi_add_child(parent, child) { parent.addChild(child); halogen_pixi_touch(parent); }
 function halogen_pixi_remove_child(parent, child) { parent.removeChild(child); halogen_pixi_touch(parent); }
 function halogen_pixi_parent_of(object) { return object.parent ?? null; }
