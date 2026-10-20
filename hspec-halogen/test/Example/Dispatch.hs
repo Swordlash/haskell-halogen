@@ -7,6 +7,7 @@
 -- and the element around never hears of it.
 module Example.Dispatch (component) where
 
+import Control.Monad.UUID (MonadUUID)
 import Data.Row (Empty)
 import Data.Text qualified as T
 import Halogen qualified as H
@@ -29,7 +30,9 @@ js_poke _ = pure False
 #endif
 
 data State = State
-  { handled :: Bool
+  { target :: H.RefLabel
+  -- ^ The element the event is dispatched to.
+  , handled :: Bool
   -- ^ The inner element's handler ran.
   , outer :: Bool
   -- ^ The event reached the element around it.
@@ -42,14 +45,13 @@ data State = State
 
 data Action = Fire | Inner Event | Outer
 
-target :: H.RefLabel
-target = H.RefLabel "target"
-
-component :: forall q i o m. (MonadIO m) => H.Component q i o m
+component :: forall q i o m. (MonadIO m, MonadUUID m) => H.Component q i o m
 component =
   H.mkComponent
     H.ComponentSpec
-      { initialState = const (pure State {handled = False, outer = False, trail = [], result = Nothing})
+      { initialState = \_ -> do
+          target <- H.newRefLabel "target"
+          pure State {target, handled = False, outer = False, trail = [], result = Nothing}
       , render
       , eval = H.mkEval H.defaultEval {H.handleAction = handleAction}
       }
@@ -58,7 +60,7 @@ component =
     render st =
       HH.div
         [HE.handler (EventType "poke") (const Outer)]
-        [ HH.div [HP.ref target, HE.handler (EventType "poke") Inner] []
+        [ HH.div [HP.ref st.target, HE.handler (EventType "poke") Inner] []
         , HH.button [HP.class_ (HH.ClassName "fire"), HE.onClick (const Fire)] [HH.text "Fire"]
         , HH.p [HP.class_ (HH.ClassName "result")] [HH.text (describe st)]
         ]
@@ -80,6 +82,7 @@ component =
     handleAction = \case
       Fire -> do
         modify $ \st -> st {handled = False, outer = False, result = Nothing}
+        target <- gets (.target)
         H.getHTMLElementRef target >>= traverse_ (\el -> do
           modify $ \st -> st {trail = st.trail <> ["poke"]}
           cancelled <- H.liftEffect (liftIO (js_poke el))

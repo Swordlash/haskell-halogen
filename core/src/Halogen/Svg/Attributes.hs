@@ -78,7 +78,7 @@ data CommandSweepChoice = Sweep0 | Sweep1
 -- 'show' on a 'Double' is slow, slowest in WebAssembly, and a scene of paths
 -- has tens of thousands of numbers. To a thousandth, with no exponent and no
 -- trailing zeros; what does not fit (NaN, the infinities, the huge) as 'show'
--- writes it.
+-- writes it. Every numeric attribute here is written with it.
 svgNumber :: Double -> Text
 svgNumber value_
   | isNaN value_ || isInfinite value_ || abs value_ >= 1e15 = show value_
@@ -233,7 +233,7 @@ printTransform = \case
   SkewX angle -> function "skewX" [angle]
   SkewY angle -> function "skewY" [angle]
   where
-    function functionName values = functionName <> "(" <> T.unwords (map show values) <> ")"
+    function functionName values = functionName <> "(" <> T.unwords (map svgNumber values) <> ")"
 
 --------------------------------------------------------------------------------
 
@@ -409,10 +409,10 @@ classes :: forall r i. (HasType "class" Text r) => [H.ClassName] -> IProp r i
 classes = attr (H.AttrName "class") . T.unwords . coerce
 
 cx :: forall r i. (HasType "cx" Double r) => Double -> IProp r i
-cx = attr (H.AttrName "cx") . show
+cx = attr (H.AttrName "cx") . svgNumber
 
 cy :: forall r i. (HasType "cy" Double r) => Double -> IProp r i
-cy = attr (H.AttrName "cy") . show
+cy = attr (H.AttrName "cy") . svgNumber
 
 d :: forall r i. (HasType "d" Text r) => [PathCommand] -> IProp r i
 d = attr (H.AttrName "d") . T.unwords . coerce
@@ -437,7 +437,7 @@ fillAnim :: forall r i. (HasType "fill" Text r) => FillState -> IProp r i
 fillAnim = attr (H.AttrName "fill") . printFillState
 
 fillOpacity :: forall r i. (HasType "fillOpacity" Double r) => Double -> IProp r i
-fillOpacity = attr (H.AttrName "fill-opacity") . show
+fillOpacity = attr (H.AttrName "fill-opacity") . svgNumber
 
 fontFamily :: forall r i. (HasType "fontFamily" Text r) => Text -> IProp r i
 fontFamily = attr (H.AttrName "font-family")
@@ -446,7 +446,7 @@ fontSize :: forall r i. (HasType "fontSize" Text r) => FontSize -> IProp r i
 fontSize = attr (H.AttrName "font-size") . renderValue
 
 fontSizeAdjust :: forall r i. (HasType "fontSizeAdjust" Double r) => Double -> IProp r i
-fontSizeAdjust = attr (H.AttrName "font-size-adjust") . show
+fontSizeAdjust = attr (H.AttrName "font-size-adjust") . svgNumber
 
 fontStretch :: forall r i. (HasType "fontStretch" Text r) => FontStretch -> IProp r i
 fontStretch = attr (H.AttrName "font-stretch") . printFontStretch
@@ -484,10 +484,10 @@ markerUnits :: forall r i. (HasType "markerUnits" Text r) => MarkerUnit -> IProp
 markerUnits = attr (H.AttrName "markerUnits") . printMarkerUnit
 
 markerWidth :: forall r i. (HasType "markerWidth" Double r) => Double -> IProp r i
-markerWidth = attr (H.AttrName "markerWidth") . show
+markerWidth = attr (H.AttrName "markerWidth") . svgNumber
 
 markerHeight :: forall r i. (HasType "markerHeight" Double r) => Double -> IProp r i
-markerHeight = attr (H.AttrName "markerHeight") . show
+markerHeight = attr (H.AttrName "markerHeight") . svgNumber
 
 mask :: forall r i. (HasType "mask" Text r) => Text -> IProp r i
 mask = attr (H.AttrName "mask")
@@ -509,7 +509,7 @@ points :: forall r i. (HasType "points" Text r) => [(Double, Double)] -> IProp r
 points = attr (H.AttrName "points") . T.intercalate " " . map (\(x_, y_) -> svgNumber x_ <> "," <> svgNumber y_)
 
 pathLength :: forall r i. (HasType "pathLength" Double r) => Double -> IProp r i
-pathLength = attr (H.AttrName "pathLength") . show
+pathLength = attr (H.AttrName "pathLength") . svgNumber
 
 patternContentUnits :: forall r i. (HasType "patternContentUnits" Text r) => Text -> IProp r i
 patternContentUnits = attr (H.AttrName "patternContentUnits")
@@ -536,22 +536,22 @@ preserveAspectRatio align slice =
       Just (x_, y_) -> T.intercalate "" $ ["x", show x_, "Y", show y_]
 
 r :: forall r i. (HasType "r" Double r) => Double -> IProp r i
-r = attr (H.AttrName "r") . show
+r = attr (H.AttrName "r") . svgNumber
 
 refX :: forall r i. (HasType "refX" Double r) => Double -> IProp r i
-refX = attr (H.AttrName "refX") . show
+refX = attr (H.AttrName "refX") . svgNumber
 
 refY :: forall r i. (HasType "refY" Double r) => Double -> IProp r i
-refY = attr (H.AttrName "refY") . show
+refY = attr (H.AttrName "refY") . svgNumber
 
 repeatCount :: forall r i. (HasType "repeatCount" Text r) => Text -> IProp r i
 repeatCount = attr (H.AttrName "repeatCount")
 
 rx :: forall r i. (HasType "rx" Double r) => Double -> IProp r i
-rx = attr (H.AttrName "rx") . show
+rx = attr (H.AttrName "rx") . svgNumber
 
 ry :: forall r i. (HasType "ry" Double r) => Double -> IProp r i
-ry = attr (H.AttrName "ry") . show
+ry = attr (H.AttrName "ry") . svgNumber
 
 stroke :: forall r i. (HasType "stroke" Text r) => Color -> IProp r i
 stroke = attr (H.AttrName "stroke") . renderValue
@@ -560,7 +560,7 @@ strokeDashArray :: forall r i. (HasType "strokeDashArray" Text r) => Text -> IPr
 strokeDashArray = attr (H.AttrName "stroke-dasharray")
 
 strokeDashOffset :: forall r i. (HasType "strokeDashOffset" Double r) => Double -> IProp r i
-strokeDashOffset = attr (H.AttrName "stroke-dashoffset") . show
+strokeDashOffset = attr (H.AttrName "stroke-dashoffset") . svgNumber
 
 strokeLineCap :: forall r i. (HasType "strokeLineCap" Text r) => StrokeLineCap -> IProp r i
 strokeLineCap = attr (H.AttrName "stroke-linecap") . printStrokeLineCap
@@ -571,13 +571,13 @@ strokeLineJoin = attr (H.AttrName "stroke-linejoin") . printStrokeLineJoin
 -- | The `Double` arg must be greater than or equal to 1. Thus, this function
 -- | will use `1.0` if given any value less than `1.0`.
 strokeMiterLimit :: forall r i. (HasType "strokeMiterLimit" Text r) => Double -> IProp r i
-strokeMiterLimit = attr (H.AttrName "stroke-miterlimit") . show . max 1.0
+strokeMiterLimit = attr (H.AttrName "stroke-miterlimit") . svgNumber . max 1.0
 
 strokeOpacity :: forall r i. (HasType "strokeOpacity" Double r) => Double -> IProp r i
-strokeOpacity = attr (H.AttrName "stroke-opacity") . show
+strokeOpacity = attr (H.AttrName "stroke-opacity") . svgNumber
 
 strokeWidth :: forall r i. (HasType "strokeWidth" Double r) => Double -> IProp r i
-strokeWidth = attr (H.AttrName "stroke-width") . show
+strokeWidth = attr (H.AttrName "stroke-width") . svgNumber
 
 textAnchor :: forall r i. (HasType "textAnchor" Text r) => TextAnchor -> IProp r i
 textAnchor = attr (H.AttrName "text-anchor") . printTextAnchor
@@ -594,31 +594,31 @@ viewBox
   -> Double
   -> IProp r i
 viewBox x_ y_ w h_ =
-  attr (H.AttrName "viewBox") (T.unwords $ map show [x_, y_, w, h_])
+  attr (H.AttrName "viewBox") (T.unwords $ map svgNumber [x_, y_, w, h_])
 
 width :: forall r i. (HasType "width" Double r) => Double -> IProp r i
-width = attr (H.AttrName "width") . show
+width = attr (H.AttrName "width") . svgNumber
 
 height :: forall r i. (HasType "height" Double r) => Double -> IProp r i
-height = attr (H.AttrName "height") . show
+height = attr (H.AttrName "height") . svgNumber
 
 x :: forall r i. (HasType "x" Double r) => Double -> IProp r i
-x = attr (H.AttrName "x") . show
+x = attr (H.AttrName "x") . svgNumber
 
 y :: forall r i. (HasType "y" Double r) => Double -> IProp r i
-y = attr (H.AttrName "y") . show
+y = attr (H.AttrName "y") . svgNumber
 
 x1 :: forall r i. (HasType "x1" Double r) => Double -> IProp r i
-x1 = attr (H.AttrName "x1") . show
+x1 = attr (H.AttrName "x1") . svgNumber
 
 y1 :: forall r i. (HasType "y1" Double r) => Double -> IProp r i
-y1 = attr (H.AttrName "y1") . show
+y1 = attr (H.AttrName "y1") . svgNumber
 
 x2 :: forall r i. (HasType "x2" Double r) => Double -> IProp r i
-x2 = attr (H.AttrName "x2") . show
+x2 = attr (H.AttrName "x2") . svgNumber
 
 y2 :: forall r i. (HasType "y2" Double r) => Double -> IProp r i
-y2 = attr (H.AttrName "y2") . show
+y2 = attr (H.AttrName "y2") . svgNumber
 
 href :: forall r i. (HasType "href" Text r) => Text -> IProp r i
 href = attr (H.AttrName "href")

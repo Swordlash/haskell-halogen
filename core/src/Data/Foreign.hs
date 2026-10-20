@@ -4,8 +4,8 @@
 module Data.Foreign where
 
 import GHC.Base (isTrue#, reallyUnsafePtrEquality, reallyUnsafePtrEquality#)
-import Halogen.JSBits (JSVal)
 import HPrelude
+import Halogen.JSBits (JSVal)
 import Unsafe.Coerce (unsafeCoerce)
 
 #if defined(javascript_HOST_ARCH)
@@ -35,15 +35,6 @@ stringToForeign = toJSString . toS
 
 readProp :: Text -> (Foreign tag -> Maybe a) -> Foreign tag' -> Maybe a
 readProp key f o = nullableToMaybe (Nullable $ unsafeGetProp o (toS key)) >>= f
-
--- TODO this doesn't work for some reason
---foreign import javascript unsafe "js_unsafe_ref_eq" js_unsafe_ref_eq :: JSVal -> JSVal -> Bool
-
---unsafeRefEq' :: a -> b -> Bool
---unsafeRefEq' a b = js_unsafe_ref_eq (unsafeCoerce a) (unsafeCoerce b)
-
---unsafeRefEq :: a -> a -> Bool
---unsafeRefEq a b = unsafeRefEq' a b
 
 foreignToString :: Foreign tag -> Text
 foreignToString = toS . fromJSString
@@ -117,8 +108,9 @@ unsafeFromForeign = unsafeCoerce
 stringToForeign :: Text -> Foreign tag
 stringToForeign = toForeign
 
+-- | Natively a value has no properties to read: nothing is found.
 readProp :: Text -> (Foreign tag -> Maybe a) -> Foreign tag' -> Maybe a
-readProp = panic "Unavailable in GHC" -- TODO
+readProp _ _ _ = Nothing
 
 foreignToString :: Foreign tag -> Text
 foreignToString = unsafeCoerce

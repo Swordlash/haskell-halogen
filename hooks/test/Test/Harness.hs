@@ -14,10 +14,6 @@ module Test.Harness
   )
 where
 
-import Control.Monad.Catch (MonadMask)
-import Control.Monad.Fork (MonadFork, MonadKill)
-import Control.Monad.Parallel (MonadParallel)
-import Control.Monad.UUID (MonadUUID)
 import Data.IORef
 import Data.Row (Row)
 import Halogen (Component, HalogenSocket (..))
@@ -42,10 +38,10 @@ data Harness q o m = Harness
   , outputs :: IORef [o]
   }
 
--- | What the driver asks of a component monad. 'IO' has all of it, and so does
+-- | What the driver asks of a component monad. 'IO' has it, and so does
 -- 'Halogen.VDom.DOM.Monad.MemDOM', which is the one to run in when a test
 -- needs a component monad that is a browser.
-type TestMonad m = (MonadIO m, MonadUnliftIO m, MonadFork m, MonadKill m, MonadParallel m, MonadMask m, MonadUUID m)
+type TestMonad m = (MonadUnliftIO m)
 
 -- | Mount a component and start watching it.
 start :: forall q i o m. (TestMonad m) => Component q i o m -> i -> m (Harness q o m)

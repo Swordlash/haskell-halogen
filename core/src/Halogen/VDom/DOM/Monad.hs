@@ -21,10 +21,8 @@ import Halogen.VDom.DOM.Monad.Browser
 import Halogen.VDom.DOM.Monad.Class
 import Halogen.VDom.DOM.Monad.Mem
 
-#if defined(javascript_HOST_ARCH)
-import Halogen.VDom.DOM.Monad.JS ()
-#elif defined(wasm32_HOST_ARCH)
-import Halogen.VDom.DOM.Monad.WASM ()
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+import Halogen.VDom.DOM.Monad.JSFFI ()
 #else
 import Halogen.VDom.DOM.Monad.Native ()
 #endif

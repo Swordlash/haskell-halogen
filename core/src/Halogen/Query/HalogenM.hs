@@ -25,10 +25,10 @@ data HalogenF state action slots output m a
   = State (state -> (a, state))
   | Subscribe (SubscriptionId -> Emitter IO action) (SubscriptionId -> a)
   | Unsubscribe SubscriptionId a
-  | Lift (m a)
-  -- ^ Work that may wait: the component's other work goes on meanwhile.
-  | LiftEffect (m a)
-  -- ^ Work done at once, before anything else of the component's tree.
+  | -- | Work that may wait: the component's other work goes on meanwhile.
+    Lift (m a)
+  | -- | Work done at once, before anything else of the component's tree.
+    LiftEffect (m a)
   | Unlift (UnliftIO (HalogenM state action slots output m) -> IO a)
   | ChildQuery (CQ.ChildQuery slots a)
   | Raise output a
@@ -231,8 +231,7 @@ mapState lens = mapHalogen lens identity identity (NT identity)
 
 mapAction
   :: forall state action action' slots output m a
-   . (Functor m)
-  => (action -> action')
+   . (action -> action')
   -> HalogenM state action slots output m a
   -> HalogenM state action' slots output m a
 mapAction f = mapHalogen identityLens f identity (NT identity)
@@ -246,8 +245,7 @@ mapOutput fo = mapHalogen identityLens identity fo (NT identity)
 
 hoist
   :: forall state action slots output m m' a
-   . (Functor m')
-  => (m ~> m')
+   . (m ~> m')
   -> HalogenM state action slots output m a
   -> HalogenM state action slots output m' a
 hoist = mapHalogen identityLens identity identity

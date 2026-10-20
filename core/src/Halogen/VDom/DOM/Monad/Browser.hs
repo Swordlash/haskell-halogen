@@ -5,9 +5,9 @@
 -- be a claim that @IO@ /means/ the browser, which is what used to force one
 -- backend per build and the architecture-selected module list.
 --
--- The instance itself lives with the FFI it calls: "Halogen.VDom.DOM.Monad.JS"
--- on the GHC JavaScript backend and "Halogen.VDom.DOM.Monad.WASM" on wasm.
--- There is deliberately no instance on native — there is no browser there.
+-- The instances live with the FFI they call, "Halogen.VDom.DOM.Monad.JSFFI",
+-- one module for the GHC JavaScript backend and wasm alike. There is
+-- deliberately no instance on native — there is no browser there.
 module Halogen.VDom.DOM.Monad.Browser
   ( BrowserDOM (..)
   , runBrowserDOM

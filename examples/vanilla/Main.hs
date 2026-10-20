@@ -40,11 +40,3 @@ foreign export javascript "hs_start" start :: IO ()
 start :: IO ()
 start = main
 #endif
-
-{-
-forever $ do
-  threadDelay 5_000_000
-  void $ query (IncrementQ ())
-  threadDelay 5_000_000
-  void $ query (DecrementQ ())
-  -}

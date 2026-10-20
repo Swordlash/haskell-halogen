@@ -9,17 +9,20 @@ cd "$(dirname "$0")/.."
 
 example=${1:-vanilla}
 package=${PACKAGE:-halogen-example-$example}
+build_dir=dist-newstyle/javascript
 
-sh run_fourmolu.sh
+# Cabal may reuse the host ghc-pkg from this cache when switching toolchains.
+rm -f "$build_dir/cache/compiler"
 
-cabal build -fforce-recomp \
+set -- \
   --project-file=cabal-ghcjs.project \
+  --builddir="$build_dir" \
   --with-compiler="$ghcjs_ghc" \
-  --with-hc-pkg="$ghcjs_ghc_pkg" \
-  "exe:$package"
+  --with-hc-pkg="$ghcjs_ghc_pkg"
 
-all_js="$(find dist-newstyle/build/javascript-ghcjs -type f -path "*/$package.jsexe/all.js" -print -quit)"
-test -n "$all_js"
+cabal build "$@" "exe:$package"
+all_js="$(cabal list-bin "$@" "exe:$package").jsexe/all.js"
+test -f "$all_js"
 
 public_dir="dist-newstyle/ghcjs/public/$example"
 mkdir -p "$public_dir"

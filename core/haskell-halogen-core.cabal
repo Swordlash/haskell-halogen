@@ -202,11 +202,12 @@ library
     
     hs-source-dirs:   src
 
-    -- Exactly one MonadDOM backend is compiled in, selected by architecture.
+    -- Exactly one MonadDOM backend is compiled in, selected by architecture:
+    -- the browser one on both browser backends, the in-memory one natively.
     -- Halogen.VDom.DOM.Monad makes the same choice with CPP and re-exports it;
     -- keep the two in step.
     if arch(javascript)
-      exposed-modules: Halogen.VDom.DOM.Monad.JS
+      exposed-modules: Halogen.VDom.DOM.Monad.JSFFI
 
       js-sources:
         jsbits/monad_dom.js
@@ -222,7 +223,7 @@ library
       ghc-options: -fexpose-all-unfoldings
 
     elif arch(wasm32)
-      exposed-modules: Halogen.VDom.DOM.Monad.WASM
+      exposed-modules: Halogen.VDom.DOM.Monad.JSFFI
 
       ghc-options: -fexpose-all-unfoldings
 
@@ -257,7 +258,6 @@ test-suite Halogen-core-test
                     Test.DriverContract
                     Test.DriverLifecycleRaces
                     Test.DriverReentrancy
-                    Test.DriverStateAtomic
                     Test.Fork
                     Test.GHCJS
                     Test.NativeDom

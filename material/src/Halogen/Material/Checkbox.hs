@@ -78,7 +78,7 @@ checkbox =
       }
   where
     render CheckboxState {..} =
-      HH.div [HP.class_ $ HH.ClassName "mdc-touch-targer-wrapper"] $
+      HH.div [HP.class_ $ HH.ClassName "mdc-touch-target-wrapper"] $
         pure $
           HH.div
             [HP.class_ $ HH.ClassName "mdc-form-field"]

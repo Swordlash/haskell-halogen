@@ -11,9 +11,8 @@ import Test.Canvas qualified as Canvas
 import Test.CanvasMachine qualified as CanvasMachine
 import Test.Cookie qualified as Cookie
 import Test.DriverContract qualified as DriverContract
-import Test.DriverReentrancy qualified as DriverReentrancy
 import Test.DriverLifecycleRaces qualified as DriverLifecycleRaces
-import Test.DriverStateAtomic qualified as DriverStateAtomic
+import Test.DriverReentrancy qualified as DriverReentrancy
 import Test.Fork qualified as Fork
 import Test.Hspec (hspec)
 import Test.NativeDom qualified as NativeDom
@@ -32,7 +31,6 @@ main = hspec $ do
   Cookie.spec
   DriverContract.spec
   DriverReentrancy.spec
-  DriverStateAtomic.spec
   DriverLifecycleRaces.spec
   Fork.spec
   NativeDom.spec

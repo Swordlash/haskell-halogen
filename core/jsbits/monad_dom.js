@@ -65,10 +65,6 @@ function js_set_property(propName, propValue, element) {
   }
 }
 
-function js_unsafe_get_property(propName, element) {
-  return element[propName];
-}
-
 function js_remove_property(propName, element) {
   // A DOM property is an accessor inherited from the element's prototype, so
   // deleting it from the element does nothing. Set it back instead, as
@@ -116,12 +112,6 @@ function js_query_selector(selector, element) {
 
 function js_ready_state(element) {
   return element.readyState;
-}
-
-
-
-function js_unsafe_ref_eq(a, b) {
-  return (a === b);
 }
 
 

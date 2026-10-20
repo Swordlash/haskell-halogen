@@ -95,7 +95,7 @@ spec = describe "SVG attributes" $ do
   it "renders the transform attribute" $
     assertEqual
       "transform attribute"
-      ("transform", "matrix(1.0 0.0 0.0 1.0 2.0 3.0) translate(4.0 5.0) scale(6.0 7.0) rotate(8.0 9.0 10.0) skewX(11.0) skewY(12.0)")
+      ("transform", "matrix(1 0 0 1 2 3) translate(4 5) scale(6 7) rotate(8 9 10) skewX(11) skewY(12)")
       ( attribute
           ( SA.transform
               [ SA.Matrix 1 0 0 1 2 3
@@ -111,29 +111,29 @@ spec = describe "SVG attributes" $ do
   it "renders the patternTransform attribute" $
     assertEqual
       "pattern transform attribute"
-      ("patternTransform", "translate(1.0 2.0)")
+      ("patternTransform", "translate(1 2)")
       (attribute (SA.patternTransform [SA.Translate 1 2] :: IProp SI.SVGpattern ()))
   it "agrees with numeric fields in the indexed rows" $
     assertEqual
       "numeric indexed attributes"
-      [ ("r", "1.0")
-      , ("stroke-width", "2.0")
-      , ("stroke-dashoffset", "3.0")
+      [ ("r", "1")
+      , ("stroke-width", "2")
+      , ("stroke-dashoffset", "3")
       , ("stroke-opacity", "0.5")
-      , ("rx", "4.0")
-      , ("ry", "5.0")
-      , ("refX", "6.0")
-      , ("refY", "7.0")
-      , ("x1", "1.0")
-      , ("y1", "2.0")
-      , ("x2", "3.0")
-      , ("y2", "4.0")
-      , ("pathLength", "8.0")
-      , ("width", "9.0")
-      , ("height", "10.0")
+      , ("rx", "4")
+      , ("ry", "5")
+      , ("refX", "6")
+      , ("refY", "7")
+      , ("x1", "1")
+      , ("y1", "2")
+      , ("x2", "3")
+      , ("y2", "4")
+      , ("pathLength", "8")
+      , ("width", "9")
+      , ("height", "10")
       , ("font-size-adjust", "0.75")
-      , ("x", "11.0")
-      , ("y", "12.0")
+      , ("x", "11")
+      , ("y", "12")
       ]
       ( map attribute circleAttributes
           <> map attribute ellipseAttributes
