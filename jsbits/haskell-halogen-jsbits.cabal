@@ -15,7 +15,7 @@ library
   exposed-modules: Halogen.JSBits, Halogen.JSBits.Value
   hs-source-dirs: src
   default-language: GHC2021
-  ghc-options: -Wall -Wextra
+  ghc-options: -Wall -Wextra -Wredundant-constraints -Wunused-packages
   build-depends: base >= 4.20, template-haskell, directory, filepath, text
   if arch(wasm32)
     build-depends: ghc-experimental
@@ -25,7 +25,7 @@ test-suite jsbits-test
   main-is: Test.hs
   hs-source-dirs: test
   default-language: GHC2021
-  ghc-options: -Wall -Wextra
+  ghc-options: -Wall -Wextra -Wredundant-constraints -Wunused-packages
   if arch(wasm32)
     build-depends: base, ghc-experimental, haskell-halogen-jsbits
   else

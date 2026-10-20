@@ -113,7 +113,7 @@ and wired into `test/Test.hs`.
 ### The component monad is the DOM monad
 
 A component evaluates in the monad the DOM is spoken in. Each backend is a newtype over `IO`:
-`BrowserDOM` (instances in `Halogen.VDom.DOM.Monad.JS` or `.WASM`, selected by architecture),
+`BrowserDOM` (instances in `Halogen.VDom.DOM.Monad.JSFFI`, one module for both browser backends),
 `MemDOM` (in-memory tree, instance in `.Native`, native only — this is what native tests render into),
 and `PixiDOM` in `pixi`. `Halogen.VDom.DOM.Monad` picks the backend with CPP **and** the core `.cabal`
 file picks the matching `exposed-modules` per `arch(...)` — keep the two in step.

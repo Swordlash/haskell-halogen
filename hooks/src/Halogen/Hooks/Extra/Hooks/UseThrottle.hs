@@ -14,8 +14,8 @@ where
 import Data.IORef (IORef, atomicModifyIORef')
 import Data.Time (NominalDiffTime)
 import Halogen.Hooks qualified as Hooks
-import Halogen.Hooks.Internal.HookM (effectIO)
 import Halogen.Hooks.Extra.Internal.Delay (delayFor)
+import Halogen.Hooks.Internal.HookM (effectIO)
 import Halogen.Hooks.Types (Hook, HookK (..), HookM)
 import Protolude
 

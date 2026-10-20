@@ -1,5 +1,6 @@
 module Test.TextField (spec) where
 
+import Control.Monad.UUID (MonadUUID)
 import Halogen.Material.Monad (MonadMaterial)
 import Halogen.Material.TextField qualified as HMTF
 import Protolude hiding (find)
@@ -8,7 +9,7 @@ import Test.Hspec.Halogen
 floated :: Text
 floated = "mdc-floating-label--float-above"
 
-spec :: forall m -> (MonadBrowserTest m, MonadMaterial m) => Spec
+spec :: forall m -> (MonadBrowserTest m, MonadMaterial m, MonadUUID m) => Spec
 spec m = do
   it "raises what is typed, one keystroke at a time" $ runPage $ do
     ui <- mount m HMTF.textField HMTF.emptyTextFieldSpec {HMTF.label = Just "Name"}

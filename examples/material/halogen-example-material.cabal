@@ -15,7 +15,7 @@ flag interactive
 
 common shared
     default-language: GHC2024
-    ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists -Wno-ambiguous-fields
+    ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists -Wno-ambiguous-fields -Wunused-packages
     default-extensions:
         OverloadedStrings
         CPP
@@ -29,31 +29,24 @@ common shared
         RequiredTypeArguments
         TypeAbstractions
 
-    build-depends:
-        base,
-        protolude,
-        unliftio,
-        text,
-        containers,
-        clay,
-        row-types,
-        extra,
-        uuid-types,
-        haskell-halogen-core,
-        haskell-halogen-material
-
 library
     import:           shared
     hs-source-dirs:   src
     exposed-modules:  Example.Material
+    build-depends:
+        protolude,
+        clay,
+        row-types,
+        haskell-halogen-core,
+        haskell-halogen-material
 
 executable halogen-example-material
     import:           shared
     main-is:          Main.hs
     hs-source-dirs:   .
-
-    if arch(wasm32)
-        build-depends: ghc-experimental
+    build-depends:
+        protolude,
+        haskell-halogen-core
 
     -- Browser GHCi (dev-wasm.sh) reloads only the modules of the target it
     -- loaded, so there the example's module is compiled into the executable
@@ -61,7 +54,12 @@ executable halogen-example-material
     if flag(interactive)
         hs-source-dirs: src
         other-modules:  Example.Material
-    else
+        build-depends:
+            clay,
+            row-types,
+            haskell-halogen-material
+    -- The example itself only runs in a browser: on a host GHC, Main says so.
+    elif arch(wasm32) || arch(javascript)
         build-depends:  halogen-example-material
 
     if arch(wasm32) && !flag(interactive)

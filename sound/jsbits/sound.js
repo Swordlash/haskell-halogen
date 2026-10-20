@@ -1,5 +1,5 @@
-// The browser backend of haskell-halogen-sound, for the javascript backend
-// (wasm has the same inline, in Halogen/Sound/Browser.hs).
+// The browser backend of haskell-halogen-sound: linked by the JavaScript
+// backend, embedded into the JSFFI module by the wasm one (Halogen.JSBits).
 
 function halogen_sound_fetch(url, done) {
   fetch(url, { priority: "low" })

@@ -9,17 +9,19 @@ module Web.HTML.HTMLDocument
 where
 
 import Data.Coerce
-import Halogen.JSBits (JSText, Safety (..), browserJS, fromJSText, toJSText)
 import HPrelude
+import Halogen.JSBits (JSText, Safety (..), browserJS, fromJSText, toJSText)
 import Web.DOM.Internal.Types
 import Web.DOM.ParentNode (ParentNode (..))
 
 -- No browser, no cookie jar: natively reads find nothing and writes go
 -- nowhere, as with "Web.Storage.Storage".
-$(browserJS ["jsbits/web_browser.js"]
-  [ ("js_document_cookie", "js_document_cookie", Unsafe, [t| HTMLDocument -> IO JSText |])
-  , ("js_document_set_cookie", "js_document_set_cookie", Unsafe, [t| JSText -> HTMLDocument -> IO () |])
-  ])
+$( browserJS
+     ["jsbits/web_browser.js"]
+     [ ("js_document_cookie", "js_document_cookie", Unsafe, [t|HTMLDocument -> IO JSText|])
+     , ("js_document_set_cookie", "js_document_set_cookie", Unsafe, [t|JSText -> HTMLDocument -> IO ()|])
+     ]
+ )
 
 toParentNode :: HTMLDocument -> ParentNode
 toParentNode = coerce
@@ -34,4 +36,3 @@ cookie doc = liftIO $ fromJSText <$> js_document_cookie doc
 -- assigning it adds or replaces that cookie rather than replacing the lot.
 setCookie :: (MonadIO m) => Text -> HTMLDocument -> m ()
 setCookie value doc = liftIO $ js_document_set_cookie (toJSText value) doc
-

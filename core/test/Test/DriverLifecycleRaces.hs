@@ -1,13 +1,13 @@
 -- | Regression tests for the driver's bookkeeping under concurrency and
 -- failure, with a render spec that walks real slots.
 --
--- * A state update that is being computed while a render adds a child must
---   not write back the children from before: the next render would create
---   that child a second time (the "Duplicate slot address" warning) and leave
---   the first one running.
+-- * A state update whose function takes a while is one piece of the loop's
+--   work: another update arriving meanwhile runs after it, and the children
+--   a render adds are never written back from before. (Once, with the
+--   state in a shared cell, the next render re-made a live child: the
+--   "Duplicate slot address" warning.)
 -- * A fork that registers after its component was finalized must be killed.
--- * A render that throws must let the render lock go, or no later render
---   would ever run.
+-- * A render that throws must leave the component able to render again.
 module Test.DriverLifecycleRaces (spec) where
 
 import Control.Concurrent (forkIO, threadDelay)

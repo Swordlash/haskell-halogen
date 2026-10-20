@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+A polygon hit area's corners are written with `svgNumber`, like every other
+number handed to the page. On wasm the pointer callbacks are sync exports
+(`Halogen.JSBits.mkSyncCallback`, as the DOM backend's listeners are), so a
+handler runs on the spot even when the event was dispatched from inside a
+synchronous JavaScript call.
+
 One render at a time: a render asked for while one is under way (a Pixi
 callback lets another Haskell thread run meanwhile) is left to it, and it
 renders the latest view again when done. Two renders of the first view
@@ -17,11 +23,6 @@ on a Mac.
 `Halogen.Canvas.Pixi.FFI` declares its bindings once, without CPP; natively
 they are `browserJS`'s inert stubs. `Callback` is `Halogen.JSBits.Callback`,
 and `Application`, `Object` and `Timer` have `Inert` instances.
-
-The JavaScript and WebAssembly backends now use the same browser jsbits, embedded
-at compile time for WASM. Applications need no additional scripts. WASM builds
-must enable shared dependencies for Template Haskell (`shared: True` in the
-WASM project); Git source dependencies must also include the `jsbits` package.
 
 - `cacheAsTexture` on a group: Pixi's `cacheAsTexture`, kept up to date. Pixi
   does not notice changes inside a cached group; here every change the

@@ -5,7 +5,9 @@ const path = require('node:path');
 const vm = require('node:vm');
 const root = path.resolve(__dirname, '..');
 const jsbits = fs.readFileSync(path.join(root, 'jsbits/sound.js'), 'utf8');
-for (const [backend, source] of [['shared jsbits', jsbits]]) {
+{
+  const backend = 'shared jsbits';
+  const source = jsbits;
   const voices = [];
   class Audio {
     constructor() { this.readyState = 0; this.duration = NaN; this.currentTime = 0; this.plays = []; voices.push(this); }

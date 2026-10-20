@@ -2,6 +2,9 @@
 
 ## 0.1.0.0 -- unreleased
 
+* The package builds with `-Wredundant-constraints -Wunused-packages`;
+  `component`'s `AtMostOneQuery` constraint is kept though GHC calls it
+  redundant, since it is what rejects a second `useQuery` at the call site.
 * First version. A port of `purescript-halogen-hooks`: `useState`,
   `useLifecycleEffect`, `useTickEffect`, `useMemo`, `useRef` and `useQuery`,
   with the hook list tracked in the type of the hook program.

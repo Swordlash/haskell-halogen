@@ -5,7 +5,7 @@ set -ex
 cd "$(dirname "$0")/.."
 
 echo "Running native"
-cabal test all
+cabal test all --builddir=dist-newstyle/native
 
 echo "Running ghcjs"
 sh toolchain/test-ghcjs.sh

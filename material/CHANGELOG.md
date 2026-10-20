@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+* **Fix:** the checkbox's wrapper was classed `mdc-touch-targer-wrapper`,
+  so MDC's touch-target styles never reached it.
 * Every component labels its element ref with `newRefLabel` rather than a fixed
   name, so markup a parent hands to `tabsComponent` or `list` can use any ref
   label without taking over theirs. `tabsComponent`, `list` and `button` now

@@ -26,13 +26,13 @@ twoTabs =
              ]
     }
 
-tabBar :: forall m -> (MonadBrowserTest m, MonadMaterial m) => PageM s (Mounted s (HMT.TabsQuery Slots HMTF.TextFieldQuery) (HMT.TabsOutput Void) m)
+tabBar :: forall m -> (MonadBrowserTest m, MonadMaterial m, MonadUUID m) => PageM s (Mounted s (HMT.TabsQuery Slots HMTF.TextFieldQuery) (HMT.TabsOutput Void) m)
 tabBar m = mount m HMT.tabsComponent twoTabs
 
 selectTab :: Mounted s q o m -> Int -> PageM s ()
 selectTab ui n = find ui (".mdc-tab:nth-child(" <> show n <> ")") >>= click
 
-spec :: forall m -> (MonadBrowserTest m, MonadMaterial m) => Spec
+spec :: forall m -> (MonadBrowserTest m, MonadMaterial m, MonadUUID m) => Spec
 spec m = do
   it "shows only the selected tab" $ runPage $ do
     ui <- tabBar m

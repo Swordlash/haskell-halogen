@@ -1,6 +1,13 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
 
+-- The bindings here are not a 'Halogen.JSBits.browserJS' list, unlike every
+-- other package's: jsbits/material.js imports the @material npm packages, so
+-- it cannot be embedded as it is into the wasm JSFFI module, and is bundled
+-- by esbuild (examples/material/bundle.sh) into a script the page loads,
+-- which puts its functions on globalThis. Each backend calls those globals
+-- its own way below.
+
 module Halogen.Material.Monad
   ( MonadMaterial (..)
   , MDCRipple

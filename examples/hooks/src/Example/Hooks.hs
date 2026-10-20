@@ -86,7 +86,7 @@ type UseWindowWidth hooks = UseState (Maybe Int) : UseEffect () : hooks
 
 useWindowWidth
   :: forall scope q slots output m hooks
-   . (MonadIO m, MonadUnliftIO m, MonadBrowserDOM m)
+   . (MonadUnliftIO m, MonadBrowserDOM m)
   => Hook scope q slots output m (UseWindowWidth hooks) hooks (Maybe Int)
 useWindowWidth = Hooks.do
   (width, setWidth) <- usePutState Nothing
@@ -139,7 +139,7 @@ type Slots = "notes" .== H.Slot NotesQuery Void ()
 
 type Html scope m = Hooks.HookHTML scope Slots Output m
 
-app :: forall m. (MonadIO m, MonadUnliftIO m, MonadBrowserDOM m) => H.Component H.VoidF () Output m
+app :: forall m. (MonadUnliftIO m, MonadBrowserDOM m) => H.Component H.VoidF () Output m
 app = Hooks.component $ \_input -> Hooks.do
   counter <- useCounter 0
 

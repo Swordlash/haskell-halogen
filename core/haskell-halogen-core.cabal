@@ -21,7 +21,7 @@ flag js-polyfills
 
 common defaults
   default-language: GHC2021
-  ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture
+  ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture -Wredundant-constraints -Wunused-packages
 
   default-extensions:
       RankNTypes
@@ -71,8 +71,6 @@ common commons
       bytestring,
       stm,
       deepseq,
-      unordered-containers,
-      async,
       row-types,
       hashable,
       containers,
@@ -202,11 +200,12 @@ library
     
     hs-source-dirs:   src
 
-    -- Exactly one MonadDOM backend is compiled in, selected by architecture.
+    -- Exactly one MonadDOM backend is compiled in, selected by architecture:
+    -- the browser one on both browser backends, the in-memory one natively.
     -- Halogen.VDom.DOM.Monad makes the same choice with CPP and re-exports it;
     -- keep the two in step.
     if arch(javascript)
-      exposed-modules: Halogen.VDom.DOM.Monad.JS
+      exposed-modules: Halogen.VDom.DOM.Monad.JSFFI
 
       js-sources:
         jsbits/monad_dom.js
@@ -222,7 +221,7 @@ library
       ghc-options: -fexpose-all-unfoldings
 
     elif arch(wasm32)
-      exposed-modules: Halogen.VDom.DOM.Monad.WASM
+      exposed-modules: Halogen.VDom.DOM.Monad.JSFFI
 
       ghc-options: -fexpose-all-unfoldings
 
@@ -246,10 +245,8 @@ test-suite Halogen-core-test
                       haskell-halogen-core,
                       hspec >= 2,
                       mtl,
-                      primitive,
                       row-types,
-                      text,
-                      transformers
+                      text
     
     other-modules:  Test.Canvas
                     Test.CanvasMachine
@@ -257,7 +254,6 @@ test-suite Halogen-core-test
                     Test.DriverContract
                     Test.DriverLifecycleRaces
                     Test.DriverReentrancy
-                    Test.DriverStateAtomic
                     Test.Fork
                     Test.GHCJS
                     Test.NativeDom

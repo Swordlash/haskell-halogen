@@ -126,7 +126,7 @@ lazy
 lazy = memoized unsafeRefEq
 
 {-
--- | Like `lazy`, but for a rendering function which takes 2 arguments.
+-- \| Like `lazy`, but for a rendering function which takes 2 arguments.
 lazy2
   :: forall a b action slots m
    . (a -> b -> ComponentHTML action slots m)
@@ -135,7 +135,7 @@ lazy2
   -> ComponentHTML action slots m
 lazy2 f a b = Core.widget (ThunkSlot (Fn.runFn3 thunk2 f a b))
 
--- | Like `lazy`, but for a rendering function which takes 3 arguments.
+-- \| Like `lazy`, but for a rendering function which takes 3 arguments.
 lazy3
   :: forall a b c action slots m
    . (a -> b -> c -> ComponentHTML action slots m)

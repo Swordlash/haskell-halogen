@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+- **Fix:** a program's worker (the thread running a `lift`/`liftIO`) no
+  longer runs the tree's loop. A `liftIO` that notified a subscribed
+  emitter, or called the socket's `query` or `dispose`, ran the handler on
+  the worker itself when the loop was idle; if that handler killed the fork
+  (or removed the component) the kill landed in the handler, which died with
+  `AsyncCancelled` half way. Such work is now queued for the loop, as a
+  callback from another thread is.
+- `runUI` (both drivers), `MonadUI` and `Halogen.Portal` ask only for
+  `MonadBrowserDOM m` and `MonadUnliftIO m`: the `MonadFork`, `MonadKill`,
+  `MonadParallel`, `MonadMask` and `MonadUUID` constraints were left over
+  from the driver before the loop and nothing used them. An application
+  monad no longer has to derive them (the classes and the `BrowserDOM` and
+  `MemDOM` instances remain). `Halogen.Subscription.create` tells
+  subscribers apart by a counter instead of a UUID, so it needs only
+  `MonadIO`. `mapAction`, `hoist`, `runDelayedStateT` and
+  `Halogen.HTML.Layout.end` lost constraints they did not use.
+- Every numeric SVG attribute (`x`, `width`, `r`, `strokeWidth`, `viewBox`,
+  `transform`'s numbers, …) is written with `svgNumber`, as path commands
+  and `points` already were: `1` where it was `1.0`. Code comparing the
+  rendered attribute text sees the change.
+- The browser `MonadDOM` instances are one module for both browser
+  backends, `Halogen.VDom.DOM.Monad.JSFFI`, its bindings declared once
+  through `browserJS`; `Halogen.VDom.DOM.Monad.JS` and `.WASM` are gone.
+  `Halogen.JSBits.mkSyncCallback` is now what a DOM listener is on both
+  backends (a sync export on wasm, which runs until it waits).
+- Natively `Data.Foreign.readProp` finds nothing instead of panicking.
+- `Halogen.join` on a fork that was killed cancels the joining program
+  (purescript-halogen throws an error there); the haddock says so, and so
+  does this entry, since a program cannot `catch` it.
+- The warning set grew by `-Wredundant-constraints` and `-Wunused-packages`,
+  in this and every other package of the repository; `async` and
+  `unordered-containers` were dependencies nothing used.
+
 SVG: `SE.animateTransform` and `SE.set` (their rows `SVGanimateTransform`
 and `SVGset`, so `SA.fillAnim` types on them); `SE.mask` takes its own row,
 `SVGmask`, whose field `maskContentsUnits` is now spelled
@@ -33,11 +66,6 @@ accepted mouse and keyboard ones.
 `currentTarget` now consistently returns the node running the handler on both
 browser backends, including when an event bubbles from a descendant. Legacy DOM
 tracing instrumentation and its Cabal flag have been removed.
-
-The JavaScript and WebAssembly backends now use the same browser jsbits, embedded
-at compile time for WASM. Applications need no additional scripts. WASM builds
-must enable shared dependencies for Template Haskell (`shared: True` in the
-WASM project); Git source dependencies must also include the `jsbits` package.
 
 - `Halogen.Canvas.Properties.cacheAsTexture` (`CacheAsTexture`): a group
   drawn once into a texture, at a given resolution, and shown as that

@@ -64,7 +64,7 @@ module Halogen.IO.Driver.Runtime
 where
 
 import Control.Concurrent (ThreadId, forkIO, forkIOWithUnmask, myThreadId, throwTo)
-import Control.Exception (SomeAsyncException (..), SomeException, catch, fromException, mask, mask_, onException, throwIO, try)
+import Control.Exception (SomeAsyncException (..), SomeException, catch, finally, fromException, mask, mask_, onException, throwIO, try)
 import Control.Monad (ap, unless, void, when)
 import Control.Monad.IO.Class (MonadIO (..))
 import Data.Foldable (for_, traverse_)
@@ -73,6 +73,8 @@ import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
 import Data.Sequence (Seq, ViewL (..), viewl, (<|), (|>))
 import Data.Sequence qualified as Seq
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Prelude
 import UnliftIO (AsyncCancelled (..))
 
@@ -89,14 +91,17 @@ data LoopState = LoopState
   -- ^ How many synchronous effects of components ('withinEffect') are
   -- under way on the loop.
   , queue :: !(Seq (IO ()))
+  , workers :: !(Set ThreadId)
+  -- ^ The threads running what fibers await: killed with their fibers, so
+  -- they must never run the loop ('post' for them, whoever calls 'enter').
   }
 
 newtype Loop = Loop (IORef LoopState)
 
 newLoop :: IO Loop
-newLoop = Loop <$> newIORef (LoopState False Nothing 0 Seq.empty)
+newLoop = Loop <$> newIORef (LoopState False Nothing 0 Seq.empty Set.empty)
 
-data Entry = Claimed | Nested | Queued
+data Entry = Claimed | Nested | Queued | Handed
 
 -- | Have the loop run a piece of work: on this thread and at once when
 -- nobody runs the loop (and then whatever is queued meanwhile), otherwise
@@ -136,6 +141,13 @@ enterWith callback loop@(Loop ref) work = do
   mask $ \restore -> do
     entry <- atomicModifyIORef' ref $ \s ->
       if
+        -- A worker (a 'liftIO' body that notifies an emitter, say) is
+        -- killed with its fiber: were it to run the loop, the work that
+        -- cancels that fiber would cut itself short. It queues, as 'post'.
+        | Set.member me s.workers ->
+            if s.running
+              then (s {queue = s.queue |> work}, Queued)
+              else (s {running = True, runner = Nothing}, Handed)
         | not s.running -> (s {running = True, runner = Just me}, Claimed)
         | maybe False (sameThread me) s.runner || (callback && s.effects > 0) -> (s, Nested)
         | otherwise -> (s {queue = s.queue |> work}, Queued)
@@ -143,6 +155,7 @@ enterWith callback loop@(Loop ref) work = do
       Claimed -> runLoop loop restore work
       Nested -> restore work
       Queued -> pure ()
+      Handed -> handOver loop work
 
 -- | 'compare', not '==': GHC's JavaScript runtime has the @cmp_thread@ that
 -- 'Ord' 'ThreadId' calls, but not the @eq_thread@ that 'Eq' calls.
@@ -381,13 +394,21 @@ await io = Turn $ \fb ek k -> mask_ $ do
   -- Masked until the worker is the fiber's, to be killed with it; the
   -- worker hands its result over masked too, and unmasks only the action.
   t <- forkIOWithUnmask $ \unmask -> do
-    result <- try (unmask io)
+    -- Noted by the worker itself, still masked, so that it is a worker
+    -- before anything it runs can enter the loop.
+    me <- myThreadId
+    noteWorker fb.loop Set.insert me
+    result <- try (unmask io) `finally` noteWorker fb.loop Set.delete me
     post fb.loop $ step fb $ do
       writeIORef fb.worker Nothing
       either ek k result
   -- The worker cannot come back before this: its continuation is queued
   -- behind the work running now.
   writeIORef fb.worker (Just t)
+
+-- | Note or forget a worker thread of the loop.
+noteWorker :: Loop -> (ThreadId -> Set ThreadId -> Set ThreadId) -> ThreadId -> IO ()
+noteWorker (Loop ref) f t = atomicModifyIORef' ref (\s -> (s {workers = f t s.workers}, ()))
 
 -- | A suspension until something calls back (on the loop), which may be at
 -- once.

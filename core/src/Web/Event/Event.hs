@@ -12,8 +12,8 @@ module Web.Event.Event
 where
 
 import Data.Foreign
-import Halogen.JSBits (Safety (..), browserJS)
 import HPrelude
+import Halogen.JSBits (Safety (..), browserJS)
 import Web.Event.Internal.Types
 
 newtype EventType = EventType Text
@@ -22,12 +22,14 @@ newtype EventType = EventType Text
 -- the last three have nothing to prevent: they do nothing, so that a handler
 -- written for the browser can still be run against the in-memory DOM in
 -- "Halogen.VDom.DOM.Monad.Native".
-$(browserJS ["jsbits/web_event.js"]
-  [ ("js_current_target", "js_current_target", Unsafe, [t| Event -> Nullable EventTarget |])
-  , ("js_prevent_default", "js_prevent_default", Unsafe, [t| Event -> IO () |])
-  , ("js_stop_propagation", "js_stop_propagation", Unsafe, [t| Event -> IO () |])
-  , ("js_stop_immediate_propagation", "js_stop_immediate_propagation", Unsafe, [t| Event -> IO () |])
-  ])
+$( browserJS
+     ["jsbits/web_event.js"]
+     [ ("js_current_target", "js_current_target", Unsafe, [t|Event -> Nullable EventTarget|])
+     , ("js_prevent_default", "js_prevent_default", Unsafe, [t|Event -> IO ()|])
+     , ("js_stop_propagation", "js_stop_propagation", Unsafe, [t|Event -> IO ()|])
+     , ("js_stop_immediate_propagation", "js_stop_immediate_propagation", Unsafe, [t|Event -> IO ()|])
+     ]
+ )
 
 -- | The target whose handler is running. Natively there is none.
 currentTarget :: Event -> Maybe EventTarget

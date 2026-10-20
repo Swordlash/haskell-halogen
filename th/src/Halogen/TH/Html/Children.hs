@@ -1,5 +1,5 @@
-{-# LANGUAGE MonoLocalBinds #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE MonoLocalBinds #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 -- | What a @{{ … }}@ among the children of an element, or among its
@@ -29,6 +29,8 @@ where
 
 import Clay (Css)
 import Clay.Render qualified as Clay
+import DOM.HTML.Indexed qualified as I
+import Data.Row (Empty, HasType)
 import Data.Text (Text)
 import Data.Text.Lazy qualified as TL
 import GHC.TypeLits (ErrorMessage (..), TypeError)
@@ -36,8 +38,6 @@ import Halogen.HTML.Core (ElemName (..), HTML)
 import Halogen.HTML.Core qualified as HH
 import Halogen.HTML.Elements qualified as HHE
 import Halogen.HTML.Properties (IProp)
-import DOM.HTML.Indexed qualified as I
-import Data.Row (Empty, HasType)
 import Halogen.Svg.Attributes qualified as SA
 import Halogen.Svg.Elements qualified as SE
 import Halogen.Svg.Indexed qualified as SI

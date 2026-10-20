@@ -7,10 +7,6 @@ module Test.Hspec.Halogen.Internal.Monad
   )
 where
 
-import Control.Monad.Catch (MonadMask)
-import Control.Monad.Fork (MonadFork, MonadKill)
-import Control.Monad.Parallel (MonadParallel)
-import Control.Monad.UUID (MonadUUID)
 import Halogen.Component (Component)
 import Halogen.IO.Driver (HalogenSocket)
 import Halogen.VDom.DOM.Monad (BrowserDOM, MonadBrowserDOM, runBrowserDOM)
@@ -28,7 +24,7 @@ import Web.DOM.Internal.Types (Element, fromElement)
 -- application's own monad over it. 'mountInto' defaults to
 -- 'Halogen.VDom.Driver.runUI', so an instance for a monad that speaks the
 -- browser's DOM only has to say how to run it.
-class (MonadUnliftIO m, MonadFork m, MonadKill m, MonadParallel m, MonadMask m, MonadUUID m) => MonadBrowserTest m where
+class (MonadUnliftIO m) => MonadBrowserTest m where
   -- | Run the monad from a test.
   runTest :: m a -> IO a
 

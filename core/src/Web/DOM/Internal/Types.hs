@@ -1,8 +1,8 @@
 module Web.DOM.Internal.Types where
 
 import Data.Foreign (Foreign)
-import Halogen.JSBits (Callback)
 import HPrelude
+import Halogen.JSBits (Callback)
 import Unsafe.Coerce (unsafeCoerce)
 
 newtype Node = Node (Foreign Node)

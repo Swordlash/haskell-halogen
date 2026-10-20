@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* `MonadBrowserTest` asks only for `MonadUnliftIO`, as `runUI` now does; a
+  spec whose components make ref labels says `MonadUUID m` itself, as the
+  package's own `Dispatch` and `Family` specs do.
+
 * The page functions are one module for both browser backends, without CPP;
   natively they do nothing rather than panic (no suite reaches them there).
 
@@ -19,11 +23,6 @@
   around a `find` that never matched waited the outer number of attempts
   times the inner two seconds, an hour and more for a minute's timeout,
   which looked like a hung suite.
-
-The JavaScript and WebAssembly backends now use the same browser jsbits, embedded
-at compile time for WASM. Applications need no additional scripts. WASM builds
-must enable shared dependencies for Template Haskell (`shared: True` in the
-WASM project); Git source dependencies must also include the `jsbits` package.
 
 * First version: mount a component into a real page from an hspec suite, find
   its elements by CSS selector, click and type into them through Playwright,

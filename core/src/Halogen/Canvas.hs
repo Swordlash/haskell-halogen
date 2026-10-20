@@ -9,11 +9,11 @@ import Clay qualified as C
 import Clay.Extra.Pointer qualified as CP
 import Control.Monad.UUID
 import Data.Row (type Empty)
+import HPrelude
 import Halogen qualified as H
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Properties qualified as HP
 import Halogen.Subscription qualified as HS
-import Protolude
 import Web.DOM.Internal.Types (HTMLElement)
 
 -- | An imperative rendering backend hidden behind a declarative update API.
@@ -48,15 +48,15 @@ component
   => Renderer scene event m
   -> H.Component H.VoidF scene event m
 component renderer =
-  H.mkComponent $
-    H.ComponentSpec
+  H.mkComponent
+    $ H.ComponentSpec
       { initialState = \scene -> do
           canvasRef <- H.newRefLabel "canvas"
           pure CanvasState {scene, mounted = Nothing, canvasRef}
       , render
       , eval =
-          H.mkEval $
-            H.defaultEval
+          H.mkEval
+            $ H.defaultEval
               { H.handleAction = handleAction
               , H.initialize = Just Mount
               , H.finalize = Just Unmount

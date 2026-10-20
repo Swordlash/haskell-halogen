@@ -29,7 +29,7 @@ newtype LayoutM f w i = LayoutM (f w i -> f w i)
 runLayoutM :: (Layout f) => LayoutSettings f -> LayoutM f w i -> HH.HTML w i
 runLayoutM settings (LayoutM f) = layout settings $ f layoutEnd
 
-end :: (Layout f) => LayoutM f w i
+end :: LayoutM f w i
 end = LayoutM identity
 
 class (Layout f) => AddLayout f w i a | a -> w i where

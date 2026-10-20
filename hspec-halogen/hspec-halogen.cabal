@@ -30,7 +30,7 @@ flag interactive
 library
     default-language: GHC2024
     hs-source-dirs:   src
-    ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists
+    ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists -Wunused-packages
     default-extensions:
         OverloadedStrings
         OverloadedRecordDot
@@ -46,7 +46,6 @@ library
         text,
         HUnit,
         hspec,
-        exceptions,
         unliftio,
         haskell-halogen-core,
         haskell-halogen-jsbits
@@ -65,7 +64,7 @@ executable hspec-halogen
     default-language: GHC2024
     hs-source-dirs:   app
     main-is:          Main.hs
-    ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists
+    ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists -Wunused-packages
     build-depends:
         base,
         bytestring,
@@ -106,7 +105,7 @@ test-suite hspec-halogen-test
                       Test.Family
                       Test.Reconcile
                       Test.Todo
-    ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists
+    ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists -Wunused-packages
     default-extensions:
         OverloadedStrings
         OverloadedRecordDot

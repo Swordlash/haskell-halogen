@@ -23,15 +23,15 @@ where
 
 import Data.ByteString qualified as BS
 import Data.Either (partitionEithers)
+import Data.List (intercalate)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.List (intercalate)
 import GHC.Data.Bag (bagToList)
-import Data.Set qualified as Set
 import GHC.Data.EnumSet qualified as EnumSet
 import GHC.Data.FastString (mkFastString, unpackFS)
 import GHC.Data.StringBuffer (stringToStringBuffer)
@@ -40,10 +40,10 @@ import GHC.LanguageExtensions.Type qualified as Ext
 import GHC.Parser qualified as Parser
 import GHC.Parser.Errors.Ppr ()
 import GHC.Parser.Errors.Types (PsMessage)
-import GHC.Types.Error (Diagnostic (..), Messages, MsgEnvelope (..), NoDiagnosticOpts (..), getMessages, unDecorated)
 import GHC.Parser.Lexer (P (..), PState (..), ParseResult (..), initParserState, mkParserOpts)
 import GHC.Parser.PostProcess (runPV, unECP)
 import GHC.Types.Basic (Boxity (..))
+import GHC.Types.Error (Diagnostic (..), Messages, MsgEnvelope (..), NoDiagnosticOpts (..), getMessages, unDecorated)
 import GHC.Types.Name (nameOccName)
 import GHC.Types.Name.Occurrence (isDataOcc, occNameString)
 import GHC.Types.Name.Reader (RdrName (..), isRdrTyVar, rdrNameOcc)
@@ -91,7 +91,7 @@ run exts (line, column) p src = case unP p st of
     let l = case [sp | MsgEnvelope {errMsgSpan = RealSrcSpan sp _} <- bagToList (getMessages s.errors)] of
           sp : _ -> realSrcSpanStart sp
           [] -> realSrcSpanStart (psRealSpan s.last_loc)
-    in Left (Failure (srcLocLine l) (srcLocCol l) (T.pack (messages s.errors)))
+     in Left (Failure (srcLocLine l) (srcLocCol l) (T.pack (messages s.errors)))
   where
     opts = mkParserOpts (extensions exts) emptyDiagOpts False False False False
     st = initParserState opts (stringToStringBuffer (T.unpack src)) (mkRealSrcLoc (mkFastString "<template>") line column)
@@ -117,7 +117,8 @@ render = renderWithContext defaultSDocContext . ppr
 -- (the caller places it in the template).
 messages :: Messages PsMessage -> String
 messages msgs =
-  intercalate "; "
+  intercalate
+    "; "
     [ render d
     | envelope <- bagToList (getMessages msgs)
     , d <- unDecorated (diagnosticMessage NoDiagnosticOpts envelope.errMsgDiagnostic)
@@ -125,8 +126,6 @@ messages msgs =
 
 unsupported :: (Outputable a) => Text -> a -> Either Text b
 unsupported what x = Left (what <> " is not supported in a template: " <> T.pack (render x))
-
-
 
 -- Names ----------------------------------------------------------------------
 
@@ -199,11 +198,12 @@ expr = \case
   HsGetField _ e (L _ f) -> TH.GetFieldE <$> lexpr e <*> dotField f
   HsProjection _ fs -> TH.ProjectionE <$> mapM dotField fs
   ExprWithTySig _ e (HsWC _ (L _ sig)) -> TH.SigE <$> lexpr e <*> sigType sig
-  ArithSeq _ _ info -> TH.ArithSeqE <$> case info of
-    From a -> TH.FromR <$> lexpr a
-    FromThen a b -> TH.FromThenR <$> lexpr a <*> lexpr b
-    FromTo a b -> TH.FromToR <$> lexpr a <*> lexpr b
-    FromThenTo a b c -> TH.FromThenToR <$> lexpr a <*> lexpr b <*> lexpr c
+  ArithSeq _ _ info ->
+    TH.ArithSeqE <$> case info of
+      From a -> TH.FromR <$> lexpr a
+      FromThen a b -> TH.FromThenR <$> lexpr a <*> lexpr b
+      FromTo a b -> TH.FromToR <$> lexpr a <*> lexpr b
+      FromThenTo a b c -> TH.FromThenToR <$> lexpr a <*> lexpr b <*> lexpr c
   HsStatic _ e -> TH.StaticE <$> lexpr e
   HsPragE _ _ e -> lexpr e
   HsEmbTy _ (HsWC _ t) -> TH.TypeE <$> ltype t
@@ -435,10 +435,11 @@ type_ = \case
   HsExplicitTupleTy _ _ ts -> do
     ts' <- mapM ltype ts
     Right (foldl TH.AppT (TH.PromotedTupleT (length ts')) ts')
-  HsTyLit _ l -> TH.LitT <$> case l of
-    HsNumTy _ n -> Right (TH.NumTyLit n)
-    HsStrTy _ fs -> Right (TH.StrTyLit (unpackFS fs))
-    HsCharTy _ c -> Right (TH.CharTyLit c)
+  HsTyLit _ l ->
+    TH.LitT <$> case l of
+      HsNumTy _ n -> Right (TH.NumTyLit n)
+      HsStrTy _ fs -> Right (TH.StrTyLit (unpackFS fs))
+      HsCharTy _ c -> Right (TH.CharTyLit c)
   HsWildCardTy _ -> Right TH.WildCardT
   t@HsSpliceTy {} -> unsupported "a splice" t
   t@HsDocTy {} -> unsupported "a documented type" t

@@ -10,11 +10,11 @@ import Data.Row (Empty)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Lazy qualified as TL
-import Halogen.Query.Input (RefLabel (..))
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Core (AttrName (..), ClassName (..), ElemName (..))
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
+import Halogen.Query.Input (RefLabel (..))
 import Halogen.Svg.Attributes qualified as SA
 import Halogen.Svg.Elements qualified as SE
 import Halogen.Svg.Indexed qualified as SI
@@ -49,20 +49,25 @@ spec = do
     it "an element without a function: its attributes as text, the style and handlers typed" $ do
       let colour = "red" :: Text
       [svg|<linearGradient id="sky" x1="0" y2="1"><stop offset="0" style={{ "stop-color:" <> colour }} onClick={{ const Inc }}/></linearGradient>|]
-        `same` SE.element (ElemName "linearGradient") [HP.attr (AttrName "id") "sky", HP.attr (AttrName "x1") "0", HP.attr (AttrName "y2") "1"]
+        `same` SE.element
+          (ElemName "linearGradient")
+          [HP.attr (AttrName "id") "sky", HP.attr (AttrName "x1") "0", HP.attr (AttrName "y2") "1"]
           [SE.element (ElemName "stop") ([HP.attr (AttrName "offset") "0", HP.styleText "stop-color:red", HE.onClick (const Inc)] :: [HP.IProp (SI.GlobalAttributes Empty) Action]) []]
     it "an <SVG> in HTML is the svg element; fill on an animation is the state it leaves; a function's name stands for its attribute" $
       [hh|<div><SVG viewBox="0 0 1 1"><animate attributeName="x" fill={{ SA.Freeze }}/><text fontStretch="condensed" fontVariant="small-caps">t</text></SVG></div>|]
         `same` HH.div_
-          [ SE.svg [HP.attr (AttrName "viewBox") "0 0 1 1"]
+          [ SE.svg
+              [HP.attr (AttrName "viewBox") "0 0 1 1"]
               [ SE.animate [HP.attr (AttrName "attributeName") "x", SA.fillAnim SA.Freeze]
               , SE.text [HP.attr (AttrName "font-stretch") "condensed", SA.fontVariant "small-caps"] [HH.text "t"]
               ]
           ]
     it "a circle holding an animation, fill on every animation, xlink:href on use and image, a mask's content units" $
       [svg|<g><circle r="1"><animateTransform attributeName="transform" fill={{ SA.Freeze }}/><set attributeName="r" to="2" fill={{ SA.Remove }}/></circle><use xlink:href={{ "#a" :: Text }}/><image xlink:href={{ "b.png" :: Text }}/><mask maskContentUnits={{ SA.ObjectBoundingBox }}></mask></g>|]
-        `same` SE.g []
-          [ SE.circleNode [SA.r 1]
+        `same` SE.g
+          []
+          [ SE.circleNode
+              [SA.r 1]
               [ SE.animateTransform [HP.attr (AttrName "attributeName") "transform", SA.fillAnim SA.Freeze]
               , SE.set [HP.attr (AttrName "attributeName") "r", HP.attr (AttrName "to") "2", SA.fillAnim SA.Remove]
               ]
@@ -72,7 +77,8 @@ spec = do
           ]
     it "onLoad on the svg, pathLength on shapes, xlinkHref by the function's name" $
       [svg|<svg onLoad={{ const Inc }}><path pathLength={{ 10 }} d="M0 0"/><circle pathLength="5" r="1"/><use xlinkHref={{ "#a" :: Text }}/></svg>|]
-        `same` SE.svg [HE.onLoad (const Inc)]
+        `same` SE.svg
+          [HE.onLoad (const Inc)]
           [ SE.path [SA.pathLength 10, HP.attr (AttrName "d") "M0 0"]
           , SE.circle [SA.pathLength 5, SA.r 1]
           , SE.use [SA.xlinkHref "#a"]
@@ -80,7 +86,8 @@ spec = do
     it "a marker's viewBox, mpath's id, transform on a polygon, href on an animation, lengths with units" $ do
       let ts = [SA.Translate 1 2]
       [svg|<g><marker viewBox={{ (0, 0, 10, 10) }}></marker><animateMotion dur="1s"><mpath id="m" xlink:href="#p"/></animateMotion><polygon points="0,0 1,0 1,1" transform={{ ts }}/><animate href="#c" attributeName="r"/><rect width="100%" height="10em" x="1"/></g>|]
-        `same` SE.g []
+        `same` SE.g
+          []
           [ SE.marker [SA.viewBox 0 0 10 10] []
           , SE.animateMotion [HP.attr (AttrName "dur") "1s"] [SE.mpath [SA.id "m", SA.xlinkHref "#p"]]
           , SE.polygon [HP.attr (AttrName "points") "0,0 1,0 1,1", SA.transform ts]
@@ -90,7 +97,8 @@ spec = do
     it "a rect holding an animation, fill on a polygon" $ do
       let colour = C.red
       [svg|<g><rect width="2" height="2"><animate attributeName="x" to="3"/></rect><polygon points="0,0 1,1" fill={{ colour }}/></g>|]
-        `same` SE.g []
+        `same` SE.g
+          []
           [ SE.element (ElemName "rect") ([SA.width 2, SA.height 2] :: [HP.IProp SI.SVGrect Action]) [SE.animate [HP.attr (AttrName "attributeName") "x", HP.attr (AttrName "to") "3"]]
           , SE.polygon [HP.attr (AttrName "points") "0,0 1,1", SA.fill colour]
           ]

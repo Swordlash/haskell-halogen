@@ -102,6 +102,6 @@ radio =
           Just el -> do
             mdcFormField <- lift $ initRadioButton el
             modify $ \s -> s {mdcFormField = Just mdcFormField}
-          Nothing -> panic "Cannot initialize radion button!"
+          Nothing -> panic "Cannot initialize radio button!"
       Finalize -> traverse_ (lift . destroyRadioButton) =<< gets (.mdcFormField)
       Clicked -> gets (.label) >>= H.raise . RadioClicked

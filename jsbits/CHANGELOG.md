@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+`Halogen.JSBits.Value` has `jsNull`, `toJSInt`, `toJSDouble` and `toJSBool`,
+the values a binding passes where JavaScript takes any kind. On WebAssembly
+`mkSyncCallback` is now a sync export that runs its callback on a thread of
+its own until it waits, and arranges for the rest to run afterwards: what
+haskell-halogen-core's DOM listeners did for themselves, so that a callback
+runs on the spot even when re-entered from a synchronous JSFFI import.
+
 `browserJS` needs no CPP around it: natively it declares each binding as an
 `inert` stub. `Halogen.JSBits.Value` (re-exported from `Halogen.JSBits`) gives
 the types that differ between the backends one name on all of them: `JSVal`,

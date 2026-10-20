@@ -1,6 +1,7 @@
 // The browser globals bound by the storage half of MonadBrowserDOM,
-// Web.HTML.Window and the cookie half of Web.HTML.HTMLDocument. The GHC JavaScript backend calls these
-// by name; the wasm backend writes the same expressions inline.
+// Web.HTML.Window and the cookie half of Web.HTML.HTMLDocument. The GHC
+// JavaScript backend links this file and calls these by name; the wasm
+// backend embeds it into its JSFFI module (Halogen.JSBits).
 
 function js_storage_of(kind) {
   return kind === "local" ? globalThis.localStorage : globalThis.sessionStorage;

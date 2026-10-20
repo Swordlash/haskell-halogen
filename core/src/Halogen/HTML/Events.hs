@@ -1,3 +1,8 @@
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
+
+-- The HasType constraints here are what type-checks a property against the
+-- element it is put on; none is needed to build the property, so GHC calls
+-- every one of them redundant.
 module Halogen.HTML.Events where
 
 import Data.Foreign

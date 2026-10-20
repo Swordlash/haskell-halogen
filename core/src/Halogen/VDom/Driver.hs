@@ -5,13 +5,9 @@ module Halogen.VDom.Driver
   )
 where
 
-import Control.Exception.Safe
-import Control.Monad.Fork
-import Control.Monad.Parallel
-import Control.Monad.UUID
 import Data.Coerce
 import Data.Foreign
-import HPrelude hiding (onException)
+import HPrelude
 import Halogen.Component
 import Halogen.HTML.Core (HTML (..))
 import Halogen.IO.Driver (HalogenSocket)
@@ -24,6 +20,7 @@ import Halogen.VDom.DOM.Prop
 import Halogen.VDom.DOM.Prop qualified as VP
 import Halogen.VDom.Thunk (Thunk)
 import Halogen.VDom.Thunk qualified as Thunk
+import UnliftIO.Exception (tryAny)
 import Web.DOM.Internal.Types
 import Web.DOM.Internal.Types qualified as DOM
 
@@ -35,7 +32,9 @@ import Web.DOM.Internal.Types qualified as DOM
 
 {-# INLINEABLE mkSpec #-}
 
-type MonadUI m = (DOM.MonadBrowserDOM m, MonadUnliftIO m, MonadFork m, MonadKill m, MonadParallel m, MonadMask m, MonadUUID m)
+-- | What 'runUI' asks of a component monad: the browser's DOM, and a way
+-- into 'IO' and back for the driver's loop.
+type MonadUI m = (DOM.MonadBrowserDOM m, MonadUnliftIO m)
 
 type VHTML m action slots =
   V.VDom [Prop (Input action)] (ComponentSlot slots m action)
@@ -137,7 +136,7 @@ mkSpec handler renderChildRef document =
 -- driver a pair of natural transformations to get between two of them.
 runUI
   :: forall m query input output
-   . (DOM.MonadBrowserDOM m, MonadUnliftIO m, MonadFork m, MonadKill m, MonadParallel m, MonadMask m, MonadUUID m)
+   . (DOM.MonadBrowserDOM m, MonadUnliftIO m)
   => Component query input output m
   -> input
   -> DOM.HTMLElement
@@ -148,7 +147,7 @@ runUI component i element = do
 
 renderSpec
   :: forall m
-   . (DOM.MonadBrowserDOM m, MonadIO m, MonadMask m)
+   . (DOM.MonadBrowserDOM m, MonadUnliftIO m)
   => DOM.Document
   -> DOM.HTMLElement
   -> AD.RenderSpec m (RenderState m)

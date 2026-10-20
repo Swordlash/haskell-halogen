@@ -8,9 +8,6 @@ module Halogen.IO.Driver
 where
 
 import Control.Exception (onException, throwIO, try)
-import Control.Monad.Fork
-import Control.Monad.Parallel
-import Control.Monad.UUID
 import Data.Map.Strict qualified as M
 import Data.NT
 import Data.Row
@@ -53,9 +50,12 @@ data RenderSpec (m :: Type -> Type) (r :: Type -> Type -> Row Type -> Type -> Ty
 -- "Halogen.IO.Driver.Runtime"): the component's state, children, renders
 -- and lifecycle are only ever touched there, one piece of work at a time,
 -- and its programs wait only in 'Halogen.Query.HalogenM.Lift' ('liftIO').
+--
+-- All the driver asks of the component monad is a way into 'IO' and back:
+-- the loop, the fibers and their workers are the runtime's own threads.
 runUI
   :: forall m r f i o
-   . (MonadUnliftIO m, MonadFork m, MonadKill m, MonadParallel m, MonadMask m, MonadUUID m)
+   . (MonadUnliftIO m)
   => RenderSpec m r
   -> Component f i o m
   -> i
@@ -236,8 +236,8 @@ renderPass tree spec var = do
   (rendering, children, gone) <-
     ( do
         rendering <-
-          treeRunM tree $
-            specRender
+          treeRunM tree
+            $ specRender
               spec
               (liftIO . handler)
               (liftIO . slotChild tree spec childHandler childrenIn childrenOut created)
@@ -250,7 +250,7 @@ renderPass tree spec var = do
           for_ cds.rendering (treeRunM tree . specRemove spec)
         pure (rendering, children, gone)
     )
-      `onException` (sequence_ =<< readIORef created)
+      `onException` (sequence_ . reverse =<< readIORef created)
   modifyIORef' var $ \d -> d {rendering = Just rendering, children}
   Slot.foreachSlot gone $ \(DriverStateRef child) ->
     readIORef child >>= finalize tree . DriverStateX
@@ -283,7 +283,7 @@ slotChild tree spec handler childrenIn childrenOut created ComponentSlotBox {..}
       Nothing -> do
         new@(DriverStateRef child) <- runComponent tree spec (maybe pass handler . output) input component
         -- Taken back if the pass fails.
-        modifyIORef' created (<> [readIORef child >>= discard tree spec . DriverStateX])
+        modifyIORef' created ((readIORef child >>= discard tree spec . DriverStateX) :)
         pure new
   isDuplicate <- isJust . get <$> readIORef childrenOut
   when isDuplicate

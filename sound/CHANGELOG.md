@@ -4,15 +4,13 @@
 
 The browser backend is declared once, without CPP: natively its bindings are
 `browserJS`'s inert stubs, and `fetchClip` returns `Nothing` without waiting.
+The browser jsbits are the same file on both browser backends, linked by the
+JavaScript one and embedded by the WebAssembly one; see haskell-halogen-jsbits's
+changelog for what a WASM build needs.
 
 A restored album consumes its saved position on its first start; muting or
 setting the volume to zero and then restarting no longer reuses that position.
 Resuming an album preserves duplicate track entries in the first round.
-
-The JavaScript and WebAssembly backends now use the same browser jsbits, embedded
-at compile time for WASM. Applications need no additional scripts. WASM builds
-must enable shared dependencies for Template Haskell (`shared: True` in the
-WASM project); Git source dependencies must also include the `jsbits` package.
 
 `playAlbumFrom` resumes a chosen track at a saved position in seconds,
 then continues through a new shuffle of the album. `musicPosition` reads
@@ -37,22 +35,12 @@ backend seeks after metadata is loaded, before any audio is heard.
 * A file stays kept while a voice of it plays, so a skip or a step back
   never lets it go before its voice has stopped, whatever `cacheSize`.
 
-## Unreleased
-
-The browser backend is declared once, without CPP: natively its bindings are
-`browserJS`'s inert stubs, and `fetchClip` returns `Nothing` without waiting.
-
 * `musicProgress`: how far the music's track has played and how long it
   is, for a page to show.
 * **Breaking:** `Backend` has `voiceProgress`.
 * The browser backend ends a voice whose file cannot be played (an error
   event, or a refusal other than the page's want of a first click), so an
   album goes on to its next track instead of waiting forever.
-
-## Unreleased
-
-The browser backend is declared once, without CPP: natively its bindings are
-`browserJS`'s inert stubs, and `fetchClip` returns `Nothing` without waiting.
 
 * `skipTrack`: skips the album's track playing, or the one waiting out its
   gap, and plays the one after it at once; each call skips one more, also

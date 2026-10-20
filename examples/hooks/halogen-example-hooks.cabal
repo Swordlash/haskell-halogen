@@ -9,7 +9,7 @@ category:           Web
 
 common shared
   default-language: GHC2021
-  ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture
+  ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture -Wredundant-constraints -Wunused-packages
 
   default-extensions:
       RankNTypes
@@ -44,11 +44,14 @@ common shared
       RequiredTypeArguments
       ExplicitNamespaces
 
+
+library
+  import:           shared
+  hs-source-dirs:   src
+  exposed-modules:  Example.Hooks
   build-depends:
-      base >= 4.20,
       protolude,
       clay >= 0.16.0,
-      kan-extensions,
       containers,
       row-types,
       text,
@@ -56,19 +59,16 @@ common shared
       haskell-halogen-core,
       haskell-halogen-hooks
 
-library
-  import:           shared
-  hs-source-dirs:   src
-  exposed-modules:  Example.Hooks
-
 executable halogen-example-hooks
   import:           shared
   main-is:          Main.hs
   hs-source-dirs:   .
-  build-depends:    halogen-example-hooks
+  build-depends:
+      protolude,
+      haskell-halogen-core,
+      halogen-example-hooks
 
   if arch(wasm32)
-    build-depends: ghc-experimental
     ghc-options:
       -no-hs-main
       -optl-mexec-model=reactor

@@ -7,9 +7,6 @@
 -- | z-indexing or overflow: hidden set.
 module Halogen.Portal where
 
-import Control.Monad.Fork
-import Control.Monad.Parallel
-import Control.Monad.UUID
 import Data.Functor.Coyoneda (Coyoneda (..), hoistCoyoneda)
 import Data.NT
 import Data.Row
@@ -42,10 +39,6 @@ portal
    . ( HasType label (H.Slot query output slot) slots
      , MonadUnliftIO m
      , MonadBrowserDOM m
-     , MonadKill m
-     , MonadParallel m
-     , MonadMask m
-     , MonadUUID m
      )
   => (KnownSymbol label)
   => (Ord slot)
@@ -111,7 +104,7 @@ wrapper =
 
 component
   :: forall q i o m
-   . (MonadBrowserDOM m, MonadUnliftIO m, MonadKill m, MonadParallel m, MonadMask m, MonadUUID m)
+   . (MonadBrowserDOM m, MonadUnliftIO m)
   => H.Component q (Input q i o m) o m
 component =
   H.mkComponent

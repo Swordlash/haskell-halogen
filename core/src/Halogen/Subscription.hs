@@ -1,7 +1,6 @@
 module Halogen.Subscription where
 
 import Control.Arrow ((&&&))
-import Control.Monad.UUID
 import Data.Coerce
 import Data.Functor.Contravariant
 import Data.NT
@@ -13,17 +12,20 @@ data Subscribe m a = Subscribe
   , emitter :: Emitter m a
   }
 
-create :: (MonadIO m, MonadUUID m) => m (Subscribe m a)
+create :: (MonadIO m) => m (Subscribe m a)
 create = do
+  -- Subscribers are told apart by a number from this counter: nothing but
+  -- this emitter ever sees it, so it need not be unique any wider.
+  next <- newIORef (0 :: Int)
   subscribers <- newIORef []
   pure
     $ Subscribe
       { emitter = Emitter $ \handler -> do
-          uuid <- generateV4
-          atomicModifyIORef'_ subscribers (<> [(handler, uuid)])
+          n <- atomicModifyIORef' next (\i -> (i + 1, i))
+          atomicModifyIORef'_ subscribers (<> [(handler, n)])
           pure
             $ Subscription
-              { unsubscribe = atomicModifyIORef'_ subscribers (HPrelude.filter (\(_, uuid') -> uuid /= uuid'))
+              { unsubscribe = atomicModifyIORef'_ subscribers (HPrelude.filter (\(_, n') -> n /= n'))
               }
       , listener = Listener {notify = \a -> readIORef subscribers >>= traverse_ (\(k, _) -> k a)}
       }
@@ -108,7 +110,7 @@ filter :: (Applicative m) => (a -> Bool) -> Emitter m a -> Emitter m a
 filter p (Emitter e) = Emitter $ \k -> e $ \a -> when (p a) (k a)
 
 {-
--- | Compute a fixed point.
+-- \| Compute a fixed point.
 fix :: forall i o. (Emitter i -> (Emitter i, Emitter o)) -> Emitter o
 fix f = Emitter $ \k -> do
   Subscription c1 <- subscribe input (notify listener)

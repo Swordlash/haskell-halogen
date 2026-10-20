@@ -28,10 +28,10 @@ import Halogen.TH.Template (Err, Hole (..), HoleKind (..), Holes, Item (..), isP
 import Text.Megaparsec hiding (Token)
 
 data Rule
-  = Decl Text Text
-  -- ^ A property and its value, as written.
-  | Nested Text [Item Rule]
-  -- ^ A selector list, as written, and the rules under it.
+  = -- | A property and its value, as written.
+    Decl Text Text
+  | -- | A selector list, as written, and the rules under it.
+    Nested Text [Item Rule]
   | Media [Token] [Item Rule]
   | Keyframes Text [Item Rule]
   | FontFace [Item Rule]

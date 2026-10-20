@@ -39,11 +39,11 @@ module Halogen.Svg.Indexed
 where
 
 import Data.Row
-import Protolude
+import HPrelude
 import Web.Event.Event (Event)
+import Web.HTML.Event.DragEvent (DragEvent)
 import Web.UIEvent.FocusEvent (FocusEvent)
 import Web.UIEvent.KeyboardEvent (KeyboardEvent)
-import Web.HTML.Event.DragEvent (DragEvent)
 import Web.UIEvent.MouseEvent (MouseEvent)
 import Web.UIEvent.PointerEvent (PointerEvent)
 import Web.UIEvent.TouchEvent (TouchEvent)

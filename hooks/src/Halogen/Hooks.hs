@@ -1,3 +1,9 @@
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
+
+-- 'component' asks for 'AtMostOneQuery hooks' only to reject a program with
+-- two query handlers at the call site; nothing in it needs the constraint,
+-- so GHC calls it redundant.
+
 -- | Hooks for @haskell-halogen-core@, after
 -- <https://github.com/thomashoneyman/purescript-halogen-hooks purescript-halogen-hooks>.
 --

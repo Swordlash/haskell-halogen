@@ -1,5 +1,6 @@
 module Test.Family (spec) where
 
+import Control.Monad.UUID (MonadUUID)
 import Example.Family qualified as Family
 import Halogen qualified as H
 import Data.IORef (IORef, newIORef, readIORef)
@@ -10,7 +11,7 @@ type Family s m = Mounted s Family.Query Family.Output m
 
 -- | The family, and the journal its children's finalisers write to. The journal is
 -- an ordinary IORef shared with the component, which only IO can read.
-family :: forall m -> (MonadBrowserTest m) => PageM s (Family s m, IORef [Text])
+family :: forall m -> (MonadBrowserTest m, MonadUUID m) => PageM s (Family s m, IORef [Text])
 family m = do
   journal <- unsafeIOToPageM (newIORef [])
   ui <- mount m Family.component journal
@@ -29,7 +30,7 @@ removeChild ui n = do
     target : _ -> findIn target ".remove" >>= click
     [] -> expectationFailure ("no child " <> show n)
 
-spec :: forall m -> (MonadBrowserTest m) => Spec
+spec :: forall m -> (MonadBrowserTest m, MonadUUID m) => Spec
 spec m = do
   it "answers a query by asking its children" $ runPage $ do
     (ui, _) <- family m

@@ -136,7 +136,6 @@ evalM var (HalogenM hm) = foldF go hm
         DriverState {refs} <- readIORef var
         pure $ k $ M.lookup p refs
 
-
     update :: forall x. (s -> (x, s)) -> IO (x, [Fiber])
     update f = do
       -- The field is taken by a pattern, not `ds.state`: a selector thunk

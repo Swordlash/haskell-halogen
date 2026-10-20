@@ -43,8 +43,8 @@ import Text.Read (readMaybe)
 
 -- | A node of the template.
 data Node
-  = Element Int Text [Item Attr] [Item Node]
-  -- ^ Its line, name, attributes and children.
+  = -- | Its line, name, attributes and children.
+    Element Int Text [Item Attr] [Item Node]
   | TextNode Text
 
 -- | An attribute as written: its value may hold placeholders; an attribute
@@ -142,10 +142,14 @@ build dialect holes = go 1 [] []
 attrItems :: Holes -> [(Text, Text)] -> [Item Attr]
 attrItems holes = concatMap $ \(name, value) -> case pieces name of
   [Lit n] -> [One (Attr n value)]
-  ps -> zipWith (\p isLast -> case p of
-                   Lit n -> One (Attr n (if isLast then value else ""))
-                   Ref i -> item holes i)
-                ps (map (== length ps) [1 ..])
+  ps ->
+    zipWith
+      ( \p isLast -> case p of
+          Lit n -> One (Attr n (if isLast then value else ""))
+          Ref i -> item holes i
+      )
+      ps
+      (map (== length ps) [1 ..])
 
 -- | A text node, with the holes in it, after the whitespace rule.
 textItems :: Holes -> Text -> [Item Node]
