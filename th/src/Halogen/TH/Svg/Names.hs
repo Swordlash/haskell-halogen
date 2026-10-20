@@ -31,11 +31,13 @@ elements =
     nodes =
       [ ("svg", 'SE.svg), ("g", 'SE.g), ("text", 'SE.text), ("defs", 'SE.defs), ("mask", 'SE.mask), ("marker", 'SE.marker)
       , ("pattern", 'SE.pattern_), ("foreignObject", 'SE.foreignObject), ("title", 'SE.title), ("animateMotion", 'SE.animateMotion)
+      , -- A circle may hold an animation.
+        ("circle", 'SE.circleNode)
       ]
     leaves =
-      [ ("circle", 'SE.circle), ("ellipse", 'SE.ellipse), ("image", 'SE.image), ("line", 'SE.line), ("path", 'SE.path)
+      [ ("ellipse", 'SE.ellipse), ("image", 'SE.image), ("line", 'SE.line), ("path", 'SE.path)
       , ("polygon", 'SE.polygon), ("polyline", 'SE.polyline), ("rect", 'SE.rect), ("use", 'SE.use), ("animate", 'SE.animate)
-      , ("mpath", 'SE.mpath)
+      , ("animateTransform", 'SE.animateTransform), ("set", 'SE.set), ("mpath", 'SE.mpath)
       ]
 
 -- | By the attribute's name as SVG writes it, or as its function is named.

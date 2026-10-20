@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+SVG: `SE.animateTransform` and `SE.set` (their rows `SVGanimateTransform`
+and `SVGset`, so `SA.fillAnim` types on them); `SE.mask` takes its own row,
+`SVGmask`, whose field `maskContentsUnits` is now spelled
+`maskContentUnits`, as `SA.maskContentUnits` wants; `SVGuse` and `SVGimage`
+take `xlinkHref`.
+
 The browser bindings (`Web.Event.Event`, `Web.HTML.Window`,
 `Web.HTML.HTMLDocument`, `Control.Monad.UUID`) are declared once, without CPP,
 through `Halogen.JSBits.browserJS`; core depends on `haskell-halogen-jsbits` on

@@ -23,6 +23,8 @@ module Halogen.Svg.Elements
   , marker
   , animate
   , animateMotion
+  , animateTransform
+  , set
   , circleNode
   , mpath
   , title
@@ -89,7 +91,7 @@ foreignObject = element (ElemName "foreignObject")
 defs :: forall p i. Node I.SVGg p i
 defs = element $ ElemName "defs"
 
-mask :: forall p i. Node I.SVGg p i
+mask :: forall p i. Node I.SVGmask p i
 mask = element $ ElemName "mask"
 
 marker :: forall p i. Node I.SVGmarker p i
@@ -100,9 +102,14 @@ marker = element $ ElemName "marker"
 animate :: forall p i. Leaf I.SVGanimate p i
 animate props = element (ElemName "animate") props []
 
--- TODO there's also animateTransform, etc
 animateMotion :: forall p i. Node I.SVGanimateMotion p i
 animateMotion = element (ElemName "animateMotion")
+
+animateTransform :: forall p i. Leaf I.SVGanimateTransform p i
+animateTransform props = element (ElemName "animateTransform") props []
+
+set :: forall p i. Leaf I.SVGset p i
+set props = element (ElemName "set") props []
 
 circleNode :: forall p i. Node I.SVGcircle p i
 circleNode = element (ElemName "circle")

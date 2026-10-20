@@ -59,6 +59,17 @@ spec = do
               , SE.text [HP.attr (AttrName "font-stretch") "condensed", SA.fontVariant "small-caps"] [HH.text "t"]
               ]
           ]
+    it "a circle holding an animation, fill on every animation, xlink:href on use and image, a mask's content units" $
+      [svg|<g><circle r="1"><animateTransform attributeName="transform" fill={{ SA.Freeze }}/><set attributeName="r" to="2" fill={{ SA.Remove }}/></circle><use xlink:href={{ "#a" :: Text }}/><image xlink:href={{ "b.png" :: Text }}/><mask maskContentUnits={{ SA.ObjectBoundingBox }}></mask></g>|]
+        `same` SE.g []
+          [ SE.circleNode [SA.r 1]
+              [ SE.animateTransform [HP.attr (AttrName "attributeName") "transform", SA.fillAnim SA.Freeze]
+              , SE.set [HP.attr (AttrName "attributeName") "r", HP.attr (AttrName "to") "2", SA.fillAnim SA.Remove]
+              ]
+          , SE.use [SA.xlinkHref "#a"]
+          , SE.image [SA.xlinkHref "b.png"]
+          , SE.mask [SA.maskContentUnits SA.ObjectBoundingBox] []
+          ]
     it "a viewBox written as text, and a foreignObject holding HTML" $
       [hh|<svg viewBox="0 0 10 10"><foreignObject><div class="x">hi<br></div></foreignObject></svg>|]
         `same` SE.svg [HP.attr (AttrName "viewBox") "0 0 10 10"] [SE.foreignObject [] [HH.div [HP.class_ (ClassName "x")] [HH.text "hi", HH.br_]]]

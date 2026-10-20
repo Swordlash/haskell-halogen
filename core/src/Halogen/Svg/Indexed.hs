@@ -29,6 +29,8 @@ module Halogen.Svg.Indexed
   , AnimationAttributes
   , SVGanimate
   , SVGanimateMotion
+  , SVGanimateTransform
+  , SVGset
   , SVGimage
   , SVGmpath
   , SVGtitle
@@ -227,7 +229,7 @@ type SVGmask =
             .+ "width" .== Double
             .+ "height" .== Double
             .+ "maskUnits" .== Text
-            .+ "maskContentsUnits" .== Text
+            .+ "maskContentUnits" .== Text
         )
     )
 
@@ -398,6 +400,7 @@ type SVGuse =
                                 .+ "height" .== Double
                                 .+ "transform" .== Text
                                 .+ "href" .== Text
+                                .+ "xlinkHref" .== Text
                             )
                         )
                     )
@@ -425,6 +428,10 @@ type SVGanimate = AnimationAttributes ("attributeName" .== Text)
 
 type SVGanimateMotion = AnimationAttributes ("path" .== Text)
 
+type SVGanimateTransform = AnimationAttributes ("attributeName" .== Text .+ "type" .== Text .+ "by" .== Text)
+
+type SVGset = AnimationAttributes ("attributeName" .== Text)
+
 type SVGimage =
   GlobalAttributes
     ( "x" .== Double
@@ -432,6 +439,7 @@ type SVGimage =
         .+ "width" .== Double
         .+ "height" .== Double
         .+ "href" .== Text
+        .+ "xlinkHref" .== Text
         .+ "preserveAspectRatio" .== Text
     )
 
