@@ -6,6 +6,7 @@ module Test.Html (spec) where
 
 import Clay qualified as C
 import DOM.HTML.Indexed qualified as I
+import Data.Row (Empty)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Lazy qualified as TL
@@ -14,7 +15,10 @@ import Halogen.HTML qualified as HH
 import Halogen.HTML.Core (AttrName (..), ClassName (..), ElemName (..))
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
-import Halogen.TH (hh, hhs)
+import Halogen.Svg.Attributes qualified as SA
+import Halogen.Svg.Elements qualified as SE
+import Halogen.Svg.Indexed qualified as SI
+import Halogen.TH (hh, hhs, svg, svgs)
 import Test.Hspec
 import Test.Render (render)
 
@@ -33,6 +37,70 @@ sameAll quoted written = map render quoted `shouldBe` map render written
 
 spec :: Spec
 spec = do
+  describe "SVG" $ do
+    it "an <svg> in hh is SVG: its elements in SVG's namespace, numbers and paths typed, the class an attribute" $ do
+      let w = 30 :: Double
+          cmds = [SA.m SA.Abs 0 0, SA.l SA.Abs 10 10]
+      [hh|<div><svg viewBox={{ (0, 0, w, 20) }} class="map"><path d={{ cmds }} stroke-width="2" class="road"/><circle cx={{ w / 2 }} cy="5" r="3"/></svg></div>|]
+        `same` HH.div_ [SE.svg [SA.viewBox 0 0 w 20, SA.class_ (ClassName "map")] [SE.path [SA.d cmds, SA.strokeWidth 2, SA.class_ (ClassName "road")], SE.circle [SA.cx (w / 2), SA.cy 5, SA.r 3]]]
+    it "keeps the case of SVG names, takes an attribute by its function's name, and an unknown one as written" $
+      [svg|<g><foo-bar stroke-linecap="round" strokeLineJoin="bevel" data-x="1"></foo-bar></g>|]
+        `same` SE.g [] [SE.element (ElemName "foo-bar") [HP.attr (AttrName "stroke-linecap") "round", HP.attr (AttrName "stroke-linejoin") "bevel", HP.attr (AttrName "data-x") "1"] []]
+    it "an element without a function: its attributes as text, the style and handlers typed" $ do
+      let colour = "red" :: Text
+      [svg|<linearGradient id="sky" x1="0" y2="1"><stop offset="0" style={{ "stop-color:" <> colour }} onClick={{ const Inc }}/></linearGradient>|]
+        `same` SE.element (ElemName "linearGradient") [HP.attr (AttrName "id") "sky", HP.attr (AttrName "x1") "0", HP.attr (AttrName "y2") "1"]
+          [SE.element (ElemName "stop") ([HP.attr (AttrName "offset") "0", HP.styleText "stop-color:red", HE.onClick (const Inc)] :: [HP.IProp (SI.GlobalAttributes Empty) Action]) []]
+    it "an <SVG> in HTML is the svg element; fill on an animation is the state it leaves; a function's name stands for its attribute" $
+      [hh|<div><SVG viewBox="0 0 1 1"><animate attributeName="x" fill={{ SA.Freeze }}/><text fontStretch="condensed" fontVariant="small-caps">t</text></SVG></div>|]
+        `same` HH.div_
+          [ SE.svg [HP.attr (AttrName "viewBox") "0 0 1 1"]
+              [ SE.animate [HP.attr (AttrName "attributeName") "x", SA.fillAnim SA.Freeze]
+              , SE.text [HP.attr (AttrName "font-stretch") "condensed", SA.fontVariant "small-caps"] [HH.text "t"]
+              ]
+          ]
+    it "a circle holding an animation, fill on every animation, xlink:href on use and image, a mask's content units" $
+      [svg|<g><circle r="1"><animateTransform attributeName="transform" fill={{ SA.Freeze }}/><set attributeName="r" to="2" fill={{ SA.Remove }}/></circle><use xlink:href={{ "#a" :: Text }}/><image xlink:href={{ "b.png" :: Text }}/><mask maskContentUnits={{ SA.ObjectBoundingBox }}></mask></g>|]
+        `same` SE.g []
+          [ SE.circleNode [SA.r 1]
+              [ SE.animateTransform [HP.attr (AttrName "attributeName") "transform", SA.fillAnim SA.Freeze]
+              , SE.set [HP.attr (AttrName "attributeName") "r", HP.attr (AttrName "to") "2", SA.fillAnim SA.Remove]
+              ]
+          , SE.use [SA.xlinkHref "#a"]
+          , SE.image [SA.xlinkHref "b.png"]
+          , SE.mask [SA.maskContentUnits SA.ObjectBoundingBox] []
+          ]
+    it "onLoad on the svg, pathLength on shapes, xlinkHref by the function's name" $
+      [svg|<svg onLoad={{ const Inc }}><path pathLength={{ 10 }} d="M0 0"/><circle pathLength="5" r="1"/><use xlinkHref={{ "#a" :: Text }}/></svg>|]
+        `same` SE.svg [HE.onLoad (const Inc)]
+          [ SE.path [SA.pathLength 10, HP.attr (AttrName "d") "M0 0"]
+          , SE.circle [SA.pathLength 5, SA.r 1]
+          , SE.use [SA.xlinkHref "#a"]
+          ]
+    it "a marker's viewBox, mpath's id, transform on a polygon, href on an animation, lengths with units" $ do
+      let ts = [SA.Translate 1 2]
+      [svg|<g><marker viewBox={{ (0, 0, 10, 10) }}></marker><animateMotion dur="1s"><mpath id="m" xlink:href="#p"/></animateMotion><polygon points="0,0 1,0 1,1" transform={{ ts }}/><animate href="#c" attributeName="r"/><rect width="100%" height="10em" x="1"/></g>|]
+        `same` SE.g []
+          [ SE.marker [SA.viewBox 0 0 10 10] []
+          , SE.animateMotion [HP.attr (AttrName "dur") "1s"] [SE.mpath [SA.id "m", SA.xlinkHref "#p"]]
+          , SE.polygon [HP.attr (AttrName "points") "0,0 1,0 1,1", SA.transform ts]
+          , SE.animate [SA.href "#c", HP.attr (AttrName "attributeName") "r"]
+          , SE.rect [HP.attr (AttrName "width") "100%", HP.attr (AttrName "height") "10em", SA.x 1]
+          ]
+    it "a rect holding an animation, fill on a polygon" $ do
+      let colour = C.red
+      [svg|<g><rect width="2" height="2"><animate attributeName="x" to="3"/></rect><polygon points="0,0 1,1" fill={{ colour }}/></g>|]
+        `same` SE.g []
+          [ SE.element (ElemName "rect") ([SA.width 2, SA.height 2] :: [HP.IProp SI.SVGrect Action]) [SE.animate [HP.attr (AttrName "attributeName") "x", HP.attr (AttrName "to") "3"]]
+          , SE.polygon [HP.attr (AttrName "points") "0,0 1,1", SA.fill colour]
+          ]
+    it "a viewBox written as text, and a foreignObject holding HTML" $
+      [hh|<svg viewBox="0 0 10 10"><foreignObject><div class="x">hi<br></div></foreignObject></svg>|]
+        `same` SE.svg [HP.attr (AttrName "viewBox") "0 0 10 10"] [SE.foreignObject [] [HH.div [HP.class_ (ClassName "x")] [HH.text "hi", HH.br_]]]
+    it "svgs: several nodes, with statements and handlers" $
+      sameAll
+        [svgs|{% for x in [1, 2 :: Double] %}<rect x={{ x }} y="0" width="1" height="1" onClick={{ const Inc }}/>{% end %}<text x="0" y="0">t</text>|]
+        ([SE.rect [SA.x x, SA.y 0, SA.width 1, SA.height 1, HE.onClick (const Inc)] | x <- [1, 2]] <> [SE.text [SA.x 0, SA.y 0] [HH.text "t"]])
   describe "elements" $ do
     it "an element with a class and text" $
       [hh|<div class="panel">Hi</div>|] `same` HH.div [HP.class_ (ClassName "panel")] [HH.text "Hi"]
@@ -55,6 +123,9 @@ spec = do
             two
           </p>|]
         `same` HH.p_ [HH.text "one two"]
+    it "a hole before /> in text or in a quoted value keeps the /> as text" $ do
+      let label = "a" :: Text
+      [hh|<p title="{{ label }}/>">{{ label }}/></p>|] `same` HH.p [HP.title "a/>"] [HH.text "a", HH.text "/>"]
     it "void elements, with or without a slash, and with an end tag" $
       [hh|<p>a<br>b<br/>c<br></br>d<input type="text"></p>|]
         `same` HH.p_ [HH.text "a", HH.br_, HH.text "b", HH.br_, HH.text "c", HH.br_, HH.text "d", HH.input [HP.attr (AttrName "type") "text"]]

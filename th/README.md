@@ -2,8 +2,9 @@
 
 HTML and CSS as they are written, with Haskell inside, for
 [haskell-halogen](https://github.com/Swordlash/haskell-halogen) and
-[Clay](https://hackage.haskell.org/package/clay): two quasi-quoters, `hh` for
-a Halogen `HTML w i` and `clay` for a `Css`.
+[Clay](https://hackage.haskell.org/package/clay): quasi-quoters, `hh` for
+a Halogen `HTML w i` (SVG inside it included, or on its own with `svg`)
+and `clay` for a `Css`.
 
 ```haskell
 {-# LANGUAGE QuasiQuotes #-}
@@ -101,6 +102,37 @@ children of one element ends among them. `{% end %}`, `{% endif %}` and
   the lines joined by one space, so indentation never becomes a text node;
   a text on one line is kept as it is. Entities are decoded, `<!-- -->` is
   dropped.
+
+## SVG
+
+An `<svg>` in an `hh` quote, and everything in it, is SVG; so is a whole
+`svg` quote (one element) or `svgs` quote (a list), for SVG written apart
+from its `<svg>`.
+
+```haskell
+board :: [(Double, Double)] -> [PathCommand] -> HTML w Action
+board towns road = [hh|
+  <svg viewBox={{ (0, 0, 640, 480) }} class="board">
+    <path d={{ road }} stroke-width="6" class="road"/>
+    {% for (x, y) in towns %}<circle cx={{ x }} cy={{ y }} r="8" onClick={{ const (Pick x y) }}/>{% end %}
+  </svg>
+|]
+```
+
+- An element is its function from `Halogen.Svg.Elements`, in SVG's
+  namespace; a name without one (`<stop>`, `<linearGradient>`) is
+  `Halogen.Svg.Elements.element`, in the namespace too, and takes its
+  attributes as text, but for `class`, `style`, `ref` and handlers. Names keep their case (`foreignObject`, `viewBox`). A
+  `<foreignObject>` holds HTML again.
+- An attribute is its function from `Halogen.Svg.Attributes`, by its SVG
+  name (`stroke-width`) or its function's (`strokeWidth`): a number
+  (`x`, `r`, `stroke-width`) is written as one or takes a `Double`; `d`
+  takes a `[PathCommand]`, `fill` and `stroke` a `Color`, `transform` a
+  `[Transform]`, `viewBox` a tuple of four `Double`s; each of these written
+  as text is set as the attribute. `class` is an attribute, not the
+  `className` property, which an SVG element does not let anyone set.
+  Handlers are those of HTML.
+- A tag may close itself, `<path d={{ p }}/>`.
 
 ## CSS
 

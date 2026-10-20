@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+SVG: `SE.animateTransform` and `SE.set` (their rows `SVGanimateTransform`
+and `SVGset`, so `SA.fillAnim` types on them); `SE.mask` takes its own row,
+`SVGmask`, whose field `maskContentsUnits` is now spelled
+`maskContentUnits`, as `SA.maskContentUnits` wants; `SVGuse` and `SVGimage`
+take `xlinkHref`. Every SVG element takes focus, touch and `onTransitionEnd`
+handlers, `<svg>` and `<image>` `onLoad` and `onError`; `<path>`,
+`<circle>`, `<ellipse>`, `<line>` and `<rect>` take `pathLength`.
+`<marker>` takes `viewBox` and `preserveAspectRatio` (and lost the
+`strokeWidth` it had twice, which made every typed attribute on it fail);
+`<svg>`, `<polygon>`, `<polyline>`, `<image>` and `<foreignObject>` take
+`transform`; the animations take `href` and `xlinkHref`; `<mpath>` takes the
+global attributes and `href`. The basic shapes (`<rect>`, `<circle>`,
+`<ellipse>`, `<line>`, `<polyline>`, `<polygon>`, `<path>`) take every
+presentation attribute, as `<g>` does. `SA.xlinkHref` puts the attribute in
+the XLink namespace (`http://www.w3.org/1999/xlink`), not one named `xlink`.
+
 The browser bindings (`Web.Event.Event`, `Web.HTML.Window`,
 `Web.HTML.HTMLDocument`, `Control.Monad.UUID`) are declared once, without CPP,
 through `Halogen.JSBits.browserJS`; core depends on `haskell-halogen-jsbits` on

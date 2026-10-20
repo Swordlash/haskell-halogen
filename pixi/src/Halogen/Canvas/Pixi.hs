@@ -18,6 +18,10 @@ module Halogen.Canvas.Pixi
   , stagePosition
   , localPosition
   , button
+  , Modifiers (..)
+  , noModifiers
+  , modifiers
+  , commandKey
 
     -- * Running it
   , Config (..)
@@ -128,6 +132,30 @@ localPosition event =
 button :: PixiEvent -> Int
 button = FFI.eventButton
 
+-- | The modifier keys held during a pointer event, with the names the
+-- browser gives them: for a scene where, say, a drag with Shift draws and
+-- one without pans (the scene turns 'pan' off while it draws).
+data Modifiers = Modifiers
+  { shiftKey :: Bool
+  , ctrlKey :: Bool
+  , altKey :: Bool
+  , metaKey :: Bool
+  -- ^ Cmd on a Mac, the Windows key elsewhere.
+  }
+  deriving stock (Eq, Show)
+
+noModifiers :: Modifiers
+noModifiers = Modifiers {shiftKey = False, ctrlKey = False, altKey = False, metaKey = False}
+
+modifiers :: PixiEvent -> Modifiers
+modifiers event =
+  let held = FFI.eventModifiers event
+   in Modifiers {shiftKey = testBit held 0, ctrlKey = testBit held 1, altKey = testBit held 2, metaKey = testBit held 3}
+
+-- | The key shortcuts go with: Ctrl, or Cmd on a Mac.
+commandKey :: Modifiers -> Bool
+commandKey Modifiers {ctrlKey, metaKey} = ctrlKey || metaKey
+
 ----------------------------------------------------------------------
 -- Running it
 
@@ -224,6 +252,8 @@ data Runtime i = Runtime
   , wheelCallback :: IORef (Maybe FFI.Callback)
   , cameraTimer :: IORef (Maybe FFI.Timer)
   , lifecycle :: IORef Lifecycle
+  , drawing :: IORef Drawing
+  -- ^ Whether a render is under way (see 'renderLatest').
   }
 
 rendererWith :: (MonadUnliftIO m) => Config -> Canvas.Renderer (View i) (CanvasEvent i) m
@@ -242,7 +272,8 @@ rendererWith Config {moduleUrl} = Canvas.Renderer {mount}
       wheelCallback <- newIORef Nothing
       cameraTimer <- newIORef Nothing
       lifecycle <- newIORef Loading
-      let runtime = Runtime {app, canvas, emit = runInIO . emit, pending, scene, camera, asked, gesture, swallowTap, callbacks, wheelCallback, cameraTimer, lifecycle}
+      drawing <- newIORef Idle
+      let runtime = Runtime {app, canvas, emit = runInIO . emit, pending, scene, camera, asked, gesture, swallowTap, callbacks, wheelCallback, cameraTimer, lifecycle, drawing}
       onReady <- registerPermanent runtime $ \_ -> rendererReady runtime
       FFI.initializeApplication app moduleUrl canvas onReady
       pure
@@ -269,7 +300,7 @@ rendererReady runtime = do
     (Loading, True) -> do
       FFI.enableStageEvents runtime.app
       installInteraction runtime
-      readIORef runtime.pending >>= traverse_ (renderView runtime)
+      renderLatest runtime
     -- Finalized while the module was still loading, or it never loaded:
     -- either way nobody else is going to clean up after us.
     (Loading, False) -> cleanupRuntime runtime
@@ -280,7 +311,7 @@ updateRuntime :: (MonadIO m) => Runtime i -> View i -> m ()
 updateRuntime runtime scene = liftIO $ do
   writeIORef runtime.pending $ Just scene
   live <- (== Live) <$> readIORef runtime.lifecycle
-  when live $ renderView runtime scene
+  when live $ renderLatest runtime
 
 -- | The vdom spec the scene reconciles through.
 --
@@ -297,6 +328,33 @@ pixiSpec runtime =
 
 -- | The scene is wrapped in one container, which is also what the camera
 -- transform is applied to: panning and zooming move the world, not the stage.
+-- | Whether a render is under way, and whether a newer view came meanwhile.
+data Drawing = Idle | Drawing | DrawingStale
+  deriving stock (Eq, Show)
+
+-- | Render the latest view ('pending'), one render at a time. A render
+-- calls into Pixi, and a callback Pixi makes meanwhile lets other Haskell
+-- threads run (an asynchronous JSFFI export runs the scheduler), so a
+-- second render could start before the first has stored its scene: both
+-- would build a world from nothing and put it on the stage, and the first
+-- one's would stay there, drawn where the camera was. A render asked for
+-- while one is under way is left to that one, which renders the latest
+-- view again when it is done.
+renderLatest :: Runtime i -> IO ()
+renderLatest runtime = do
+  start <- atomicModifyIORef' runtime.drawing $ \case
+    Idle -> (Drawing, True)
+    _ -> (DrawingStale, False)
+  when start go
+  where
+    go = do
+      (readIORef runtime.pending >>= traverse_ (renderView runtime))
+        `onException` writeIORef runtime.drawing Idle
+      again <- atomicModifyIORef' runtime.drawing $ \case
+        DrawingStale -> (Drawing, True)
+        _ -> (Idle, False)
+      when again go
+
 renderView :: Runtime i -> View i -> IO ()
 renderView runtime View {camera = viewCamera, nodes} = do
   -- A view rendered mid-drag still carries the camera from before the drag;

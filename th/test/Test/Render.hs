@@ -12,7 +12,7 @@ import Data.Text qualified as T
 import Halogen.HTML.Core (HTML (..))
 import Halogen.VDom.DOM.Monad.Class (PropValue (..))
 import Halogen.VDom.DOM.Prop (Prop (..))
-import Halogen.VDom.Types (ElemName (..), VDom (..))
+import Halogen.VDom.Types (ElemName (..), Namespace (..), VDom (..))
 import Web.Event.Event (EventType (..))
 import Web.HTML.Common (AttrName (..), PropName (..))
 
@@ -21,7 +21,7 @@ render (HTML v) = go v
   where
     go = \case
       Text t -> t
-      Elem _ (ElemName n) ps kids -> "<" <> n <> mconcat (map prop ps) <> ">" <> mconcat (map go kids) <> "</" <> n <> ">"
+      Elem ns (ElemName n) ps kids -> "<" <> spaced ns n <> mconcat (map prop ps) <> ">" <> mconcat (map go kids) <> "</" <> n <> ">"
       Keyed _ (ElemName n) ps kids -> "<" <> n <> mconcat (map prop ps) <> ">" <> mconcat (map (go . snd) kids) <> "</" <> n <> ">"
       Widget _ -> "<widget>"
       Grafted _ -> "<grafted>"
@@ -38,3 +38,5 @@ render (HTML v) = go v
       TxtProp t -> quote t
       ViaTxtProp f a -> quote (f a)
     quote t = "\"" <> t <> "\""
+    -- An element in a namespace (SVG's) shows it.
+    spaced ns n = maybe n (\(Namespace u) -> "{" <> u <> "}" <> n) ns
