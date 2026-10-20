@@ -17,6 +17,8 @@
 --   commit.
 -- * Work the tree's own thread brings it (an emitter a synchronous effect
 --   notifies) runs there and then.
+-- * Work a program's worker brings it (an emitter a 'liftIO' notifies) is
+--   not run by that worker, which may be killed by it.
 -- * A failing program ends alone: the rest of the tree goes on.
 module Test.DriverContract (spec) where
 
@@ -25,9 +27,9 @@ import Control.Concurrent.MVar
 import Control.Exception (ErrorCall (..), SomeException, onException, throwIO)
 import Control.Monad (forever, void, when)
 import Control.Monad.Catch (try)
-import Control.Monad.Parallel (parallel, sequential)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.State.Class (get, modify, put)
+import Control.Monad.Parallel (parallel, sequential)
+import Control.Monad.State.Class (get, modify, put, state)
 import Data.Foldable (for_, traverse_)
 import Data.IORef
 import Data.Kind (Type)
@@ -135,36 +137,41 @@ onCapabilities = when rtsSupportsBoundThreads (setNumCapabilities 4)
 
 data Act
   = Note Text
-  | Hold (MVar ()) (MVar ())
-  -- ^ Holds the tree: signals, then waits in 'liftEffect'.
-  | Slow (MVar ()) (MVar ())
-  -- ^ Waits in 'liftIO' for the first, then signals the second.
-  | Stuck (MVar ()) (MVar ()) (MVar ())
-  -- ^ Waits in 'liftIO' for the second forever, signalling the first once
-  -- it waits (a worker killed before it starts runs none of its handlers)
-  -- and the third when killed.
+  | -- | Holds the tree: signals, then waits in 'liftEffect'.
+    Hold (MVar ()) (MVar ())
+  | -- | Waits in 'liftIO' for the first, then signals the second.
+    Slow (MVar ()) (MVar ())
+  | -- | Waits in 'liftIO' for the second forever, signalling the first once
+    -- it waits (a worker killed before it starts runs none of its handlers)
+    -- and the third when killed.
+    Stuck (MVar ()) (MVar ()) (MVar ())
   | Boom
-  | SelfKill (MVar ())
-  -- ^ Forks a program that kills itself (and signals when it has).
-  | ParStuck (MVar ()) (MVar ()) (MVar ()) (MVar ())
-  -- ^ Two branches that wait forever: each signals when it starts, and when
-  -- it is killed.
-  | ParFailsAtOnce (MVar ())
-  -- ^ A branch that fails at once, and one that notes it started; goes on
-  -- (past a wait) once it has caught the failure, and signals at the end.
-  | ParFailsLater (MVar ()) (MVar ()) (MVar ()) (MVar ()) (MVar ())
-  -- ^ A branch that fails once let go, and one that waits (signalling when
-  -- it waits, and when it is killed) and then changes the state; signals
-  -- once it has caught the failure.
+  | -- | Forks a program that kills itself (and signals when it has).
+    SelfKill (MVar ())
+  | -- | Two branches that wait forever: each signals when it starts, and when
+    -- it is killed.
+    ParStuck (MVar ()) (MVar ()) (MVar ()) (MVar ())
+  | -- | A branch that fails at once, and one that notes it started; goes on
+    -- (past a wait) once it has caught the failure, and signals at the end.
+    ParFailsAtOnce (MVar ())
+  | -- | A branch that fails once let go, and one that waits (signalling when
+    -- it waits, and when it is killed) and then changes the state; signals
+    -- once it has caught the failure.
+    ParFailsLater (MVar ()) (MVar ()) (MVar ()) (MVar ()) (MVar ())
   | Dispatch
+  | -- | Forks a program that notifies 'Tick' from its 'liftIO'. The third
+    -- 'Tick' kills the fork, signals the first, and once it has gone on,
+    -- the second.
+    TickFrom (MVar ()) (MVar ())
+  | Tick
 
 data Query a
   = Bump (Text -> a)
   | Current (Int -> a)
   | Hang (MVar ()) a
 
-logging :: IORef [Text] -> IORef [Text] -> HS.Emitter IO Act -> HS.Listener IO Act -> H.Component Query () Void IO
-logging texts logRef acts self =
+logging :: IORef [Text] -> IORef [Text] -> IORef (Maybe (ForkId, MVar (), MVar ())) -> HS.Emitter IO Act -> HS.Listener IO Act -> H.Component Query () Void IO
+logging texts logRef ticker acts self =
   H.mkComponent
     H.ComponentSpec
       { initialState = \_ -> pure (0 :: Int)
@@ -210,11 +217,11 @@ logging texts logRef acts self =
             <*> parallel (liftIO ((putMVar started2 () >> forever (threadDelay 1_000_000)) `onException` putMVar killed2 ()) :: H.HalogenM Int Act Empty Void IO ())
       ParFailsAtOnce done -> do
         result <-
-          try $
-            sequential $
-              (,)
-                <$> parallel (H.liftEffect (throwIO (ErrorCall "first")) :: H.HalogenM Int Act Empty Void IO ())
-                <*> parallel (note "second started")
+          try
+            $ sequential
+            $ (,)
+              <$> parallel (H.liftEffect (throwIO (ErrorCall "first")) :: H.HalogenM Int Act Empty Void IO ())
+              <*> parallel (note "second started")
         for_ (either (\(_ :: SomeException) -> Just ()) (const Nothing) result) $ \() -> note "caught"
         -- Still running, so that a sibling let go would run too.
         liftIO (pure ())
@@ -222,16 +229,36 @@ logging texts logRef acts self =
         H.liftEffect (putMVar done ())
       ParFailsLater gate1 started2 gate2 killed2 caught -> do
         result <-
-          try $
-            sequential $
-              (,)
-                <$> parallel (liftIO (takeMVar gate1 >> throwIO (ErrorCall "first")) :: H.HalogenM Int Act Empty Void IO ())
-                <*> parallel (liftIO ((putMVar started2 () >> takeMVar gate2) `onException` putMVar killed2 ()) >> modify (+ 1) >> note "sibling went on")
+          try
+            $ sequential
+            $ (,)
+              <$> parallel (liftIO (takeMVar gate1 >> throwIO (ErrorCall "first")) :: H.HalogenM Int Act Empty Void IO ())
+              <*> parallel (liftIO ((putMVar started2 () >> takeMVar gate2) `onException` putMVar killed2 ()) >> modify (+ 1) >> note "sibling went on")
         for_ (either (\(_ :: SomeException) -> Just ()) (const Nothing) result) $ \() -> note "caught"
         H.liftEffect (putMVar caught ())
       Dispatch -> do
         H.liftEffect (HS.notify self (Note "handled while dispatched"))
         note "dispatched"
+      TickFrom killed wentOn -> do
+        fid <- H.fork $ forever $ do
+          liftIO (threadDelay 1_000)
+          -- Notified from the fork's worker: that thread must not run the
+          -- loop, since the work it brings may kill the fork, and it with it.
+          liftIO (HS.notify self Tick)
+        H.liftEffect (writeIORef ticker (Just (fid, killed, wentOn)))
+      Tick -> do
+        n <- state (\k -> (k + 1, k + 1))
+        when (n == 3) $
+          H.liftEffect (readIORef ticker)
+            >>= traverse_
+              ( \(fid, killed, wentOn) -> do
+                  H.kill fid
+                  -- Were this handler running on the fork's worker, the kill would
+                  -- land here, in its wait.
+                  H.liftEffect (putMVar killed () >> threadDelay 20_000)
+                  note "went on after the kill"
+                  H.liftEffect (putMVar wentOn ())
+              )
     handleQuery :: Query a -> H.HalogenM Int Act Empty Void IO (Maybe a)
     handleQuery = \case
       Bump k -> do
@@ -250,8 +277,9 @@ withLogging body = do
   onCapabilities
   texts <- newIORef []
   logRef <- newIORef []
+  ticker <- newIORef Nothing
   HS.Subscribe {HS.listener, HS.emitter} <- HS.create
-  socket <- AD.runUI (walking texts) (logging texts logRef emitter listener) ()
+  socket <- AD.runUI (walking texts) (logging texts logRef ticker emitter listener) ()
   body listener socket texts logRef
 
 busyTree :: IO ()
@@ -359,6 +387,15 @@ parallelFailsLater = withLogging $ \acts socket _ logRef -> do
   threadDelay 10_000
   ask socket (Current id) >>= assertEqual "the sibling changed nothing" (Just 0)
   readIORef logRef >>= assertEqual "and did not go on" ["caught"]
+
+workerNotify :: IO ()
+workerNotify = withLogging $ \acts _ _ logRef -> do
+  killed <- newEmptyMVar
+  wentOn <- newEmptyMVar
+  HS.notify acts (TickFrom killed wentOn)
+  within "the kill" (takeMVar killed)
+  within "the handler to go on" (takeMVar wentOn)
+  readIORef logRef >>= assertEqual "the handler that killed the fork finished" ["went on after the kill"]
 
 nestedDispatch :: IO ()
 nestedDispatch = withLogging $ \acts _ _ logRef -> do
@@ -626,6 +663,7 @@ spec =
     it "never starts a parallel branch after its sibling failed" parallelFailsAtOnce
     it "cancels a parallel branch whose sibling failed later" parallelFailsLater
     it "runs work an effect brings the tree there and then" nestedDispatch
+    it "finishes a handler that kills the fork whose worker brought it" workerNotify
     it "takes back the children made by a render pass that failed" failedPass
     it "takes back the children made by a render pass that failed removing others" failedRemoval
     it "initializes the rest when an initializer fails, and ends a finalizer's forks with it" lifecycle
