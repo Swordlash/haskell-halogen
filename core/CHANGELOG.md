@@ -9,6 +9,11 @@ and `SVGset`, so `SA.fillAnim` types on them); `SE.mask` takes its own row,
 take `xlinkHref`. Every SVG element takes focus, touch and `onTransitionEnd`
 handlers, `<svg>` and `<image>` `onLoad` and `onError`; `<path>`,
 `<circle>`, `<ellipse>`, `<line>` and `<rect>` take `pathLength`.
+`<marker>` takes `viewBox` and `preserveAspectRatio` (and lost the
+`strokeWidth` it had twice, which made every typed attribute on it fail);
+`<svg>`, `<polygon>`, `<polyline>`, `<image>` and `<foreignObject>` take
+`transform`; the animations take `href` and `xlinkHref`; `<mpath>` takes the
+global attributes and `href`.
 
 The browser bindings (`Web.Event.Event`, `Web.HTML.Window`,
 `Web.HTML.HTMLDocument`, `Control.Monad.UUID`) are declared once, without CPP,

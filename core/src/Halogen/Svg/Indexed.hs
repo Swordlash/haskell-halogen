@@ -201,6 +201,7 @@ type SVGsvg =
             .+ "height" .== Double
             .+ "viewBox" .== Text
             .+ "preserveAspectRatio" .== Text
+            .+ "transform" .== Text
             .+ "onLoad" .== Event
             .+ "onError" .== Event
         )
@@ -219,6 +220,7 @@ type SVGforeignObject =
             .+ "y" .== Double
             .+ "height" .== Double
             .+ "width" .== Double
+            .+ "transform" .== Text
         )
     )
 
@@ -227,11 +229,12 @@ type SVGmarker =
     ( AllPresentationAttributes
         ( "markerWidth" .== Double
             .+ "markerHeight" .== Double
-            .+ "strokeWidth" .== Double
             .+ "refX" .== Double
             .+ "refY" .== Double
             .+ "orient" .== Text
             .+ "markerUnits" .== Text
+            .+ "viewBox" .== Text
+            .+ "preserveAspectRatio" .== Text
         )
     )
 
@@ -309,6 +312,7 @@ type SVGpolyline =
                 ( MarkerAttributes
                     ( "points" .== Text
                         .+ "pathLength" .== Double
+                        .+ "transform" .== Text
                     )
                 )
             )
@@ -323,6 +327,7 @@ type SVGpolygon =
                 ( MarkerAttributes
                     ( "points" .== Text
                         .+ "pathLength" .== Double
+                        .+ "transform" .== Text
                     )
                 )
             )
@@ -439,6 +444,8 @@ type AnimationAttributes r =
         .+ "dur" .== Text
         .+ "repeatCount" .== Text
         .+ "fill" .== Text
+        .+ "href" .== Text
+        .+ "xlinkHref" .== Text
         .+ r
     )
 -- ^ Unlike `fill` in `GlobalAttributes`, `fill` in `AnimationAttributes` is
@@ -461,12 +468,12 @@ type SVGimage =
         .+ "href" .== Text
         .+ "xlinkHref" .== Text
         .+ "preserveAspectRatio" .== Text
+        .+ "transform" .== Text
         .+ "onLoad" .== Event
         .+ "onError" .== Event
     )
 
--- TODO should this have GlobalAttributes?
-type SVGmpath = ("xlinkHref" .== Text)
+type SVGmpath = GlobalAttributes ("href" .== Text .+ "xlinkHref" .== Text)
 
 --------------------------------------------------------------------------------
 

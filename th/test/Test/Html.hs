@@ -77,6 +77,16 @@ spec = do
           , SE.circle [SA.pathLength 5, SA.r 1]
           , SE.use [SA.xlinkHref "#a"]
           ]
+    it "a marker's viewBox, mpath's id, transform on a polygon, href on an animation, lengths with units" $ do
+      let ts = [SA.Translate 1 2]
+      [svg|<g><marker viewBox={{ (0, 0, 10, 10) }}></marker><animateMotion dur="1s"><mpath id="m" xlink:href="#p"/></animateMotion><polygon points="0,0 1,0 1,1" transform={{ ts }}/><animate href="#c" attributeName="r"/><rect width="100%" height="10em" x="1"/></g>|]
+        `same` SE.g []
+          [ SE.marker [SA.viewBox 0 0 10 10] []
+          , SE.animateMotion [HP.attr (AttrName "dur") "1s"] [SE.mpath [SA.id "m", SA.xlinkHref "#p"]]
+          , SE.polygon [HP.attr (AttrName "points") "0,0 1,0 1,1", SA.transform ts]
+          , SE.animate [SA.href "#c", HP.attr (AttrName "attributeName") "r"]
+          , SE.rect [HP.attr (AttrName "width") "100%", HP.attr (AttrName "height") "10em", SA.x 1]
+          ]
     it "a viewBox written as text, and a foreignObject holding HTML" $
       [hh|<svg viewBox="0 0 10 10"><foreignObject><div class="x">hi<br></div></foreignObject></svg>|]
         `same` SE.svg [HP.attr (AttrName "viewBox") "0 0 10 10"] [SE.foreignObject [] [HH.div [HP.class_ (ClassName "x")] [HH.text "hi", HH.br_]]]

@@ -227,7 +227,9 @@ attrExp dialect tag known env holes ln (Attr name value) = case event lower of
     Just (DoubleProp n) -> case (ps, single) of
       (_, Just i) -> AppE (VarE n) <$> hole i
       ([Lit l], _) | Just d <- readMaybe (T.unpack l) -> pure (AppE (VarE n) (LitE (RationalL (toRational (d :: Double)))))
-      _ -> bad (name <> " takes a number, or a Double in {{ }}")
+      -- A length with its unit (@100%@, @10em@), or anything else written:
+      -- as written.
+      _ -> attr
     Just (TypedProp n) -> case single of
       Just i -> AppE (VarE n) <$> hole i
       Nothing -> attr

@@ -16,7 +16,8 @@
   a colour; `fontStretch`, `fontVariant`, `path`, `markerUnits`,
   `maskUnits` and `maskContentUnits` are typed too, and an `<SVG>` written
   in upper case in HTML is the `svg` element. A `<circle>` may hold an
-  animation (`SE.circleNode`).
+  animation (`SE.circleNode`). A numeric attribute written with a unit
+  (`width="100%"`, `height="10em"`) is an attribute as written, not an error.
 
 * An element with no function of its own (`<stop>`, `<linearGradient>`, a
   custom element) takes the attributes any element has: its class, style,
