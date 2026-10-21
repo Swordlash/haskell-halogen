@@ -18,6 +18,7 @@ AI usage disclaimer: All code until tag `0.9.0` was hand-written. Any later comm
 | --- | --- | --- |
 | [core/](core/) | `haskell-halogen-core` | The Halogen port itself: components, VDom, events, SVG, layouts. |
 | [hooks/](hooks/) | `haskell-halogen-hooks` | A port of `purescript-halogen-hooks`: a component as one function. |
+| [router/](router/) | `haskell-halogen-router` | Routing by the page's address: a port of `purescript-routing-duplex`, joined to the browser's history. |
 | [material/](material/) | `haskell-halogen-material` | Google Material Components bindings. |
 | [pixi/](pixi/) | `haskell-halogen-pixi` | A PixiJS v8 canvas rendering backend. |
 | [jsbits/](jsbits/) | `haskell-halogen-jsbits` | Compile-time embedding of shared browser JavaScript into WASM FFI. |
@@ -27,7 +28,7 @@ AI usage disclaimer: All code until tag `0.9.0` was hand-written. Any later comm
 | [th-plugin/](th-plugin/) | `haskell-halogen-th-plugin` | A GHC plugin that expands the quotes as a module is parsed, so every error, type errors included, is at its place in the file. |
 | [examples/](examples/) | `halogen-example-*` | One runnable browser app per library, and `all`, which mounts them in one page. |
 
-`hooks`, `material`, `pixi`, `hspec-halogen` and `th` depend on `core`; `sound` is
+`hooks`, `router`, `material`, `pixi`, `hspec-halogen` and `th` depend on `core`; `sound` is
 independent of those runtime libraries. WASM backends also use the `jsbits`
 compile-time helper. `th` builds natively and for WebAssembly, not with the JavaScript
 backend, which cannot build `ghc-lib-parser`. Every package builds from the one `cabal.project` at the
@@ -140,6 +141,25 @@ argument.
 To show it in the deployed gallery as well, put its component in a library module
 (`src/Example/<Name>.hs`, as the existing examples do, with `Main.hs` only starting it), depend on
 that library from `examples/all`, and add a route to `examples/all/Gallery.hs`.
+
+## Routing
+
+`haskell-halogen-router` is a port of `purescript-routing-duplex`: a route codec both parses an
+address and prints it, and the codec of a sum type is derived from one codec per constructor:
+
+```haskell
+data Route = Home | Post Int deriving stock (Generic)
+
+route :: RouteDuplex' Route
+route = root $ sum $ #Home .= noArgs .| #Post .= path "post" (int segment)
+```
+
+`Halogen.Router` joins it to the browser's history: `newRouter base fallback route` (a base path
+such as `/project/`, which `pageBase` reads from the page's `<base href>`), `current`, `navigate`,
+`redirect`, a `changes` emitter fed by those and by `popstate`, and `link`/`follow` for links a
+component follows without loading a page. `newHashRouter` routes by fragment instead. Natively the
+address is kept in memory, so `Halogen.Static` can render a page for each route, as the gallery's
+prerender does.
 
 ## Hooks
 

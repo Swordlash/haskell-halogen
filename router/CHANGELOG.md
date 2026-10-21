@@ -1,0 +1,26 @@
+# Changelog for `haskell-halogen-router`
+
+## 0.1.0.0 -- unreleased
+
+* First version. `Halogen.Router.Duplex` is a port of the core of
+  `purescript-routing-duplex`: a `RouteDuplex` both parses an address into
+  a route and prints a route as an address, built from `root`, `path`,
+  `prefix`, `suffix`, `segment`, `param`, `flag`, `int`, `string`,
+  `boolean`, `as`, `optional`, `many`, `many1`, `rest` and `end`, with
+  `lmap` and the `Applicative` instance for routes with several parts.
+  Unlike the original, a route is read only when the whole path has been
+  consumed, and the parser backtracks, so the order of alternatives
+  matters only between two that both read an address.
+* `Halogen.Router.Duplex.Generic.sum` derives the codec of a sum type with
+  `GHC.Generics`, from one codec per constructor under the constructor's
+  name (`#Home .= noArgs .| #Post .= …`). A constructor without a codec,
+  a codec of the wrong type and a label that names no constructor are
+  type errors.
+* `Halogen.Router` joins a codec to the browser's history: `newRouter` for
+  paths under a base path (`pageBase` reads it from the page's
+  `<base href>`), `newHashRouter` for the fragment, `current`, `navigate`
+  and `redirect` (`pushState` and `replaceState`), `changes`, one emitter
+  per router carrying its navigations and the browser's `popstate`, and
+  `href`, `link` and `follow` for links a component follows without
+  loading a page. Natively the address is kept in memory, so a page can be
+  rendered for any route with `Halogen.Static`.

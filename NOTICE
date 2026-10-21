@@ -44,6 +44,14 @@ Adapted from the PureScript Halogen library and its peer libraries.
 **Licensed under MIT** (the `Halogen.Hooks.Extra` modules):
 - https://github.com/JordanMartinez/purescript-halogen-hooks-extra
 
+### `haskell-halogen-router` — see [router/NOTICE](router/NOTICE)
+
+**Licensed under MIT:**
+- https://github.com/natefaubion/purescript-routing-duplex
+
+**Licensed under Apache 2.0** (the model for the history half, `Halogen.Router`):
+- https://github.com/purescript-contrib/purescript-routing
+
 ### `haskell-halogen-material`, `haskell-halogen-pixi`
 
 Bindings to third-party JavaScript libraries — Google's Material Components for the Web and

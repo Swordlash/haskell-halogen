@@ -10,5 +10,7 @@ haddock-style-module:
 let-style: inline
 in-style: right-align
 respectful: false
-fixities: []
+# The router's codec-list operators (Halogen.Router.Duplex.Generic), which
+# fourmolu cannot see the fixities of from a module that only imports them.
+fixities: ["infix 7 .=", "infixr 5 .|"]
 unicode: never

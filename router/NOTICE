@@ -1,0 +1,61 @@
+This project, `haskell-halogen-router`, is based on code from the PureScript routing-duplex
+library, licensed under MIT, and adapted to GHC Haskell.
+See https://github.com/natefaubion/purescript-routing-duplex for the original project
+(Copyright (c) 2018 Nathan Faubion).
+
+`Halogen.Router.Duplex` follows its `Routing.Duplex`, `Routing.Duplex.Parser` and
+`Routing.Duplex.Printer`: a codec is a printer and a parser built side by side, an address is
+taken apart into segments, query parameters and a fragment, and the combinators (`root`, `path`,
+`prefix`, `suffix`, `segment`, `param`, `flag`, `int`, `string`, `boolean`, `as`, `optional`,
+`many`, `many1`, `rest`, `end`) keep their names and meaning. `Halogen.Router.Duplex.Generic`
+follows `Routing.Duplex.Generic`.
+
+The history half, `Halogen.Router`, is modelled on the PushState and Hash interfaces of a second
+project, licensed under Apache 2.0:
+- https://github.com/purescript-contrib/purescript-routing
+
+It builds on `haskell-halogen-core`, which carries its own NOTICE covering the PureScript
+projects it was adapted from.
+
+The implementation differs where Haskell differs. The codec of a sum type is derived with
+`GHC.Generics`, from a type-indexed list of codecs labelled with the constructors' names
+(`#Home .= noArgs .| #Post .= …`), where the original reads a PureScript record through `Generic`
+and `RowToList`; a constructor takes at most one argument, and a missing codec or a label that
+names no constructor is a type error. A route is read only when the
+whole path has been consumed, and the parser backtracks over every reading of an address rather
+than committing to the first alternative that succeeds, so a route that is a prefix of another
+does not shadow it; a failed parse reports the failure that got furthest. Records of route parts
+are built with an `Applicative` instance and `lmap` rather than the original's record combinators,
+and there are no operators. The router keeps the address in memory natively, so that a page can
+be rendered for any route without a browser.
+
+---
+
+### **License Notices**
+#### **Apache 2.0 License**
+© 2025 Mateusz Goślinowski
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at:
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+#### **MIT-Licensed Code Attribution**
+This project includes portions of MIT-licensed code, from purescript-routing-duplex, Copyright
+(c) 2018 Nathan Faubion. The full MIT license text is included in that repository:
+
+> "Permission is hereby granted, free of charge, to any person obtaining a copy
+> of this software and associated documentation files (the 'Software'), to deal
+> in the Software without restriction, including without limitation the rights
+> to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+> copies of the Software, and to permit persons to whom the Software is
+> furnished to do so, subject to the following conditions:
+>
+> The above copyright notice and this permission notice shall be included in
+> all copies or substantial portions of the Software."
