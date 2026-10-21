@@ -5,6 +5,7 @@ packages:
   sound
   material
   hooks
+  router
   hspec-halogen
   th
   th-plugin

@@ -1,5 +1,7 @@
 module Halogen.VDom.Driver
   ( runUI
+  , renderSpec
+  , RenderState
   , MonadUI
   , module Halogen.IO.Driver
   )
@@ -145,6 +147,11 @@ runUI component i element = do
   document <- toDocument <$> (DOM.document =<< DOM.window)
   AD.runUI (renderSpec document element) component i
 
+-- | How 'runUI' renders: each component's HTML into a document, the root
+-- component's appended to the container. 'Halogen.IO.Driver.runUI' takes
+-- it with the component, which is how "Halogen.Static" renders a page into
+-- a document of its own rather than the window's. Disposing of the root
+-- takes its HTML out of the container again.
 renderSpec
   :: forall m
    . (DOM.MonadBrowserDOM m, MonadUnliftIO m)

@@ -112,6 +112,28 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-wasm-${{ env.WASM_GHC_VERSION }}-cabal-store-
 
+    # The repository's own packages built with the host GHC: what the
+    # examples' prerender executables need (core, jsbits, router, the
+    # examples they render), and what test-wasm's hspec-halogen runner needs.
+    # The store above only holds their dependencies, so without this they are
+    # compiled from scratch on every run. Keep in step with the same step in
+    # the build-wasm job in build.yml.
+    #
+    # Unique per run so it is always written back, restored by prefix from
+    # the newest earlier run. Unlike the store, either job's tree is a valid
+    # start for the other's: both build into it with the same compiler, a
+    # tree with more or fewer components in it is just more or less to
+    # build, GHC (since 9.4) recompiles a module by its source's hash rather
+    # than its mtime, so a restored module is reused exactly where its source
+    # is unchanged, and cabal re-plans when the configuration has changed.
+    - name: Cache native build directory
+      uses: actions/cache@v5
+      with:
+        path: dist-newstyle/native
+        key: ${{ runner.os }}-wasm-native-build-${{ env.GHC_VERSION }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: |
+          ${{ runner.os }}-wasm-native-build-${{ env.GHC_VERSION }}-
+
     # The runner image already ships this GHC under ghcup, so this only sets
     # it as the default; it installs one if a later image does not. (Caching
     # it only unpacked a copy over the image's, which tar cannot re-time.)
@@ -128,8 +150,17 @@ jobs:
         cabal install alex happy --constraint='happy <2.2' --ignore-project --with-compiler="$(ghcup whereis ghc "$GHC_VERSION")" --installdir="$CABAL_DIR/bin" --install-method=copy --overwrite-policy=always
         echo "$CABAL_DIR/bin" >> "$GITHUB_PATH"
 
+    # Before the build, for the base path the site is served under (the
+    # repository's name, for a project site): every page the gallery's
+    # prerender writes, and every link in it, starts with it.
+    - name: Setup Pages
+      id: pages
+      uses: actions/configure-pages@v6
+
     - name: Build every example
       run: npm run build-wasm-all
+      env:
+        HALOGEN_BASE_PATH: ${{ steps.pages.outputs.base_path }}
 
     # The same browser test as the build-wasm job in build.yml, run here too
     # because the two workflows run side by side on a push to master: without
@@ -139,6 +170,8 @@ jobs:
 
     - name: Test the examples gallery in a browser
       run: npm run test-gallery
+      env:
+        HALOGEN_BASE_PATH: ${{ steps.pages.outputs.base_path }}
 
     # Only the gallery: it mounts every other example itself, so the site is
     # one page and one binary rather than an index linking four apps.
@@ -146,9 +179,6 @@ jobs:
       uses: actions/upload-pages-artifact@v5
       with:
         path: ./dist-newstyle/wasm/public/all
-
-    - name: Setup Pages
-      uses: actions/configure-pages@v6
 
     - name: Deploy to GitHub Pages
       id: deployment

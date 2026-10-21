@@ -315,6 +315,28 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-wasm-${{ env.WASM_GHC_VERSION }}-cabal-store-
 
+    # The repository's own packages built with the host GHC: what the
+    # examples' prerender executables need (core, jsbits, router, the
+    # examples they render), and what test-wasm's hspec-halogen runner needs.
+    # The store above only holds their dependencies, so without this they are
+    # compiled from scratch on every run. Keep in step with the same step in
+    # the build-deploy job in build-deploy.yml.
+    #
+    # Unique per run so it is always written back, restored by prefix from
+    # the newest earlier run. Unlike the store, either job's tree is a valid
+    # start for the other's: both build into it with the same compiler, a
+    # tree with more or fewer components in it is just more or less to
+    # build, GHC (since 9.4) recompiles a module by its source's hash rather
+    # than its mtime, so a restored module is reused exactly where its source
+    # is unchanged, and cabal re-plans when the configuration has changed.
+    - name: Cache native build directory
+      uses: actions/cache@v5
+      with:
+        path: dist-newstyle/native
+        key: ${{ runner.os }}-wasm-native-build-${{ env.GHC_VERSION }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: |
+          ${{ runner.os }}-wasm-native-build-${{ env.GHC_VERSION }}-
+
     # The runner image already ships this GHC under ghcup, so this only sets
     # it as the default; it installs one if a later image does not. (Caching
     # it only unpacked a copy over the image's, which tar cannot re-time.)

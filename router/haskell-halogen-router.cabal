@@ -1,0 +1,114 @@
+cabal-version:      3.0
+name:               haskell-halogen-router
+version:            0.1.0.0
+synopsis:           Routing by the page's address for haskell-halogen
+description:
+  Routes as bidirectional codecs, a port of the core of
+  purescript-routing-duplex: one value both parses an address into a route
+  and prints a route as an address, including the codec of a sum type
+  derived with GHC.Generics from a codec per constructor.
+  .
+  "Halogen.Router" joins a codec to the browser's history: the current
+  route, navigation with pushState and replaceState, an emitter of route
+  changes, and links that a component follows without loading a page. It
+  routes by path under a configurable base, or by fragment, and keeps the
+  address in memory natively, so a page can be rendered for any route.
+homepage:           https://github.com/Swordlash/haskell-halogen
+license:            Apache-2.0
+license-file:       LICENSE
+author:             Mateusz Goślinowski
+maintainer:         mateusz.goslinowski@gmail.com
+category:           Web
+extra-source-files: CHANGELOG.md, NOTICE, jsbits/*.js
+
+common defaults
+  default-language: GHC2021
+  ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture -Wredundant-constraints -Wunused-packages
+
+  default-extensions:
+      RankNTypes
+      GeneralizedNewtypeDeriving
+      MultiParamTypeClasses
+      FunctionalDependencies
+      FlexibleContexts
+      FlexibleInstances
+      UndecidableInstances
+      GADTs
+      DeriveFunctor
+      DerivingStrategies
+      NoImplicitPrelude
+      KindSignatures
+      DataKinds
+      OverloadedStrings
+      TypeOperators
+      LambdaCase
+      TypeFamilies
+      OverloadedRecordDot
+      RecordWildCards
+      NamedFieldPuns
+      DuplicateRecordFields
+      PartialTypeSignatures
+      DefaultSignatures
+      StandaloneKindSignatures
+      NoFieldSelectors
+      DerivingVia
+      CPP
+      StrictData
+      RequiredTypeArguments
+      ExplicitNamespaces
+
+library
+    import: defaults
+
+    build-depends:
+        base >= 4.20,
+        bytestring,
+        protolude,
+        row-types,
+        text,
+        unliftio,
+        haskell-halogen-core,
+        haskell-halogen-jsbits
+
+    exposed-modules:
+      Halogen.Router
+      Halogen.Router.Duplex
+      Halogen.Router.Duplex.Generic
+
+    hs-source-dirs:   src
+
+    if arch(javascript)
+      js-sources:
+        jsbits/router.js
+      ghc-options: -fexpose-all-unfoldings
+
+    if arch(wasm32)
+      ghc-options: -fexpose-all-unfoldings
+
+test-suite Halogen-router-test
+    import: defaults
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          Test.hs
+    build-depends:    haskell-halogen-router,
+                      hspec >= 2,
+                      protolude,
+                      QuickCheck,
+                      row-types,
+                      text
+
+    -- The router itself is tested over the in-memory address it keeps
+    -- natively; in a browser it is the browser's, which the examples
+    -- gallery's test drives.
+    if !arch(wasm32) && !arch(javascript)
+      build-depends:  base >= 4.20,
+                      haskell-halogen-core
+
+    other-modules:  Test.Duplex
+                    Test.Generic
+                    Test.Router
+
+source-repository head
+  type:     git
+  location: https://github.com/Swordlash/haskell-halogen.git
+  subdir:   router

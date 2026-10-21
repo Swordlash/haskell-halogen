@@ -2,11 +2,77 @@
 
 ## Unreleased
 
+- On the JavaScript backend, hashing a `Text`, a `ByteString` or a
+  `ShortByteString` with hashable (a `HashMap Text`, a row-types `Rec`)
+  no longer fails with `h$hs_XXH3_64bits_withSeed_offset is not defined`:
+  `jsbits/polyfills.js` provides the XXH3 functions hashable calls in C, as
+  a port of XXH3-64 that gives the same values as the C (see
+  `POLYFILLS.md`). Every program linking core gets them unless the
+  `js-polyfills` flag is off.
 - `Halogen.Canvas.Properties.alpha` (`Alpha`): how opaque an element is,
   from 0 to 1, multiplying the alpha of its own colours and passing on to
   everything inside it, so a sprite, a label or a whole group can fade in
   and out, which `FillStyle` and `StrokeStyle` could not do. An element
   without it is opaque, as before.
+- New module `Halogen.Static` (native only): `renderToHtml` renders a
+  component to HTML with no browser, for a page a server sends or a build
+  writes out ahead of its program. It is full server-side rendering: the
+  component is mounted with the browser's driver into an in-memory document,
+  its children and slots are built and its `Initialize` (and its
+  children's) run to the end, `liftIO` included, before the HTML is taken;
+  then the tree is disposed of, so its subscriptions end and its finalizers
+  run. `renderToHtmlWith` does the same for a component in an application
+  monad over `MemDOM`, given how to run it, and `fillMountPoint` puts the
+  HTML into a page's empty `<div id="…"></div>`. A component that does
+  browser things when it starts asks `Halogen.JSBits.inBrowser` first.
+  `Halogen.VDom.Driver` exports `renderSpec` (and `RenderState`), which
+  `Halogen.IO.Driver.runUI` takes to render into a document of one's own.
+- `Halogen.VDom.DOM.Monad.Native.renderToText` writes what the browser
+  would have to parse to build the same tree, and its output changes
+  accordingly. Properties are written as the attributes they reflect
+  (`className` as `class`, `htmlFor` as `for`, `tabIndex` as `tabindex`,
+  boolean ones such as `checked`, `disabled`, `selected` and `hidden` as an
+  attribute's presence, numbers as JavaScript's `Number::toString` spells
+  them: `1`, `0.1`, `1e-7`, `1e+21`), where they used to be left out; a
+  property and an attribute of the same name are written once, with the
+  property's value. A `textarea`'s `value` is written as its text and a
+  `select`'s marks the option it picks (an option without a `value` is
+  matched by its text with ASCII white space collapsed, a non-breaking
+  space kept, as in a browser). A property HTML has no attribute for
+  (`selectedIndex`, a custom element's) is still left out. Two adjacent
+  text nodes are separated by an empty comment, `<!---->`, so that a
+  client adopting the page can tell where one ends, except in `script`,
+  `style` and the other raw-text elements, where the comment would be
+  text. No `xmlns` is made up for an `svg` or a `math` element, whose tag
+  is what gives it its namespace, and an XLink attribute is written
+  `xlink:href` where it was written with its namespace's URI. `>` and
+  non-breaking spaces are escaped in attributes, and non-breaking spaces
+  in text, and a carriage return in either is written `&#13;`, which the
+  parser would otherwise turn into a line feed; the text of `script`,
+  `style` and the other raw-text elements is no longer escaped, a newline
+  that starts a `pre` or a `textarea` is kept, and `param`, `basefont`,
+  `bgsound`, `frame` and `keygen` are written without an end tag, as the
+  other void elements are.
+  What no markup can parse back into is refused with an error naming it,
+  so that a prerender fails rather than ship another page: a `plaintext`
+  element; a raw-text element (`script` and `style` included) whose text
+  holds its own end tag, which a script that needs one in a string writes
+  `<\/script` itself; U+0000 in text or an attribute; an element in a
+  namespace other than HTML's, SVG's and MathML's; and an element the
+  parser would not make where it is (an SVG element outside an `svg`, a
+  MathML one outside a `math`, HTML inside either other than at an
+  integration point such as `foreignObject`). The haddock lists what HTML
+  can only approximate until the program has started (a `select` whose
+  value matches no option, a `tr` straight under a `table`), and says
+  where the line is drawn: the markup is written as the browser's fragment
+  serialisation writes it, and a tree the parser would build differently,
+  an empty text node or a `p` holding a `div` for instance, comes back
+  different. Snapshot tests over `renderToText` may need
+  their expected HTML updated.
+- In the in-memory DOM, setting an element's text content replaces its
+  children with one text node (none for empty text), as in a browser,
+  where it used to change nothing a serialisation could see.
+
 - `Interaction` has a `fit` field: the size of a world rectangle that the
   camera at zoom 1 shows whole, centred on its focus, on whatever surface
   the renderer has, so a board of a fixed size fills a canvas the

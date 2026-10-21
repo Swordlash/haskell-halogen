@@ -226,7 +226,9 @@ library
       ghc-options: -fexpose-all-unfoldings
 
     else
-      exposed-modules: Halogen.VDom.DOM.Monad.Native
+      exposed-modules:
+        Halogen.Static
+        Halogen.VDom.DOM.Monad.Native
       
 
 test-suite Halogen-core-test
@@ -239,14 +241,17 @@ test-suite Halogen-core-test
       ghc-options:    -threaded -rtsopts
     build-depends:    base >= 4.20,
                       aeson,
+                      bytestring,
                       clay >= 0.16.0,
                       containers,
                       exceptions,
+                      hashable,
                       haskell-halogen-core,
                       hspec >= 2,
                       mtl,
                       row-types,
-                      text
+                      text,
+                      unordered-containers
     
     other-modules:  Test.Canvas
                     Test.CanvasMachine
@@ -256,9 +261,11 @@ test-suite Halogen-core-test
                     Test.DriverReentrancy
                     Test.Fork
                     Test.GHCJS
+                    Test.Hashable
                     Test.NativeDom
                     Test.RenderRecovery
                     Test.Runtime
+                    Test.Static
                     Test.Storage
                     Test.SvgAttributes
                     Test.Utils

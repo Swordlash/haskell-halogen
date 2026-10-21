@@ -18,6 +18,7 @@ AI usage disclaimer: All code until tag `0.9.0` was hand-written. Any later comm
 | --- | --- | --- |
 | [core/](core/) | `haskell-halogen-core` | The Halogen port itself: components, VDom, events, SVG, layouts. |
 | [hooks/](hooks/) | `haskell-halogen-hooks` | A port of `purescript-halogen-hooks`: a component as one function. |
+| [router/](router/) | `haskell-halogen-router` | Routing by the page's address: a port of `purescript-routing-duplex`, joined to the browser's history. |
 | [material/](material/) | `haskell-halogen-material` | Google Material Components bindings. |
 | [pixi/](pixi/) | `haskell-halogen-pixi` | A PixiJS v8 canvas rendering backend. |
 | [jsbits/](jsbits/) | `haskell-halogen-jsbits` | Compile-time embedding of shared browser JavaScript into WASM FFI. |
@@ -27,7 +28,7 @@ AI usage disclaimer: All code until tag `0.9.0` was hand-written. Any later comm
 | [th-plugin/](th-plugin/) | `haskell-halogen-th-plugin` | A GHC plugin that expands the quotes as a module is parsed, so every error, type errors included, is at its place in the file. |
 | [examples/](examples/) | `halogen-example-*` | One runnable browser app per library, and `all`, which mounts them in one page. |
 
-`hooks`, `material`, `pixi`, `hspec-halogen` and `th` depend on `core`; `sound` is
+`hooks`, `router`, `material`, `pixi`, `hspec-halogen` and `th` depend on `core`; `sound` is
 independent of those runtime libraries. WASM backends also use the `jsbits`
 compile-time helper. `th` builds natively and for WebAssembly, not with the JavaScript
 backend, which cannot build `ghc-lib-parser`. Every package builds from the one `cabal.project` at the
@@ -103,7 +104,10 @@ npm run test-gallery              # drive the built `all` in headless Chromium
 ```
 
 `all` is what GitHub Pages serves: every other example in one page and one binary, switched by the
-URL's fragment (`#/pixi`), so the back button, reloads and deep links work on a static host.
+URL's path (`/pixi/`) through `haskell-halogen-router`. The build writes an `index.html` for every
+route, each with the gallery's navigation already rendered into it, so the back button, reloads and
+deep links work on a static host with no 404 fallback; an old `#/pixi` link is redirected to its
+path.
 `test-gallery` needs a Chromium that Playwright can launch (`npx playwright install chromium`).
 
 `serve-wasm` opens <http://127.0.0.1:8080> automatically. Set `PORT` to choose another port, or
@@ -132,14 +136,44 @@ Build artifacts are kept in `dist-newstyle/native`, `dist-newstyle/javascript`,
 
 Create `examples/<name>/` with a `halogen-example-<name>.cabal` (executable named
 `halogen-example-<name>`), a `Main.hs`, and a `web/` directory holding `index.html` and an
-`index.js` that fetches `./app.wasm`. The `examples/*` glob in `cabal.project` picks the package up,
-and `toolchain/build-wasm-all.sh` picks up the directory. If the example needs bundling, add a
-`bundle.sh` beside it and the build script will run it, passing the output directory as its
-argument.
+`index.js` that fetches `./app.wasm`. `index.html` has an empty `<div id="app"></div>`, which
+`Main.hs` finds with `selectElement` and mounts the component into. The `examples/*` glob in
+`cabal.project` picks the package up, and `toolchain/build-wasm-all.sh` picks up the directory. If
+the example needs bundling, add a `bundle.sh` beside it and the build script will run it, passing
+the output directory as its argument.
+
+The page can arrive with the component already in it, before `app.wasm` has loaded. Add a native
+executable `halogen-example-<name>-prerender` (not buildable on the browser backends) that renders
+the component with `Halogen.Static.renderToHtml` and writes `index.html` with the HTML in `#app`:
+`build-wasm.sh` builds it with the host GHC and runs it as `<exe> examples/<name>/web/index.html
+<output dir>`. `examples/vanilla/Prerender.hs` is the smallest one; `examples/all/Prerender.hs`
+writes one page per route, under the base path in `HALOGEN_BASE_PATH` (`/` by default; the Pages
+deploy sets it to the site's). The program then renders the component afresh in place of the
+prerendered HTML, so its `Main.hs` empties `#app` before mounting.
 
 To show it in the deployed gallery as well, put its component in a library module
 (`src/Example/<Name>.hs`, as the existing examples do, with `Main.hs` only starting it), depend on
-that library from `examples/all`, and add a route to `examples/all/Gallery.hs`.
+that library from `examples/all`, add a constructor to `Route` in `examples/all/Gallery/Shell.hs`
+(its address is `/<slug>/`) and mount it in `examples/all/Gallery.hs`.
+
+## Routing
+
+`haskell-halogen-router` is a port of `purescript-routing-duplex`: a route codec both parses an
+address and prints it, and the codec of a sum type is derived from one codec per constructor:
+
+```haskell
+data Route = Home | Post Int deriving stock (Generic)
+
+route :: RouteDuplex' Route
+route = root $ sum $ #Home .== noArgs .+ #Post .== path "post" (int segment)
+```
+
+`Halogen.Router` joins it to the browser's history: `newRouter base fallback route` (a base path
+such as `/project/`, which `pageBase` reads from the page's `<base href>`), `current`, `navigate`,
+`redirect`, a `changes` emitter fed by those and by `popstate`, and `link`/`follow` for links a
+component follows without loading a page. `newHashRouter` routes by fragment instead. Natively the
+address is kept in memory, so `Halogen.Static` can render a page for each route, as the gallery's
+prerender does.
 
 ## Hooks
 
