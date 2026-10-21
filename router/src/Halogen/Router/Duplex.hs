@@ -363,9 +363,15 @@ as printValue parseValue (RouteDuplex enc dec) =
   RouteDuplex (enc . printValue) (dec >>= either (failWith . Invalid) pure . parseValue)
 
 -- | A whole number, in decimal.
+--
+-- One that does not fit an 'Int' is refused rather than wrapped round to
+-- another, which would route to a different id (and to a different one
+-- again on the JavaScript backend, whose 'Int' is 32 bits).
 int :: RouteDuplex' Text -> RouteDuplex' Int
 int = as show $ \t -> case TR.signed TR.decimal t of
-  Right (n, "") -> Right n
+  Right (n :: Integer, "")
+    | toInteger (minBound :: Int) <= n && n <= toInteger (maxBound :: Int) -> Right (fromInteger n)
+    | otherwise -> Left ("an Int cannot hold " <> t)
   _ -> Left ("not a whole number: " <> t)
 
 -- | Text as it is: only there to say so where a route is spelled out.

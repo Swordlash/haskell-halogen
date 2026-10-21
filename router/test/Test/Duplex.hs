@@ -86,5 +86,9 @@ spec = describe "route codecs" $ do
       parse (root (prefix "post" (int segment))) "/post" `shouldBe` Left EndOfPath
     it "reports the failure that got furthest from inside a repetition" $
       parse (root (many (int segment))) "/1/x" `shouldBe` Left (Invalid "not a whole number: x")
+    it "refuses a whole number that does not fit an Int" $ do
+      parse (root (int segment)) "/99999999999999999999" `shouldBe` Left (Invalid "an Int cannot hold 99999999999999999999")
+      parse (root (int segment)) (print (root (int segment)) maxBound) `shouldBe` Right (maxBound :: Int)
+      parse (root (int segment)) (print (root (int segment)) minBound) `shouldBe` Right (minBound :: Int)
     it "is told by end where a route stops" $
       parse (root (end (prefix "a" noArgs))) "/a/b" `shouldBe` Left (ExpectedEndOfPath "b")
