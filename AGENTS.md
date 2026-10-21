@@ -214,10 +214,18 @@ storage, …) is built only from public hooks.
   it in the state. Refs are looked up in the component that rendered them, which includes HTML a
   component renders for its parent (Tabs, List), so a fixed label can collide with a parent's.
 - A new example needs only `examples/<name>/` with `halogen-example-<name>.cabal`, `Main.hs` and
-  `web/` (`index.html` + `index.js` fetching `./app.wasm`); the `examples/*` glob and
-  `build-wasm-all.sh` pick it up. An optional `bundle.sh` beside it is run with the output directory
-  as its argument (the material example uses one to bundle its JS and CSS with esbuild and sass).
+  `web/` (`index.html` with a `<div id="app"></div>` that `Main.hs` mounts into, + `index.js`
+  fetching `./app.wasm`); the `examples/*` glob and `build-wasm-all.sh` pick it up. An optional
+  `bundle.sh` beside it is run with the output directory as its argument (the material example uses
+  one to bundle its JS and CSS with esbuild and sass). An optional native executable
+  `halogen-example-<name>-prerender` (`buildable: False` on the browser backends) is built with the
+  host GHC and run by `build-wasm.sh` as `<exe> examples/<name>/web/index.html <output dir>`, to write
+  the page with the component already rendered into `#app` by `Halogen.Static` (see `vanilla`, and
+  `all`, which writes a page per route under `HALOGEN_BASE_PATH`). Until hydration lands, `Main.hs`
+  empties `#app` before mounting.
 - Each example's component lives in a library module (`src/Example/<Name>.hs`); `Main.hs` only starts
-  it. `examples/all/Gallery.hs` mounts those components by route, so a new example appears on the
-  deployed site only once it is added there. `Gallery` is compiled for JS and wasm only, because
-  `BrowserDOM` has no DOM instances on native.
+  it. `examples/all/Gallery.hs` mounts those components by route (a path, through
+  `haskell-halogen-router`), so a new example appears on the deployed site only once it is added
+  there and to `Gallery.Shell`'s `Route`. `Gallery` is compiled for JS and wasm only, because
+  `BrowserDOM` has no DOM instances on native; `Gallery.Shell`, the page around the examples, also
+  compiles natively, for the prerender.

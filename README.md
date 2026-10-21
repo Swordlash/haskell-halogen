@@ -104,7 +104,10 @@ npm run test-gallery              # drive the built `all` in headless Chromium
 ```
 
 `all` is what GitHub Pages serves: every other example in one page and one binary, switched by the
-URL's fragment (`#/pixi`), so the back button, reloads and deep links work on a static host.
+URL's path (`/pixi/`) through `haskell-halogen-router`. The build writes an `index.html` for every
+route, each with the gallery's navigation already rendered into it, so the back button, reloads and
+deep links work on a static host with no 404 fallback; an old `#/pixi` link is redirected to its
+path.
 `test-gallery` needs a Chromium that Playwright can launch (`npx playwright install chromium`).
 
 `serve-wasm` opens <http://127.0.0.1:8080> automatically. Set `PORT` to choose another port, or
@@ -133,14 +136,25 @@ Build artifacts are kept in `dist-newstyle/native`, `dist-newstyle/javascript`,
 
 Create `examples/<name>/` with a `halogen-example-<name>.cabal` (executable named
 `halogen-example-<name>`), a `Main.hs`, and a `web/` directory holding `index.html` and an
-`index.js` that fetches `./app.wasm`. The `examples/*` glob in `cabal.project` picks the package up,
-and `toolchain/build-wasm-all.sh` picks up the directory. If the example needs bundling, add a
-`bundle.sh` beside it and the build script will run it, passing the output directory as its
-argument.
+`index.js` that fetches `./app.wasm`. `index.html` has an empty `<div id="app"></div>`, which
+`Main.hs` finds with `selectElement` and mounts the component into. The `examples/*` glob in
+`cabal.project` picks the package up, and `toolchain/build-wasm-all.sh` picks up the directory. If
+the example needs bundling, add a `bundle.sh` beside it and the build script will run it, passing
+the output directory as its argument.
+
+The page can arrive with the component already in it, before `app.wasm` has loaded. Add a native
+executable `halogen-example-<name>-prerender` (not buildable on the browser backends) that renders
+the component with `Halogen.Static.renderToHtml` and writes `index.html` with the HTML in `#app`:
+`build-wasm.sh` builds it with the host GHC and runs it as `<exe> examples/<name>/web/index.html
+<output dir>`. `examples/vanilla/Prerender.hs` is the smallest one; `examples/all/Prerender.hs`
+writes one page per route, under the base path in `HALOGEN_BASE_PATH` (`/` by default; the Pages
+deploy sets it to the site's). The program then renders the component afresh in place of the
+prerendered HTML, so its `Main.hs` empties `#app` before mounting.
 
 To show it in the deployed gallery as well, put its component in a library module
 (`src/Example/<Name>.hs`, as the existing examples do, with `Main.hs` only starting it), depend on
-that library from `examples/all`, and add a route to `examples/all/Gallery.hs`.
+that library from `examples/all`, add a constructor to `Route` in `examples/all/Gallery/Shell.hs`
+(its address is `/<slug>/`) and mount it in `examples/all/Gallery.hs`.
 
 ## Routing
 

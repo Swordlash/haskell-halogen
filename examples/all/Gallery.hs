@@ -1,11 +1,14 @@
 -- | Every example on one page, one at a time.
 --
--- Which one is showing lives in the URL's fragment, @#/pixi@ and so on, rather
--- than in the component's state alone. Following a link to a fragment adds a
--- history entry without loading a page, so the back and forward buttons, a
--- reload and a link from elsewhere all arrive at the right example, and a
--- static file server has only this one page to serve. The component reads the
--- fragment when it starts and again on every @hashchange@.
+-- Which one is showing lives in the URL's path, @\/pixi\/@ and so on under
+-- the site's base, read and written by a 'Router' ("Halogen.Router"): a link
+-- in the navigation goes there without loading a page, and the back and
+-- forward buttons, a reload and a link from elsewhere all arrive at the
+-- right example. The page around the examples is "Gallery.Shell", which the
+-- build also renders into each route's @index.html@.
+--
+-- The gallery used to route by fragment, @#\/pixi@; such a link, from
+-- before, is redirected to its path when the gallery starts.
 --
 -- Switching examples removes the previous one's slot, so this page also puts
 -- their finalizers to work: a subscription or a timer an example forgot to
@@ -15,8 +18,6 @@
 -- against 'BrowserDOM' itself, which on a host GHC has no DOM to speak.
 module Gallery (component) where
 
-import Clay qualified as C
-import Clay.Flexbox qualified as Flex
 import Data.Row (type (.+), type (.==))
 import Data.Text qualified as T
 import Example.Hooks qualified as Hooks
@@ -24,58 +25,17 @@ import Example.Material qualified as Material
 import Example.Pixi qualified as Pixi
 import Example.Quotes qualified as Quotes
 import Example.Vanilla qualified as Vanilla
+import Gallery.Shell (Route (..))
+import Gallery.Shell qualified as Shell
 import Halogen qualified as H
 import Halogen.HTML qualified as HH
-import Halogen.HTML.Properties qualified as HP
-import Halogen.Query.Event qualified as HQE
-import Halogen.Subscription qualified as HS
-import Halogen.VDom.DOM.Monad (BrowserDOM, window, windowToEventTarget)
+import Halogen.Router (Follow, Router)
+import Halogen.Router qualified as Router
+import Halogen.VDom.DOM.Monad (BrowserDOM, window)
 import Protolude
-import Web.Event.Event (EventType (..))
 import Web.HTML.Window qualified as Window
 
-data Example = Vanilla | Hooks | Pixi | Material | Quotes
-  deriving stock (Eq, Enum, Bounded)
-
-examples :: [Example]
-examples = [minBound .. maxBound]
-
--- | The fragment an example lives at, after the @#/@.
-slug :: Example -> Text
-slug = \case
-  Vanilla -> "vanilla"
-  Hooks -> "hooks"
-  Pixi -> "pixi"
-  Material -> "material"
-  Quotes -> "th"
-
-title :: Example -> Text
-title = \case
-  Vanilla -> "Vanilla"
-  Hooks -> "Hooks"
-  Pixi -> "Pixi"
-  Material -> "Material"
-  Quotes -> "Quotes"
-
-blurb :: Example -> Text
-blurb = \case
-  Vanilla -> "A counter in the grid-bag layout, and a debounced child component."
-  Hooks -> "Every hook in haskell-halogen-hooks, in one component."
-  Pixi -> "A PixiJS canvas scene reconciled like any other HTML."
-  Material -> "Material Components: tabs, lists, text fields, radios and checkboxes."
-  Quotes -> "HTML and CSS written as such, with Haskell inside: the hh and clay quoters of haskell-halogen-th."
-
--- | Nothing is the landing page: no fragment, @#/@, or one that names no
--- example.
-fromHash :: Text -> Maybe Example
-fromHash fragment = find ((== path) . slug) examples
-  where
-    path = T.dropWhile (== '/') (T.dropWhile (== '#') fragment)
-
-href :: Maybe Example -> Text
-href = ("#/" <>) . maybe "" slug
-
-data Action = Initialize | HashChanged
+data Action = Initialize | Arrived Route | Followed (Follow Route)
 
 type Slots =
   ("vanilla" .== H.Slot Vanilla.Query Int ())
@@ -84,71 +44,20 @@ type Slots =
     .+ ("material" .== H.Slot H.VoidF () ())
     .+ ("th" .== H.Slot H.VoidF () ())
 
-component :: H.Component H.VoidF () Void BrowserDOM
+component :: H.Component H.VoidF (Router Route) Void BrowserDOM
 component =
   H.mkComponent $
     H.ComponentSpec
-      { initialState = const (pure Nothing)
+      { initialState = \router -> (router,) <$> Router.current router
       , render
       , eval = H.mkEval $ H.defaultEval {H.handleAction = handleAction, H.initialize = Just Initialize}
       }
   where
-    render :: Maybe Example -> H.ComponentHTML Action Slots BrowserDOM
-    render current =
-      HH.div
-        [ HP.style $ do
-            C.display C.flex
-            C.flexDirection C.column
-            C.height (C.vh 100)
-            C.fontFamily ["system-ui"] [C.sansSerif]
-        ]
-        [ HH.nav
-            [ HP.style $ do
-                C.display C.flex
-                C.flexWrap Flex.wrap
-                C.alignItems C.center
-                C.padding (C.px 12) (C.px 20) (C.px 12) (C.px 20)
-                C.borderBottom (C.px 1) C.solid (C.rgb 0xd0 0xd0 0xd0)
-            ]
-            (navLink current Nothing "haskell-halogen" : map (\e -> navLink current (Just e) (title e)) examples)
-        , HH.main
-            [ HP.style $ do
-                C.flexGrow 1
-                C.position C.relative
-                C.overflow C.auto
-            ]
-            [maybe landing view current]
-        ]
+    render :: (Router Route, Route) -> H.ComponentHTML Action Slots BrowserDOM
+    render (router, current) = Shell.frame router Followed current [view router current]
 
-    navLink current target label =
-      HH.a
-        [ HP.href (href target)
-        , HP.style $ do
-            C.marginRight (C.px 20)
-            C.textDecoration C.none
-            C.color C.inherit
-            when (current == target) $ C.fontWeight C.bold
-            when (current /= target) $ C.opacity 0.7
-        ]
-        [HH.text label]
-
-    landing =
-      HH.div
-        [ HP.style $ do
-            C.maxWidth (C.px 680)
-            C.margin (C.px 0) C.auto (C.px 0) C.auto
-            C.padding (C.px 32) (C.px 20) (C.px 32) (C.px 20)
-        ]
-        [ HH.h1_ [HH.text "haskell-halogen examples"]
-        , HH.p_ [HH.text "Each one runs in this page, from the same WebAssembly binary. The back button works."]
-        , HH.ul
-            [HP.style $ C.paddingLeft (C.px 0) >> C.listStyleType C.none]
-            [ HH.li [HP.style $ C.marginBottom (C.px 12)] [HH.a [HP.href (href (Just e))] [HH.text (title e)], HH.text (" — " <> blurb e)]
-            | e <- examples
-            ]
-        ]
-
-    view = \case
+    view router = \case
+      Home -> Shell.landing router Followed
       Vanilla -> HH.slot_ "vanilla" () Vanilla.component ()
       Hooks -> HH.slot_ "hooks" () Hooks.app ()
       Pixi -> HH.slot_ "pixi" () Pixi.parent ()
@@ -157,10 +66,12 @@ component =
 
     handleAction = \case
       Initialize -> do
-        target <- lift (windowToEventTarget =<< window)
-        changes <- lift $ HS.lowerEmitter $ HQE.eventListener (EventType "hashchange") target (const (Just HashChanged))
-        void $ H.subscribe changes
-        handleAction HashChanged
-      HashChanged -> do
+        router <- gets fst
+        void $ H.subscribe (Arrived <$> Router.changes router)
+        -- A link from when the gallery routed by fragment: #/pixi is /pixi/.
         fragment <- lift (Window.locationHash =<< window)
-        put (fromHash fragment)
+        for_ (T.stripPrefix "#/" fragment >>= Shell.fromSlug) (Router.redirect router)
+      Arrived r -> modify (second (const r))
+      Followed f -> do
+        router <- gets fst
+        Router.follow router f

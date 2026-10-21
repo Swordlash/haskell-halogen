@@ -7,7 +7,7 @@ author:             Mateusz Goślinowski
 maintainer:         mateusz.goslinowski@gmail.com
 category:           Web
 
-executable halogen-example-all
+common shared
   default-language: GHC2021
   ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture -Wredundant-constraints -Wunused-packages
 
@@ -25,6 +25,8 @@ executable halogen-example-all
       RequiredTypeArguments
       TypeOperators
 
+executable halogen-example-all
+  import:           shared
   main-is:          Main.hs
   hs-source-dirs:   .
 
@@ -32,12 +34,15 @@ executable halogen-example-all
 
   -- The gallery only runs in a browser: on a host GHC, Main says so.
   if arch(wasm32) || arch(javascript)
-    other-modules: Gallery
+    other-modules:
+        Gallery
+        Gallery.Shell
     build-depends:
         clay >= 0.16.0,
         row-types,
         text,
         haskell-halogen-core,
+        haskell-halogen-router,
         halogen-example-hooks,
         halogen-example-material,
         halogen-example-pixi,
@@ -49,3 +54,28 @@ executable halogen-example-all
       -no-hs-main
       -optl-mexec-model=reactor
       "-optl-Wl,--export=hs_start"
+
+-- Every route's page, with the gallery's shell already rendered into it,
+-- written natively at build time (toolchain/build-wasm.sh runs it). Only a
+-- host GHC renders to HTML, so there is nothing to build on the browser
+-- backends.
+executable halogen-example-all-prerender
+  import:           shared
+  main-is:          Prerender.hs
+  hs-source-dirs:   .
+
+  if arch(wasm32) || arch(javascript)
+    buildable: False
+  else
+    other-modules: Gallery.Shell
+    build-depends:
+        base,
+        bytestring,
+        clay >= 0.16.0,
+        directory,
+        filepath,
+        protolude,
+        row-types,
+        text,
+        haskell-halogen-core,
+        haskell-halogen-router

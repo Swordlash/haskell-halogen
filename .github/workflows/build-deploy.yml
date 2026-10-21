@@ -128,8 +128,17 @@ jobs:
         cabal install alex happy --constraint='happy <2.2' --ignore-project --with-compiler="$(ghcup whereis ghc "$GHC_VERSION")" --installdir="$CABAL_DIR/bin" --install-method=copy --overwrite-policy=always
         echo "$CABAL_DIR/bin" >> "$GITHUB_PATH"
 
+    # Before the build, for the base path the site is served under (the
+    # repository's name, for a project site): every page the gallery's
+    # prerender writes, and every link in it, starts with it.
+    - name: Setup Pages
+      id: pages
+      uses: actions/configure-pages@v6
+
     - name: Build every example
       run: npm run build-wasm-all
+      env:
+        HALOGEN_BASE_PATH: ${{ steps.pages.outputs.base_path }}
 
     # The same browser test as the build-wasm job in build.yml, run here too
     # because the two workflows run side by side on a push to master: without
@@ -139,6 +148,8 @@ jobs:
 
     - name: Test the examples gallery in a browser
       run: npm run test-gallery
+      env:
+        HALOGEN_BASE_PATH: ${{ steps.pages.outputs.base_path }}
 
     # Only the gallery: it mounts every other example itself, so the site is
     # one page and one binary rather than an index linking four apps.
@@ -146,9 +157,6 @@ jobs:
       uses: actions/upload-pages-artifact@v5
       with:
         path: ./dist-newstyle/wasm/public/all
-
-    - name: Setup Pages
-      uses: actions/configure-pages@v6
 
     - name: Deploy to GitHub Pages
       id: deployment
