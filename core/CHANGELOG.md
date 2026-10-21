@@ -86,6 +86,15 @@
   page rendered from a state its `Initialize` changed is first rendered
   back to that state and then forward by the client's own initializer.
   `runUI` is unchanged.
+- `Halogen.Static.embed ident json` writes a
+  `<script type="application/json">` with that id holding the JSON text,
+  every `<` in it written `\u003c` so that nothing in the text can end the
+  script, and `Halogen.IO.Util.readEmbedded ident` reads the text of the
+  element with that id back in the browser. With them a server can put the
+  state it rendered a page in beside the page, for the component's
+  `initialState`, which runs in its monad, to start from instead of taking
+  the page back to its own first state. The format of the text is the
+  application's.
 - `Halogen.VDom.DOM.hydrateVDom` is `buildVDom` adopting a tree that is
   already there, from a node to start at; the machine it returns patches
   like any other. `VDomSpec` has a new field, `hydrateWidget`, its widgets'

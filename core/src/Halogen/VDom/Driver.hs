@@ -202,8 +202,9 @@ runUI component i element = do
 -- what the initial state renders, and the client's own initializer then
 -- renders it forward again, patching the adopted nodes. To start from
 -- where the server ended instead, the server writes that state into the
--- page and 'initialState', which runs in the component's monad, reads it
--- back from there.
+-- page ('Halogen.Static.embed') and 'initialState', which runs in the
+-- component's monad, reads it back from there
+-- ('Halogen.IO.Util.readEmbedded').
 --
 -- Initializers run afterwards as they do in 'runUI', and their renders are
 -- patches of the adopted tree.

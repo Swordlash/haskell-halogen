@@ -33,6 +33,9 @@ main = runBrowserTests $ do
   describe "Dispatch" (Test.Dispatch.spec BrowserDOM)
   describe "Drag" (Test.Drag.spec BrowserDOM)
   describe "Hydration" (Test.Hydrate.spec BrowserDOM)
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+  describe "Embedded state" (Test.Hydrate.embedSpec BrowserDOM)
+#endif
 
 #if defined(wasm32_HOST_ARCH) && !defined(INTERACTIVE)
 foreign export javascript "hs_start" main :: IO ()

@@ -3,13 +3,15 @@
 -- arrives with what "Halogen.Static" rendered. The core suite tests the
 -- same against the in-memory document, which has no parser; here the
 -- markup is what a parser makes of it, comments and all.
-module Test.Hydrate (spec) where
+module Test.Hydrate (spec, embedSpec) where
 
 import Data.Row (Empty, type (.==))
 import Halogen qualified as H
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
+import Halogen.IO.Util (readEmbedded)
+import Halogen.VDom.DOM.Monad (MonadBrowserDOM)
 import Protolude hiding (find)
 import Test.Hspec.Halogen
 
@@ -67,6 +69,17 @@ parent =
       , render = \_ ->
           HH.div_ [HH.h2_ [HH.text "parent"], HH.slot_ "child" () (static (HH.em_ [HH.text "child"])) (), HH.p_ [HH.text "after"]]
             :: H.ComponentHTML () Slots m
+      , eval = H.mkEval H.defaultEval
+      }
+
+-- | Starts from what the page embedded for it, as a component does that
+-- picks up where the server left off, and from nothing on a page without.
+resuming :: forall m. (MonadBrowserDOM m) => Text -> H.Component H.VoidF () Void m
+resuming ident =
+  H.mkComponent
+    H.ComponentSpec
+      { initialState = \_ -> fromMaybe "nothing embedded" <$> readEmbedded ident
+      , render = \txt -> HH.p_ [HH.text txt]
       , eval = H.mkEval H.defaultEval
       }
 
@@ -151,3 +164,28 @@ spec m = do
     ui <- hydrate m page parent ()
     find ui "h2" >>= (`shouldBeSameElement` heading)
     outerHTML (root ui) `shouldReturn` "<div><div><h2>parent</h2><em>child</em><p>after</p></div></div>"
+
+-- | What a component reads from the page when it starts. Apart from 'spec'
+-- because a component that reads the page asks for 'MonadBrowserDOM',
+-- which 'BrowserDOM' has only on the browser backends, where the suite
+-- runs it.
+embedSpec :: forall m -> (MonadBrowserTest m, MonadBrowserDOM m) => Spec
+embedSpec m = do
+  it "starts from the state the page embedded" $ runPage $ do
+    -- What Halogen.Static.embed writes for JSON text that holds a script's
+    -- end tag in a string: escaped, it does not end the script.
+    _ <- htmlContainer "<script type=\"application/json\" id=\"resumed-state\">{\"html\":\"\\u003c/script>\"}</script>"
+    page <- htmlContainer "<p>nothing embedded</p>"
+    paragraph <- findIn page "p"
+    ui <- hydrate m page (resuming "resumed-state") ()
+    find ui "p" >>= (`shouldBeSameElement` paragraph)
+    find ui "p" >>= (`shouldHaveText` "{\"html\":\"\\u003c/script>\"}")
+
+  it "finds an id a selector has to escape" $ runPage $ do
+    _ <- htmlContainer "<script type=\"application/json\" id=\"1.state:v2\">2</script>"
+    ui <- mount m (resuming "1.state:v2") ()
+    find ui "p" >>= (`shouldHaveText` "2")
+
+  it "starts from its own state on a page that embedded none" $ runPage $ do
+    ui <- mount m (resuming "never-embedded") ()
+    find ui "p" >>= (`shouldHaveText` "nothing embedded")
