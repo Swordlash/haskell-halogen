@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `Halogen.Canvas.Properties.alpha` (`Alpha`): how opaque an element is,
+  from 0 to 1, multiplying the alpha of its own colours and passing on to
+  everything inside it, so a sprite, a label or a whole group can fade in
+  and out, which `FillStyle` and `StrokeStyle` could not do. An element
+  without it is opaque, as before.
 - `Interaction` has a `fit` field: the size of a world rectangle that the
   camera at zoom 1 shows whole, centred on its focus, on whatever surface
   the renderer has, so a board of a fixed size fills a canvas the

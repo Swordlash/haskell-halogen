@@ -51,6 +51,7 @@ module Halogen.Canvas.Pixi.FFI
   , refreshOutline
   , setCacheAsTexture
   , clearCacheAsTexture
+  , setAlpha
   , addListener
   , removeListener
   , setEventMode
@@ -158,6 +159,7 @@ $( browserJS
      , ("refreshOutline", "halogen_pixi_refresh_outline", Unsafe, [t|Object -> IO ()|])
      , ("setCacheAsTexture", "halogen_pixi_set_cache_as_texture", Unsafe, [t|Application -> Object -> Double -> IO ()|])
      , ("clearCacheAsTexture", "halogen_pixi_clear_cache_as_texture", Unsafe, [t|Object -> IO ()|])
+     , ("setAlpha", "halogen_pixi_set_alpha", Unsafe, [t|Object -> Double -> IO ()|])
      , ("onRaw", "halogen_pixi_on", Unsafe, [t|Object -> JSText -> Callback -> IO ()|])
      , ("offRaw", "halogen_pixi_off", Unsafe, [t|Object -> JSText -> Callback -> IO ()|])
      , ("setEventModeRaw", "halogen_pixi_set_event_mode", Unsafe, [t|Object -> JSText -> IO ()|])
