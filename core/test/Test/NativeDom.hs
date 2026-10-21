@@ -29,12 +29,12 @@ import Data.IORef
 import Data.Text (Text)
 import Data.Void (Void, absurd)
 import Halogen.VDom.DOM (VDomSpec (..), buildVDom)
-import Halogen.VDom.DOM.Monad (MemDOM (..), appendChild, propertyEquals, runMemDOM, setProperty)
+import Halogen.VDom.DOM.Monad (MemDOM (..), appendChild, propertyEquals, runMemDOM, setProperty, setTextContent)
 import Halogen.VDom.DOM.Monad.Native qualified as N
 import Halogen.VDom.DOM.Prop (Prop (..), PropValue (..), buildProp)
 import Halogen.VDom.Machine (Step, extract)
 import Halogen.VDom.Machine qualified as M
-import Halogen.VDom.Types (ElemName (..), VDom (..))
+import Halogen.VDom.Types (ElemName (..), Namespace (..), VDom (..))
 import Test.Hspec (Spec, describe, it)
 import Test.Utils (assertEqual, assertWith)
 import Web.DOM.Internal.Types (Document, Element, Node)
@@ -118,6 +118,112 @@ spec = describe "native VDom" $ do
       s <- build vspec $ el "div" [] [el "br" [] [], el "img" [attr "src" "x.png"] []]
       assertEqual "markup" "<div><br><img src=\"x.png\"></div>" =<< snapshot s
 
+  describe "serialising" $ do
+    it "writes a renamed property under its attribute's name" $ do
+      (vspec, _) <- newSpec
+      s <- build vspec $ el "label" [Property "className" (TxtProp "a b"), Property "htmlFor" (TxtProp "box"), Property "tabIndex" (IntProp (2 :: Int))] []
+      assertEqual "markup" "<label class=\"a b\" for=\"box\" tabindex=\"2\"></label>" =<< snapshot s
+
+    it "writes a boolean property as an attribute's presence" $ do
+      (vspec, _) <- newSpec
+      s <-
+        build vspec
+          $ el
+            "div"
+            []
+            [ el "input" [Property "checked" (BoolProp True), Property "disabled" (BoolProp False), Property "readOnly" (BoolProp True)] []
+            , el "p" [Property "hidden" (BoolProp True)] []
+            , el "p" [Property "hidden" (BoolProp False)] []
+            ]
+      assertEqual "markup" "<div><input checked readonly><p hidden></p><p></p></div>" =<< snapshot s
+
+    it "spells an enumerated property as its attribute does" $ do
+      (vspec, _) <- newSpec
+      s <- build vspec $ el "p" [Property "draggable" (BoolProp True), Property "spellcheck" (BoolProp False), Property "translate" (BoolProp False)] []
+      assertEqual "markup" "<p draggable=\"true\" spellcheck=\"false\" translate=\"no\"></p>" =<< snapshot s
+
+    it "writes numbers as JavaScript does" $ do
+      (vspec, _) <- newSpec
+      s <- build vspec $ el "input" [Property "min" (NumProp 1), Property "max" (NumProp 2.5), Property "step" (NumProp 0.01)] []
+      assertEqual "markup" "<input max=\"2.5\" min=\"1\" step=\"0.01\">" =<< snapshot s
+
+    it "leaves out a property HTML has no attribute for" $ do
+      (vspec, _) <- newSpec
+      s <- build vspec $ el "select" [Property "selectedIndex" (IntProp (1 :: Int)), Property "indeterminate" (BoolProp True)] []
+      assertEqual "markup" "<select></select>" =<< snapshot s
+
+    it "lets a property win over an attribute of the same name" $ do
+      (vspec, _) <- newSpec
+      s <- build vspec $ el "input" [attr "value" "default", Property "value" (TxtProp "current"), attr "disabled" "", Property "disabled" (BoolProp False)] []
+      assertEqual "markup" "<input value=\"current\">" =<< snapshot s
+
+    it "writes a textarea's value as its text" $ do
+      (vspec, _) <- newSpec
+      s <- build vspec $ el "textarea" [Property "value" (TxtProp "a < b")] [Text "ignored"]
+      assertEqual "markup" "<textarea>a &lt; b</textarea>" =<< snapshot s
+
+    it "marks the option a select's value picks, and only the first" $ do
+      (vspec, _) <- newSpec
+      s <-
+        build vspec
+          $ el
+            "select"
+            [Property "value" (TxtProp "b")]
+            [ el "option" [Property "selected" (BoolProp True)] [Text "a"]
+            , el "optgroup" [] [el "option" [attr "value" "b"] [Text "Bee"]]
+            , el "option" [] [Text " b "]
+            ]
+      assertEqual "markup"
+        "<select><option>a</option><optgroup><option selected value=\"b\">Bee</option></optgroup><option> b </option></select>"
+        =<< snapshot s
+
+    it "names the namespace of an svg root, but not of its children" $ do
+      (vspec, _) <- newSpec
+      let svg name = Elem (Just (Namespace "http://www.w3.org/2000/svg")) (ElemName name)
+      s <- build vspec $ el "div" [] [svg "svg" [attr "viewBox" "0 0 1 1"] [svg "circle" [attr "r" "1"] []]]
+      assertEqual "markup"
+        "<div><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1 1\"><circle r=\"1\"></circle></svg></div>"
+        =<< snapshot s
+
+    it "prefixes an attribute in the XLink namespace" $ do
+      (vspec, _) <- newSpec
+      let xlink = Attribute (Just (Namespace "http://www.w3.org/1999/xlink")) . AttrName
+          svgNs = Just (Namespace "http://www.w3.org/2000/svg")
+      s <- build vspec $ Elem svgNs (ElemName "use") [xlink "xlink:href" "#a", xlink "title" "t"] []
+      assertEqual "markup"
+        "<use xmlns=\"http://www.w3.org/2000/svg\" xlink:title=\"t\" xlink:href=\"#a\"></use>"
+        =<< snapshot s
+
+    it "separates adjacent text nodes with an empty comment" $ do
+      (vspec, _) <- newSpec
+      s <- build vspec $ el "p" [] [Text "a", Text "b", el "br" [] [], Text "c", Text "", Text "d"]
+      assertEqual "markup" "<p>a<!---->b<br>c<!----><!---->d</p>" =<< snapshot s
+
+    it "leaves the text of a style or script unescaped, but not closable" $ do
+      (vspec, _) <- newSpec
+      s <- build vspec $ el "div" [] [el "style" [] [Text "a > b { content: \"&\" }"], el "script" [] [Text "x = '</SCRIPT>' && 1 < 2"]]
+      assertEqual "markup"
+        "<div><style>a > b { content: \"&\" }</style><script>x = '<\\/SCRIPT>' && 1 < 2</script></div>"
+        =<< snapshot s
+
+    it "escapes angle brackets and non-breaking spaces in attributes" $ do
+      (vspec, _) <- newSpec
+      s <- build vspec $ el "p" [attr "title" "<a>\xa0"] [Text "x\xa0y"]
+      assertEqual "markup" "<p title=\"&lt;a&gt;&nbsp;\">x&nbsp;y</p>" =<< snapshot s
+
+    it "keeps a newline that starts a pre" $ do
+      (vspec, _) <- newSpec
+      s <- build vspec $ el "pre" [] [Text "\nindented"]
+      assertEqual "markup" "<pre>\n\nindented</pre>" =<< snapshot s
+
+    it "empties an element whose text content is set, as the DOM does" $ do
+      (vspec, _) <- newSpec
+      s <- build vspec $ el "div" [] [el "p" [] [Text "prerendered"]]
+      runMemDOM $ setTextContent "" (extract s)
+      assertEqual "emptied" "<div></div>" =<< snapshot s
+      runMemDOM $ setTextContent "replaced" (extract s)
+      assertEqual "replaced" "<div>replaced</div>" =<< snapshot s
+
   describe "patching" $ do
     it "mutates the existing node when the tag is unchanged" $ do
       (vspec, _) <- newSpec
@@ -155,10 +261,10 @@ spec = describe "native VDom" $ do
       assertEqual "shrunk" "<ul><li>z</li></ul>" =<< snapshot s2
 
   describe "properties" $ do
-    it "sets properties without serialising them into markup" $ do
+    it "sets properties on the element, and writes them into markup as attributes" $ do
       (vspec, _) <- newSpec
       s <- build vspec $ el "input" [Property "value" (TxtProp "typed")] []
-      assertEqual "markup" "<input>" =<< snapshot s
+      assertEqual "markup" "<input value=\"typed\">" =<< snapshot s
       assertEqual "property is set" [("value", "typed")]
         =<< N.propertyList (N.toNative (extract s))
 

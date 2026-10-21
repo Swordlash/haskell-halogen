@@ -54,6 +54,7 @@ import HPrelude
 import Halogen.VDom.DOM.Monad.Class
 import Halogen.VDom.DOM.Monad.Mem
 import Halogen.VDom.Types
+import Numeric (showFFloat)
 import System.IO.Unsafe (unsafePerformIO)
 import Unsafe.Coerce (unsafeCoerce)
 import Web.DOM.Internal.Types
@@ -251,27 +252,290 @@ listenerTypes node = sort . map (.eventType) <$> readIORef node.listeners
 -- Serialisation
 --------------------------------------------------------------------------------
 
--- | Serialise a node and its descendants to HTML.
+-- | Serialise a node and its descendants to HTML: what the browser would
+-- have to parse to build the same tree, which is what a page rendered on a
+-- server ("Halogen.Static") sends ahead of its program.
 --
--- Properties are not serialised: the browser sets them on the live object
--- rather than reflecting them into markup, and the same is true here.
+-- __Properties.__ The reconciler sets most of what a component says about
+-- an element as properties, which the browser keeps on the live object
+-- rather than in markup, so they are written out here as the attribute
+-- each one reflects, where HTML has one:
+--
+-- * renamed ones under their attribute's name: @className@ as @class@,
+--   @htmlFor@ as @for@, @tabIndex@ as @tabindex@, @readOnly@ as @readonly@
+--   and so on;
+-- * boolean ones (@checked@, @disabled@, @selected@, @hidden@, @required@,
+--   @multiple@, …) as an attribute with no value when the property is
+--   true, and not at all when it is false, as JavaScript's truthiness would
+--   have it for a value that is not a boolean;
+-- * @draggable@ and @spellcheck@ as @\"true\"@ or @\"false\"@, and
+--   @translate@ as @\"yes\"@ or @\"no\"@, which is how those attributes are
+--   spelled;
+-- * @value@ as the @value@ attribute, except on a @textarea@, whose value
+--   is written as its text instead, and on a @select@, where the first
+--   @option@ with that value is marked @selected@ (the others are not), as
+--   setting the property does in a browser;
+-- * the remaining reflected ones (@id@, @href@, @src@, @type@, @name@,
+--   @placeholder@, @min@, @max@, …) under their own name, a number spelled
+--   as JavaScript spells it (@1@, not @1.0@).
+--
+-- A property and an attribute that land on the same name are written once,
+-- with the property's value: for @value@, @checked@ and @selected@ the
+-- property is what the element holds now and the attribute only what it
+-- started with. A property HTML has no attribute for (@selectedIndex@,
+-- @indeterminate@, @valueAsNumber@, one a custom element defines, …) is
+-- left out: markup cannot carry it, so a component that needs one in the
+-- prerendered page sets the attribute instead.
+--
+-- __Namespaces.__ An element in a namespace its parent is not in, an @svg@
+-- inside HTML above all, carries an @xmlns@ attribute naming it, so the
+-- markup still means the same thing cut out of its page. Attributes in the
+-- XLink, XML and XMLNS namespaces get the prefix the HTML parser expects.
+--
+-- __Text.__ Two text nodes next to each other are separated by an empty
+-- comment, @\<!---->@: the parser would merge them into one, and a client
+-- that adopts the page has to know where the boundary was. Text is escaped,
+-- except inside @script@ and @style@ and the other raw-text elements, whose
+-- text the parser does not unescape; there a @\<\/@ that would close the
+-- element early is written @\<\\\/@, which means the same thing in a script
+-- string and in CSS. A newline that starts a @textarea@ or a @pre@ is
+-- doubled, because the parser drops the first.
 renderToText :: NativeNode -> IO Text
-renderToText node = case node.kind of
-  TextNode -> escapeText <$> readIORef node.content
-  DocumentNode -> renderChildren node
-  ElementNode _ (ElemName name) -> do
-    attributes <- attributeList node
-    let open = "<" <> name <> foldMap renderAttribute attributes
-    if name `elem` voidElements
-      then pure (open <> ">")
-      else do
-        inner <- renderChildren node
-        pure $ open <> ">" <> inner <> "</" <> name <> ">"
-  where
-    renderChildren n = foldMap identity <$> (traverse renderToText =<< readIORef n.kids)
+renderToText node = do
+  context <- maybe (pure topContext) (contextWithin topContext) =<< readIORef node.parentRef
+  renderIn context node
 
-    renderAttribute ((ns, name), value) =
-      " " <> maybe "" (<> ":") ns <> name <> "=\"" <> escapeAttribute value <> "\""
+-- | What serialising a node depends on besides the node: where it sits.
+data Context = Context
+  { namespace :: Maybe Text
+  -- ^ The namespace the parser is in here; 'Nothing' is HTML.
+  , element :: Maybe Text
+  -- ^ The HTML element the node is a child of, if it is one.
+  , choice :: Maybe (Text, IORef Bool)
+  -- ^ Inside a @select@ whose @value@ property is set: that value, and
+  -- whether an @option@ has already taken it.
+  }
+
+topContext :: Context
+topContext = Context {namespace = Nothing, element = Nothing, choice = Nothing}
+
+-- | The context for the children of a node that is itself in this context.
+contextWithin :: Context -> NativeNode -> IO Context
+contextWithin outer parent = case parent.kind of
+  ElementNode ns (ElemName name) -> do
+    let namespace = htmlIsNothing ns
+        element = if isNothing namespace then Just name else Nothing
+    choice <- case element of
+      Just "select" ->
+        M.lookup "value" <$> readIORef parent.props >>= \case
+          Just v -> Just . (scalarAttribute v,) <$> newIORef False
+          Nothing -> pure Nothing
+      Just "optgroup" -> pure outer.choice
+      _ -> pure Nothing
+    pure Context {namespace, element, choice}
+  _ -> pure topContext
+
+renderIn :: Context -> NativeNode -> IO Text
+renderIn context node = case node.kind of
+  TextNode -> do
+    txt <- readIORef node.content
+    pure $ case context.element of
+      Just parent | parent `elem` rawTextElements -> rawText parent txt
+      _ -> escapeText txt
+  DocumentNode -> renderChildren topContext node
+  ElementNode ns (ElemName name) -> do
+    let namespace = htmlIsNothing ns
+        html = isNothing namespace
+    attributes <- readIORef node.attrs
+    properties <- readIORef node.props
+    picked <- case (context.choice, html && name == "option") of
+      (Just (wanted, taken), True) -> do
+        mine <- (== wanted) <$> optionValue node attributes properties
+        already <- readIORef taken
+        when (mine && not already) $ writeIORef taken True
+        pure $ Just (mine && not already)
+      _ -> pure Nothing
+    let ownsValue = html && name `elem` ["select", "textarea"]
+        reflected =
+          [ reflect r v
+          | (prop, v) <- M.toAscList properties
+          , not (ownsValue && prop == "value")
+          , Just r <- [M.lookup prop reflections]
+          ]
+        merged =
+          foldl' (\acc (key, v) -> M.alter (const v) (Nothing, key) acc) (Valued <$> attributes)
+            $ reflected
+            <> foldMap (\mine -> [("selected", if mine then Just Bare else Nothing)]) picked
+        xmlns = case namespace of
+          Just uri
+            | context.namespace /= namespace
+            , not (M.member (Nothing, "xmlns") merged) ->
+                renderAttribute ((Nothing, "xmlns"), Valued uri)
+          _ -> ""
+        open = "<" <> name <> xmlns <> foldMap renderAttribute (M.toAscList merged) <> ">"
+    if html && name `elem` voidElements
+      then pure open
+      else do
+        inner <- case (html && name == "textarea", M.lookup "value" properties) of
+          (True, Just v) -> pure (escapeText (scalarAttribute v))
+          _ -> do
+            inside <- contextWithin context node
+            renderChildren inside node
+        let kept
+              | html && name `elem` ["pre", "textarea", "listing"] && "\n" `T.isPrefixOf` inner = "\n" <> inner
+              | otherwise = inner
+        pure $ open <> kept <> "</" <> name <> ">"
+
+-- | The children in turn, with an empty comment between two text nodes.
+renderChildren :: Context -> NativeNode -> IO Text
+renderChildren context parent = do
+  children <- readIORef parent.kids
+  rendered <- traverse (renderIn context) children
+  let isText c = c.kind == TextNode
+      separators = "" : zipWith (\a b -> if isText a && isText b then "<!---->" else "") children (drop 1 children)
+  pure $ mconcat (zipWith (<>) separators rendered)
+
+-- | HTML elements are created with no namespace and parsed into the XHTML
+-- one: the two are the same place.
+htmlIsNothing :: Maybe Namespace -> Maybe Text
+htmlIsNothing = \case
+  Just (Namespace uri) | uri /= xhtmlNamespace -> Just uri
+  _ -> Nothing
+
+xhtmlNamespace :: Text
+xhtmlNamespace = "http://www.w3.org/1999/xhtml"
+
+-- | What an attribute holds once serialised: a boolean one has no value.
+data AttributeValue = Bare | Valued Text
+
+renderAttribute :: ((Maybe Text, Text), AttributeValue) -> Text
+renderAttribute ((ns, name), v) =
+  " " <> qualified <> case v of
+    Bare -> ""
+    Valued txt -> "=\"" <> escapeAttribute txt <> "\""
+  where
+    -- An attribute set with a namespace is set under a qualified name, which
+    -- usually carries its prefix already (@xlink:href@); the three
+    -- namespaces the HTML serialiser knows get theirs if it does not.
+    qualified = case ns of
+      Just "http://www.w3.org/1999/xlink" -> prefixed "xlink"
+      Just "http://www.w3.org/XML/1998/namespace" -> prefixed "xml"
+      Just "http://www.w3.org/2000/xmlns/" | name /= "xmlns" -> prefixed "xmlns"
+      _ -> name
+    prefixed prefix
+      | ":" `T.isInfixOf` name = name
+      | otherwise = prefix <> ":" <> name
+
+-- | How an option is matched against its select's value: its @value@, or
+-- failing that its text with the white space collapsed, as in a browser.
+optionValue :: NativeNode -> Map (Maybe Text, Text) Text -> Map Text PropScalar -> IO Text
+optionValue node attributes properties =
+  case (scalarAttribute <$> M.lookup "value" properties) <|> M.lookup (Nothing, "value") attributes of
+    Just v -> pure v
+    Nothing -> T.unwords . T.words <$> textOf node
+  where
+    textOf n = case n.kind of
+      TextNode -> readIORef n.content
+      _ -> mconcat <$> (traverse textOf =<< readIORef n.kids)
+
+-- | How a property reflects into markup; see 'renderToText'.
+data Reflection
+  = -- | The value as text, under this attribute name.
+    Plain Text
+  | -- | A boolean attribute: present, with no value, when the property is
+    -- truthy.
+    Presence Text
+  | -- | An enumerated attribute spelled @true@ or @false@.
+    TrueFalse Text
+  | -- | An enumerated attribute spelled @yes@ or @no@.
+    YesNo Text
+
+-- | The attribute a reflection writes, or 'Nothing' for none at all.
+reflect :: Reflection -> PropScalar -> (Text, Maybe AttributeValue)
+reflect r v = case r of
+  Plain name -> (name, Just (Valued (scalarAttribute v)))
+  Presence name -> (name, if truthy v then Just Bare else Nothing)
+  TrueFalse name -> (name, Just (Valued (spell "true" "false")))
+  YesNo name -> (name, Just (Valued (spell "yes" "no")))
+  where
+    spell yes no = case v of
+      ScalarBool b -> if b then yes else no
+      _ -> scalarAttribute v
+
+-- | JavaScript's truthiness, for a boolean property given something else.
+truthy :: PropScalar -> Bool
+truthy = \case
+  ScalarBool b -> b
+  ScalarText t -> not (T.null t)
+  ScalarInt i -> i /= 0
+  ScalarNum d -> not (d == 0 || isNaN d)
+
+-- | A property's value as the attribute it is reflected into would hold it:
+-- what JavaScript's @String()@ makes of it.
+scalarAttribute :: PropScalar -> Text
+scalarAttribute = \case
+  ScalarText t -> t
+  ScalarInt i -> show i
+  ScalarBool b -> if b then "true" else "false"
+  ScalarNum d
+    | isNaN d -> "NaN"
+    | isInfinite d -> if d > 0 then "Infinity" else "-Infinity"
+    | d == fromInteger (round d) && abs d < 1e21 -> show (round d :: Integer)
+    | otherwise -> toS (showFFloat Nothing d "")
+
+-- | The properties that have an HTML attribute, and how each is written.
+reflections :: Map Text Reflection
+reflections =
+  M.fromList
+    $ [(p, Plain p) | p <- sameName]
+    <> [(p, Plain a) | (p, a) <- renamed]
+    <> [(p, Presence (T.toLower p)) | p <- booleans]
+    <> [("draggable", TrueFalse "draggable"), ("spellcheck", TrueFalse "spellcheck"), ("translate", YesNo "translate")]
+  where
+    sameName =
+      concatMap
+        T.words
+        [ "abbr accept action allow alt autocapitalize autocomplete charset cite"
+        , "cols content coords decoding dir download enctype headers height high"
+        , "href hreflang id integrity kind label lang loading low max media"
+        , "method min name nonce optimum pattern ping placeholder popover poster"
+        , "preload rel role rows sandbox scope shape size sizes slot span src"
+        , "srcdoc srclang srcset start step style target title type value width"
+        , "wrap"
+        ]
+    renamed =
+      [ ("acceptCharset", "accept-charset")
+      , ("accessKey", "accesskey")
+      , ("className", "class")
+      , ("colSpan", "colspan")
+      , ("contentEditable", "contenteditable")
+      , ("crossOrigin", "crossorigin")
+      , ("dateTime", "datetime")
+      , ("dirName", "dirname")
+      , ("enterKeyHint", "enterkeyhint")
+      , ("fetchPriority", "fetchpriority")
+      , ("formAction", "formaction")
+      , ("formEnctype", "formenctype")
+      , ("formMethod", "formmethod")
+      , ("formTarget", "formtarget")
+      , ("htmlFor", "for")
+      , ("httpEquiv", "http-equiv")
+      , ("inputMode", "inputmode")
+      , ("maxLength", "maxlength")
+      , ("minLength", "minlength")
+      , ("referrerPolicy", "referrerpolicy")
+      , ("rowSpan", "rowspan")
+      , ("tabIndex", "tabindex")
+      , ("useMap", "usemap")
+      ]
+    booleans =
+      concatMap
+        T.words
+        [ "allowFullscreen async autofocus autoplay checked controls default"
+        , "defer disabled formNoValidate hidden inert isMap loop multiple muted"
+        , "noModule noValidate open playsInline readOnly required reversed"
+        , "selected"
+        ]
 
 -- | Elements that cannot have children and so take no closing tag.
 voidElements :: [Text]
@@ -291,18 +555,35 @@ voidElements =
   , "wbr"
   ]
 
+-- | Elements whose text the parser takes as it is, entities and all.
+rawTextElements :: [Text]
+rawTextElements = ["iframe", "noembed", "noframes", "plaintext", "script", "style", "xmp"]
+
+-- | The text of a raw-text element, which cannot be escaped: only a closing
+-- tag of the element itself would end it early, and @\<\\\/@ stands for
+-- @\<\/@ wherever such text could legitimately hold one.
+rawText :: Text -> Text -> Text
+rawText parent txt = case T.splitOn "</" txt of
+  [] -> txt
+  before : rest -> before <> foldMap (\s -> (if closes s then "<\\/" else "</") <> s) rest
+  where
+    closes s = T.toLower (T.take (T.length parent) s) == parent
+
 escapeText :: Text -> Text
 escapeText = T.concatMap $ \case
   '&' -> "&amp;"
   '<' -> "&lt;"
   '>' -> "&gt;"
+  '\xa0' -> "&nbsp;"
   c -> T.singleton c
 
 escapeAttribute :: Text -> Text
 escapeAttribute = T.concatMap $ \case
   '&' -> "&amp;"
   '<' -> "&lt;"
+  '>' -> "&gt;"
   '"' -> "&quot;"
+  '\xa0' -> "&nbsp;"
   c -> T.singleton c
 
 --------------------------------------------------------------------------------
@@ -375,7 +656,20 @@ instance MonadDOM MemDOM where
     writeIORef node.content txt
     pure (fromNative node)
 
-  setTextContent txt node = liftIO $ writeIORef (toNative node).content txt
+  -- As in the DOM: an element's text content replaces its children with
+  -- one text node (none at all for empty text), which is how a page empties
+  -- a mount point; a text node's is its data.
+  setTextContent txt node = liftIO $ do
+    let n = toNative node
+    case n.kind of
+      TextNode -> writeIORef n.content txt
+      DocumentNode -> pass
+      ElementNode {} -> do
+        traverse_ detach =<< readIORef n.kids
+        unless (T.null txt) $ do
+          text <- newNode TextNode
+          writeIORef text.content txt
+          insertNative text Nothing n
 
   createElement ns name _ = liftIO $ fromNative <$> newElement ns name
 

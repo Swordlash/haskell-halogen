@@ -7,6 +7,43 @@
   everything inside it, so a sprite, a label or a whole group can fade in
   and out, which `FillStyle` and `StrokeStyle` could not do. An element
   without it is opaque, as before.
+- New module `Halogen.Static` (native only): `renderToHtml` renders a
+  component to HTML with no browser, for a page a server sends or a build
+  writes out ahead of its program. It is full server-side rendering: the
+  component is mounted with the browser's driver into an in-memory document,
+  its children and slots are built and its `Initialize` (and its
+  children's) run to the end, `liftIO` included, before the HTML is taken;
+  then the tree is disposed of, so its subscriptions end and its finalizers
+  run. `renderToHtmlWith` does the same for a component in an application
+  monad over `MemDOM`, given how to run it, and `fillMountPoint` puts the
+  HTML into a page's empty `<div id="…"></div>`. A component that does
+  browser things when it starts asks `Halogen.JSBits.inBrowser` first.
+  `Halogen.VDom.Driver` exports `renderSpec` (and `RenderState`), which
+  `Halogen.IO.Driver.runUI` takes to render into a document of one's own.
+- `Halogen.VDom.DOM.Monad.Native.renderToText` writes what the browser
+  would have to parse to build the same tree, and its output changes
+  accordingly. Properties are written as the attributes they reflect
+  (`className` as `class`, `htmlFor` as `for`, `tabIndex` as `tabindex`,
+  boolean ones such as `checked`, `disabled`, `selected` and `hidden` as an
+  attribute's presence, numbers as JavaScript spells them), where they used
+  to be left out; a property and an attribute of the same name are written
+  once, with the property's value. A `textarea`'s `value` is written as its
+  text and a `select`'s marks the option it picks. A property HTML has no
+  attribute for (`selectedIndex`, a custom element's) is still left out.
+  Two adjacent text nodes are separated by an empty comment, `<!---->`, so
+  that a client adopting the page can tell where one ends. An element in a
+  namespace its parent is not in, an `svg` in HTML, carries `xmlns`, and an
+  XLink attribute is written `xlink:href` where it was written with its
+  namespace's URI. `>` and non-breaking spaces are escaped in attributes,
+  and non-breaking spaces in text; the text of `script`, `style` and the
+  other raw-text elements is no longer escaped (only a `</` that would
+  close them early is written `<\/`), and a newline that starts a `pre` or
+  a `textarea` is kept. Snapshot tests over `renderToText` may need their
+  expected HTML updated.
+- In the in-memory DOM, setting an element's text content replaces its
+  children with one text node (none for empty text), as in a browser,
+  where it used to change nothing a serialisation could see.
+
 - `Interaction` has a `fit` field: the size of a world rectangle that the
   camera at zoom 1 shows whole, centred on its focus, on whatever surface
   the renderer has, so a board of a fixed size fills a canvas the

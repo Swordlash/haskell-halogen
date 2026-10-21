@@ -226,7 +226,9 @@ library
       ghc-options: -fexpose-all-unfoldings
 
     else
-      exposed-modules: Halogen.VDom.DOM.Monad.Native
+      exposed-modules:
+        Halogen.Static
+        Halogen.VDom.DOM.Monad.Native
       
 
 test-suite Halogen-core-test
@@ -259,6 +261,7 @@ test-suite Halogen-core-test
                     Test.NativeDom
                     Test.RenderRecovery
                     Test.Runtime
+                    Test.Static
                     Test.Storage
                     Test.SvgAttributes
                     Test.Utils
