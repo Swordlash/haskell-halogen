@@ -12,8 +12,11 @@ The canvas follows its parent's size, not only the window's. Pixi's
 on its own (a bar above it taking another line, a panel opening beside it)
 left the canvas at its old size, stretched to the new one. The parent is
 now observed with a `ResizeObserver` where the browser has one, and the
-renderer resizes, and renders, in the frame the layout changed; the camera
-is applied again as on any other resize.
+renderer resizes at the next frame (as it does for the window); the camera
+is applied again as on any other resize. Not in the observer's own
+delivery: the resize runs the application's callback, and a change the
+page makes to the layout there is an observer loop, which the browser
+reports as an error on the window.
 
 A scene's `fit` (see core) is honoured wherever the camera meets the
 screen: the transform put on the world, a pan, a pinch and the wheel all

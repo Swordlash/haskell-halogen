@@ -13,9 +13,12 @@ function halogen_pixi_initialize_application(holder, moduleUrl, canvas, done) {
 // changes on its own (a bar above it grows, a panel opens) would leave the
 // canvas at its old size, stretched. Observe the parent itself as well. Its
 // first notification reports the size init has just taken, so a resize
-// happens only when the size differs from the screen's. Resizing at once,
-// rather than queued for the next frame, also renders at once: the frame
-// being laid out is painted at the new size, not stretched and then blank.
+// happens only when the size differs from the screen's. The resize is
+// queued for the next frame (Pixi's own queueResize), not done here: the
+// renderer's "resize" event runs the application's callback, and anything
+// it lets the page do to the layout (a render of the page around the
+// canvas, say) inside the observer's delivery is an observer loop, which
+// the browser reports as an error on the window.
 //
 // A parent taken out of the page (its example unmounted, say) is reported
 // too, at 0 by 0, before the application's teardown has run, while the scene
@@ -26,10 +29,10 @@ function halogen_pixi_observe_parent(holder, parent) {
   if (!parent || typeof ResizeObserver === "undefined") return;
   holder.observer = new ResizeObserver(function () {
     var app = holder.app;
-    if (!holder.ready || !app || !app.resize) return;
+    if (!holder.ready || !app || !app.queueResize) return;
     if (!parent.isConnected || parent.clientWidth === 0 || parent.clientHeight === 0) return;
     if (parent.clientWidth === app.screen.width && parent.clientHeight === app.screen.height) return;
-    app.resize();
+    app.queueResize();
   });
   holder.observer.observe(parent);
 }
