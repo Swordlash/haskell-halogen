@@ -30,14 +30,13 @@ where
 
 import Clay qualified as C
 import Clay.Flexbox qualified as Flex
-import Data.Row (Empty)
+import Data.Row (Empty, (.+), (.==))
 import Halogen qualified as H
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Properties qualified as HP
 import Halogen.Router (Follow, Router)
 import Halogen.Router qualified as Router
 import Halogen.Router.Duplex (RouteDuplex', noArgs, path, root)
-import Halogen.Router.Duplex.Generic ((.=), (.|))
 import Halogen.Router.Duplex.Generic qualified as Duplex
 import Protolude
 
@@ -52,17 +51,17 @@ route =
   root
     $ Duplex.sum
     $ #Home
-      .= noArgs
-      .| #Vanilla
-        .= page Vanilla
-      .| #Hooks
-        .= page Hooks
-      .| #Pixi
-        .= page Pixi
-      .| #Material
-        .= page Material
-      .| #Quotes
-        .= page Quotes
+      .== noArgs
+      .+ #Vanilla
+        .== page Vanilla
+      .+ #Hooks
+        .== page Hooks
+      .+ #Pixi
+        .== page Pixi
+      .+ #Material
+        .== page Material
+      .+ #Quotes
+        .== page Quotes
   where
     page r = path (slug r <> "/") noArgs
 

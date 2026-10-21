@@ -165,7 +165,7 @@ address and prints it, and the codec of a sum type is derived from one codec per
 data Route = Home | Post Int deriving stock (Generic)
 
 route :: RouteDuplex' Route
-route = root $ sum $ #Home .= noArgs .| #Post .= path "post" (int segment)
+route = root $ sum $ #Home .== noArgs .+ #Post .== path "post" (int segment)
 ```
 
 `Halogen.Router` joins it to the browser's history: `newRouter base fallback route` (a base path

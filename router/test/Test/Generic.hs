@@ -3,9 +3,10 @@
 -- | The codec of a sum type, derived from one codec per constructor.
 module Test.Generic (spec) where
 
+import Data.Row ((.+), (.==))
 import Data.Text qualified as T
 import Halogen.Router.Duplex
-import Halogen.Router.Duplex.Generic (sum, (.=), (.|))
+import Halogen.Router.Duplex.Generic (sum)
 import Protolude hiding (print, sum)
 import Test.Hspec (Spec, describe, it, shouldBe)
 import Test.Hspec.QuickCheck (prop)
@@ -34,17 +35,17 @@ route =
   root
     $ sum
     $ #Home
-      .= noArgs
-      .| #Post
-        .= path "post" (int segment)
-      .| #Tag
-        .= path "tag" segment
-      .| #Archive
-        .= path "archive" ((,) <$> lmap fst (int segment) <*> lmap snd (int segment))
+      .== noArgs
+      .+ #Post
+        .== path "post" (int segment)
+      .+ #Tag
+        .== path "tag" segment
+      .+ #Archive
+        .== path "archive" ((,) <$> lmap fst (int segment) <*> lmap snd (int segment))
       -- A prefix of Post's path, listed after it: the parser does not let one
       -- shadow the other.
-      .| #Posts
-        .= path "post" noArgs
+      .+ #Posts
+        .== path "post" noArgs
 
 spec :: Spec
 spec = describe "a generic sum" $ do

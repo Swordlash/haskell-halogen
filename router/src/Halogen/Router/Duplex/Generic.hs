@@ -7,9 +7,9 @@
 -- | The codec of a sum type, from one codec per constructor.
 --
 -- PureScript writes @sum { \"Home\": noArgs, \"Post\": \"post\" / int segment }@,
--- a record whose labels are the constructors' names. Here the labels are
--- type-level strings too, written with @OverloadedLabels@, each paired with
--- its codec by '.=' and the pairs joined by '.|':
+-- a record whose labels are the constructors' names. Here the record is a
+-- row-types one, whose labels are type-level strings and so can be the
+-- constructors' names too:
 --
 -- > {-# LANGUAGE OverloadedLabels #-}
 -- > data Route = Home | Post Int | Tag Text
@@ -18,9 +18,9 @@
 -- > route :: RouteDuplex' Route
 -- > route =
 -- >   root $ sum $
--- >     #Home .= noArgs
--- >       .| #Post .= path "post" (int segment)
--- >       .| #Tag .= path "tag" segment
+-- >     #Home .== noArgs
+-- >       .+ #Post .== path "post" (int segment)
+-- >       .+ #Tag .== path "tag" segment
 --
 -- A constructor with no arguments takes a @'RouteDuplex'' ()@ ('noArgs'),
 -- one with an argument a codec of that argument. A constructor with more
@@ -29,110 +29,83 @@
 -- of the wrong type, is a type error naming it, and so is a label that names
 -- no constructor.
 --
--- The list is an ordinary heterogeneous list rather than a row-types
--- record: a record is a hash map underneath, and the JavaScript backend
--- cannot hash its labels (hashable's C is not compiled there).
+-- A record looks its fields up by hashing their labels, as 'Data.Text.Text',
+-- with hashable. On the JavaScript backend hashable's hashing is C that GHC
+-- does not compile there; haskell-halogen-core links a port of it
+-- (@jsbits\/polyfills.js@) into every program, so records work there too.
 --
 -- Printing uses the value's constructor's codec. Parsing tries them in the
 -- order of the constructors and takes the first that reads the whole path
 -- ('Halogen.Router.Duplex.parse'), so the order matters only between two
--- that both read an address; the order of the list does not matter at all.
+-- that both read an address; the order of the record does not matter at all.
 module Halogen.Router.Duplex.Generic
   ( sum
-  , Codecs
-  , Label (..)
-  , (.=)
-  , (.|)
   , GRouteSum
   , GRouteArgs
   , HasCodec
   )
 where
 
+import Data.Row.Internal (Label (..), Labels, Row)
+import Data.Row.Records (HasType, Rec, (.!))
 import Data.Type.Bool (If)
-import Data.Type.Equality (type (~))
 import GHC.Generics
 import GHC.TypeLits (ErrorMessage (..), TypeError)
 import Halogen.Router.Duplex (RouteDuplex (..), RouteDuplex', RouteParser, RoutePrinter)
 import Protolude hiding (TypeError, sum)
 
--- | A constructor's name, as @#Name@.
-data Label (name :: Symbol) = Label
-
-instance (name ~ name') => IsLabel name (Label name') where
-  fromLabel = Label
-
--- | Codecs, each under the name of the constructor it is for.
-data Codecs (cs :: [(Symbol, Type)]) where
-  Nil :: Codecs '[]
-  Cons :: RouteDuplex' a -> Codecs cs -> Codecs ('(name, a) ': cs)
-
-infix 7 .=
-
-infixr 5 .|
-
--- | The codec of the constructor with this name.
-(.=) :: Label name -> RouteDuplex' a -> Codecs '[ '(name, a)]
-_ .= codec = Cons codec Nil
-
--- | Both lists of codecs.
-(.|) :: Codecs xs -> Codecs ys -> Codecs (xs ++ ys)
-Nil .| ys = ys
-Cons c xs .| ys = Cons c (xs .| ys)
-
--- | The codec of a sum type, from a codec for each constructor, under the
--- constructor's name.
+-- | The codec of a sum type, from a record of a codec for each constructor,
+-- under the constructor's name.
 sum
-  :: forall a cs
-   . (Generic a, GRouteSum (Rep a) cs, OnlyConstructors (Names cs) (ConstructorNames (Rep a)))
-  => Codecs cs
+  :: forall a (r :: Row Type)
+   . (Generic a, GRouteSum (Rep a) r, OnlyConstructors (Labels r) (ConstructorNames (Rep a)))
+  => Rec r
   -> RouteDuplex' a
 sum codecs = RouteDuplex (gprint codecs . from) (to <$> gparse codecs)
 
--- | The constructors of a generic representation, and their codecs.
-class GRouteSum (rep :: Type -> Type) (cs :: [(Symbol, Type)]) where
-  gprint :: Codecs cs -> rep x -> RoutePrinter
-  gparse :: Codecs cs -> RouteParser (rep x)
+-- | The constructors of a generic representation, and their codecs in a
+-- record.
+class GRouteSum (rep :: Type -> Type) (r :: Row Type) where
+  gprint :: Rec r -> rep x -> RoutePrinter
+  gparse :: Rec r -> RouteParser (rep x)
 
-instance (GRouteSum f cs) => GRouteSum (M1 D meta f) cs where
+instance (GRouteSum f r) => GRouteSum (M1 D meta f) r where
   gprint codecs (M1 x) = gprint codecs x
   gparse codecs = M1 <$> gparse codecs
 
-instance (GRouteSum f cs, GRouteSum g cs) => GRouteSum (f :+: g) cs where
+instance (GRouteSum f r, GRouteSum g r) => GRouteSum (f :+: g) r where
   gprint codecs = \case
     L1 x -> gprint codecs x
     R1 y -> gprint codecs y
   gparse codecs = (L1 <$> gparse codecs) <|> (R1 <$> gparse codecs)
 
 instance
-  (GRouteArgs f a, HasCodec name cs a)
-  => GRouteSum (M1 C ('MetaCons name fixity strict) f) cs
+  (GRouteArgs f a, HasCodec name r a)
+  => GRouteSum (M1 C ('MetaCons name fixity strict) f) r
   where
   gprint codecs (M1 x) = (codecOf (Label @name) codecs).printer (toArgs x)
   gparse codecs = M1 . fromArgs <$> (codecOf (Label @name) codecs).parser
 
--- | The codec under this name.
-class HasCodec (name :: Symbol) (cs :: [(Symbol, Type)]) a where
-  codecOf :: Label name -> Codecs cs -> RouteDuplex' a
+-- | The record's codec for the constructor with this name. A constructor
+-- the record has no codec for is a type error that says so, rather than
+-- row-types' own about a missing label.
+class HasCodec (name :: Symbol) (r :: Row Type) a where
+  codecOf :: Label name -> Rec r -> RouteDuplex' a
+
+instance (Lookup (Elem name (Labels r)) name r a) => HasCodec name r a where
+  codecOf = lookupCodec (Proxy @(Elem name (Labels r)))
+
+class Lookup (found :: Bool) (name :: Symbol) (r :: Row Type) a where
+  lookupCodec :: Proxy found -> Label name -> Rec r -> RouteDuplex' a
+
+instance (KnownSymbol name, HasType name (RouteDuplex' a) r) => Lookup 'True name r a where
+  lookupCodec _ name codecs = codecs .! name
 
 instance
   (TypeError ('Text "The constructor " ':<>: 'ShowType name ':<>: 'Text " has no route codec"))
-  => HasCodec name '[] a
+  => Lookup 'False name r a
   where
-  codecOf _ = panic "unreachable"
-
-instance (Here (name == n) name ('(n, b) ': cs) a) => HasCodec name ('(n, b) ': cs) a where
-  codecOf = codecHere (Proxy @(name == n))
-
--- | Whether the first codec is the one, and so where to look.
-class Here (found :: Bool) (name :: Symbol) (cs :: [(Symbol, Type)]) a where
-  codecHere :: Proxy found -> Label name -> Codecs cs -> RouteDuplex' a
-
-instance (a ~ b) => Here 'True name ('(n, b) ': cs) a where
-  codecHere _ _ (Cons codec _) = codec
-
-instance (HasCodec name cs a) => Here 'False name ('(n, b) ': cs) a where
-  codecHere _ name (Cons _ rest) = codecOf name rest
+  lookupCodec _ _ _ = panic "unreachable"
 
 -- | A constructor's arguments as the one value its codec handles.
 class GRouteArgs (f :: Type -> Type) a | f -> a where
@@ -153,10 +126,6 @@ instance
   where
   toArgs = panic "unreachable"
   fromArgs = panic "unreachable"
-
-type family Names (cs :: [(Symbol, Type)]) :: [Symbol] where
-  Names '[] = '[]
-  Names ('(name, a) ': cs) = name ': Names cs
 
 type family ConstructorNames (rep :: Type -> Type) :: [Symbol] where
   ConstructorNames (M1 D meta f) = ConstructorNames f

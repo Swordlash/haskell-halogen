@@ -64,6 +64,7 @@ library
         base >= 4.20,
         bytestring,
         protolude,
+        row-types,
         text,
         unliftio,
         haskell-halogen-core,
@@ -93,6 +94,7 @@ test-suite Halogen-router-test
                       hspec >= 2,
                       protolude,
                       QuickCheck,
+                      row-types,
                       text
 
     -- The router itself is tested over the in-memory address it keeps

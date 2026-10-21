@@ -18,10 +18,10 @@ It builds on `haskell-halogen-core`, which carries its own NOTICE covering the P
 projects it was adapted from.
 
 The implementation differs where Haskell differs. The codec of a sum type is derived with
-`GHC.Generics`, from a type-indexed list of codecs labelled with the constructors' names
-(`#Home .= noArgs .| #Post .= …`), where the original reads a PureScript record through `Generic`
-and `RowToList`; a constructor takes at most one argument, and a missing codec or a label that
-names no constructor is a type error. A route is read only when the
+`GHC.Generics`, from a row-types record of codecs labelled with the constructors' names
+(`#Home .== noArgs .+ #Post .== …`), where the original reads a PureScript record through
+`Generic` and `RowToList`; a constructor takes at most one argument, and a missing codec or a label
+that names no constructor is a type error. A route is read only when the
 whole path has been consumed, and the parser backtracks over every reading of an address rather
 than committing to the first alternative that succeeds, so a route that is a prefix of another
 does not shadow it; a failed parse reports the failure that got furthest. Records of route parts

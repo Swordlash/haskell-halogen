@@ -11,9 +11,9 @@
 -- >
 -- > route :: RouteDuplex' Route
 -- > route = root $ sum $
--- >   #Home .= noArgs
--- >     .| #Post .= path "post" (int segment)
--- >     .| ...
+-- >      #Home .== noArgs
+-- >   .+ #Post .== path "post" (int segment)
+-- >   .+ ...
 --
 -- ('Halogen.Router.Duplex.Generic.sum' derives the alternatives of a sum
 -- type.) Several values of a constructor's record are built with the

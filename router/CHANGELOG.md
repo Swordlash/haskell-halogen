@@ -12,10 +12,12 @@
   consumed, and the parser backtracks, so the order of alternatives
   matters only between two that both read an address.
 * `Halogen.Router.Duplex.Generic.sum` derives the codec of a sum type with
-  `GHC.Generics`, from one codec per constructor under the constructor's
-  name (`#Home .= noArgs .| #Post .= …`). A constructor without a codec,
-  a codec of the wrong type and a label that names no constructor are
-  type errors.
+  `GHC.Generics`, from a row-types record of one codec per constructor
+  under the constructor's name (`#Home .== noArgs .+ #Post .== …`), the
+  shape of PureScript's `sum`. A constructor without a codec, a codec of
+  the wrong type and a label that names no constructor are type errors. On
+  the JavaScript backend a record hashes its labels through the XXH3
+  polyfill haskell-halogen-core links.
 * `Halogen.Router` joins a codec to the browser's history: `newRouter` for
   paths under a base path (`pageBase` reads it from the page's
   `<base href>`), `newHashRouter` for the fragment, `current`, `navigate`
