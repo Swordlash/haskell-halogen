@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- On the JavaScript backend, hashing a `Text`, a `ByteString` or a
+  `ShortByteString` with hashable (a `HashMap Text`, a row-types `Rec`)
+  no longer fails with `h$hs_XXH3_64bits_withSeed_offset is not defined`:
+  `jsbits/polyfills.js` provides the XXH3 functions hashable calls in C, as
+  a port of XXH3-64 that gives the same values as the C (see
+  `POLYFILLS.md`). Every program linking core gets them unless the
+  `js-polyfills` flag is off.
 - `Halogen.Canvas.Properties.alpha` (`Alpha`): how opaque an element is,
   from 0 to 1, multiplying the alpha of its own colours and passing on to
   everything inside it, so a sprite, a label or a whole group can fade in

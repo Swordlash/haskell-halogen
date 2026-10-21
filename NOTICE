@@ -36,6 +36,10 @@ Adapted from the PureScript Halogen library and its peer libraries.
 - https://github.com/JordanMartinez/purescript-halogen-svg-elems
 - https://github.com/thomashoneyman/purescript-halogen-portal
 
+**Licensed under BSD 2-Clause** (the XXH3 port in `core/jsbits/polyfills.js`, for the JavaScript
+backend; the licence text is in `core/NOTICE`):
+- https://github.com/Cyan4973/xxHash
+
 ### `haskell-halogen-hooks` — see [hooks/NOTICE](hooks/NOTICE)
 
 **Licensed under Apache 2.0:**
