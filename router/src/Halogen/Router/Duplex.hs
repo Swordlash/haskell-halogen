@@ -81,7 +81,6 @@ where
 
 import Data.ByteString qualified as B
 import Data.Char (isAsciiLower, isAsciiUpper)
-import Data.List (lookup)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
 import Data.Text.Read qualified as TR
@@ -322,10 +321,17 @@ end (RouteDuplex enc dec) = RouteDuplex enc (dec <* atEnd)
       next : _ -> Outcome [] (Just (Failure (length s.segments) (ExpectedEndOfPath next)))
 
 -- | One segment, whatever it is.
+--
+-- Whatever it is but @.@ and @..@: the URL parser removes those segments
+-- (and their percent-encoded spellings, which it counts as dots too) before
+-- an address is navigated to or pushed, so no address can hold one. The
+-- printer cannot refuse it, so a route type whose segment could be exactly
+-- that has to keep it from being one. The same holds of 'rest' and of a
+-- segment read with 'many'.
 segment :: RouteDuplex' Text
 segment = RouteDuplex putSegment takeSegment
 
--- | Every segment that is left.
+-- | Every segment that is left (none of them @.@ or @..@; see 'segment').
 rest :: RouteDuplex' [Text]
 rest = RouteDuplex (foldMap putSegment) $ RouteParser $ \s -> Outcome [(s.segments, s {segments = []})] Nothing
 
@@ -338,13 +344,17 @@ noArgs = pure ()
 --------------------------------------------------------------------------------
 
 -- | The value of a query parameter. Parameters can come in any order.
+--
+-- Reading one takes it out of the address, the first of its name, so that
+-- a route with the same parameter twice reads the second from the second
+-- (@?tag=a&tag=b@), as it prints them.
 param :: Text -> RouteDuplex' Text
 param name = RouteDuplex putParam takeParam
   where
     putParam v = RoutePrinter $ \st -> st {params = st.params <> [(name, v)]}
-    takeParam = RouteParser $ \s -> case lookup name s.params of
-      Just v -> Outcome [(v, s)] Nothing
-      Nothing -> Outcome [] (Just (Failure (length s.segments) (MissingParam name)))
+    takeParam = RouteParser $ \s -> case break ((== name) . fst) s.params of
+      (before, (_, v) : after) -> Outcome [(v, s {params = before <> after})] Nothing
+      (_, []) -> Outcome [] (Just (Failure (length s.segments) (MissingParam name)))
 
 -- | Whether a parameter is there at all: @?draft@ for 'True', nothing for
 -- 'False'.

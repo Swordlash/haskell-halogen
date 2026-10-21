@@ -84,6 +84,16 @@ spec = describe "router" $ do
       N.listenerTypes element `shouldReturn` ["click"]
 
   describe "by fragment" $ do
+    it "is at the root with no fragment, and goes nowhere going there" $ do
+      router <- runMemDOM (Router.newHashRouter Home route)
+      seen <- recording router
+      Router.current router `shouldReturn` Home
+      Router.navigate router Home
+      readIORef seen `shouldReturn` []
+      Router.navigate router (Page 1)
+      Router.navigate router Home
+      readIORef seen `shouldReturn` [Page 1, Home]
+
     it "writes routes after a #" $ do
       router <- runMemDOM (Router.newHashRouter Home route)
       Router.href router (Page 3) `shouldBe` "#/page/3"

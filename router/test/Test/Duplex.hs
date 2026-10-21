@@ -90,5 +90,11 @@ spec = describe "route codecs" $ do
       parse (root (int segment)) "/99999999999999999999" `shouldBe` Left (Invalid "an Int cannot hold 99999999999999999999")
       parse (root (int segment)) (print (root (int segment)) maxBound) `shouldBe` Right (maxBound :: Int)
       parse (root (int segment)) (print (root (int segment)) minBound) `shouldBe` Right (minBound :: Int)
+    it "reads the same parameter twice as two values" $ do
+      let tags = root (path "t" ((,) <$> lmap fst (param "tag") <*> lmap snd (param "tag")))
+      print tags ("a", "b") `shouldBe` "/t?tag=a&tag=b"
+      parse tags "/t?tag=a&tag=b" `shouldBe` Right ("a", "b")
+    it "reads the first of a parameter given twice" $
+      parse (root (path "t" (param "tag"))) "/t?tag=a&tag=b" `shouldBe` Right "a"
     it "is told by end where a route stops" $
       parse (root (end (prefix "a" noArgs))) "/a/b" `shouldBe` Left (ExpectedEndOfPath "b")

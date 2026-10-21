@@ -5,10 +5,12 @@
 * First version. `Halogen.Router.Duplex` is a port of the core of
   `purescript-routing-duplex`: a `RouteDuplex` both parses an address into
   a route and prints a route as an address, built from `root`, `path`,
-  `prefix`, `suffix`, `segment`, `param`, `flag`, `int` (which refuses a
-  number an `Int` cannot hold rather than wrap it), `string`,
-  `boolean`, `as`, `optional`, `many`, `many1`, `rest` and `end`, with
-  `lmap` and the `Applicative` instance for routes with several parts.
+  `prefix`, `suffix`, `segment`, `param` (which takes the parameter it
+  reads out of the address, so a route can read one name twice), `flag`,
+  `int` (which refuses a number an `Int` cannot hold rather than wrap it),
+  `string`, `boolean`, `as`, `optional`, `many`, `many1`, `rest` and `end`,
+  with `lmap` and the `Applicative` instance for routes with several
+  parts.
   Unlike the original, a route is read only when the whole path has been
   consumed, and the parser backtracks, so the order of alternatives
   matters only between two that both read an address.

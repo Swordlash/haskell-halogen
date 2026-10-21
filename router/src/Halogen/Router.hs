@@ -192,7 +192,11 @@ go router write route = liftIO $ do
   let target = href router route
       here = case router.addressing of
         Paths _ -> whole
-        Fragment -> snd (T.breakOn "#" whole)
+        -- No fragment, or an empty one, is the root, as 'routePart' reads
+        -- it: going to the root from there goes nowhere.
+        Fragment -> case snd (T.breakOn "#" whole) of
+          fragment | fragment `elem` ["", "#"] -> "#/"
+          fragment -> fragment
   unless (target == here) $ do
     if inBrowser
       then write (toJSText target)
