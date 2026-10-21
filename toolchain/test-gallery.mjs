@@ -6,7 +6,8 @@
 // This is what the unit tests cannot see: the size-optimised app.wasm loading
 // in a real browser, each example mounting and unmounting as the route changes,
 // the path routing surviving back, forward and a reload, and every route's
-// page arriving with the gallery's shell already rendered into it. Needs a
+// page arriving with the gallery's shell already rendered into it, which the
+// program adopts rather than render again. Needs a
 // Chromium that Playwright can launch (`npx playwright install chromium`), and
 // the network, since the Pixi example loads PixiJS from a CDN.
 //
@@ -119,12 +120,27 @@ try {
   await page.locator(routes[""].marker).waitFor({ timeout: 5000 });
   assert.ok(await page.locator("nav a", { hasText: "Pixi" }).isVisible(), "the navigation before app.wasm");
   console.log("ok  the landing page shows before app.wasm has loaded");
-  // Then the program renders the page afresh in its place.
-  await page.evaluate(() => document.querySelector("nav").setAttribute("data-prerendered", ""));
+  // Then the program adopts the page rather than render it afresh: the
+  // navigation it ends with is the node the page arrived with, marked here
+  // before app.wasm was let through. It has started once the link it
+  // adopted has the click listener hydration attaches, which only the
+  // DevTools protocol can see.
+  await page.evaluate(() => (document.querySelector("nav").dataset.prerendered = "1"));
+  const devtools = await page.context().newCDPSession(page);
+  const listening = async () => {
+    const { result } = await devtools.send("Runtime.evaluate", { expression: 'document.querySelector("nav a")' });
+    const { listeners } = await devtools.send("DOMDebugger.getEventListeners", { objectId: result.objectId });
+    await devtools.send("Runtime.releaseObject", { objectId: result.objectId });
+    return listeners.some((listener) => listener.type === "click");
+  };
   release();
-  await page.locator("nav[data-prerendered]").waitFor({ state: "detached", timeout: 15000 });
+  for (const deadline = Date.now() + 15000; !(await listening()); await page.waitForTimeout(100)) {
+    assert.ok(Date.now() < deadline, "the program attached its listeners to the navigation");
+  }
   await page.unroute(/app\.wasm$/);
   await expectRoute("", "load");
+  assert.equal(await page.locator('nav[data-prerendered="1"]').count(), 1, "the navigation the page arrived with is adopted");
+  console.log("ok  the program adopted the prerendered navigation");
 
   // Pixi sizes a text's texture from font metrics it caches per font string.
   // Measured while an asset font was still loading, they are the fallback's,
@@ -169,6 +185,8 @@ try {
     await expectRoute(path, `click ${routes[path].name}`);
     if (path === "pixi/") await expectFreshFontMetrics();
   }
+  // Following its links patched the adopted page rather than load another.
+  assert.equal(await page.locator('nav[data-prerendered="1"]').count(), 1, "the adopted navigation, after following links");
 
   for (const path of [...visited].reverse().slice(1).concat("")) {
     await page.goBack();

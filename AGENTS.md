@@ -221,8 +221,8 @@ storage, …) is built only from public hooks.
   `halogen-example-<name>-prerender` (`buildable: False` on the browser backends) is built with the
   host GHC and run by `build-wasm.sh` as `<exe> examples/<name>/web/index.html <output dir>`, to write
   the page with the component already rendered into `#app` by `Halogen.Static` (see `vanilla`, and
-  `all`, which writes a page per route under `HALOGEN_BASE_PATH`). Until hydration lands, `Main.hs`
-  empties `#app` before mounting.
+  `all`, which writes a page per route under `HALOGEN_BASE_PATH`); `Main.hs` then mounts with
+  `hydrateUI`, which adopts that HTML.
 - Each example's component lives in a library module (`src/Example/<Name>.hs`); `Main.hs` only starts
   it. `examples/all/Gallery.hs` mounts those components by route (a path, through
   `haskell-halogen-router`), so a new example appears on the deployed site only once it is added

@@ -14,7 +14,8 @@
 --
 -- What a route's page holds before the program has loaded is this shell
 -- with the route's line in it; the example itself, which needs the browser,
--- comes with the program, which renders the whole page afresh.
+-- comes with the program, which adopts the shell from the page and builds
+-- the example into its place.
 module Gallery.Shell
   ( Route (..)
   , route
