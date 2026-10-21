@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+A scene's `fit` (see core) is honoured wherever the camera meets the
+screen: the transform put on the world, a pan, a pinch and the wheel all
+count in the zoom the fit gives, and `CameraChanged` reports the camera in
+the scene's own unit, as the application gave it. When the renderer
+resizes with its canvas's parent the camera is applied again, so a fitted
+scene follows the new size at once rather than at the next render; that
+raises no `CameraChanged`, since the camera did not move.
+
 A polygon hit area's corners are written with `svgNumber`, like every other
 number handed to the page. On wasm the pointer callbacks are sync exports
 (`Halogen.JSBits.mkSyncCallback`, as the DOM backend's listeners are), so a

@@ -187,6 +187,9 @@ function halogen_pixi_on_pointer_move(holder, callback) { holder.app.stage.on("g
 function halogen_pixi_on_pointer_end(holder, callback) { holder.app.stage.on("pointerup", callback); holder.app.stage.on("pointerupoutside", callback); holder.app.stage.on("pointercancel", callback); }
 function halogen_pixi_on_wheel(canvas, callback) { canvas.addEventListener("wheel", callback, { passive: false }); }
 function halogen_pixi_remove_wheel(canvas, callback) { canvas.removeEventListener("wheel", callback); }
+// The renderer emits "resize" with its new width and height (numbers, which
+// the snapshot passes through) whenever it follows its canvas's parent.
+function halogen_pixi_on_resize(holder, callback) { holder.app.renderer.on("resize", callback); }
 // What a handler reads of an event, copied as the event is dispatched: Pixi
 // hands one event object on from event to event, so a read made later, by a
 // thunk or after the handler has blocked, would read another event. A
