@@ -295,11 +295,16 @@ listenerTypes node = sort . map (.eventType) <$> readIORef node.listeners
 -- __Text.__ Two text nodes next to each other are separated by an empty
 -- comment, @\<!---->@: the parser would merge them into one, and a client
 -- that adopts the page has to know where the boundary was. Text is escaped,
--- except inside @script@ and @style@ and the other raw-text elements, whose
--- text the parser does not unescape; there a @\<\/@ that would close the
--- element early is written @\<\\\/@, which means the same thing in a script
--- string and in CSS. A newline that starts a @textarea@ or a @pre@ is
--- doubled, because the parser drops the first.
+-- a carriage return as @&#13;@ (the parser turns a bare one, or one before a
+-- line feed, into a line feed), except inside @script@ and @style@ and the
+-- other raw-text elements, whose text the parser does not unescape. There
+-- adjacent text nodes are written together, since a comment would be part
+-- of the text (and @\<!--@ starts one in a script), a carriage return is
+-- written as it is and read back as a line feed, which nothing in the
+-- markup can prevent, and a @\<\/@ that would close the element early is
+-- written @\<\\\/@, which means the same thing in a script string and in
+-- CSS. A newline that starts a @textarea@ or a @pre@ is doubled, because
+-- the parser drops the first.
 renderToText :: NativeNode -> IO Text
 renderToText node = do
   context <- maybe (pure topContext) (contextWithin topContext) =<< readIORef node.parentRef
@@ -386,13 +391,16 @@ renderIn context node = case node.kind of
               | otherwise = inner
         pure $ open <> kept <> "</" <> name <> ">"
 
--- | The children in turn, with an empty comment between two text nodes.
+-- | The children in turn, with an empty comment between two text nodes,
+-- except in a raw-text element, where the comment would be text.
 renderChildren :: Context -> NativeNode -> IO Text
 renderChildren context parent = do
   children <- readIORef parent.kids
   rendered <- traverse (renderIn context) children
   let isText c = c.kind == TextNode
-      separators = "" : zipWith (\a b -> if isText a && isText b then "<!---->" else "") children (drop 1 children)
+      raw = maybe False (`elem` rawTextElements) context.element
+      separate a b = if not raw && isText a && isText b then "<!---->" else ""
+      separators = "" : zipWith separate children (drop 1 children)
   pure $ mconcat (zipWith (<>) separators rendered)
 
 -- | HTML elements are created with no namespace and parsed into the XHTML
@@ -427,13 +435,16 @@ renderAttribute ((ns, name), v) =
       | otherwise = prefix <> ":" <> name
 
 -- | How an option is matched against its select's value: its @value@, or
--- failing that its text with the white space collapsed, as in a browser.
+-- failing that its text with ASCII white space stripped and collapsed, as
+-- in a browser. Only ASCII white space: a non-breaking space is part of the
+-- value.
 optionValue :: NativeNode -> Map (Maybe Text, Text) Text -> Map Text PropScalar -> IO Text
 optionValue node attributes properties =
   case (scalarAttribute <$> M.lookup "value" properties) <|> M.lookup (Nothing, "value") attributes of
     Just v -> pure v
-    Nothing -> T.unwords . T.words <$> textOf node
+    Nothing -> T.intercalate " " . filter (not . T.null) . T.split (`elem` asciiWhitespace) <$> textOf node
   where
+    asciiWhitespace = [' ', '\t', '\n', '\f', '\r'] :: [Char]
     textOf n = case n.kind of
       TextNode -> readIORef n.content
       _ -> mconcat <$> (traverse textOf =<< readIORef n.kids)
@@ -575,6 +586,7 @@ escapeText = T.concatMap $ \case
   '<' -> "&lt;"
   '>' -> "&gt;"
   '\xa0' -> "&nbsp;"
+  '\r' -> "&#13;"
   c -> T.singleton c
 
 escapeAttribute :: Text -> Text
@@ -584,6 +596,7 @@ escapeAttribute = T.concatMap $ \case
   '>' -> "&gt;"
   '"' -> "&quot;"
   '\xa0' -> "&nbsp;"
+  '\r' -> "&#13;"
   c -> T.singleton c
 
 --------------------------------------------------------------------------------

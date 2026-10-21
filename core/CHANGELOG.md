@@ -35,14 +35,20 @@
   attribute's presence, numbers as JavaScript spells them), where they used
   to be left out; a property and an attribute of the same name are written
   once, with the property's value. A `textarea`'s `value` is written as its
-  text and a `select`'s marks the option it picks. A property HTML has no
+  text and a `select`'s marks the option it picks (an option without a
+  `value` is matched by its text with ASCII white space collapsed, a
+  non-breaking space kept, as in a browser). A property HTML has no
   attribute for (`selectedIndex`, a custom element's) is still left out.
   Two adjacent text nodes are separated by an empty comment, `<!---->`, so
-  that a client adopting the page can tell where one ends. An element in a
+  that a client adopting the page can tell where one ends, except in
+  `script`, `style` and the other raw-text elements, where the comment
+  would be text. An element in a
   namespace its parent is not in, an `svg` in HTML, carries `xmlns`, and an
   XLink attribute is written `xlink:href` where it was written with its
   namespace's URI. `>` and non-breaking spaces are escaped in attributes,
-  and non-breaking spaces in text; the text of `script`, `style` and the
+  and non-breaking spaces in text, and a carriage return in either is
+  written `&#13;`, which the parser would otherwise turn into a line feed;
+  the text of `script`, `style` and the
   other raw-text elements is no longer escaped (only a `</` that would
   close them early is written `<\/`), and a newline that starts a `pre` or
   a `textarea` is kept. Snapshot tests over `renderToText` may need their

@@ -211,6 +211,24 @@ spec = describe "native VDom" $ do
       s <- build vspec $ el "p" [attr "title" "<a>\xa0"] [Text "x\xa0y"]
       assertEqual "markup" "<p title=\"&lt;a&gt;&nbsp;\">x&nbsp;y</p>" =<< snapshot s
 
+    it "writes a carriage return as a character reference" $ do
+      (vspec, _) <- newSpec
+      s <- build vspec $ el "p" [attr "title" "a\r\nb"] [Text "c\rd"]
+      assertEqual "markup" "<p title=\"a&#13;\nb\">c&#13;d</p>" =<< snapshot s
+
+    it "separates adjacent text nodes everywhere but in raw text" $ do
+      (vspec, _) <- newSpec
+      s <- build vspec $ el "div" [] [el "script" [] [Text "let a = 1;", Text "let b = 2;"], el "div" [] [Text "a", Text "b"]]
+      assertEqual "markup" "<div><script>let a = 1;let b = 2;</script><div>a<!---->b</div></div>" =<< snapshot s
+
+    it "matches an option's text by collapsing ASCII white space only" $ do
+      (vspec, _) <- newSpec
+      let select value = el "select" [Property "value" (TxtProp value)] [el "option" [] [Text " a\xa0\&b "]]
+      plain <- build vspec (select "a b")
+      assertEqual "a plain space is not a non-breaking one" "<select><option> a&nbsp;b </option></select>" =<< snapshot plain
+      nbsp <- build vspec (select "a\xa0\&b")
+      assertEqual "the non-breaking space is part of the value" "<select><option selected> a&nbsp;b </option></select>" =<< snapshot nbsp
+
     it "keeps a newline that starts a pre" $ do
       (vspec, _) <- newSpec
       s <- build vspec $ el "pre" [] [Text "\nindented"]
