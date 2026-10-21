@@ -70,3 +70,21 @@ executable halogen-example-vanilla
       -no-hs-main
       -optl-mexec-model=reactor
       "-optl-Wl,--export=hs_start"
+
+-- The page with the component already rendered into it, written natively at
+-- build time (toolchain/build-wasm.sh runs it). Only a host GHC renders to
+-- HTML, so there is nothing to build on the browser backends.
+executable halogen-example-vanilla-prerender
+  import:           shared
+  main-is:          Prerender.hs
+  hs-source-dirs:   .
+
+  if arch(wasm32) || arch(javascript)
+    buildable: False
+  else
+    build-depends:
+        bytestring,
+        filepath,
+        protolude,
+        haskell-halogen-core,
+        halogen-example-vanilla

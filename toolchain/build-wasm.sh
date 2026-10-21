@@ -6,6 +6,16 @@
 # Output lands in dist-newstyle/wasm/public/<example>/, containing app.wasm
 # (size-optimised with wasm-opt), ghc_wasm_jsffi.js and everything under
 # examples/<example>/web/.
+#
+# An example whose cabal file has an executable named <package>-prerender
+# gets its index.html written by it: the executable is built with the host
+# GHC (into dist-newstyle/native) and run as
+#
+#   <package>-prerender examples/<example>/web/index.html <output dir>
+#
+# to render the example natively into the page (see Halogen.Static), so it
+# shows before app.wasm has loaded. HALOGEN_BASE_PATH, the path the site is
+# served under (default /), is passed on to it in the environment.
 set -eu
 
 cd "$(dirname "$0")/.."
@@ -54,6 +64,20 @@ cp -R "examples/$example/web/." "$public_dir/"
 
 if [ -f "examples/$example/bundle.sh" ]; then
   sh "examples/$example/bundle.sh" "$public_dir"
+fi
+
+prerender=$package-prerender
+if grep -Eqs "^executable[[:space:]]+$prerender[[:space:]]*\$" "examples/$example"/*.cabal; then
+  # A native program, so built without the wasm toolchain's CC and friends,
+  # which ~/.ghc-wasm/env exported above (as toolchain/build-hspec-halogen.sh
+  # does).
+  prerender_bin=$(
+    unset CC CXX LD AR NM RANLIB STRIP OBJCOPY OBJDUMP SIZE STRINGS
+    cabal build -v0 "$package:exe:$prerender" --builddir=dist-newstyle/native >&2
+    cabal list-bin -v0 "$package:exe:$prerender" --builddir=dist-newstyle/native
+  )
+  "$prerender_bin" "examples/$example/web/index.html" "$public_dir"
+  printf 'Prerendered %s with %s.\n' "$public_dir/index.html" "$prerender"
 fi
 
 printf '\nBuilt %s in %s.\n' "$package" "$public_dir"
