@@ -10,7 +10,7 @@ where
 import Halogen.Component (Component)
 import Halogen.IO.Driver (HalogenSocket)
 import Halogen.VDom.DOM.Monad (BrowserDOM, MonadBrowserDOM, runBrowserDOM)
-import Halogen.VDom.Driver (runUI)
+import Halogen.VDom.Driver (hydrateUI, runUI)
 import Protolude
 import UnliftIO (MonadUnliftIO)
 import Web.DOM.Internal.Types (Element, fromElement)
@@ -22,8 +22,9 @@ import Web.DOM.Internal.Types (Element, fromElement)
 -- Nothing in the harness names a monad; a suite chooses one where it starts
 -- ('Test.Hspec.Halogen.runBrowserTests'), typically 'BrowserDOM', or an
 -- application's own monad over it. 'mountInto' defaults to
--- 'Halogen.VDom.Driver.runUI', so an instance for a monad that speaks the
--- browser's DOM only has to say how to run it.
+-- 'Halogen.VDom.Driver.runUI' and 'hydrateInto' to
+-- 'Halogen.VDom.Driver.hydrateUI', so an instance for a monad that speaks
+-- the browser's DOM only has to say how to run it.
 class (MonadUnliftIO m) => MonadBrowserTest m where
   -- | Run the monad from a test.
   runTest :: m a -> IO a
@@ -35,10 +36,19 @@ class (MonadUnliftIO m) => MonadBrowserTest m where
     Just container -> runUI component input container
     Nothing -> panic "hspec-halogen: the test container is not an HTML element"
 
+  -- | Mount a component into an element that holds its HTML already,
+  -- adopting it, as 'Halogen.VDom.Driver.hydrateUI' does.
+  hydrateInto :: Component q i o m -> i -> Element -> m (HalogenSocket q o m)
+  default hydrateInto :: (MonadBrowserDOM m) => Component q i o m -> i -> Element -> m (HalogenSocket q o m)
+  hydrateInto component input element = case fromElement element of
+    Just container -> hydrateUI component input container
+    Nothing -> panic "hspec-halogen: the test container is not an HTML element"
+
 -- Natively BrowserDOM has no DOM to mount into, but a suite written for it
 -- should still type-check there, so the language server can load it.
 instance MonadBrowserTest BrowserDOM where
   runTest = runBrowserDOM
 #if !defined(javascript_HOST_ARCH) && !defined(wasm32_HOST_ARCH)
   mountInto _ _ _ = panic "hspec-halogen needs a browser: run the suite on the WebAssembly backend (npm run test-wasm)"
+  hydrateInto _ _ _ = panic "hspec-halogen needs a browser: run the suite on the WebAssembly backend (npm run test-wasm)"
 #endif

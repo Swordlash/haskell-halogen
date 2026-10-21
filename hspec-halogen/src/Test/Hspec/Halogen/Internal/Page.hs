@@ -15,6 +15,7 @@ module Test.Hspec.Halogen.Internal.Page
   , removeLeftovers
   , createContainer
   , createContainerIn
+  , setInnerHTML
   , removeElement
   , querySelector
   , querySelectorAll
@@ -46,6 +47,7 @@ $( browserJS
      , ("js_test_done", "halogen_test_test_done", Unsafe, [t|Int -> IO ()|])
      , ("js_create_container", "halogen_test_create_container", Unsafe, [t|IO JSVal|])
      , ("js_create_container_in", "halogen_test_create_container_in", Unsafe, [t|JSVal -> IO JSVal|])
+     , ("js_set_inner_html", "halogen_test_set_inner_html", Unsafe, [t|Element -> JSText -> IO ()|])
      , ("js_remove", "halogen_test_remove", Unsafe, [t|JSVal -> IO ()|])
      , ("js_query_selector", "halogen_test_query_selector", Unsafe, [t|Element -> JSText -> IO JSVal|])
      , ("js_query_selector_all", "halogen_test_query_selector_all", Unsafe, [t|Element -> JSText -> IO JSVal|])
@@ -96,6 +98,11 @@ createContainer = Element <$> js_create_container
 -- | A fresh container at the end of another.
 createContainerIn :: Element -> IO Element
 createContainerIn (Element parent) = Element <$> js_create_container_in parent
+
+-- | Replace what an element holds with this HTML, parsed as the browser
+-- parses a page.
+setInnerHTML :: Element -> Text -> IO ()
+setInnerHTML element html = js_set_inner_html element (toJSText html)
 
 removeElement :: Element -> IO ()
 removeElement (Element element) = js_remove element

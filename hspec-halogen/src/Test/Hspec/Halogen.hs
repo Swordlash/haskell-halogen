@@ -71,6 +71,8 @@ module Test.Hspec.Halogen
   , MonadBrowserTest (..)
   , Mounted
   , mount
+  , htmlContainer
+  , hydrate
   , unmount
   , query
   , outputs
@@ -265,9 +267,43 @@ instance Eq (Element s) where
 mount :: forall m -> (MonadBrowserTest m) => Component q i o m -> i -> PageM s (Mounted s q o m)
 mount _ component input = do
   env <- pageEnv
+  element <- unsafeIOToPageM (Page.createContainerIn env.container)
+  mountWith mountInto element component input
+
+-- | A container on the page holding this HTML, parsed as the browser parses
+-- a page that arrives with it: what 'hydrate' mounts a component into, as
+-- a page rendered by "Halogen.Static" holds the component's HTML before its
+-- program has loaded. Find the elements in it ('findIn') before hydrating
+-- to see which of them the component kept ('shouldBeSameElement').
+--
+-- It is torn down with the page.
+htmlContainer :: Text -> PageM s (Element s)
+htmlContainer html = do
+  env <- pageEnv
   unsafeIOToPageM $ do
     element <- Page.createContainerIn env.container
-    socket <- runTest $ mountInto component input element
+    Page.setInnerHTML element html
+    pure (Element element)
+
+-- | 'mount', into a container that holds the component's HTML already
+-- ('htmlContainer'): the component adopts it, with
+-- 'Halogen.VDom.Driver.hydrateUI', rather than building its own.
+hydrate :: forall m -> (MonadBrowserTest m) => Element s -> Component q i o m -> i -> PageM s (Mounted s q o m)
+hydrate _ (Element element) = mountWith hydrateInto element
+
+-- | Mount a component into this element with one of the class's ways, and
+-- collect its outputs from then on.
+mountWith
+  :: (MonadBrowserTest m)
+  => (Component q i o m -> i -> DOM.Element -> m (HalogenSocket q o m))
+  -> DOM.Element
+  -> Component q i o m
+  -> i
+  -> PageM s (Mounted s q o m)
+mountWith into element component input = do
+  env <- pageEnv
+  unsafeIOToPageM $ do
+    socket <- runTest $ into component input element
     raised <- newIORef []
     subscription <- runTest $ HS.subscribe socket.messages $ \o -> liftIO $ modifyIORef' raised (<> [o])
     let teardown = runTest $ HS.unsubscribe subscription >> socket.dispose

@@ -103,6 +103,7 @@ test-suite hspec-halogen-test
                       Test.Dispatch
                       Test.Drag
                       Test.Family
+                      Test.Hydrate
                       Test.Reconcile
                       Test.Todo
     ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists -Wunused-packages

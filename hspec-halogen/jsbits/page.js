@@ -22,6 +22,10 @@ function halogen_test_create_container_in(parent) {
   return parent.appendChild(document.createElement('div'));
 }
 
+function halogen_test_set_inner_html(element, html) {
+  element.innerHTML = html;
+}
+
 function halogen_test_remove(element) {
   return element.remove();
 }

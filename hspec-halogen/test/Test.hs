@@ -17,6 +17,7 @@ import Test.Dispatch qualified
 import Test.Drag qualified
 import Test.Family qualified
 import Test.Hspec.Halogen (describe, runBrowserTests)
+import Test.Hydrate qualified
 import Test.Reconcile qualified
 import Test.Todo qualified
 
@@ -31,6 +32,7 @@ main = runBrowserTests $ do
   describe "Reconciliation" (Test.Reconcile.spec BrowserDOM)
   describe "Dispatch" (Test.Dispatch.spec BrowserDOM)
   describe "Drag" (Test.Drag.spec BrowserDOM)
+  describe "Hydration" (Test.Hydrate.spec BrowserDOM)
 
 #if defined(wasm32_HOST_ARCH) && !defined(INTERACTIVE)
 foreign export javascript "hs_start" main :: IO ()
