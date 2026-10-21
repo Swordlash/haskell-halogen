@@ -24,5 +24,7 @@
   and `redirect` (`pushState` and `replaceState`), `changes`, one emitter
   per router carrying its navigations and the browser's `popstate`, and
   `href`, `link` and `follow` for links a component follows without
-  loading a page. Natively the address is kept in memory, so a page can be
+  loading a page (a link's `href` and click handler are the router's,
+  whatever the caller's properties say, and a click with a modifier key, on
+  a link to another target or on a download is left to the browser). Natively the address is kept in memory, so a page can be
   rendered for any route with `Halogen.Static`.

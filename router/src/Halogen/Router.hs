@@ -211,6 +211,10 @@ data Follow route = Follow route MouseEvent
 -- plain click ('isPlainLeftClick') is handed to the component as an action
 -- (@onFollow@), which passes it to 'follow'; any other click is the
 -- browser's to follow as usual.
+--
+-- The link's @href@ and its click handler are the router's: they come
+-- after @props@, and of two properties of the same name an element keeps
+-- the last, so an @href@ or a click handler among @props@ is overridden.
 link
   :: forall route w action
    . Router route
@@ -220,7 +224,7 @@ link
   -> [HH.HTML w action]
   -> HH.HTML w action
 link router onFollow route props =
-  HH.a (HP.href (href router route) : HE.handler' (EventType "click") clicked : props)
+  HH.a (props <> [HP.href (href router route), HE.handler' (EventType "click") clicked])
   where
     clicked ev = if isPlainLeftClick (MouseEvent ev) then Just (onFollow (Follow route (MouseEvent ev))) else Nothing
 

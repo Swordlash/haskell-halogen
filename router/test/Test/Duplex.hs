@@ -84,5 +84,7 @@ spec = describe "route codecs" $ do
       parse (root (int segment)) "/x" `shouldBe` Left (Invalid "not a whole number: x")
     it "says that the path ended too soon" $
       parse (root (prefix "post" (int segment))) "/post" `shouldBe` Left EndOfPath
+    it "reports the failure that got furthest from inside a repetition" $
+      parse (root (many (int segment))) "/1/x" `shouldBe` Left (Invalid "not a whole number: x")
     it "is told by end where a route stops" $
       parse (root (end (prefix "a" noArgs))) "/a/b" `shouldBe` Left (ExpectedEndOfPath "b")

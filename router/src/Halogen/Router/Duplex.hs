@@ -405,4 +405,4 @@ repeated (RouteParser p) = RouteParser go
           nexts = [(a, go s') | (a, s') <- longer]
        in Outcome
             ([(a : as', s'') | (a, Outcome more _) <- nexts, (as', s'') <- more] <> [([], s)])
-            failure
+            (foldl' furthest failure [f | (_, Outcome _ f) <- nexts])

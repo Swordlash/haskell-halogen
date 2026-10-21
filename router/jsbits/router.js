@@ -24,7 +24,9 @@ function js_router_page_base() {
 
 // A click the browser would follow as it is, in this tab: the main button,
 // no key held that asks for a new tab or window or a download, nothing that
-// prevented it already, and a link that does not name another target.
+// prevented it already, a link that does not name another target, and one
+// that is not a download (a download attribute, even an empty one, asks the
+// browser to save what the link points to rather than show it).
 function js_router_plain_left_click(event) {
   const link = event.currentTarget;
   return (
@@ -34,6 +36,7 @@ function js_router_plain_left_click(event) {
     !event.shiftKey &&
     !event.altKey &&
     !event.defaultPrevented &&
-    !(link && link.target && link.target !== "_self")
+    !(link && link.target && link.target !== "_self") &&
+    !(link && link.hasAttribute && link.hasAttribute("download"))
   );
 }
