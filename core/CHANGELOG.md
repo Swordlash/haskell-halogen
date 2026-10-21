@@ -49,16 +49,25 @@
   non-breaking spaces are escaped in attributes, and non-breaking spaces
   in text, and a carriage return in either is written `&#13;`, which the
   parser would otherwise turn into a line feed; the text of `script`,
-  `style` and the other raw-text elements is no longer escaped (in a
-  `script` or a `style` a `</` that would close it early is written
-  `<\/`), and a newline that starts a `pre` or a `textarea` is kept.
+  `style` and the other raw-text elements is no longer escaped, a newline
+  that starts a `pre` or a `textarea` is kept, and `param`, `basefont`,
+  `bgsound`, `frame` and `keygen` are written without an end tag, as the
+  other void elements are.
   What no markup can parse back into is refused with an error naming it,
   so that a prerender fails rather than ship another page: a `plaintext`
-  element, an `xmp`, `iframe`, `noembed` or `noframes` whose text holds its
-  own end tag, and an element in a namespace other than HTML's, SVG's and
-  MathML's. The haddock lists what HTML can only approximate until the
-  program has started (a `select` whose value matches no option, a `tr`
-  straight under a `table`). Snapshot tests over `renderToText` may need
+  element; a raw-text element (`script` and `style` included) whose text
+  holds its own end tag, which a script that needs one in a string writes
+  `<\/script` itself; U+0000 in text or an attribute; an element in a
+  namespace other than HTML's, SVG's and MathML's; and an element the
+  parser would not make where it is (an SVG element outside an `svg`, a
+  MathML one outside a `math`, HTML inside either other than at an
+  integration point such as `foreignObject`). The haddock lists what HTML
+  can only approximate until the program has started (a `select` whose
+  value matches no option, a `tr` straight under a `table`), and says
+  where the line is drawn: the markup is written as the browser's fragment
+  serialisation writes it, and a tree the parser would build differently,
+  an empty text node or a `p` holding a `div` for instance, comes back
+  different. Snapshot tests over `renderToText` may need
   their expected HTML updated.
 - In the in-memory DOM, setting an element's text content replaces its
   children with one text node (none for empty text), as in a browser,

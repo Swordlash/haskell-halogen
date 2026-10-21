@@ -197,9 +197,9 @@ spec = describe "native VDom" $ do
       (vspec, _) <- newSpec
       let xlink = Attribute (Just (Namespace "http://www.w3.org/1999/xlink")) . AttrName
           svgNs = Just (Namespace "http://www.w3.org/2000/svg")
-      s <- build vspec $ Elem svgNs (ElemName "use") [xlink "xlink:href" "#a", xlink "title" "t"] []
+      s <- build vspec $ Elem svgNs (ElemName "svg") [] [Elem svgNs (ElemName "use") [xlink "xlink:href" "#a", xlink "title" "t"] []]
       assertEqual "markup"
-        "<use xlink:title=\"t\" xlink:href=\"#a\"></use>"
+        "<svg><use xlink:title=\"t\" xlink:href=\"#a\"></use></svg>"
         =<< snapshot s
 
     it "separates adjacent text nodes with an empty comment" $ do
@@ -207,11 +207,11 @@ spec = describe "native VDom" $ do
       s <- build vspec $ el "p" [] [Text "a", Text "b", el "br" [] [], Text "c", Text "", Text "d"]
       assertEqual "markup" "<p>a<!---->b<br>c<!----><!---->d</p>" =<< snapshot s
 
-    it "leaves the text of a style or script unescaped, but not closable" $ do
+    it "leaves the text of a style or script unescaped" $ do
       (vspec, _) <- newSpec
-      s <- build vspec $ el "div" [] [el "style" [] [Text "a > b { content: \"&\" }"], el "script" [] [Text "x = '</SCRIPT>' && 1 < 2"]]
+      s <- build vspec $ el "div" [] [el "style" [] [Text "a > b { content: \"&\" }"], el "script" [] [Text "x = '&amp;' && 1 < 2"]]
       assertEqual "markup"
-        "<div><style>a > b { content: \"&\" }</style><script>x = '<\\/SCRIPT>' && 1 < 2</script></div>"
+        "<div><style>a > b { content: \"&\" }</style><script>x = '&amp;' && 1 < 2</script></div>"
         =<< snapshot s
 
     it "escapes angle brackets and non-breaking spaces in attributes" $ do
@@ -261,11 +261,37 @@ spec = describe "native VDom" $ do
       (vspec, _) <- newSpec
       refused =<< build vspec (el "div" [] [el "plaintext" [] [Text "x"]])
 
-    it "writes a script's own end tag in its text as <\\/, and refuses an xmp's" $ do
+    it "refuses a raw-text element whose text holds its own end tag" $ do
       (vspec, _) <- newSpec
-      s <- build vspec $ el "script" [] [Text "document.write('</script>')"]
-      assertEqual "markup" "<script>document.write('<\\/script>')</script>" =<< snapshot s
+      refused =<< build vspec (el "script" [] [Text "x</script/.test(y)"])
+      refused =<< build vspec (el "style" [] [Text "a { } </STYLE >"])
       refused =<< build vspec (el "xmp" [] [Text "a </xmp> b"])
+
+    it "writes a raw-text element's text as it is when no end tag is in it" $ do
+      (vspec, _) <- newSpec
+      s <- build vspec $ el "script" [] [Text "'</scripts' + '</scriptx'"]
+      assertEqual "markup" "<script>'</scripts' + '</scriptx'</script>" =<< snapshot s
+
+    it "refuses U+0000 in text, in an attribute and in raw text" $ do
+      (vspec, _) <- newSpec
+      refused =<< build vspec (el "p" [] [Text "a\0b"])
+      refused =<< build vspec (el "p" [attr "title" "a\0b"] [])
+      refused =<< build vspec (el "script" [] [Text "a\0b"])
+
+    it "writes foreign elements where the parser would make them, and refuses them elsewhere" $ do
+      (vspec, _) <- newSpec
+      let svg name = Elem (Just (Namespace "http://www.w3.org/2000/svg")) (ElemName name)
+      inside <- build vspec $ el "div" [] [svg "svg" [] [svg "circle" [] []]]
+      assertEqual "an svg holding a circle" "<div><svg><circle></circle></svg></div>" =<< snapshot inside
+      refused =<< build vspec (el "div" [] [svg "circle" [] []])
+      integrated <- build vspec $ svg "svg" [] [svg "foreignObject" [] [el "div" [] []]]
+      assertEqual "HTML in a foreignObject" "<svg><foreignObject><div></div></foreignObject></svg>" =<< snapshot integrated
+      refused =<< build vspec (svg "svg" [] [el "div" [] []])
+
+    it "omits the end tag of every void element, param included" $ do
+      (vspec, _) <- newSpec
+      s <- build vspec $ el "object" [] [el "param" [attr "name" "a"] []]
+      assertEqual "markup" "<object><param name=\"a\"></object>" =<< snapshot s
 
     it "refuses an element in a namespace HTML cannot put one in" $ do
       (vspec, _) <- newSpec

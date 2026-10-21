@@ -301,11 +301,9 @@ listenerTypes node = sort . map (.eventType) <$> readIORef node.listeners
 -- line feed, into a line feed), except inside @script@ and @style@ and the
 -- other raw-text elements, whose text the parser does not unescape. There
 -- adjacent text nodes are written together, since a comment would be part
--- of the text (and @\<!--@ starts one in a script), a carriage return is
--- written as it is and read back as a line feed, which nothing in the
--- markup can prevent, and a @\<\/@ that would close the element early is
--- written @\<\\\/@, which means the same thing in a script string and in
--- CSS. A newline that starts a @textarea@ or a @pre@ is doubled, because
+-- of the text (and @\<!--@ starts one in a script), and a carriage return
+-- is written as it is and read back as a line feed, which nothing in the
+-- markup can prevent. A newline that starts a @textarea@ or a @pre@ is doubled, because
 -- the parser drops the first.
 --
 -- __What HTML cannot say.__ Some trees no markup parses back into. Those
@@ -314,12 +312,20 @@ listenerTypes node = sort . map (.eventType) <$> readIORef node.listeners
 --
 -- * a @plaintext@ element, whose text the parser never ends: everything
 --   after it, the rest of the page included, would be its text;
--- * an @xmp@, @iframe@, @noembed@ or @noframes@ whose text holds the
---   element's own end tag, which would end it early, and which no escape
---   can spell there (in a @script@ or a @style@ the @\<\\\/@ above means
---   the same thing, so those are written);
+-- * a raw-text element (@script@, @style@, @xmp@, @iframe@, @noembed@,
+--   @noframes@) whose text holds the element's own end tag, which would end
+--   it early, and which no escape can spell there: a script that needs
+--   @\<\/script@ in a string writes it @\<\\\/script@ itself, as authors
+--   do, since only it knows the text is a string;
+-- * U+0000 in text or an attribute, which the parser reads as U+FFFD;
 -- * an element in a namespace other than HTML's, SVG's and MathML's, the
---   only ones the parser puts an element in.
+--   only ones the parser puts an element in;
+-- * an element the parser would not make where it is: an SVG element
+--   outside an @svg@ (a @circle@ in a @div@), a MathML one outside a
+--   @math@, or an HTML element inside SVG or MathML other than at an
+--   integration point (@foreignObject@, @desc@ or @title@; @mi@, @mo@,
+--   @mn@, @ms@, @mtext@ or @annotation-xml@), where the parser would make it
+--   foreign or break out of the foreign content.
 --
 -- Others parse into a tree that differs from the component's only until the
 -- program has started and set its state, and are written as they are:
@@ -331,6 +337,20 @@ listenerTypes node = sort . map (.eventType) <$> readIORef node.listeners
 --   to say \"none\"; with @multiple@, no @selected@ attribute means none);
 -- * a @tr@ straight under a @table@ is put in a @tbody@ the parser makes up,
 --   a node the component's tree does not have: write the @tbody@.
+--
+-- Neither list is the whole of it. The markup is written the way the
+-- browser's own fragment serialisation writes it, with properties
+-- reflected; the parser's tree-construction rules are not applied, so a
+-- tree the DOM allows but the parser would build differently comes back
+-- different, and a client adopting the page has to treat that as any other
+-- mismatch. The common cases: an empty text node (@HH.text \"\"@), for
+-- which the parser makes no node; a @p@ holding a block element, an @li@,
+-- @dt@, @dd@ or @option@ that the next one ends, text or an element other
+-- than a row's straight inside a @table@, which is moved out in front of
+-- it, an element other than @option@ or @optgroup@ inside a @select@, an
+-- @a@ inside an @a@ or a @button@ inside a @button@, and an element or
+-- attribute name with capitals outside SVG and MathML, which the parser
+-- lowercases.
 renderToText :: NativeNode -> IO Text
 renderToText node = do
   context <- maybe (pure topContext) (contextWithin topContext) =<< readIORef node.parentRef
@@ -338,7 +358,10 @@ renderToText node = do
 
 -- | What serialising a node depends on besides the node: where it sits.
 data Context = Context
-  { element :: Maybe Text
+  { parent :: Maybe (Maybe Text, Text)
+  -- ^ The element the node is a child of, if any: its namespace
+  -- ('Nothing' for HTML) and its name.
+  , element :: Maybe Text
   -- ^ The HTML element the node is a child of, if it is one.
   , choice :: Maybe (Text, IORef Bool)
   -- ^ Inside a @select@ whose @value@ property is set: that value, and
@@ -346,30 +369,31 @@ data Context = Context
   }
 
 topContext :: Context
-topContext = Context {element = Nothing, choice = Nothing}
+topContext = Context {parent = Nothing, element = Nothing, choice = Nothing}
 
 -- | The context for the children of a node that is itself in this context.
 contextWithin :: Context -> NativeNode -> IO Context
-contextWithin outer parent = case parent.kind of
+contextWithin outer node = case node.kind of
   ElementNode ns (ElemName name) -> do
     let namespace = htmlIsNothing ns
         element = if isNothing namespace then Just name else Nothing
     choice <- case element of
       Just "select" ->
-        M.lookup "value" <$> readIORef parent.props >>= \case
+        M.lookup "value" <$> readIORef node.props >>= \case
           Just v -> Just . (scalarAttribute v,) <$> newIORef False
           Nothing -> pure Nothing
       Just "optgroup" -> pure outer.choice
       _ -> pure Nothing
-    pure Context {element, choice}
+    pure Context {parent = Just (namespace, name), element, choice}
   _ -> pure topContext
 
 renderIn :: Context -> NativeNode -> IO Text
 renderIn context node = case node.kind of
   TextNode -> do
     txt <- readIORef node.content
+    refuseNul "a text" txt
     case context.element of
-      Just parent | parent `elem` rawTextElements -> rawText parent txt
+      Just raw | raw `elem` rawTextElements -> rawText raw txt
       _ -> pure (escapeText txt)
   DocumentNode -> renderChildren topContext node
   ElementNode ns (ElemName name) -> do
@@ -383,6 +407,15 @@ renderIn context node = case node.kind of
         <> "> is in the namespace "
         <> toS uri
         <> ", which HTML cannot put an element in (only SVG's and MathML's)"
+    unless (parsedHere context namespace name)
+      $ throwString
+      $ "renderToText: the parser would not put <"
+      <> toS name
+      <> ">"
+      <> maybe "" (\uri -> " (in " <> toS uri <> ")") namespace
+      <> " "
+      <> maybe "at the top" (\(pns, pn) -> "in <" <> toS pn <> ">" <> maybe "" (\uri -> " (in " <> toS uri <> ")") pns) context.parent
+      <> ": an SVG element goes in an <svg>, a MathML one in a <math>, and HTML in HTML or an integration point"
     when (html && name == "plaintext")
       $ throwString "renderToText: HTML cannot end a <plaintext>, so it cannot be written: everything after it would be its text"
     attributes <- readIORef node.attrs
@@ -406,11 +439,16 @@ renderIn context node = case node.kind of
             $ reflected
             <> foldMap (\mine -> [("selected", if mine then Just Bare else Nothing)]) picked
         open = "<" <> name <> foldMap renderAttribute (M.toAscList merged) <> ">"
+    for_ (M.toList merged) $ \case
+      ((_, attribute), Valued v) -> refuseNul ("the attribute " <> attribute) v
+      _ -> pass
     if html && name `elem` voidElements
       then pure open
       else do
         inner <- case (html && name == "textarea", M.lookup "value" properties) of
-          (True, Just v) -> pure (escapeText (scalarAttribute v))
+          (True, Just v) -> do
+            refuseNul "a textarea's value" (scalarAttribute v)
+            pure (escapeText (scalarAttribute v))
           _ -> do
             inside <- contextWithin context node
             renderChildren inside node
@@ -430,6 +468,44 @@ renderChildren context parent = do
       separate a b = if not raw && isText a && isText b then "<!---->" else ""
       separators = "" : zipWith separate children (drop 1 children)
   pure $ mconcat (zipWith (<>) separators rendered)
+
+-- | Whether the HTML parser, reading this element's tag where it is, would
+-- make an element in its namespace. It enters SVG only at an @svg@ tag and
+-- MathML only at a @math@ tag, from HTML or an integration point, and
+-- leaves them only at the integration points (SVG's @foreignObject@,
+-- @desc@ and @title@, MathML's @mi@, @mo@, @mn@, @ms@, @mtext@ and
+-- @annotation-xml@): anywhere else an element is made in the namespace it
+-- is in, or the foreign content is broken out of.
+parsedHere :: Context -> Maybe Text -> Text -> Bool
+parsedHere context namespace name = case namespace of
+  Nothing -> inHtml
+  Just uri
+    | uri == svgNamespace -> (name == "svg" && (inHtml || annotation)) || inForeign svgNamespace
+    | uri == mathMLNamespace -> (name == "math" && inHtml) || inForeign mathMLNamespace
+    | otherwise -> False
+  where
+    inHtml = case context.parent of
+      Nothing -> True
+      Just (Nothing, _) -> True
+      Just (Just pns, pn) -> integrationPoint pns pn
+    inForeign uri = case context.parent of
+      Just (Just pns, pn) -> pns == uri && not (integrationPoint pns pn)
+      _ -> False
+    annotation = context.parent == Just (Just mathMLNamespace, "annotation-xml")
+    integrationPoint pns pn
+      | pns == svgNamespace = pn `elem` ["foreignObject", "desc", "title"]
+      | pns == mathMLNamespace = pn `elem` ["mi", "mo", "mn", "ms", "mtext", "annotation-xml"]
+      | otherwise = False
+
+-- | The tokenizer turns U+0000 into U+FFFD, and no character reference
+-- spells it, so no markup holds one.
+refuseNul :: Text -> Text -> IO ()
+refuseNul what txt =
+  when (T.any (== '\0') txt)
+    $ throwString
+    $ "renderToText: "
+    <> toS what
+    <> " holds U+0000, which the HTML parser reads as U+FFFD and no markup can write"
 
 -- | HTML elements are created with no namespace and parsed into the XHTML
 -- one: the two are the same place.
@@ -599,19 +675,26 @@ reflections =
         , "selected"
         ]
 
--- | Elements that cannot have children and so take no closing tag.
+-- | Elements that cannot have children and so take no closing tag: the
+-- ones HTML's fragment serialisation algorithm lists, obsolete ones
+-- included.
 voidElements :: [Text]
 voidElements =
   [ "area"
   , "base"
+  , "basefont"
+  , "bgsound"
   , "br"
   , "col"
   , "embed"
+  , "frame"
   , "hr"
   , "img"
   , "input"
+  , "keygen"
   , "link"
   , "meta"
+  , "param"
   , "source"
   , "track"
   , "wbr"
@@ -622,22 +705,19 @@ rawTextElements :: [Text]
 rawTextElements = ["iframe", "noembed", "noframes", "plaintext", "script", "style", "xmp"]
 
 -- | The text of a raw-text element, which cannot be escaped: only an end
--- tag of the element itself would end it early. In a @script@ or a @style@
--- @\<\\\/@ stands for @\<\/@ wherever such text could legitimately hold
--- one (a JavaScript string, CSS), so it is written that way; in the others
--- it would be read back with its backslash, so such text is refused.
+-- tag of the element itself would end it early, and nothing can spell one
+-- there that reads back the same, so text that holds one is refused. (In a
+-- script @\<\\\/@ means the same as @\<\/@ inside a string but not
+-- inside a regular expression, and only the script's author knows which it
+-- is: one that needs @\<\/script@ in a string writes it @\<\\\/script@.)
 rawText :: Text -> Text -> IO Text
-rawText parent txt = case T.splitOn "</" txt of
-  [] -> pure txt
-  before : rest
-    | not (any closes rest) -> pure txt
-    | parent `elem` ["script", "style"] ->
-        pure $ before <> foldMap (\s -> (if closes s then "<\\/" else "</") <> s) rest
-    | otherwise ->
-        throwString
-          $ "renderToText: the text of an <"
-          <> toS parent
-          <> "> holds its end tag, which would end it early, and HTML cannot write it otherwise there"
+rawText parent txt
+  | any closes (drop 1 (T.splitOn "</" txt)) =
+      throwString
+        $ "renderToText: the text of a <"
+        <> toS parent
+        <> "> holds its end tag, which would end it early, and HTML cannot write it otherwise there"
+  | otherwise = pure txt
   where
     -- What follows @\<\/@ ends the element when it is the element's name
     -- and then white space, @\/@ or @>@.
