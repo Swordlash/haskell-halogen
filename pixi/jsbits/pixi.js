@@ -16,11 +16,18 @@ function halogen_pixi_initialize_application(holder, moduleUrl, canvas, done) {
 // happens only when the size differs from the screen's. Resizing at once,
 // rather than queued for the next frame, also renders at once: the frame
 // being laid out is painted at the new size, not stretched and then blank.
+//
+// A parent taken out of the page (its example unmounted, say) is reported
+// too, at 0 by 0, before the application's teardown has run, while the scene
+// may be half torn down. There is nothing to show there, so neither that
+// nor a parent with no size (hidden) resizes; nor does anything once the
+// application is destroyed.
 function halogen_pixi_observe_parent(holder, parent) {
   if (!parent || typeof ResizeObserver === "undefined") return;
   holder.observer = new ResizeObserver(function () {
     var app = holder.app;
-    if (!app || !app.resize) return;
+    if (!holder.ready || !app || !app.resize) return;
+    if (!parent.isConnected || parent.clientWidth === 0 || parent.clientHeight === 0) return;
     if (parent.clientWidth === app.screen.width && parent.clientHeight === app.screen.height) return;
     app.resize();
   });
@@ -30,6 +37,7 @@ function halogen_pixi_application_created(holder) { return holder.app !== null; 
 function halogen_pixi_application_ready(holder) { return holder.ready; }
 function halogen_pixi_destroy_application(holder) {
   if (holder.observer) { holder.observer.disconnect(); holder.observer = null; }
+  holder.ready = false;
   holder.app.destroy(false, { children: true, texture: false, textureSource: false });
 }
 function halogen_pixi_new_container(holder) { return new holder.pixi.Container(); }
