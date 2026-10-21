@@ -15,6 +15,7 @@ module Halogen.VDom.DOM.Monad.Class
   , PropScalar (..)
   , propScalar
   , MonadDOM (..)
+  , DomNodeKind (..)
   , MonadAttributes (..)
   , MonadBrowserDOM (..)
   , StorageKind (..)
@@ -77,6 +78,23 @@ propScalar = \case
   BoolProp x -> ScalarBool x
   TxtProp x -> ScalarText x
   ViaTxtProp f x -> ScalarText (f x)
+
+-- | What a node already in the tree is, as far as adopting it goes: what
+-- 'Halogen.VDom.DOM.hydrateVDom' compares with what a component renders
+-- before it keeps a node rather than build one.
+data DomNodeKind
+  = -- | An element, with the namespace it was made in ('Nothing' or the
+    -- XHTML one for HTML) and its local name, as the DOM's @namespaceURI@
+    -- and @localName@ give them.
+    ElementKind (Maybe Namespace) ElemName
+  | -- | A text node, with its text.
+    TextKind Text
+  | -- | A comment, such as the empty one a prerendered page has between two
+    -- texts.
+    CommentKind
+  | -- | Anything else, or a node the backend cannot say anything about.
+    OtherKind
+  deriving stock (Eq, Show)
 
 -- | 'PrimMonad' is a superclass because "Halogen.VDom.DOM.Prop" needs one
 -- mutable cell per event handler: a listener is registered with the DOM once
@@ -144,6 +162,38 @@ class (PrimMonad m) => MonadDOM m where
   parentNode :: DomNode m -> m (Maybe (DomNode m))
   default parentNode :: (LiftsDOM t n m) => DomNode m -> m (Maybe (DomNode m))
   parentNode = lift . parentNode
+
+  -- Reading a tree that is already there, which is what adopting the HTML
+  -- a page arrived with takes ('Halogen.VDom.DOM.hydrateVDom'): walking an
+  -- element's children and telling what each of them is. A build never
+  -- reads, so a backend nothing is ever adopted into can answer as if it
+  -- held nothing: a node with no children that is not an element. Pixi's
+  -- does, and hydrating then builds everything afresh, as 'buildVDom'
+  -- would. The defaults are lifted ones, as above, rather than those
+  -- answers, because a transformer that forgot to lift them would go on
+  -- compiling and quietly stop adopting anything, and the driver itself
+  -- reads 'nextSibling' to put a re-rendered child back in its place.
+
+  -- | The node after this one in its parent, if there is one.
+  nextSibling :: DomNode m -> m (Maybe (DomNode m))
+  default nextSibling :: (LiftsDOM t n m) => DomNode m -> m (Maybe (DomNode m))
+  nextSibling = lift . nextSibling
+
+  -- | The first of a node's children, if it has any.
+  firstChild :: DomNode m -> m (Maybe (DomNode m))
+  default firstChild :: (LiftsDOM t n m) => DomNode m -> m (Maybe (DomNode m))
+  firstChild = lift . firstChild
+
+  -- | What the node is.
+  nodeKind :: DomNode m -> m DomNodeKind
+  default nodeKind :: (LiftsDOM t n m) => DomNode m -> m DomNodeKind
+  nodeKind = lift . nodeKind
+
+  -- | The node as an element, if it is one: the converse of
+  -- 'elementToNode'.
+  nodeToElement :: DomNode m -> m (Maybe (DomElement m))
+  default nodeToElement :: (LiftsDOM t n m) => DomNode m -> m (Maybe (DomElement m))
+  nodeToElement = lift . nodeToElement
 
   addEventListener :: EventType -> DomEventListener m -> DomEventTarget m -> m ()
   default addEventListener :: (LiftsDOM t n m) => EventType -> DomEventListener m -> DomEventTarget m -> m ()
@@ -237,10 +287,6 @@ class
   replaceChild :: DomNode m -> DomNode m -> DomNode m -> m ()
   default replaceChild :: (LiftsBrowserDOM t n m) => DomNode m -> DomNode m -> DomNode m -> m ()
   replaceChild node old parent = lift (replaceChild node old parent)
-
-  nextSibling :: DomNode m -> m (Maybe (DomNode m))
-  default nextSibling :: (LiftsBrowserDOM t n m) => DomNode m -> m (Maybe (DomNode m))
-  nextSibling = lift . nextSibling
 
   window :: m Window
   default window :: (LiftsBrowserDOM t n m) => m Window

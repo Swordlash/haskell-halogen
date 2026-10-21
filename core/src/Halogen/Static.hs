@@ -22,8 +22,9 @@
 -- How properties become markup, and what cannot, is in
 -- 'Halogen.VDom.DOM.Monad.Native.renderToText'.
 --
--- The page this makes is static: the program, once loaded, renders the
--- component afresh in place of it.
+-- The page this makes is static until its program has loaded. The program
+-- then mounts the component with 'Halogen.VDom.Driver.hydrateUI', which
+-- adopts the HTML rather than render the component afresh in its place.
 --
 -- Native only: on the browser backends there is a real document to render
 -- into instead.

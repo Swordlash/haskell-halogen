@@ -16,6 +16,7 @@ import Test.DriverReentrancy qualified as DriverReentrancy
 import Test.Fork qualified as Fork
 import Test.Hashable qualified as Hashable
 import Test.Hspec (hspec)
+import Test.Hydrate qualified as Hydrate
 import Test.NativeDom qualified as NativeDom
 import Test.RenderRecovery qualified as RenderRecovery
 import Test.Runtime qualified as Runtime
@@ -36,6 +37,7 @@ main = hspec $ do
   DriverLifecycleRaces.spec
   Fork.spec
   Hashable.spec
+  Hydrate.spec
   NativeDom.spec
   RenderRecovery.spec
   Runtime.spec

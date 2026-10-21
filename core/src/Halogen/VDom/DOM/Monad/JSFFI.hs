@@ -50,6 +50,11 @@ $( browserJS
      , ("js_remove_child", "js_remove_child", Unsafe, [t|Node -> ParentNode -> IO ()|])
      , ("js_parent_node", "js_parent_node", Unsafe, [t|Node -> IO (Nullable ParentNode)|])
      , ("js_next_sibling", "js_next_sibling", Unsafe, [t|Node -> IO (Nullable Node)|])
+     , ("js_first_child", "js_first_child", Unsafe, [t|Node -> IO (Nullable Node)|])
+     , ("js_node_type", "js_node_type", Unsafe, [t|Node -> IO Int|])
+     , ("js_namespace_uri", "js_namespace_uri", Unsafe, [t|Element -> IO (Nullable JSVal)|])
+     , ("js_local_name", "js_local_name", Unsafe, [t|Element -> IO JSText|])
+     , ("js_node_data", "js_node_data", Unsafe, [t|Node -> IO JSText|])
      , ("js_set_attribute", "js_set_attribute", Unsafe, [t|JSVal -> JSText -> JSText -> Element -> IO ()|])
      , ("js_set_property", "js_set_property", Unsafe, [t|JSText -> JSVal -> Element -> IO ()|])
      , ("js_property_equals", "js_property_equals", Unsafe, [t|JSText -> JSVal -> Element -> IO Bool|])
@@ -84,6 +89,23 @@ instance MonadDOM BrowserDOM where
   insertChildIx ix child parent = liftIO $ js_insert_child_ix ix child (coerce parent)
   removeChild child parent = liftIO $ js_remove_child child (coerce parent)
   parentNode node = liftIO $ fmap Node . nullableToMaybe <$> js_parent_node node
+  nextSibling node = liftIO $ fmap Node . nullableToMaybe <$> js_next_sibling node
+  firstChild node = liftIO $ fmap Node . nullableToMaybe <$> js_first_child node
+
+  -- The node types are the DOM's: 1 an element, 3 a text, 8 a comment.
+  nodeKind node = liftIO $ do
+    js_node_type node >>= \case
+      1 -> do
+        let el = coerce node
+        ns <- fmap foreignToString . nullableToMaybe <$> js_namespace_uri el
+        name <- fromJSText <$> js_local_name el
+        pure $ ElementKind (Namespace <$> ns) (ElemName name)
+      3 -> TextKind . fromJSText <$> js_node_data node
+      8 -> pure CommentKind
+      _ -> pure OtherKind
+  nodeToElement node = liftIO $ do
+    ty <- js_node_type node
+    pure $ if ty == 1 then Just (coerce node) else Nothing
   addEventListener (EventType eventType) listener target = liftIO $ js_add_event_listener (toJSText eventType) listener target
   removeEventListener (EventType eventType) listener@(EventListener callback) target = liftIO $ do
     js_remove_event_listener (toJSText eventType) listener target
@@ -93,7 +115,6 @@ instance MonadBrowserDOM BrowserDOM where
   insertBefore newNode sibling parent = liftIO $ js_insert_before newNode sibling (coerce parent)
   appendChild child parent = liftIO $ js_append_child child (coerce parent)
   replaceChild newChild oldChild parent = liftIO $ js_replace_child newChild oldChild (coerce parent)
-  nextSibling node = liftIO $ fmap Node . nullableToMaybe <$> js_next_sibling node
   windowToEventTarget w = pure (coerce w)
   documentToNode d = pure (coerce d)
   window = liftIO js_get_window

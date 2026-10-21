@@ -78,6 +78,15 @@ instance MonadDOM PixiDOM where
     FFI.destroyObject child
   parentNode = liftIO . FFI.parentOf
 
+  -- A scene is never adopted: there is no page it arrived with, so what a
+  -- canvas holds is always what was built into it. Answering as if every
+  -- object were empty and not an element is what makes hydrating one build
+  -- it afresh, should anything ask.
+  nextSibling _ = pure Nothing
+  firstChild _ = pure Nothing
+  nodeKind _ = pure OtherKind
+  nodeToElement _ = pure Nothing
+
   mkEventListener handler = liftIO $ FFI.mkCallback (runPixiDOM . handler)
 
   addEventListener (EventType eventName) listener target =

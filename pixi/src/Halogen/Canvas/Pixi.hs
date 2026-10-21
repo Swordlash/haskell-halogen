@@ -322,6 +322,7 @@ pixiSpec :: Runtime i -> V.VDomSpec PixiDOM [PixiProp i] (Thunk (CanvasNode Pixi
 pixiSpec runtime =
   V.VDomSpec
     { buildWidget = Thunk.buildThunk unCanvasNode
+    , hydrateWidget = Thunk.hydrateThunk unCanvasNode
     , buildAttributes = buildCanvasProp (liftIO . runtime.emit . Fired) (readIORef runtime.swallowTap) runtime.app
     , document = runtime.app
     }
