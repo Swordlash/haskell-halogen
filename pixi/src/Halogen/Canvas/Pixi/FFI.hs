@@ -65,6 +65,7 @@ module Halogen.Canvas.Pixi.FFI
   , onPointerEnd
   , onWheel
   , removeWheel
+  , onResize
   , pointerId
   , globalX
   , globalY
@@ -171,6 +172,7 @@ $( browserJS
      , ("onPointerEnd", "halogen_pixi_on_pointer_end", Unsafe, [t|Application -> Callback -> IO ()|])
      , ("onWheel", "halogen_pixi_on_wheel", Unsafe, [t|Canvas -> Callback -> IO ()|])
      , ("removeWheel", "halogen_pixi_remove_wheel", Unsafe, [t|Canvas -> Callback -> IO ()|])
+     , ("onResize", "halogen_pixi_on_resize", Unsafe, [t|Application -> Callback -> IO ()|])
      , ("pointerId", "halogen_pixi_pointer_id", Unsafe, [t|Event -> Int|])
      , ("globalX", "halogen_pixi_global_x", Unsafe, [t|Event -> Double|])
      , ("globalY", "halogen_pixi_global_y", Unsafe, [t|Event -> Double|])

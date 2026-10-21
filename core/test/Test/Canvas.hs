@@ -106,6 +106,17 @@ spec = describe "canvas scenes" $ do
       assertEqual "reset view" start (followCamera (Just dragged) start dragged)
     it "does not move for the camera asked for last time (the documented limit)" $
       assertEqual "same camera, asked again" dragged (followCamera (Just start) start dragged)
+  describe "fitting a rectangle" $ do
+    it "keeps one world unit per pixel without a rectangle" $
+      assertEqual "no fit" 1 (fitScale Nothing 800 600)
+    it "scales by the tighter of the two sides" $ do
+      assertEqual "a tall field on a wide canvas" 0.5 (fitScale (Just (Point 1000 1200)) 1920 600)
+      assertEqual "a wide field on a tall canvas" 0.4 (fitScale (Just (Point 2000 1000)) 800 1200)
+    it "grows a rectangle smaller than the canvas" $
+      assertEqual "twice the size" 2 (fitScale (Just (Point 400 300)) 800 1200)
+    it "takes 1 when the rectangle or the surface has no area" $ do
+      assertEqual "an empty rectangle" 1 (fitScale (Just (Point 0 300)) 800 600)
+      assertEqual "a canvas not laid out yet" 1 (fitScale (Just (Point 400 300)) 0 0)
   describe "prop keys" $ do
     it "gives each kind of prop a key of its own" $ do
       let keys = map propKey everyProp

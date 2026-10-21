@@ -18,6 +18,7 @@ module Halogen.Canvas.Types
   , followCamera
   , Interaction (..)
   , defaultInteraction
+  , fitScale
   , Shape (..)
   , pathData
   , HitArea (..)
@@ -126,11 +127,36 @@ followCamera asked next onScreen
 data Interaction = Interaction
   { pan :: Bool
   , zoomRange :: Maybe (Double, Double)
+  , fit :: Maybe Point
+  -- ^ The size (width, height) of a world rectangle that the camera at zoom
+  -- 1 shows whole, centred on its focus. The renderer scales the zoom by
+  -- the largest factor at which that rectangle fits its surface (see
+  -- 'fitScale'), so the scene looks the same on every canvas whatever its
+  -- size, and the camera's @zoom@ (and 'zoomRange') counts from "the whole
+  -- rectangle in view" rather than from pixels. A scene of a fixed size, a
+  -- board or a field, that should fill a canvas the application does not
+  -- measure, sets it to its own size.
+  --
+  -- 'Nothing': zoom 1 is one world unit per screen pixel.
   }
   deriving stock (Eq, Show)
 
 defaultInteraction :: Interaction
-defaultInteraction = Interaction {pan = True, zoomRange = Just (0.25, 3)}
+defaultInteraction = Interaction {pan = True, zoomRange = Just (0.25, 3), fit = Nothing}
+
+-- | What a renderer multiplies the camera's zoom by on a surface of the
+-- given width and height: the largest scale at which the 'fit' rectangle
+-- fits it whole, or 1 when there is none.
+--
+-- A rectangle or a surface with no area (a canvas not laid out yet) has no
+-- such scale; it is taken as 1 rather than as zero or infinity, which would
+-- put a non-finite transform on the scene.
+fitScale :: Maybe Point -> Double -> Double -> Double
+fitScale fit screenWidth screenHeight = case fit of
+  Just (Point width height)
+    | width > 0 && height > 0 && screenWidth > 0 && screenHeight > 0 ->
+        min (screenWidth / width) (screenHeight / height)
+  _ -> 1
 
 -- | What a graphics element draws.
 --

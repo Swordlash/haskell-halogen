@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `Interaction` has a `fit` field: the size of a world rectangle that the
+  camera at zoom 1 shows whole, centred on its focus, on whatever surface
+  the renderer has, so a board of a fixed size fills a canvas the
+  application never measures, and `zoom` and `zoomRange` count from "all of
+  it in view". `Nothing`, the default, keeps zoom 1 at one world unit per
+  pixel. `fitScale` is the factor a renderer multiplies the zoom by. Code
+  that builds an `Interaction` with all its fields adds `fit = Nothing`.
 - **Fix:** a program's worker (the thread running a `lift`/`liftIO`) no
   longer runs the tree's loop. A `liftIO` that notified a subscribed
   emitter, or called the socket's `query` or `dispose`, ran the handler on

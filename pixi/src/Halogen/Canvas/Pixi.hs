@@ -356,7 +356,7 @@ renderLatest runtime = do
       when again go
 
 renderView :: Runtime i -> View i -> IO ()
-renderView runtime View {camera = viewCamera, nodes} = do
+renderView runtime View {camera = viewCamera, interaction, nodes} = do
   -- A view rendered mid-drag still carries the camera from before the drag;
   -- only a camera the application changed moves the one on screen.
   lastAsked <- atomicModifyIORef' runtime.asked (Just viewCamera,)
@@ -371,23 +371,30 @@ renderView runtime View {camera = viewCamera, nodes} = do
   -- Re-adding the sole child of the stage is a no-op, so this needs no
   -- first-render case; it matters only when a patch replaced the root.
   FFI.addToStage runtime.app (V.extract next)
-  applyCamera runtime.app (V.extract next) nextCamera
+  applyCamera runtime.app interaction.fit (V.extract next) nextCamera
 
 currentWorld :: Runtime i -> IO (Maybe FFI.Object)
 currentWorld runtime = fmap V.extract <$> readIORef runtime.scene
 
-applyCamera :: FFI.Application -> FFI.Object -> Camera -> IO ()
-applyCamera app world Camera {focus = Point focusX focusY, zoom} = do
+-- | Put the camera on the world. The camera's zoom is in the scene's own
+-- unit, relative to its 'fit' rectangle if it has one, so the scale on
+-- screen is that zoom times what fits the rectangle to the surface now.
+applyCamera :: FFI.Application -> Maybe Point -> FFI.Object -> Camera -> IO ()
+applyCamera app fit world Camera {focus = Point focusX focusY, zoom} = do
   width <- FFI.screenWidth app
   height <- FFI.screenHeight app
-  FFI.setPosition world (width / 2 - focusX * zoom) (height / 2 - focusY * zoom)
-  FFI.setScale world zoom zoom
+  let scale = zoom * fitScale fit width height
+  FFI.setPosition world (width / 2 - focusX * scale) (height / 2 - focusY * scale)
+  FFI.setScale world scale scale
 
 -- | Push a camera the user moved back out to the application, and repaint.
 moveCamera :: Runtime i -> Camera -> IO ()
 moveCamera runtime nextCamera = do
   writeIORef runtime.camera nextCamera
-  currentWorld runtime >>= traverse_ (\world -> applyCamera runtime.app world nextCamera)
+  -- There is a world only once a view has been rendered, so the latest view
+  -- is there to say how the scene fits.
+  fit <- (>>= (.interaction.fit)) <$> readIORef runtime.pending
+  currentWorld runtime >>= traverse_ (\world -> applyCamera runtime.app fit world nextCamera)
 
 ----------------------------------------------------------------------
 -- Pan and zoom
@@ -408,7 +415,7 @@ installInteraction runtime@Runtime {app, canvas, camera, gesture, swallowTap} = 
     g <- readIORef gesture
     let pointer = FFI.pointerId event
         here = Point (FFI.globalX event) (FFI.globalY event)
-        Interaction {pan = panning, zoomRange} = scene.interaction
+        Interaction {pan = panning, zoomRange, fit} = scene.interaction
     for_ (Map.lookup pointer g.pointers) $ \(start, before) -> do
       -- Every move is recorded, though the camera moves only past the slop:
       -- the other finger of a pinch is then where it is, not where it went
@@ -423,6 +430,7 @@ installInteraction runtime@Runtime {app, canvas, camera, gesture, swallowTap} = 
           width <- FFI.screenWidth app
           height <- FFI.screenHeight app
           current <- readIORef camera
+          let scale = fitScale fit width height
           -- Two fingers: the first two down, as they were and as they are.
           -- A scene that does not pan zooms about one point for the whole
           -- pinch, between where the two were when it began. One finger: a
@@ -432,8 +440,8 @@ installInteraction runtime@Runtime {app, canvas, camera, gesture, swallowTap} = 
               next = case (pairOf g.order g.pointers, pairOf g.order after) of
                 (p : q : _, (_, a') : (_, b') : _) ->
                   let anchor = if panning then Nothing else g.anchor
-                   in Just (pinch anchor (Point (width / 2) (height / 2)) zoomRange (origin p, origin q) (a', b') current)
-                _ | panning -> Just (pan (origin (start, before)) here current)
+                   in Just (pinch scale anchor (Point (width / 2) (height / 2)) zoomRange (origin p, origin q) (a', b') current)
+                _ | panning -> Just (pan scale (origin (start, before)) here current)
                 _ -> Nothing
               moves = maybe False (/= current) next
           -- Past the slop only if these pointers can move the camera at all
@@ -464,25 +472,37 @@ installInteraction runtime@Runtime {app, canvas, camera, gesture, swallowTap} = 
   writeIORef runtime.wheelCallback $ Just wheel
   FFI.onWheel canvas wheel
 
+  -- The renderer follows its canvas's parent in size. The camera has not
+  -- moved, so the application hears nothing, but a scene that fits a
+  -- rectangle to the surface is drawn at another scale now.
+  resized <- registerPermanent runtime $ \_ -> readIORef camera >>= moveCamera runtime
+  FFI.onResize app resized
+
 -- | The camera after a pointer moved from one point on the screen to
--- another: the world under it moves with it.
-pan :: Point -> Point -> Camera -> Camera
-pan (Point x0 y0) (Point x1 y1) Camera {focus = Point focusX focusY, zoom} =
-  Camera {focus = Point (focusX - (x1 - x0) / zoom) (focusY - (y1 - y0) / zoom), zoom}
+-- another: the world under it moves with it. The scale is what the fit
+-- multiplies the zoom by (see 'fitScale'): a screen pixel is that much less
+-- of the world.
+pan :: Double -> Point -> Point -> Camera -> Camera
+pan scale (Point x0 y0) (Point x1 y1) Camera {focus = Point focusX focusY, zoom} =
+  Camera {focus = Point (focusX - (x1 - x0) / onScreen) (focusY - (y1 - y0) / onScreen), zoom}
+  where
+    onScreen = zoom * scale
 
 -- | The camera after two pointers moved (screen points, the screen's centre
 -- given): zoomed by how far apart they went, within the range if there is
 -- one (none: no zoom). About a fixed screen point if one is given (a scene
 -- that does not pan); otherwise it pans too, so that the world point
--- between the pointers stays between them.
-pinch :: Maybe Point -> Point -> Maybe (Double, Double) -> (Point, Point) -> (Point, Point) -> Camera -> Camera
-pinch anchor (Point centreX centreY) range (a, b) (a', b') Camera {focus = Point focusX focusY, zoom} =
-  Camera {focus = Point (worldX - (toX - centreX) / zoom') (worldY - (toY - centreY) / zoom'), zoom = zoom'}
+-- between the pointers stays between them. The range bounds the camera's
+-- zoom, in the scene's unit; the fit's scale (as for 'pan') only converts
+-- screen distances to world ones.
+pinch :: Double -> Maybe Point -> Point -> Maybe (Double, Double) -> (Point, Point) -> (Point, Point) -> Camera -> Camera
+pinch scale anchor (Point centreX centreY) range (a, b) (a', b') Camera {focus = Point focusX focusY, zoom} =
+  Camera {focus = Point (worldX - (toX - centreX) / (zoom' * scale)) (worldY - (toY - centreY) / (zoom' * scale)), zoom = zoom'}
   where
     Point fromX fromY = fromMaybe (midpoint a b) anchor
     Point toX toY = fromMaybe (midpoint a' b') anchor
-    worldX = focusX + (fromX - centreX) / zoom
-    worldY = focusY + (fromY - centreY) / zoom
+    worldX = focusX + (fromX - centreX) / (zoom * scale)
+    worldY = focusY + (fromY - centreY) / (zoom * scale)
     zoom' = case range of
       Just (low, high) | distance a b > 0 -> max low (min high (zoom * distance a' b' / distance a b))
       _ -> zoom
@@ -515,13 +535,14 @@ zoomAtPointer runtime@Runtime {app, canvas, camera, pending, cameraTimer} settle
         screenY = (FFI.clientY event - top) * screenHeight / canvasHeight
         pointerFromCenterX = screenX - screenWidth / 2
         pointerFromCenterY = screenY - screenHeight / 2
+        scale = fitScale scene.interaction.fit screenWidth screenHeight
     Camera {focus = Point focusX focusY, zoom = oldZoom} <- readIORef camera
     let newZoom = max minimumZoom $ min maximumZoom $ oldZoom * exp (-FFI.deltaY event * 0.001)
-        worldX = focusX + pointerFromCenterX / oldZoom
-        worldY = focusY + pointerFromCenterY / oldZoom
+        worldX = focusX + pointerFromCenterX / (oldZoom * scale)
+        worldY = focusY + pointerFromCenterY / (oldZoom * scale)
     -- Keep whatever is under the pointer under the pointer.
     moveCamera runtime $
-      Camera {focus = Point (worldX - pointerFromCenterX / newZoom) (worldY - pointerFromCenterY / newZoom), zoom = newZoom}
+      Camera {focus = Point (worldX - pointerFromCenterX / (newZoom * scale)) (worldY - pointerFromCenterY / (newZoom * scale)), zoom = newZoom}
     readIORef cameraTimer >>= traverse_ FFI.cancelTimeout
     FFI.scheduleTimeout settled 120 >>= writeIORef cameraTimer . Just
 
