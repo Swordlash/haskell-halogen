@@ -54,7 +54,7 @@ import HPrelude
 import Halogen.VDom.DOM.Monad.Class
 import Halogen.VDom.DOM.Monad.Mem
 import Halogen.VDom.Types
-import Numeric (showFFloat)
+import Numeric (floatToDigits)
 import System.IO.Unsafe (unsafePerformIO)
 import Unsafe.Coerce (unsafeCoerce)
 import Web.DOM.Internal.Types
@@ -287,10 +287,12 @@ listenerTypes node = sort . map (.eventType) <$> readIORef node.listeners
 -- left out: markup cannot carry it, so a component that needs one in the
 -- prerendered page sets the attribute instead.
 --
--- __Namespaces.__ An element in a namespace its parent is not in, an @svg@
--- inside HTML above all, carries an @xmlns@ attribute naming it, so the
--- markup still means the same thing cut out of its page. Attributes in the
--- XLink, XML and XMLNS namespaces get the prefix the HTML parser expects.
+-- __Namespaces.__ The HTML parser takes an element's namespace from its
+-- tag, entering SVG at @svg@ and MathML at @math@, and never from an
+-- @xmlns@ attribute, so none is written for them (as the browser's own
+-- serialiser writes none); one the tree holds is written as any attribute
+-- is. Attributes in the XLink, XML and XMLNS namespaces get the prefix the
+-- HTML parser expects.
 --
 -- __Text.__ Two text nodes next to each other are separated by an empty
 -- comment, @\<!---->@: the parser would merge them into one, and a client
@@ -305,6 +307,30 @@ listenerTypes node = sort . map (.eventType) <$> readIORef node.listeners
 -- written @\<\\\/@, which means the same thing in a script string and in
 -- CSS. A newline that starts a @textarea@ or a @pre@ is doubled, because
 -- the parser drops the first.
+--
+-- __What HTML cannot say.__ Some trees no markup parses back into. Those
+-- are refused, with an error that names what is wrong, so that a prerender
+-- fails rather than ship a page other than the component's:
+--
+-- * a @plaintext@ element, whose text the parser never ends: everything
+--   after it, the rest of the page included, would be its text;
+-- * an @xmp@, @iframe@, @noembed@ or @noframes@ whose text holds the
+--   element's own end tag, which would end it early, and which no escape
+--   can spell there (in a @script@ or a @style@ the @\<\\\/@ above means
+--   the same thing, so those are written);
+-- * an element in a namespace other than HTML's, SVG's and MathML's, the
+--   only ones the parser puts an element in.
+--
+-- Others parse into a tree that differs from the component's only until the
+-- program has started and set its state, and are written as they are:
+--
+-- * a carriage return in raw text comes back as a line feed;
+-- * a @select@ (without @multiple@) whose value matches none of its options
+--   has nothing marked @selected@, and the parser selects the first option,
+--   which the page shows until the program sets the value (HTML has no way
+--   to say \"none\"; with @multiple@, no @selected@ attribute means none);
+-- * a @tr@ straight under a @table@ is put in a @tbody@ the parser makes up,
+--   a node the component's tree does not have: write the @tbody@.
 renderToText :: NativeNode -> IO Text
 renderToText node = do
   context <- maybe (pure topContext) (contextWithin topContext) =<< readIORef node.parentRef
@@ -312,9 +338,7 @@ renderToText node = do
 
 -- | What serialising a node depends on besides the node: where it sits.
 data Context = Context
-  { namespace :: Maybe Text
-  -- ^ The namespace the parser is in here; 'Nothing' is HTML.
-  , element :: Maybe Text
+  { element :: Maybe Text
   -- ^ The HTML element the node is a child of, if it is one.
   , choice :: Maybe (Text, IORef Bool)
   -- ^ Inside a @select@ whose @value@ property is set: that value, and
@@ -322,7 +346,7 @@ data Context = Context
   }
 
 topContext :: Context
-topContext = Context {namespace = Nothing, element = Nothing, choice = Nothing}
+topContext = Context {element = Nothing, choice = Nothing}
 
 -- | The context for the children of a node that is itself in this context.
 contextWithin :: Context -> NativeNode -> IO Context
@@ -337,20 +361,30 @@ contextWithin outer parent = case parent.kind of
           Nothing -> pure Nothing
       Just "optgroup" -> pure outer.choice
       _ -> pure Nothing
-    pure Context {namespace, element, choice}
+    pure Context {element, choice}
   _ -> pure topContext
 
 renderIn :: Context -> NativeNode -> IO Text
 renderIn context node = case node.kind of
   TextNode -> do
     txt <- readIORef node.content
-    pure $ case context.element of
+    case context.element of
       Just parent | parent `elem` rawTextElements -> rawText parent txt
-      _ -> escapeText txt
+      _ -> pure (escapeText txt)
   DocumentNode -> renderChildren topContext node
   ElementNode ns (ElemName name) -> do
     let namespace = htmlIsNothing ns
         html = isNothing namespace
+    for_ namespace $ \uri ->
+      unless (uri `elem` [svgNamespace, mathMLNamespace])
+        $ throwString
+        $ "renderToText: <"
+        <> toS name
+        <> "> is in the namespace "
+        <> toS uri
+        <> ", which HTML cannot put an element in (only SVG's and MathML's)"
+    when (html && name == "plaintext")
+      $ throwString "renderToText: HTML cannot end a <plaintext>, so it cannot be written: everything after it would be its text"
     attributes <- readIORef node.attrs
     properties <- readIORef node.props
     picked <- case (context.choice, html && name == "option") of
@@ -371,13 +405,7 @@ renderIn context node = case node.kind of
           foldl' (\acc (key, v) -> M.alter (const v) (Nothing, key) acc) (Valued <$> attributes)
             $ reflected
             <> foldMap (\mine -> [("selected", if mine then Just Bare else Nothing)]) picked
-        xmlns = case namespace of
-          Just uri
-            | context.namespace /= namespace
-            , not (M.member (Nothing, "xmlns") merged) ->
-                renderAttribute ((Nothing, "xmlns"), Valued uri)
-          _ -> ""
-        open = "<" <> name <> xmlns <> foldMap renderAttribute (M.toAscList merged) <> ">"
+        open = "<" <> name <> foldMap renderAttribute (M.toAscList merged) <> ">"
     if html && name `elem` voidElements
       then pure open
       else do
@@ -412,6 +440,12 @@ htmlIsNothing = \case
 
 xhtmlNamespace :: Text
 xhtmlNamespace = "http://www.w3.org/1999/xhtml"
+
+svgNamespace :: Text
+svgNamespace = "http://www.w3.org/2000/svg"
+
+mathMLNamespace :: Text
+mathMLNamespace = "http://www.w3.org/1998/Math/MathML"
 
 -- | What an attribute holds once serialised: a boolean one has no value.
 data AttributeValue = Bare | Valued Text
@@ -491,8 +525,25 @@ scalarAttribute = \case
   ScalarNum d
     | isNaN d -> "NaN"
     | isInfinite d -> if d > 0 then "Infinity" else "-Infinity"
-    | d == fromInteger (round d) && abs d < 1e21 -> show (round d :: Integer)
-    | otherwise -> toS (showFFloat Nothing d "")
+    | otherwise -> numberToString d
+
+-- | A finite number as JavaScript's @Number::toString@ writes it: the
+-- shortest digits that read back as the same number ('floatToDigits'
+-- gives exactly those), in fixed notation for a decimal exponent from -6
+-- up to 21, and otherwise as @d.ddde±n@. Zero, negative or not, is @0@.
+numberToString :: Double -> Text
+numberToString d
+  | d == 0 = "0"
+  | d < 0 = "-" <> numberToString (negate d)
+  | k <= n && n <= 21 = digits <> T.replicate (n - k) "0"
+  | 0 < n && n <= 21 = T.take n digits <> "." <> T.drop n digits
+  | -6 < n && n <= 0 = "0." <> T.replicate (negate n) "0" <> digits
+  | otherwise = T.take 1 digits <> fraction <> "e" <> (if n - 1 < 0 then "-" else "+") <> show (abs (n - 1))
+  where
+    (ds, n) = floatToDigits 10 d
+    digits = T.pack (map intToDigit ds)
+    k = length ds
+    fraction = if k == 1 then "" else "." <> T.drop 1 digits
 
 -- | The properties that have an HTML attribute, and how each is written.
 reflections :: Map Text Reflection
@@ -570,15 +621,30 @@ voidElements =
 rawTextElements :: [Text]
 rawTextElements = ["iframe", "noembed", "noframes", "plaintext", "script", "style", "xmp"]
 
--- | The text of a raw-text element, which cannot be escaped: only a closing
--- tag of the element itself would end it early, and @\<\\\/@ stands for
--- @\<\/@ wherever such text could legitimately hold one.
-rawText :: Text -> Text -> Text
+-- | The text of a raw-text element, which cannot be escaped: only an end
+-- tag of the element itself would end it early. In a @script@ or a @style@
+-- @\<\\\/@ stands for @\<\/@ wherever such text could legitimately hold
+-- one (a JavaScript string, CSS), so it is written that way; in the others
+-- it would be read back with its backslash, so such text is refused.
+rawText :: Text -> Text -> IO Text
 rawText parent txt = case T.splitOn "</" txt of
-  [] -> txt
-  before : rest -> before <> foldMap (\s -> (if closes s then "<\\/" else "</") <> s) rest
+  [] -> pure txt
+  before : rest
+    | not (any closes rest) -> pure txt
+    | parent `elem` ["script", "style"] ->
+        pure $ before <> foldMap (\s -> (if closes s then "<\\/" else "</") <> s) rest
+    | otherwise ->
+        throwString
+          $ "renderToText: the text of an <"
+          <> toS parent
+          <> "> holds its end tag, which would end it early, and HTML cannot write it otherwise there"
   where
-    closes s = T.toLower (T.take (T.length parent) s) == parent
+    -- What follows @\<\/@ ends the element when it is the element's name
+    -- and then white space, @\/@ or @>@.
+    closes s =
+      T.toLower (T.take (T.length parent) s)
+        == parent
+        && maybe False ((`elem` ("\t\n\f\r />" :: [Char])) . fst) (T.uncons (T.drop (T.length parent) s))
 
 escapeText :: Text -> Text
 escapeText = T.concatMap $ \case

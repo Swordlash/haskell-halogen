@@ -32,27 +32,34 @@
   accordingly. Properties are written as the attributes they reflect
   (`className` as `class`, `htmlFor` as `for`, `tabIndex` as `tabindex`,
   boolean ones such as `checked`, `disabled`, `selected` and `hidden` as an
-  attribute's presence, numbers as JavaScript spells them), where they used
-  to be left out; a property and an attribute of the same name are written
-  once, with the property's value. A `textarea`'s `value` is written as its
-  text and a `select`'s marks the option it picks (an option without a
-  `value` is matched by its text with ASCII white space collapsed, a
-  non-breaking space kept, as in a browser). A property HTML has no
-  attribute for (`selectedIndex`, a custom element's) is still left out.
-  Two adjacent text nodes are separated by an empty comment, `<!---->`, so
-  that a client adopting the page can tell where one ends, except in
-  `script`, `style` and the other raw-text elements, where the comment
-  would be text. An element in a
-  namespace its parent is not in, an `svg` in HTML, carries `xmlns`, and an
-  XLink attribute is written `xlink:href` where it was written with its
-  namespace's URI. `>` and non-breaking spaces are escaped in attributes,
-  and non-breaking spaces in text, and a carriage return in either is
-  written `&#13;`, which the parser would otherwise turn into a line feed;
-  the text of `script`, `style` and the
-  other raw-text elements is no longer escaped (only a `</` that would
-  close them early is written `<\/`), and a newline that starts a `pre` or
-  a `textarea` is kept. Snapshot tests over `renderToText` may need their
-  expected HTML updated.
+  attribute's presence, numbers as JavaScript's `Number::toString` spells
+  them: `1`, `0.1`, `1e-7`, `1e+21`), where they used to be left out; a
+  property and an attribute of the same name are written once, with the
+  property's value. A `textarea`'s `value` is written as its text and a
+  `select`'s marks the option it picks (an option without a `value` is
+  matched by its text with ASCII white space collapsed, a non-breaking
+  space kept, as in a browser). A property HTML has no attribute for
+  (`selectedIndex`, a custom element's) is still left out. Two adjacent
+  text nodes are separated by an empty comment, `<!---->`, so that a
+  client adopting the page can tell where one ends, except in `script`,
+  `style` and the other raw-text elements, where the comment would be
+  text. No `xmlns` is made up for an `svg` or a `math` element, whose tag
+  is what gives it its namespace, and an XLink attribute is written
+  `xlink:href` where it was written with its namespace's URI. `>` and
+  non-breaking spaces are escaped in attributes, and non-breaking spaces
+  in text, and a carriage return in either is written `&#13;`, which the
+  parser would otherwise turn into a line feed; the text of `script`,
+  `style` and the other raw-text elements is no longer escaped (in a
+  `script` or a `style` a `</` that would close it early is written
+  `<\/`), and a newline that starts a `pre` or a `textarea` is kept.
+  What no markup can parse back into is refused with an error naming it,
+  so that a prerender fails rather than ship another page: a `plaintext`
+  element, an `xmp`, `iframe`, `noembed` or `noframes` whose text holds its
+  own end tag, and an element in a namespace other than HTML's, SVG's and
+  MathML's. The haddock lists what HTML can only approximate until the
+  program has started (a `select` whose value matches no option, a `tr`
+  straight under a `table`). Snapshot tests over `renderToText` may need
+  their expected HTML updated.
 - In the in-memory DOM, setting an element's text content replaces its
   children with one text node (none for empty text), as in a browser,
   where it used to change nothing a serialisation could see.

@@ -24,7 +24,9 @@ spec = xdescribe "native VDom" $ pure ()
 
 #else
 
+import Control.Exception (SomeException, try)
 import Control.Monad.IO.Class (liftIO)
+import Data.Foldable (for_)
 import Data.IORef
 import Data.Text (Text)
 import Data.Void (Void, absurd)
@@ -75,6 +77,12 @@ halt = runMemDOM . M.halt
 -- | The rendered node of a step, as HTML.
 snapshot :: TestStep -> IO Text
 snapshot = N.renderToText . N.toNative . extract
+
+-- | Serialising the step fails, as it must for a tree HTML cannot write.
+refused :: TestStep -> IO ()
+refused s = do
+  result <- try (snapshot s)
+  assertWith "serialising it is refused" (either (\(_ :: SomeException) -> True) (const False) result)
 
 -- | The identity of the rendered node. Stable across a patch exactly when the
 -- machinery reused the node instead of replacing it.
@@ -177,12 +185,12 @@ spec = describe "native VDom" $ do
         "<select><option>a</option><optgroup><option selected value=\"b\">Bee</option></optgroup><option> b </option></select>"
         =<< snapshot s
 
-    it "names the namespace of an svg root, but not of its children" $ do
+    it "writes no xmlns for an svg root, whose tag says its namespace" $ do
       (vspec, _) <- newSpec
       let svg name = Elem (Just (Namespace "http://www.w3.org/2000/svg")) (ElemName name)
       s <- build vspec $ el "div" [] [svg "svg" [attr "viewBox" "0 0 1 1"] [svg "circle" [attr "r" "1"] []]]
       assertEqual "markup"
-        "<div><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1 1\"><circle r=\"1\"></circle></svg></div>"
+        "<div><svg viewBox=\"0 0 1 1\"><circle r=\"1\"></circle></svg></div>"
         =<< snapshot s
 
     it "prefixes an attribute in the XLink namespace" $ do
@@ -191,7 +199,7 @@ spec = describe "native VDom" $ do
           svgNs = Just (Namespace "http://www.w3.org/2000/svg")
       s <- build vspec $ Elem svgNs (ElemName "use") [xlink "xlink:href" "#a", xlink "title" "t"] []
       assertEqual "markup"
-        "<use xmlns=\"http://www.w3.org/2000/svg\" xlink:title=\"t\" xlink:href=\"#a\"></use>"
+        "<use xlink:title=\"t\" xlink:href=\"#a\"></use>"
         =<< snapshot s
 
     it "separates adjacent text nodes with an empty comment" $ do
@@ -228,6 +236,40 @@ spec = describe "native VDom" $ do
       assertEqual "a plain space is not a non-breaking one" "<select><option> a&nbsp;b </option></select>" =<< snapshot plain
       nbsp <- build vspec (select "a\xa0\&b")
       assertEqual "the non-breaking space is part of the value" "<select><option selected> a&nbsp;b </option></select>" =<< snapshot nbsp
+
+    it "writes numbers as JavaScript's Number::toString does" $ do
+      (vspec, _) <- newSpec
+      let spelled x = do
+            s <- build vspec $ el "input" [Property "step" (NumProp x)] []
+            snapshot s
+      for_
+        [ (1e-7, "1e-7")
+        , (1e21, "1e+21")
+        , (5e-324, "5e-324")
+        , (0.000001, "0.000001")
+        , (123456789012345680000, "123456789012345680000")
+        , (0.1, "0.1")
+        , (100, "100")
+        , (1.5, "1.5")
+        , (1e100, "1e+100")
+        , (-1.5e-9, "-1.5e-9")
+        , (-0, "0")
+        ]
+        $ \(x, expected) -> assertEqual (show x) ("<input step=\"" <> expected <> "\">") =<< spelled x
+
+    it "refuses a plaintext element, which HTML cannot end" $ do
+      (vspec, _) <- newSpec
+      refused =<< build vspec (el "div" [] [el "plaintext" [] [Text "x"]])
+
+    it "writes a script's own end tag in its text as <\\/, and refuses an xmp's" $ do
+      (vspec, _) <- newSpec
+      s <- build vspec $ el "script" [] [Text "document.write('</script>')"]
+      assertEqual "markup" "<script>document.write('<\\/script>')</script>" =<< snapshot s
+      refused =<< build vspec (el "xmp" [] [Text "a </xmp> b"])
+
+    it "refuses an element in a namespace HTML cannot put one in" $ do
+      (vspec, _) <- newSpec
+      refused =<< build vspec (Elem (Just (Namespace "urn:example")) (ElemName "widget") [] [])
 
     it "keeps a newline that starts a pre" $ do
       (vspec, _) <- newSpec
