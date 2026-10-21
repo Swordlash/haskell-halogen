@@ -157,6 +157,7 @@ buildCanvasProp emit swallowTap application object = render
         Hit _ -> liftIO $ FFI.clearHitArea object
         Outline _ _ -> liftIO $ FFI.clearOutline object
         CacheAsTexture _ -> liftIO $ FFI.clearCacheAsTexture object
+        Alpha _ -> liftIO $ FFI.setAlpha object 1
         -- Recomputed from the whole map by syncEventMode.
         Interactive _ -> pass
       -- Anything undone here changed what there is to measure.
@@ -175,6 +176,7 @@ buildCanvasProp emit swallowTap application object = render
       (Hit x, Hit y) -> x == y
       (Outline x px, Outline y py) -> x == y && px == py
       (CacheAsTexture x, CacheAsTexture y) -> x == y
+      (Alpha x, Alpha y) -> x == y
       _ -> False
 
     -- An outline is measured, so anything that changes what there is to
@@ -202,6 +204,7 @@ buildCanvasProp emit swallowTap application object = render
         liftIO $ FFI.setOutline application object strokeColor strokeWidth strokeAlpha padding
       Cursor value -> liftIO $ FFI.setCursor object (cursorName value)
       CacheAsTexture resolution -> liftIO $ FFI.setCacheAsTexture application object resolution
+      Alpha value -> liftIO $ FFI.setAlpha object value
       Hit area -> liftIO $ case area of
         -- Pixi's Rectangle is a corner and a size; the canvas language is
         -- centred throughout, so convert rather than leak the difference.

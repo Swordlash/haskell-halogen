@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+`alpha` (see core) sets the display object's `alpha`, on a group, a
+sprite, a text or a drawing alike; a removed `alpha` sets it back to 1. A
+change of it inside a `cacheAsTexture` group marks the group to be drawn
+again, as any other prop does.
+
+The canvas follows its parent's size, not only the window's. Pixi's
+`resizeTo` listens to the window's `resize`, so a parent that grew or shrank
+on its own (a bar above it taking another line, a panel opening beside it)
+left the canvas at its old size, stretched to the new one. The parent is
+now observed with a `ResizeObserver` where the browser has one, and the
+renderer resizes, and renders, in the frame the layout changed; the camera
+is applied again as on any other resize.
+
 A scene's `fit` (see core) is honoured wherever the camera meets the
 screen: the transform put on the world, a pan, a pinch and the wheel all
 count in the zoom the fit gives, and `CameraChanged` reports the camera in

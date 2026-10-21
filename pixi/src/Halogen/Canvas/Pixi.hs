@@ -561,8 +561,10 @@ cleanupRuntime Runtime {app, canvas, scene, callbacks, wheelCallback, cameraTime
   readIORef wheelCallback >>= traverse_ (FFI.removeWheel canvas)
   readIORef cameraTimer >>= traverse_ FFI.cancelTimeout
   -- Halting the scene frees every listener the props installed; destroying
-  -- the application takes the display objects with it.
-  readIORef scene >>= traverse_ (runPixiDOM . V.halt)
-  writeIORef scene Nothing
+  -- the application takes the display objects with it. The scene is taken
+  -- out before it is halted: halting can let the page run (a pending resize
+  -- of the renderer, say), and a camera put on the world meanwhile would
+  -- land on objects already destroyed.
+  atomicModifyIORef' scene (Nothing,) >>= traverse_ (runPixiDOM . V.halt)
   FFI.applicationCreated app >>= flip when (FFI.destroyApplication app)
   readIORef callbacks >>= traverse_ FFI.freeCallback

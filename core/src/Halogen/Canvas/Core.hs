@@ -89,6 +89,9 @@ data CanvasProp event i
     -- part of a scene made of many shapes that seldom change (a map's fog,
     -- say): drawing one texture each frame is cheaper than drawing them all.
     CacheAsTexture Double
+  | -- | How opaque an element is, from 0 (not drawn) to 1, multiplying
+    -- whatever its own colours say and passing on to everything inside it.
+    Alpha Double
   deriving stock (Functor)
 
 -- | The key a prop is diffed under.
@@ -108,6 +111,7 @@ propKey = \case
   Cursor _ -> "cursor"
   Hit _ -> "hitArea"
   CacheAsTexture _ -> "cacheAsTexture"
+  Alpha _ -> "alpha"
 
 -- | A node of a scene. Its widgets are thunks ('memoized', 'lazy'): a part
 -- of the scene that is only drawn again when its input changes.

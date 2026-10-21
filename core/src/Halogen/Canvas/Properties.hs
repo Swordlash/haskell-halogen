@@ -8,6 +8,7 @@ module Halogen.Canvas.Properties
   , hitArea
   , outline
   , cacheAsTexture
+  , alpha
   , onClick
   , onPointerDown
   , onPointerUp
@@ -60,6 +61,15 @@ outline = Outline
 -- the resolution, the group looks as soft as the texture is.
 cacheAsTexture :: Double -> CanvasProp event i
 cacheAsTexture = CacheAsTexture
+
+-- | Fade an element and everything inside it: 0 is transparent, 1 (an
+-- element without the prop) is opaque. It multiplies the alpha of the
+-- element's own fill and stroke and that of every element below it, so a
+-- group at 0.5 holding a shape at 0.5 is drawn at 0.25. For a sprite, a
+-- label or a whole group fading in or out, which have no colour of their
+-- own to give an alpha to.
+alpha :: Double -> CanvasProp event i
+alpha = Alpha
 
 -- | Raise an action on an event, ignoring the event itself.
 handler :: PointerEventType -> i -> CanvasProp event i

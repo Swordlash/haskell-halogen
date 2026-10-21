@@ -40,6 +40,8 @@ everyProp =
   , Interactive EventsStatic
   , Cursor CursorPointer
   , Hit (CircleHit (Point 0 0) 1)
+  , CacheAsTexture 1
+  , Alpha 0.5
   ]
 
 unwrap :: CanvasNode event i -> VDom [CanvasProp event i] (Thunk (CanvasNode event) i)

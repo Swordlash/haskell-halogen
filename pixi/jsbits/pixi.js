@@ -1,4 +1,4 @@
-function halogen_pixi_new_application() { return { pixi: null, app: null, ready: false }; }
+function halogen_pixi_new_application() { return { pixi: null, app: null, ready: false, observer: null }; }
 function halogen_pixi_initialize_application(holder, moduleUrl, canvas, done) {
   import(moduleUrl)
     .then(function (pixi) {
@@ -6,12 +6,40 @@ function halogen_pixi_initialize_application(holder, moduleUrl, canvas, done) {
       holder.app = new pixi.Application();
       return holder.app.init({ canvas: canvas, resizeTo: canvas.parentElement, preference: "webgl", antialias: true, autoDensity: true, resolution: Math.min(globalThis.devicePixelRatio || 1, 2), backgroundColor: 0x111827 });
     })
-    .then(function () { holder.ready = true; done(null); })
+    .then(function () { halogen_pixi_observe_parent(holder, canvas.parentElement); holder.ready = true; done(null); })
     .catch(function (error) { console.error("Could not load or initialize PixiJS", error); done(null); });
+}
+// Pixi's resizeTo follows the window's "resize" only, so a parent whose size
+// changes on its own (a bar above it grows, a panel opens) would leave the
+// canvas at its old size, stretched. Observe the parent itself as well. Its
+// first notification reports the size init has just taken, so a resize
+// happens only when the size differs from the screen's. Resizing at once,
+// rather than queued for the next frame, also renders at once: the frame
+// being laid out is painted at the new size, not stretched and then blank.
+//
+// A parent taken out of the page (its example unmounted, say) is reported
+// too, at 0 by 0, before the application's teardown has run, while the scene
+// may be half torn down. There is nothing to show there, so neither that
+// nor a parent with no size (hidden) resizes; nor does anything once the
+// application is destroyed.
+function halogen_pixi_observe_parent(holder, parent) {
+  if (!parent || typeof ResizeObserver === "undefined") return;
+  holder.observer = new ResizeObserver(function () {
+    var app = holder.app;
+    if (!holder.ready || !app || !app.resize) return;
+    if (!parent.isConnected || parent.clientWidth === 0 || parent.clientHeight === 0) return;
+    if (parent.clientWidth === app.screen.width && parent.clientHeight === app.screen.height) return;
+    app.resize();
+  });
+  holder.observer.observe(parent);
 }
 function halogen_pixi_application_created(holder) { return holder.app !== null; }
 function halogen_pixi_application_ready(holder) { return holder.ready; }
-function halogen_pixi_destroy_application(holder) { holder.app.destroy(false, { children: true, texture: false, textureSource: false }); }
+function halogen_pixi_destroy_application(holder) {
+  if (holder.observer) { holder.observer.disconnect(); holder.observer = null; }
+  holder.ready = false;
+  holder.app.destroy(false, { children: true, texture: false, textureSource: false });
+}
 function halogen_pixi_new_container(holder) { return new holder.pixi.Container(); }
 function halogen_pixi_new_graphics(holder) { return new holder.pixi.Graphics(); }
 // The world is the stage's only child: anything else there is a world left
@@ -172,6 +200,7 @@ function halogen_pixi_center_anchor(object) { object.anchor.set(0.5); }
 function halogen_pixi_set_position(object, x, y) { object.position.set(x, y); }
 function halogen_pixi_set_scale(object, x, y) { object.__halogenScale = { x: x, y: y }; halogen_pixi_resize(object); }
 function halogen_pixi_set_rotation(object, rotation) { object.rotation = rotation; }
+function halogen_pixi_set_alpha(object, alpha) { object.alpha = alpha; }
 function halogen_pixi_set_size(object, width, height) { object.__halogenSize = { width: width, height: height }; halogen_pixi_resize(object); }
 function halogen_pixi_on(object, eventType, callback) { object.on(eventType, callback); }
 function halogen_pixi_off(object, eventType, callback) { object.off(eventType, callback); }
