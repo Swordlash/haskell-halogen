@@ -182,6 +182,7 @@ library
       Web.HTML.HTMLDocument
       Web.HTML.HTMLDocument.ReadyState
       Web.HTML.Window
+      Web.Storage.IndexedDB
       Web.Storage.Serialize
       Web.Storage.Storage
       Web.UIEvent.FocusEvent
@@ -208,6 +209,7 @@ library
       exposed-modules: Halogen.VDom.DOM.Monad.JSFFI
 
       js-sources:
+        jsbits/indexeddb.js
         jsbits/monad_dom.js
         jsbits/web_browser.js
         jsbits/web_event.js
@@ -263,6 +265,7 @@ test-suite Halogen-core-test
                     Test.GHCJS
                     Test.Hashable
                     Test.Hydrate
+                    Test.IndexedDB
                     Test.NativeDom
                     Test.RenderRecovery
                     Test.Runtime

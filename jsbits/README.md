@@ -25,6 +25,8 @@ on all of them (`Halogen.JSBits.Value`, re-exported here):
 - `Callback`, a Haskell function JavaScript calls with one `JSVal`:
   `mkCallback`, `mkSyncCallback` (runs at once, so a handler can still prevent
   an event's default), `freeCallback`, `invokeCallback`.
+- `toJSBytes` and `fromJSBytes`, a `ByteString` copied into a `Uint8Array`
+  and back, in one call rather than a byte at a time.
 - `isNull`, and `inBrowser` for the rare wrapper that must do something else
   natively than nothing.
 
