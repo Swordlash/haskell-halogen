@@ -109,8 +109,8 @@ children of one element ends among them. `{% end %}`, `{% endif %}` and
   `{% %}` ends a text; a text over several lines loses the leading spaces
   of every line but its first and the trailing spaces of every line but its
   last, its lines left empty are dropped, and the rest are joined by one
-  space. Only spaces, tabs and carriage returns are trimmed, never a
-  `&nbsp;`. Entities are decoded, `<!-- -->` is dropped.
+  space. Only ASCII whitespace is trimmed, never a `&nbsp;`. Entities
+  are decoded, `<!-- -->` is dropped.
 
 ## SVG
 
