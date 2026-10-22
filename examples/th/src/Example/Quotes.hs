@@ -44,8 +44,9 @@ component =
         {{ style }}
         <h2>A list, quoted</h2>
         <p class="hint">
-          The markup is an <code>[hh| … |&#93;</code> quote and the style a
-          <code>[clay| … |&#93;</code> quote, with Haskell in <code>{{ "{{ }}" :: Text }}</code>.
+          The markup is an <code>[hh| … |&#93;</code> quote and the
+          style a <code>[clay| … |&#93;</code> quote, with Haskell
+          in <code>{{ "{{ }}" :: Text }}</code>.
         </p>
         <form {{ HE.preventingDefault (HE.onSubmit (const Add)) }}>
           <input class="draft" placeholder="Something to do" value={{ st.draft }} onValueInput={{ Draft }}>

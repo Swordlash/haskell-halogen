@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+* Whitespace in text follows JSX more closely. A hole or a statement now
+  ends a text as a tag does, and each text is trimmed on its own, so a line
+  break between two holes or statements, with nothing but whitespace
+  between them, makes no text node: `{{ a }}` and `{{ b }}` on lines of
+  their own used to have a `" "` between them, and every statement on a
+  line of its own inside a `<ul>` left a `" "` among its items. A word and
+  a hole on separate lines have no space between them either, as in JSX:
+  put them on one line (`Hello, {{ name }}`) or write the space as a hole,
+  `{{ " " :: Text }}`. A text over several lines now keeps the spaces at
+  its first line's start and its last line's end, where it meets a tag on
+  the same line: the spaces in `is an <code>x</code> quote` are kept when
+  the text around goes on over several lines (they used to be trimmed with
+  the indentation). A line break next to a tag is still nothing, as in
+  JSX, and a `&nbsp;` at a line's edge is now kept. Text on one line is
+  unchanged.
+
 * SVG: an `<svg>` in an `hh` quote is SVG down to a `<foreignObject>`, its
   elements those of `Halogen.Svg.Elements` (in SVG's namespace), its
   attributes those of `Halogen.Svg.Attributes` by their SVG or function

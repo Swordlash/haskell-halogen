@@ -10,9 +10,9 @@
 -- (an unknown name, 'HP.attr'), so the result is typed as if written by
 -- hand.
 --
--- Text between tags follows JSX: a text with a newline in it has every
--- line trimmed and the lines joined by one space, so indentation is not
--- content; a text on one line is kept as it is, spaces and all.
+-- Text follows JSX: a tag, a hole or a statement ends a text, and each
+-- text is taken on its own ('jsxText'), so indentation is not content and
+-- two holes on separate lines have nothing between them.
 --
 -- An @\<svg>@ element and everything in it are SVG: elements from
 -- "Halogen.Svg.Elements", attributes from "Halogen.Svg.Attributes" (see
@@ -151,15 +151,32 @@ attrItems holes = concatMap $ \(name, value) -> case pieces name of
       ps
       (map (== length ps) [1 ..])
 
--- | A text node, with the holes in it, after the whitespace rule.
+-- | The text between two tags, with the holes in it. Each hole and
+-- statement ends a text as a tag does, so the whitespace rule ('jsxText')
+-- is applied to every piece of text between them on its own, as JSX
+-- applies it to the text on either side of an expression container.
 textItems :: Holes -> Text -> [Item Node]
-textItems holes t = map piece (pieces trimmed)
+textItems holes t = concatMap piece (pieces t)
   where
-    trimmed
-      | T.any (== '\n') t = T.intercalate " " (filter (not . T.null) (map T.strip (T.lines t)))
-      | otherwise = t
-    piece (Lit s) = One (TextNode s)
-    piece (Ref i) = item holes i
+    piece (Lit s) = [One (TextNode s') | let s' = jsxText s, not (T.null s')]
+    piece (Ref i) = [item holes i]
+
+-- | JSX's whitespace rule for one text: on one line, it is kept as it is;
+-- over several, the whitespace at each line break goes (the leading
+-- whitespace of every line but the first, the trailing whitespace of every
+-- line but the last), the lines left empty are dropped, and the rest are
+-- joined by one space. Text of whitespace and line breaks is then empty,
+-- and makes no node. Only ASCII whitespace is trimmed: a non-breaking
+-- space (@&nbsp;@, decoded by now) is meant, and stays.
+jsxText :: Text -> Text
+jsxText t = case T.splitOn "\n" t of
+  [_] -> t
+  ls ->
+    let lastIndex = length ls - 1
+        trim i l = (if i == 0 then id else T.dropWhile blank) ((if i == lastIndex then id else T.dropWhileEnd blank) l)
+     in T.intercalate " " (filter (not . T.null) (zipWith trim [0 :: Int ..] ls))
+  where
+    blank c = c == ' ' || c == '\t' || c == '\r' || c == '\f' || c == '\v'
 
 item :: Holes -> Int -> Item a
 item holes i = case (.kind) <$> IntMap.lookup i holes of
