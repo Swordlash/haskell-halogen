@@ -2,6 +2,12 @@
 
 ## 0.1.0.0 -- unreleased
 
+* `Halogen.Hooks.Extra.Actions.Events` says when its `preventDefault` and
+  `stopPropagation` are too late (an event that arrives while the tree is
+  busy has its handler run after the browser has acted on it) and points
+  to `Halogen.HTML.Events.preventingDefault` and `stoppingPropagation`,
+  which act in the event's listener. The example's form uses
+  `preventingDefault`.
 * The package builds with `-Wredundant-constraints -Wunused-packages`;
   `component`'s `AtMostOneQuery` constraint is kept though GHC calls it
   redundant, since it is what rejects a second `useQuery` at the call site.

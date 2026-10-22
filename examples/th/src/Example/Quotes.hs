@@ -7,10 +7,10 @@ import Clay qualified as C
 import Data.Row (Empty)
 import Data.Text qualified as T
 import Halogen qualified as H
+import Halogen.HTML.Events qualified as HE
 import Halogen.TH (clay, hh)
 import Protolude hiding (State)
 import UnliftIO (MonadUnliftIO)
-import Web.Event.Event (Event, preventDefault)
 
 data State = State
   { items :: [(Int, Text)]
@@ -23,7 +23,7 @@ data State = State
 data Action
   = Draft Text
   | -- | The form's submit: the page must not reload.
-    Add Event
+    Add
   | Toggle Int
   | Remove Int
   | ShowDone Bool
@@ -47,7 +47,7 @@ component =
           The markup is an <code>[hh| … |&#93;</code> quote and the style a
           <code>[clay| … |&#93;</code> quote, with Haskell in <code>{{ "{{ }}" :: Text }}</code>.
         </p>
-        <form onSubmit={{ Add }}>
+        <form {{ HE.preventingDefault (HE.onSubmit (const Add)) }}>
           <input class="draft" placeholder="Something to do" value={{ st.draft }} onValueInput={{ Draft }}>
           <button type="submit" disabled={{ T.null (T.strip st.draft) }}>Add</button>
         </form>
@@ -77,8 +77,10 @@ component =
 
     handleAction = \case
       Draft t -> modify $ \st -> st {draft = t}
-      Add ev -> do
-        H.liftEffect (preventDefault ev)
+      -- The form is kept from being submitted (which would load the page
+      -- again) by its listener, while the browser dispatches the event,
+      -- rather than here: this runs when the tree's loop gets to it.
+      Add ->
         modify $ \st ->
           let t = T.strip st.draft
            in if T.null t then st else st {items = st.items <> [(st.next, t)], next = st.next + 1, draft = ""}

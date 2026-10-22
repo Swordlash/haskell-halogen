@@ -9,6 +9,15 @@
 -- Call them from the handler itself, before it waits for anything (a
 -- 'liftIO', a fork): by then the browser has already decided. They run with
 -- 'liftEffect', at once.
+--
+-- Even so they are only in time if the tree's loop is free when the event
+-- arrives: a handler runs on the loop, and an event that arrives while the
+-- loop is busy (a render under way) has its handler run after the browser
+-- has finished dispatching it. For a handler that always prevents the
+-- default, or always stops the event, wrap its property in
+-- 'Halogen.HTML.Events.preventingDefault' or
+-- 'Halogen.HTML.Events.stoppingPropagation' instead, which do it in the
+-- event's listener; these are for a handler that decides only once it runs.
 module Halogen.Hooks.Extra.Actions.Events
   ( preventDefault'
   , preventDefault
