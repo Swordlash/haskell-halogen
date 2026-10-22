@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+* `htmlContainer html` puts a container holding HTML the browser parsed on
+  the page, as a prerendered page holds a component's, and `hydrate m
+  container component input` mounts the component into it with core's
+  `hydrateUI`, which adopts that HTML. Find elements in the container with
+  `findIn` before hydrating, and `shouldBeSameElement` tells which of them
+  the component kept. `MonadBrowserTest` has a `hydrateInto` method beside
+  `mountInto`, defaulting to `hydrateUI` as `mountInto` defaults to
+  `runUI`; an instance that defined `mountInto` itself defines
+  `hydrateInto` too.
+
 * `MonadBrowserTest` asks only for `MonadUnliftIO`, as `runUI` now does; a
   spec whose components make ref labels says `MonadUUID m` itself, as the
   package's own `Dispatch` and `Family` specs do.

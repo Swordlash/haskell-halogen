@@ -1,5 +1,6 @@
 module Halogen.VDom.Driver
   ( runUI
+  , hydrateUI
   , renderSpec
   , RenderState
   , MonadUI
@@ -9,6 +10,7 @@ where
 
 import Data.Coerce
 import Data.Foreign
+import Data.Text qualified as T
 import HPrelude
 import Halogen.Component
 import Halogen.HTML.Core (HTML (..))
@@ -29,6 +31,8 @@ import Web.DOM.Internal.Types qualified as DOM
 -- Specialisations live with each backend now that the class is no longer
 -- pinned to IO; the unfoldings have to be exported for them to fire.
 {-# INLINEABLE runUI #-}
+
+{-# INLINEABLE hydrateUI #-}
 
 {-# INLINEABLE renderSpec #-}
 
@@ -64,71 +68,99 @@ type HTMLThunk m slots action =
 type WidgetState m slots action =
   Maybe (V.Step m (HTMLThunk m slots action) DOM.Node)
 
+-- | What the next component to render for the first time adopts: the root,
+-- in its container, or a child, in the slot its parent is hydrating. Kept
+-- in one cell for the whole tree, written just before that render and
+-- taken by it, which is sound because the first build of a tree, children
+-- and all, is one piece of work on the tree's loop: nothing else renders
+-- in between.
+data Adopting
+  = -- | The root adopts this node, the first one of its container's that
+    -- is not a comment or blank, and is put first in the container, with
+    -- whatever the container holds after it taken out.
+    AdoptRoot (Maybe DOM.Node)
+  | -- | A child adopts the node in its slot, if the parent's page has one
+    -- there, and is left for the parent to put in its place.
+    AdoptChild (Maybe DOM.Node)
+
+-- | The cell 'Adopting' is kept in, for a tree that is hydrated.
+type Adoption = Maybe (IORef (Maybe Adopting))
+
 mkSpec
   :: forall m action slots
-   . (DOM.MonadBrowserDOM m, MonadIO m)
-  => (Input action -> m ())
+   . (DOM.MonadBrowserDOM m, MonadUnliftIO m)
+  => Adoption
+  -> (Input action -> m ())
   -> IORef (ChildRenderer m action slots)
   -> DOM.Document
   -> V.VDomSpec m [Prop (Input action)] (ComponentSlot slots m action)
-mkSpec handler renderChildRef document =
-  V.VDomSpec {buildWidget, buildAttributes, document}
+mkSpec adoption handler renderChildRef document =
+  V.VDomSpec {buildWidget = render, hydrateWidget, buildAttributes, document}
   where
     buildAttributes
       :: DOM.Element
       -> V.Machine m [Prop (Input action)] ()
     buildAttributes = VP.buildProp handler
 
-    buildWidget
-      :: V.VDomSpec
-           m
-           [Prop (Input action)]
-           (ComponentSlot slots m action)
-      -> V.Machine
-           m
-           (ComponentSlot slots m action)
-           DOM.Node
-    buildWidget spec = render
-      where
-        render :: V.Machine m (ComponentSlot slots m action) DOM.Node
-        render = \case
-          ComponentSlot cs ->
-            renderComponentSlot cs
-          ThunkSlot t -> do
-            step <- buildThunk t
-            pure $ V.Step (V.extract step) (Just step) patch done
+    render :: Spec m action slots -> V.Machine m (ComponentSlot slots m action) DOM.Node
+    render spec = \case
+      ComponentSlot cs ->
+        renderComponentSlot spec cs
+      ThunkSlot t ->
+        thunk spec <$> Thunk.buildThunk coerce spec t
 
-        patch
-          :: WidgetState m slots action
-          -> ComponentSlot slots m action
-          -> m (V.Step m (ComponentSlot slots m action) DOM.Node)
-        patch st slot =
-          case st of
-            Just step -> case slot of
-              ComponentSlot cs -> do
-                V.halt step
-                renderComponentSlot cs
-              ThunkSlot t -> do
-                step' <- V.step step t
-                pure $ V.Step (V.extract step') (Just step') patch done
-            _ -> render slot
+    -- A child component is told the node to adopt through the tree's cell,
+    -- which its first render takes; it is emptied again in case the child
+    -- never got that far, so that no later child adopts a node meant for
+    -- this one.
+    hydrateWidget :: Spec m action slots -> DOM.Node -> V.Machine m (ComponentSlot slots m action) DOM.Node
+    hydrateWidget spec candidate = \case
+      ComponentSlot cs -> case adoption of
+        Nothing -> renderComponentSlot spec cs
+        Just cell -> do
+          writeIORef cell (Just (AdoptChild (Just candidate)))
+          renderComponentSlot spec cs `finally` writeIORef cell Nothing
+      ThunkSlot t ->
+        thunk spec <$> Thunk.hydrateThunk coerce spec candidate t
 
-        buildThunk :: V.Machine m (HTMLThunk m slots action) DOM.Node
-        buildThunk = Thunk.buildThunk coerce spec
+    thunk
+      :: Spec m action slots
+      -> V.Step m (HTMLThunk m slots action) DOM.Node
+      -> V.Step m (ComponentSlot slots m action) DOM.Node
+    thunk spec step = V.Step (V.extract step) (Just step) (patch spec) done
 
-        renderComponentSlot
-          :: ComponentSlotBox slots m action
-          -> m (V.Step m (ComponentSlot slots m action) DOM.Node)
-        renderComponentSlot cs = do
-          renderChild <- readIORef renderChildRef
-          node <- getNode =<< renderChild cs
-          pure $ V.Step node Nothing patch done
+    patch
+      :: Spec m action slots
+      -> WidgetState m slots action
+      -> ComponentSlot slots m action
+      -> m (V.Step m (ComponentSlot slots m action) DOM.Node)
+    patch spec st slot =
+      case st of
+        Just step -> case slot of
+          ComponentSlot cs -> do
+            V.halt step
+            renderComponentSlot spec cs
+          ThunkSlot t ->
+            thunk spec <$> V.step step t
+        _ -> render spec slot
+
+    renderComponentSlot
+      :: Spec m action slots
+      -> ComponentSlotBox slots m action
+      -> m (V.Step m (ComponentSlot slots m action) DOM.Node)
+    renderComponentSlot spec cs = do
+      renderChild <- readIORef renderChildRef
+      node <- getNode =<< renderChild cs
+      pure $ V.Step node Nothing (patch spec) done
 
     done :: WidgetState m slots action -> m ()
     done = traverse_ V.halt
 
     getNode :: RenderStateX (RenderState m) -> m DOM.Node
     getNode (RenderStateX (RenderState {shown})) = readIORef shown
+
+-- | The spec a component's HTML is rendered with.
+type Spec m action slots = V.VDomSpec m [Prop (Input action)] (ComponentSlot slots m action)
 
 -- | Run a component against the DOM its own monad speaks.
 --
@@ -147,6 +179,67 @@ runUI component i element = do
   document <- toDocument <$> (DOM.document =<< DOM.window)
   AD.runUI (renderSpec document element) component i
 
+-- | 'runUI' for a container that already holds the component's HTML, as a
+-- page rendered ahead of the program by "Halogen.Static" does: the
+-- component adopts the nodes it finds there rather than building its own,
+-- so what the page shows stays on the page, focus, selection and scroll
+-- position with it, and the program only attaches its listeners and sets
+-- the properties HTML cannot carry. Child components adopt what is in
+-- their slots in turn.
+--
+-- Whatever the container holds, the tree ends as the component's (see
+-- 'Halogen.VDom.DOM.hydrateVDom' for how a node is matched): what does not
+-- match is built afresh in its place, what the component does not render
+-- is taken out, and a slot the page has nothing in has its child built
+-- there, so a page that left a part out, or a container that is empty,
+-- costs a build of that part and nothing worse. Comments and blank text
+-- around the HTML in the container, which a page template leaves, go.
+--
+-- The component's state when it adopts the page is its 'initialState',
+-- and its first render is of that state, as in 'runUI'. "Halogen.Static"
+-- renders a page after the component's @Initialize@ has run, so if that
+-- changed the state, the first render here briefly takes the page back to
+-- what the initial state renders, and the client's own initializer then
+-- renders it forward again, patching the adopted nodes. To start from
+-- where the server ended instead, the server writes that state into the
+-- page ('Halogen.Static.embed') and 'initialState', which runs in the
+-- component's monad, reads it back from there
+-- ('Halogen.IO.Util.readEmbedded').
+--
+-- Initializers run afterwards as they do in 'runUI', and their renders are
+-- patches of the adopted tree.
+hydrateUI
+  :: forall m query input output
+   . (DOM.MonadBrowserDOM m, MonadUnliftIO m)
+  => Component query input output m
+  -> input
+  -> DOM.HTMLElement
+  -> m (HalogenSocket query output m)
+hydrateUI component i element = do
+  document <- toDocument <$> (DOM.document =<< DOM.window)
+  start <- firstContent (toNode element)
+  cell <- newIORef (Just (AdoptRoot start))
+  AD.runUI (renderSpecWith (Just cell) document element) component i
+  where
+    -- The first child that is neither a comment nor blank text, those
+    -- before it removed.
+    firstContent container = DOM.firstChild container >>= skip
+      where
+        skip = \case
+          Nothing -> pure Nothing
+          Just node ->
+            ignorable node >>= \case
+              False -> pure (Just node)
+              True -> do
+                next <- DOM.nextSibling node
+                DOM.removeChild node container
+                skip next
+    ignorable node =
+      DOM.nodeKind node <&> \case
+        DOM.CommentKind -> True
+        DOM.TextKind txt -> T.all isSpace txt
+        _ -> False
+
 -- | How 'runUI' renders: each component's HTML into a document, the root
 -- component's appended to the container. 'Halogen.IO.Driver.runUI' takes
 -- it with the component, which is how "Halogen.Static" renders a page into
@@ -158,7 +251,17 @@ renderSpec
   => DOM.Document
   -> DOM.HTMLElement
   -> AD.RenderSpec m (RenderState m)
-renderSpec document container =
+renderSpec = renderSpecWith Nothing
+
+-- | 'renderSpec', adopting what the cell says when there is one.
+renderSpecWith
+  :: forall m
+   . (DOM.MonadBrowserDOM m, MonadUnliftIO m)
+  => Adoption
+  -> DOM.Document
+  -> DOM.HTMLElement
+  -> AD.RenderSpec m (RenderState m)
+renderSpecWith adoption document container =
   AD.RenderSpec
     { render
     , renderChild = identity
@@ -176,9 +279,19 @@ renderSpec document container =
     render handler child (HTML vdom) =
       \case
         Nothing -> do
-          (machine, renderChildRef) <- build
+          adopting <- maybe (pure Nothing) (\cell -> atomicModifyIORef' cell (Nothing,)) adoption
+          (machine, renderChildRef) <- case adopting of
+            Nothing -> do
+              built <- build
+              void $ DOM.appendChild (V.extract (fst built)) $ toNode container
+              pure built
+            Just (AdoptRoot candidate) -> do
+              adopted <- hydrate candidate
+              putFirst (V.extract (fst adopted))
+              pure adopted
+            -- The parent puts it in the slot, as it puts any child.
+            Just (AdoptChild candidate) -> hydrate candidate
           let node = V.extract machine
-          void $ DOM.appendChild node $ toNode container
           shown <- newIORef node
           broken <- newIORef False
           pure $ RenderState {machine, renderChildRef, shown, broken}
@@ -220,9 +333,30 @@ renderSpec document container =
           writeIORef broken True
         build = do
           renderChildRef <- newIORef child
-          let spec = mkSpec handler renderChildRef document
+          let spec = mkSpec adoption handler renderChildRef document
           machine <- V.buildVDom spec vdom
           pure (machine, renderChildRef)
+        hydrate candidate = do
+          renderChildRef <- newIORef child
+          let spec = mkSpec adoption handler renderChildRef document
+          machine <- V.hydrateVDom spec candidate vdom
+          pure (machine, renderChildRef)
+
+    -- The root's node first in the container (where the node it adopted
+    -- is, unless that was replaced or left for a node after it), and
+    -- nothing after it: what the page had there that the component does
+    -- not render.
+    putFirst :: DOM.Node -> m ()
+    putFirst node = do
+      let parent = toNode container
+      DOM.insertChildIx 0 node parent
+      let removeFrom = \case
+            Nothing -> pass
+            Just next -> do
+              after <- DOM.nextSibling next
+              DOM.removeChild next parent
+              removeFrom after
+      removeFrom =<< DOM.nextSibling node
 
 removeChild
   :: forall m state action slots output

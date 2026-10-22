@@ -72,6 +72,48 @@
 - In the in-memory DOM, setting an element's text content replaces its
   children with one text node (none for empty text), as in a browser,
   where it used to change nothing a serialisation could see.
+- `Halogen.VDom.Driver.hydrateUI`, with `runUI`'s signature, mounts a
+  component into a container that already holds its HTML, such as a page
+  `Halogen.Static` rendered, and adopts the nodes it finds there instead of
+  building its own: what the page shows stays on the page, and the program
+  attaches its listeners and sets the properties HTML cannot carry. Child
+  components adopt what is in their slots. Nothing a page holds is an
+  error: a node of another kind or tag is replaced, a missing one built, a
+  surplus one removed, a differing text set, a slot the page has nothing in
+  filled, and the comments `renderToText` puts between adjacent texts are
+  removed; attributes the page has and the component does not render are
+  left as they are. The component starts from its `initialState`, so a
+  page rendered from a state its `Initialize` changed is first rendered
+  back to that state and then forward by the client's own initializer.
+  `runUI` is unchanged.
+- `Halogen.Static.embed ident json` writes a
+  `<script type="application/json">` with that id holding the JSON text,
+  every `<` in it written `\u003c` so that nothing in the text can end the
+  script, and `Halogen.IO.Util.readEmbedded ident` reads the text of the
+  element with that id back in the browser. With them a server can put the
+  state it rendered a page in beside the page, for the component's
+  `initialState`, which runs in its monad, to start from instead of taking
+  the page back to its own first state. The format of the text is the
+  application's.
+- `Halogen.VDom.DOM.hydrateVDom` is `buildVDom` adopting a tree that is
+  already there, from a node to start at; the machine it returns patches
+  like any other. `VDomSpec` has a new field, `hydrateWidget`, its widgets'
+  counterpart: a spec built by hand adds
+  `hydrateWidget = \spec _ -> spec.buildWidget spec` for widgets that are
+  never adopted, or `Halogen.VDom.Thunk.hydrateThunk` for thunks.
+- `MonadDOM` can read the tree it builds, which adopting a prerendered
+  page takes: `firstChild`, `nodeKind` (an element with its namespace and
+  local name, a text with its text, a comment, or something else, as the
+  new `DomNodeKind`) and `nodeToElement` are new methods, and
+  `nextSibling` moved to `MonadDOM` from `MonadBrowserDOM`. All four have
+  lifted defaults, like the other methods, so an instance for a
+  transformer needs nothing new; a backend of one's own defines them, and
+  one that is never hydrated, as Pixi's is not, can answer that a node has
+  no children and is not an element, which makes hydrating build afresh.
+  Code that called `nextSibling` under a `MonadBrowserDOM` constraint is
+  unchanged, since `MonadDOM` is its superclass; an instance that defined
+  it in `MonadBrowserDOM` defines it in `MonadDOM` instead, and an import
+  list naming it under `MonadBrowserDOM` names it under `MonadDOM`.
 
 - `Interaction` has a `fit` field: the size of a world rectangle that the
   camera at zoom 1 shows whole, centred on its focus, on whatever surface

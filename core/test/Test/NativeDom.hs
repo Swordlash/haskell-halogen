@@ -57,6 +57,7 @@ newSpec = do
   let vspec =
         VDomSpec
           { buildWidget = \_ -> absurd
+          , hydrateWidget = \_ _ -> absurd
           , buildAttributes = buildProp (\msg -> liftIO (modifyIORef' emitted (<> [msg])))
           , document = N.fromNative doc :: Document
           }

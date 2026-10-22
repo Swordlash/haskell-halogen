@@ -197,6 +197,11 @@ other `IO`, there is `unsafeIOToPageM`, unsafe in the same way as
 
 - `mount m component input`: mount into the page. The component has
   rendered and run its initialisers when this returns.
+- `htmlContainer "<p>…</p>"` and `hydrate m container component input`: a
+  container holding HTML the browser parsed, as a prerendered page holds a
+  component's, and the component mounted into it with `hydrateUI`, adopting
+  that HTML. Find elements in the container with `findIn` before hydrating,
+  and `shouldBeSameElement` tells which of them the component kept.
 - `unmount ui`: take it down before the test ends, running its finalisers.
 - `query ui q`: send a query, as a parent would.
 - `outputs ui`: everything the component has raised, oldest first.

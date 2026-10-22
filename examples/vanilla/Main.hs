@@ -11,9 +11,7 @@ import Protolude
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 import Example.Vanilla (component)
 import Halogen.IO.Util as HA
-import Halogen.VDom.DOM.Monad (setTextContent)
-import Halogen.VDom.Driver (runUI)
-import Web.DOM.Internal.Types (toNode)
+import Halogen.VDom.Driver (hydrateUI)
 import Web.DOM.ParentNode (QuerySelector (..))
 #endif
 
@@ -29,11 +27,9 @@ attachComponent = do
   HA.awaitLoad
   app <- HA.selectElement (QuerySelector "#app") >>= maybe (panic "index.html has no #app to mount the example into") pure
   -- The page arrives with the component already rendered into #app (see
-  -- Prerender.hs), so that it shows before this binary has loaded. That HTML
-  -- is replaced rather than adopted: the component renders afresh in its
-  -- place.
-  setTextContent "" (toNode app)
-  runUI component () app
+  -- Prerender.hs), so that it shows before this binary has loaded. The
+  -- component adopts that HTML rather than render its own over it.
+  hydrateUI component () app
 #else
 attachComponent = panic "This module can only be run on JavaScript"
 #endif

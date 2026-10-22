@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+`PixiDOM` answers core's new `MonadDOM` methods for reading a tree
+(`nextSibling`, `firstChild`, `nodeKind`, `nodeToElement`) as for a scene
+that is never adopted from a page: no object has a sibling or a child to
+adopt, so hydrating a scene, should anything ask, builds it afresh. Nothing
+changes for a scene that is mounted as before.
+
 `alpha` (see core) sets the display object's `alpha`, on a group, a
 sprite, a text or a drawing alike; a removed `alpha` sets it back to 1. A
 change of it inside a `cacheAsTexture` group marks the group to be drawn

@@ -10,9 +10,8 @@ import Gallery (component)
 import Gallery.Shell (Route (..), route)
 import Halogen.IO.Util qualified as HA
 import Halogen.Router qualified as Router
-import Halogen.VDom.DOM.Monad (runBrowserDOM, setTextContent)
-import Halogen.VDom.Driver (runUI)
-import Web.DOM.Internal.Types (toNode)
+import Halogen.VDom.DOM.Monad (runBrowserDOM)
+import Halogen.VDom.Driver (hydrateUI)
 import Web.DOM.ParentNode (QuerySelector (..))
 #endif
 
@@ -23,12 +22,11 @@ main = runBrowserDOM $ do
   HA.awaitLoad
   app <- HA.selectElement (QuerySelector "#app") >>= maybe (panic "index.html has no #app to mount the gallery into") pure
   -- The page arrives with the gallery's shell already rendered into #app
-  -- (see Prerender.hs). It is replaced rather than adopted: the gallery
-  -- renders afresh in its place.
-  setTextContent "" (toNode app)
+  -- (see Prerender.hs). The gallery adopts it, and builds the example its
+  -- route shows into the place the shell leaves for it.
   base <- Router.pageBase
   router <- Router.newRouter base Home route
-  void $ runUI component router app
+  void $ hydrateUI component router app
 #else
 main = putStrLn ("The examples gallery can only run in a JavaScript or wasm browser target; its pages are written by halogen-example-all-prerender." :: Text)
 #endif

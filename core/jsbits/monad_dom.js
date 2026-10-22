@@ -51,6 +51,26 @@ function js_next_sibling(node) {
   return node.nextSibling;
 }
 
+function js_first_child(node) {
+  return node.firstChild;
+}
+
+function js_node_type(node) {
+  return node.nodeType;
+}
+
+function js_namespace_uri(element) {
+  return element.namespaceURI;
+}
+
+function js_local_name(element) {
+  return element.localName;
+}
+
+function js_node_data(node) {
+  return node.data;
+}
+
 function js_set_attribute(namespace, attrName, value, element) {
   if (namespace === null) {
     element.setAttribute(attrName, value);

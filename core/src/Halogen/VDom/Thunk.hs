@@ -67,10 +67,14 @@ runThunk :: forall f i. Thunk f i -> f i
 runThunk (Thunk _ _ render arg _) = render arg
 
 {-# INLINEABLE buildThunk #-}
+
+{-# INLINEABLE hydrateThunk #-}
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 {-# SPECIALISE buildThunk :: (f i -> V.VDom a w) -> V.VDomSpec BrowserDOM a w -> V.Machine BrowserDOM (Thunk f i) (DomNode BrowserDOM) #-}
+{-# SPECIALISE hydrateThunk :: (f i -> V.VDom a w) -> V.VDomSpec BrowserDOM a w -> DomNode BrowserDOM -> V.Machine BrowserDOM (Thunk f i) (DomNode BrowserDOM) #-}
 #else
 {-# SPECIALISE buildThunk :: (f i -> V.VDom a w) -> V.VDomSpec MemDOM a w -> V.Machine MemDOM (Thunk f i) (DomNode MemDOM) #-}
+{-# SPECIALISE hydrateThunk :: (f i -> V.VDom a w) -> V.VDomSpec MemDOM a w -> DomNode MemDOM -> V.Machine MemDOM (Thunk f i) (DomNode MemDOM) #-}
 #endif
 buildThunk
   :: forall m f i a w
@@ -78,13 +82,32 @@ buildThunk
   => (f i -> V.VDom a w)
   -> V.VDomSpec m a w
   -> V.Machine m (Thunk f i) (DomNode m)
-buildThunk toVDom = renderThunk
-  where
-    renderThunk :: V.VDomSpec m a w -> V.Machine m (Thunk f i) (DomNode m)
-    renderThunk spec t = do
-      vdom <- V.buildVDom spec (toVDom (runThunk t))
-      pure $ V.Step (V.extract vdom) (ThunkState {thunk = t, vdom}) patchThunk haltThunk
+buildThunk toVDom spec t = thunkStep toVDom t <$> V.buildVDom spec (toVDom (runThunk t))
 
+-- | 'buildThunk' by adopting the node given, as
+-- 'Halogen.VDom.DOM.hydrateVDom' adopts one: the thunk is rendered, and
+-- what it renders is hydrated. A thunk is a widget, so this is what a
+-- 'Halogen.VDom.DOM.VDomSpec' whose widgets are thunks gives as its
+-- @hydrateWidget@.
+hydrateThunk
+  :: forall m f i a w
+   . (MonadDOM m)
+  => (f i -> V.VDom a w)
+  -> V.VDomSpec m a w
+  -> DomNode m
+  -> V.Machine m (Thunk f i) (DomNode m)
+hydrateThunk toVDom spec candidate t = thunkStep toVDom t <$> V.hydrateVDom spec (Just candidate) (toVDom (runThunk t))
+
+-- | The machine of a thunk that has rendered this.
+thunkStep
+  :: forall m f i a w
+   . (Monad m)
+  => (f i -> V.VDom a w)
+  -> Thunk f i
+  -> V.Step m (V.VDom a w) (DomNode m)
+  -> V.Step m (Thunk f i) (DomNode m)
+thunkStep toVDom t0 vdom0 = V.Step (V.extract vdom0) (ThunkState {thunk = t0, vdom = vdom0}) patchThunk haltThunk
+  where
     patchThunk :: ThunkState m f i a w -> Thunk f i -> m (V.Step m (Thunk f i) (DomNode m))
     patchThunk state t2 = do
       let ThunkState {vdom = prev, thunk = t1} = state

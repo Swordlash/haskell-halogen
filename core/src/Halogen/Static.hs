@@ -22,8 +22,9 @@
 -- How properties become markup, and what cannot, is in
 -- 'Halogen.VDom.DOM.Monad.Native.renderToText'.
 --
--- The page this makes is static: the program, once loaded, renders the
--- component afresh in place of it.
+-- The page this makes is static until its program has loaded. The program
+-- then mounts the component with 'Halogen.VDom.Driver.hydrateUI', which
+-- adopts the HTML rather than render the component afresh in its place.
 --
 -- Native only: on the browser backends there is a real document to render
 -- into instead.
@@ -31,6 +32,7 @@ module Halogen.Static
   ( renderToHtml
   , renderToHtmlWith
   , fillMountPoint
+  , embed
   )
 where
 
@@ -86,3 +88,28 @@ fillMountPoint ident html page = case T.splitOn mountPoint page of
     open = "<div id=\"" <> ident <> "\">"
     close = "</div>"
     mountPoint = open <> close
+
+-- | A @\<script type=\"application/json\">@ with this id holding this JSON
+-- text, for a page to carry what its program reads back when it starts
+-- ('Halogen.IO.Util.readEmbedded'). It is how a component starts from the
+-- state the server rendered the page in rather than from the one it
+-- renders first, which 'Halogen.VDom.Driver.hydrateUI' would otherwise take
+-- the page back to: the server writes the state out beside the page's
+-- mount point, and the component's 'initialState', which runs in its
+-- monad, reads it. What the text says, and how the state is encoded, is
+-- the application's business.
+--
+-- A script's text ends at the first @\</script@ in it, whatever its type,
+-- and a @\<!--@ in it changes how the parser looks for that end. So every
+-- @\<@ in the text is written @\\u003c@, which a JSON parser reads as
+-- the same character: in JSON text a @\<@ can only be inside a string,
+-- where the escape means it. Text that is not JSON, with a @\<@ outside a
+-- string, would not read back the same. The id is written as an attribute
+-- value, escaped as one.
+embed :: Text -> Text -> Text
+embed ident json =
+  "<script type=\"application/json\" id=\""
+    <> T.replace "\"" "&quot;" (T.replace "&" "&amp;" ident)
+    <> "\">"
+    <> T.replace "<" "\\u003c" json
+    <> "</script>"

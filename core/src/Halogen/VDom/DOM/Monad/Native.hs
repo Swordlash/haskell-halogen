@@ -844,6 +844,17 @@ instance MonadDOM MemDOM where
   removeChild child _ = liftIO $ detach (toNative child)
 
   parentNode node = liftIO $ fmap fromNative <$> readIORef (toNative node).parentRef
+  nextSibling node = liftIO $ fmap fromNative <$> nextSiblingNative (toNative node)
+  firstChild node = liftIO $ fmap fromNative . head <$> readIORef (toNative node).kids
+  nodeKind node = liftIO $ do
+    let n = toNative node
+    case n.kind of
+      ElementNode ns name -> pure (ElementKind ns name)
+      TextNode -> TextKind <$> readIORef n.content
+      DocumentNode -> pure OtherKind
+  nodeToElement node = pure $ case (toNative node).kind of
+    ElementNode {} -> Just (fromNative (toNative node))
+    _ -> Nothing
 
   addEventListener (EventType ty) listener target =
     liftIO
@@ -876,7 +887,6 @@ instance MonadBrowserDOM MemDOM where
     when (new /= old) $ do
       insertNative new (Just old) (toNative parent)
       detach old
-  nextSibling node = liftIO $ fmap fromNative <$> nextSiblingNative (toNative node)
   windowToEventTarget w = pure (coerce w)
   documentToNode d = pure (coerce d)
   window = liftIO $ pure (fromNative ambientDocument)

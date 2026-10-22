@@ -102,7 +102,7 @@ mount :: CanvasNode () Action -> IO Canvas
 mount first = do
   rig <- Rig <$> newIORef 0 <*> newIORef Map.empty
   doc <- N.newDocument
-  let vdomSpec = V.VDomSpec {V.buildWidget = Thunk.buildThunk unCanvasNode, V.buildAttributes = attributes rig, V.document = N.fromNative doc}
+  let vdomSpec = V.VDomSpec {V.buildWidget = Thunk.buildThunk unCanvasNode, V.hydrateWidget = Thunk.hydrateThunk unCanvasNode, V.buildAttributes = attributes rig, V.document = N.fromNative doc}
   scene <- newIORef =<< runMemDOM (V.buildVDom vdomSpec (unCanvasNode first))
   let current :: IO Scene
       current = readIORef scene

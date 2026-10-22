@@ -148,8 +148,9 @@ the component with `Halogen.Static.renderToHtml` and writes `index.html` with th
 `build-wasm.sh` builds it with the host GHC and runs it as `<exe> examples/<name>/web/index.html
 <output dir>`. `examples/vanilla/Prerender.hs` is the smallest one; `examples/all/Prerender.hs`
 writes one page per route, under the base path in `HALOGEN_BASE_PATH` (`/` by default; the Pages
-deploy sets it to the site's). The program then renders the component afresh in place of the
-prerendered HTML, so its `Main.hs` empties `#app` before mounting.
+deploy sets it to the site's). Its `Main.hs` then mounts the component with `hydrateUI` rather than
+`runUI`: the component adopts the prerendered HTML, attaching its listeners, instead of rendering
+over it.
 
 To show it in the deployed gallery as well, put its component in a library module
 (`src/Example/<Name>.hs`, as the existing examples do, with `Main.hs` only starting it), depend on

@@ -75,6 +75,7 @@ spec = describe "router" $ do
       let vspec =
             VDomSpec
               { buildWidget = \_ -> absurd
+              , hydrateWidget = \_ _ -> absurd
               , buildAttributes = buildProp (\_ -> pure ())
               , document = N.fromNative doc
               }

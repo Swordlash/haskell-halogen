@@ -26,9 +26,13 @@ import Data.Void (Void)
 import Halogen qualified as H
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Properties qualified as HP
-import Halogen.Static (fillMountPoint, renderToHtml, renderToHtmlWith)
+import Halogen.IO.Util (readEmbedded, selectElement)
+import Halogen.Static (embed, fillMountPoint, renderToHtml, renderToHtmlWith)
 import Halogen.Subscription qualified as HS
+import Data.MediaType (MediaType (..))
+import Halogen.VDom.Driver (runUI)
 import Halogen.VDom.DOM.Monad (MemDOM, runMemDOM)
+import Web.DOM.ParentNode (QuerySelector (..))
 import Test.Hspec (Spec, describe, it)
 import Test.Utils (assertEqual, assertWith)
 
@@ -91,6 +95,19 @@ subscribing events =
   where
     record e = modifyIORef' events (<> [e])
 
+-- | What 'embed' writes, as a component would build it: a script with an id,
+-- holding the text.
+embedded :: Text -> Text -> H.Component H.VoidF () Void MemDOM
+embedded ident json =
+  H.mkComponent
+    H.ComponentSpec
+      { initialState = \_ -> pure ()
+      , render = \_ ->
+          HH.script [HP.id ident, HP.type_ (MediaType "application/json")] [HH.text json]
+            :: H.ComponentHTML () Empty MemDOM
+      , eval = H.mkEval H.defaultEval
+      }
+
 -- | An application monad over the in-memory one: what it renders comes from
 -- its environment.
 fromConfig :: H.Component H.VoidF () Void (ReaderT Text MemDOM)
@@ -128,5 +145,23 @@ spec = describe "static rendering" $ do
       (fillMountPoint "app" "<p>x</p>" "<body><div id=\"app\"></div><script></script></body>")
     assertWith "no mount point" (either (const True) (const False) (fillMountPoint "app" "x" "<body></body>"))
     assertWith "two mount points" (either (const True) (const False) (fillMountPoint "app" "x" "<div id=\"app\"></div><div id=\"app\"></div>"))
+
+  it "embeds JSON in a script that nothing in it can end" $ do
+    assertEqual "escaped"
+      "<script type=\"application/json\" id=\"state\">{\"html\":\"\\u003c/script>\\u003c!-- x\"}</script>"
+      (embed "state" "{\"html\":\"</script><!-- x\"}")
+    assertEqual "the id escaped as an attribute"
+      "<script type=\"application/json\" id=\"a&quot;b&amp;c\">1</script>"
+      (embed "a\"b&c" "1")
+
+  it "reads back what the page embedded, by its id" $ do
+    -- Into the ambient document, which is the one readEmbedded searches.
+    Just body <- runMemDOM (selectElement (QuerySelector "body"))
+    H.HalogenSocket {dispose} <- runMemDOM (runUI (embedded "server-state" "{\"count\":3}") () body)
+    found <- runMemDOM (readEmbedded "server-state")
+    missing <- runMemDOM (readEmbedded "no-such-state")
+    runMemDOM dispose
+    assertEqual "the text" (Just "{\"count\":3}") found
+    assertEqual "nothing" Nothing missing
 
 #endif
