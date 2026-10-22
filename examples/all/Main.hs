@@ -8,6 +8,7 @@ import Protolude
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 import Gallery (component)
 import Gallery.Shell (Route (..), route)
+import Halogen (HalogenSocket (..))
 import Halogen.IO.Util qualified as HA
 import Halogen.Router qualified as Router
 import Halogen.VDom.DOM.Monad (runBrowserDOM)
@@ -30,7 +31,10 @@ main = runBrowserDOM $ do
   -- route shows into the place the shell leaves for it.
   base <- Router.pageBase
   router <- Router.newRouter base Home route
-  HA.keepForNextRun =<< hydrateUI component router app
+  socket <- hydrateUI component router app
+  -- The router's popstate listener is the window's, not the tree's, so it
+  -- is stopped with the tree.
+  HA.keepForNextRun (socket.dispose >> Router.stop router)
 #else
 main = putStrLn ("The examples gallery can only run in a JavaScript or wasm browser target; its pages are written by halogen-example-all-prerender." :: Text)
 #endif

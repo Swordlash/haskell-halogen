@@ -9,9 +9,9 @@
 # The example's executable must have an `interactive` flag, as every example's
 # has: it compiles the example's own modules into the executable, which is the
 # target GHCi reloads, and drops the wasm reactor options, which GHCi cannot
-# load. Its main disposes of the last :main's tree before mounting again
-# (Halogen.IO.Util's endPreviousRun and keepForNextRun), because the page
-# stays open from one run to the next.
+# load. Its main ends the last :main's tree (and the gallery its router)
+# before mounting again, with Halogen.IO.Util's endPreviousRun and
+# keepForNextRun, because the page stays open from one run to the next.
 #
 # The page is the example's own web/index.html, with the script that loads
 # index.js (which fetches the built app.wasm) replaced by browser GHCi's
@@ -75,19 +75,24 @@ prepare_page() {
   fi
   # What index.js imports only for its effect (material's material.js, which
   # publishes the functions its JSFFI calls on globalThis) is loaded in its
-  # place, before GHCi's script, as index.js loads it before app.wasm.
-  imports=$(sed -n 's|^import "\(\./[^"]*\)";[[:space:]]*$|\1|p' "$example_dir/web/index.js")
-  # The page gets a <base href> naming where GHCi serves it, which is where
-  # the page's relative addresses resolve to already, and which a router
-  # takes as its base (Halogen.Router.pageBase).
-  if ! IMPORTS=$imports awk '
-    !based && !/<base[[:space:]]/ && match($0, /<head[^>]*>/) {
+  # place, before GHCi's script, as index.js loads it before app.wasm. Such
+  # an import is a line `import "./x.js";` or `import './x.js'`, with or
+  # without the semicolon; one that names what it imports (`import x from`)
+  # is index.js's own business, which GHCi's script does in its place.
+  imports=$(awk '/^import[ \t]+["\047]\.\/[^"\047]+["\047][ \t]*;?[ \t]*$/ { match($0, /\.\/[^"\047]+/); print substr($0, RSTART, RLENGTH) }' "$example_dir/web/index.js")
+  # A page without a <base href> of its own gets one naming where GHCi
+  # serves it, which is where the page's relative addresses resolve to
+  # already, and which a router takes as its base (Halogen.Router.pageBase).
+  # Whether it has one is decided before the page is rewritten, because the
+  # browser goes by the first <base>, and ours would come before the page's.
+  if grep -Eqi '<base[[:space:]>]' "$example_dir/web/index.html"; then has_base=1; else has_base=0; fi
+  if ! IMPORTS=$imports awk -v has_base="$has_base" '
+    !has_base && !based && match($0, /<head([ \t][^>]*)?>/) {
       indent = $0
       sub(/[^ \t].*$/, "", indent)
       $0 = substr($0, 1, RSTART + RLENGTH - 1) "\n" indent "  <base href=\"/assets/\">" substr($0, RSTART + RLENGTH)
       based = 1
     }
-    /<base[[:space:]]/ { based = 1 }
     !replaced && match($0, /<script[^>]*src="(\.\/)?index\.js"[^>]*>[ \t]*<\/script>/) && substr($0, RSTART, RLENGTH) ~ /type="module"/ {
       indent = $0
       sub(/[^ \t].*$/, "", indent)
@@ -109,15 +114,32 @@ prepare_page() {
 
 case "$mode" in
   open-browser)
+    # ghciwatch runs an opener on every start of GHCi, and one whose GHCi
+    # failed before serving the page (a build error) would otherwise still be
+    # polling when a later start serves it, and open a tab of its own beside
+    # the later opener's. So only the latest opener polls: it ends the one
+    # before it, if that pid is still an opener's (a pid can be reused), and
+    # leaves its own beside the page for the next one.
+    mkdir -p "$(dirname "$public_dir")"
+    pid_file=$public_dir.opener.pid
+    if previous=$(cat "$pid_file" 2>/dev/null) && ps -p "$previous" -o args= 2>/dev/null | grep -q -- '--open-browser'; then
+      kill "$previous" 2>/dev/null || true
+    fi
+    echo $$ > "$pid_file"
+    # Ten minutes covers GHCi's start once the libraries are built. A first
+    # build can take longer, and then the page is left to open by hand: GHCi
+    # prints its address when it starts.
     attempts=0
     until curl --fail --silent --max-time 1 --output /dev/null "$url"; do
       attempts=$((attempts + 1))
-      if [ "$attempts" -ge 3600 ]; then
-        printf 'Browser GHCi is not serving %s.\n' "$url" >&2
+      if [ "$attempts" -ge 600 ]; then
+        printf 'Browser GHCi is not serving %s yet; open it once it does.\n' "$url" >&2
+        rm -f "$pid_file"
         exit 1
       fi
       sleep 1
     done
+    rm -f "$pid_file"
     exec sh toolchain/open-browser.sh "$url"
     ;;
   repl)
@@ -152,10 +174,18 @@ fi
 # compiled by cabal before GHCi starts, so a change to one, or to a cabal
 # file, needs GHCi restarted to rebuild it; so does a change to the page,
 # which is written when GHCi starts and which the browser has loaded already.
-set -- \
-  --watch "$example_dir" \
-  --restart-glob "$example_dir/web/**" --restart-glob "$example_dir/bundle.sh" \
-  --restart-glob "$example_dir/*.scss"
+
+# The arguments, one a line, that restart GHCi for what in an example's
+# directory goes into the page rather than into GHCi: its web/, and its
+# bundle.sh and the stylesheets that bundles. An example this one depends on
+# needs the same, since examples/all/bundle.sh runs material's, which
+# compiles examples/material/style.scss.
+example_restart_globs() {
+  printf '%s\n' --restart-glob "$1/web/**" --restart-glob "$1/bundle.sh" --restart-glob "$1/*.scss"
+}
+
+set -- --watch "$example_dir"
+lines=$(example_restart_globs "$example_dir")
 for library in core jsbits hooks router material pixi sound th th-plugin; do
   for dir in src jsbits; do
     if [ -d "$library/$dir" ]; then
@@ -164,14 +194,21 @@ for library in core jsbits hooks router material pixi sound th th-plugin; do
   done
 done
 # The examples this one depends on as libraries (examples/all mounts every
-# other one) are rebuilt by cabal too.
+# other one) are rebuilt by cabal too, and may bundle into its page.
 for other in examples/*/; do
   other=${other%/}
   name=${other#examples/}
   if [ "$other" != "$example_dir" ] && grep -Eq "(^|[[:space:],:])halogen-example-$name([[:space:],]|\$)" "$example_dir/$package.cabal"; then
-    set -- "$@" --watch "$other/src" --restart-glob "$other/src/**"
+    set -- "$@" --watch "$other" --restart-glob "$other/src/**"
+    lines="$lines
+$(example_restart_globs "$other")"
   fi
 done
+while IFS= read -r line; do
+  set -- "$@" "$line"
+done <<GLOBS
+$lines
+GLOBS
 for cabal_file in */*.cabal examples/*/*.cabal; do
   set -- "$@" --watch "$cabal_file"
 done

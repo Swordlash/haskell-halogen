@@ -1,6 +1,6 @@
 module Main (main) where
 
-import Halogen (HalogenSocket, VoidF)
+import Halogen (HalogenSocket (..), VoidF)
 import Halogen.IO.Util qualified as HA
 import Halogen.VDom.DOM.Monad (BrowserDOM, runBrowserDOM)
 import Protolude
@@ -23,7 +23,8 @@ main = runBrowserDOM $ do
   -- with the last run's tree still mounted: end it, and keep this one for
   -- the next run to end.
   HA.endPreviousRun
-  HA.keepForNextRun =<< attach
+  socket <- attach
+  HA.keepForNextRun socket.dispose
 
 #if defined(wasm32_HOST_ARCH) && !defined(INTERACTIVE)
 foreign export javascript "hs_start" start :: IO ()

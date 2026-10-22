@@ -230,8 +230,9 @@ storage, …) is built only from public hooks.
   `hydrateUI`, which adopts that HTML.
   For `npm run dev` (`toolchain/dev.sh`, browser GHCi), the executable needs the `interactive`
   flag every example has, which compiles the example's own modules into it and drops the reactor
-  options, and its `main` starts with `HA.endPreviousRun` and passes its socket to
-  `HA.keepForNextRun` (`Halogen.IO.Util`), which dispose of the last `:main`'s tree; the
+  options, and its `main` starts with `HA.endPreviousRun` and passes `socket.dispose` (the
+  gallery also `Router.stop router`) to `HA.keepForNextRun` (`Halogen.IO.Util`), which end the
+  last `:main`'s tree; the
   dev page is derived from `web/index.html` by replacing its `index.js` module script with GHCi's
   `../main.js`, so keep that script tag.
 - Each example's component lives in a library module (`src/Example/<Name>.hs`); `Main.hs` only starts

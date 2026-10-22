@@ -31,3 +31,9 @@
   whatever the caller's properties say, and a click with a modifier key, on
   a link to another target or on a download is left to the browser). Natively the address is kept in memory, so a page can be
   rendered for any route with `Halogen.Static`.
+* `Halogen.Router.stop` takes a router's `popstate` listener off the window,
+  after which the browser's back and forward no longer reach its `changes`
+  (its own `navigate` and `redirect` still do). The listener otherwise
+  stays for as long as the page does, which is what a program that is run
+  again on the same page, as browser GHCi's `:main` runs it, needs to end
+  with the run's tree.

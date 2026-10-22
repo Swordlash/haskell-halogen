@@ -41,7 +41,7 @@ main = runBrowserDOM $ do
   -- the next run to end.
   HA.endPreviousRun
   socket@HalogenSocket {messages} <- attachComponent
-  HA.keepForNextRun socket
+  HA.keepForNextRun socket.dispose
 
   void $ HS.subscribe messages $ \st ->
     liftIO $ logStr $ "State changed: " <> show st

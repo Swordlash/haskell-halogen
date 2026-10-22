@@ -3,7 +3,6 @@ module Halogen.IO.Util where
 import Data.Char (isAsciiLower, isAsciiUpper)
 import Data.Text qualified as T
 import HPrelude
-import Halogen.IO.Driver (HalogenSocket (..))
 import Halogen.VDom.DOM.Monad
 import Numeric (showHex)
 import System.IO.Unsafe (unsafePerformIO)
@@ -79,31 +78,32 @@ selectElement query = do
   mel <- (querySelector query <=< documentToNode <=< document) =<< window
   pure $ fromElement =<< mel
 
--- | Keep the mounted tree for 'endPreviousRun' to dispose of, in place of
--- whatever was kept before.
+-- | Keep how to end this run, for the next run's 'endPreviousRun', in
+-- place of whatever was kept before.
 --
 -- This is for a program that is run again on the same page, as browser
 -- GHCi's @:main@ runs it (@toolchain\/dev.sh@ in haskell-halogen's
 -- repository): GHCi keeps the page and the runtime from one run to the next,
 -- so the last run's tree is still mounted, with its subscriptions, forks and
 -- timers going, when the next one starts. A @main@ that starts with
--- 'endPreviousRun' and keeps the socket of what it mounts ends that tree
--- properly before mounting its own:
+-- 'endPreviousRun' and keeps how to end what it starts (the socket's
+-- @dispose@, and whatever else outlives the tree, such as a router's
+-- listener) ends the last run properly before starting its own:
 --
 -- > main = runBrowserDOM $ do
 -- >   HA.endPreviousRun
 -- >   socket <- runUI component () =<< HA.awaitBody
--- >   HA.keepForNextRun socket
+-- >   HA.keepForNextRun socket.dispose
 --
 -- Anywhere else nothing reads what is kept, and it costs one stored action.
-keepForNextRun :: (MonadUnliftIO m) => HalogenSocket q o m -> m ()
-keepForNextRun socket = withRunInIO $ \runInIO -> atomicWriteIORef lastRun (Just (runInIO socket.dispose))
+keepForNextRun :: (MonadUnliftIO m) => m () -> m ()
+keepForNextRun teardown = withRunInIO $ \runInIO -> atomicWriteIORef lastRun (Just (runInIO teardown))
 
--- | Dispose of the tree the last run kept with 'keepForNextRun', if there is
--- one, and forget it. The disposal is the socket's @dispose@: the tree's
--- finalizers run, its subscriptions and forks end, and its root leaves the
--- page before this returns (what a finalizer does in @liftIO@ goes on after
--- it, as it does anywhere). With nothing kept, nothing happens.
+-- | Run what the last run kept with 'keepForNextRun', if there is anything,
+-- and forget it. A socket's @dispose@ there runs the tree's finalizers, ends
+-- its subscriptions and forks and takes its root off the page before this
+-- returns (what a finalizer does in @liftIO@ goes on after it, as it does
+-- anywhere). With nothing kept, nothing happens.
 endPreviousRun :: (MonadIO m) => m ()
 endPreviousRun = liftIO $ sequence_ =<< atomicModifyIORef' lastRun (Nothing,)
 

@@ -1,6 +1,7 @@
 -- | A program run again on the same page, as browser GHCi's @:main@ runs it:
--- 'Halogen.IO.Util.endPreviousRun' disposes of the tree the last run kept
--- with 'Halogen.IO.Util.keepForNextRun' before the next one mounts.
+-- 'Halogen.IO.Util.endPreviousRun' runs what the last run kept with
+-- 'Halogen.IO.Util.keepForNextRun', its tree's @dispose@, before the next
+-- one mounts.
 module Test.LastRun (spec) where
 
 import Data.IORef (IORef, atomicWriteIORef, newIORef, readIORef)
@@ -31,13 +32,13 @@ finalizing =
       }
 
 -- | What a program's @main@ does: end the last run, mount into the page's
--- @.last-run@ and keep the socket for the next run.
+-- @.last-run@ and keep the socket's @dispose@ for the next run.
 run :: forall m -> (MonadBrowserTest m, MonadBrowserDOM m) => IORef Bool -> IO ()
 run m finalized = runTest $ do
   HA.endPreviousRun
   container <- HA.selectElement (QuerySelector ".last-run") >>= maybe (panic "the page has no .last-run") pure
   socket <- runUI finalizing finalized container :: m (H.HalogenSocket H.VoidF Void m)
-  HA.keepForNextRun socket
+  HA.keepForNextRun socket.dispose
 
 spec :: forall m -> (MonadBrowserTest m, MonadBrowserDOM m) => Spec
 spec m = do

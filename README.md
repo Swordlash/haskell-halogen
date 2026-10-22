@@ -150,9 +150,10 @@ the output directory as its argument.
 For `npm run dev`, give the executable the `interactive` flag the other examples have, which
 compiles the example's modules into it (GHCi reloads only those of the target it loaded) and drops
 the wasm reactor options and the `hs_start` export, and have `main` start with
-`Halogen.IO.Util.endPreviousRun` and pass the socket of what it mounts to `keepForNextRun`: GHCi
-keeps the page between runs of `:main`, and these dispose of the last run's component before the
-next one mounts. `examples/vanilla` has both.
+`Halogen.IO.Util.endPreviousRun` and pass how to end what it starts (its socket's `dispose`, and
+`Halogen.Router.stop` for a router) to `keepForNextRun`: GHCi keeps the page between runs of
+`:main`, and these end the last run's component before the next one mounts. `examples/vanilla` has
+both, and `examples/all` a router as well.
 
 The page can arrive with the component already in it, before `app.wasm` has loaded. Add a native
 executable `halogen-example-<name>-prerender` (not buildable on the browser backends) that renders

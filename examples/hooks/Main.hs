@@ -29,7 +29,7 @@ main = runBrowserDOM $ do
   -- the next run to end.
   HA.endPreviousRun
   socket@H.HalogenSocket {messages} <- attachComponent
-  HA.keepForNextRun socket
+  HA.keepForNextRun socket.dispose
   void $ HS.subscribe messages $ \(Counted n) ->
     liftIO $ putStrLn ("[output] the counter reached " <> show n :: Text)
 

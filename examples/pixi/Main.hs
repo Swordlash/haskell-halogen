@@ -6,6 +6,7 @@ import Protolude
 
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 import Example.Pixi (parent)
+import Halogen (HalogenSocket (..))
 import Halogen.IO.Util qualified as HA
 import Halogen.VDom.DOM.Monad qualified as DOM
 import Halogen.VDom.Driver (runUI)
@@ -19,7 +20,8 @@ main = DOM.runBrowserDOM $ do
   -- with the last run's tree still mounted: end it, and keep this one for
   -- the next run to end.
   HA.endPreviousRun
-  HA.keepForNextRun =<< runUI parent () =<< HA.awaitBody
+  socket <- runUI parent () =<< HA.awaitBody
+  HA.keepForNextRun socket.dispose
 #else
 main = putStrLn ("The Pixi example can only run in a JavaScript or wasm browser target." :: Text)
 #endif
