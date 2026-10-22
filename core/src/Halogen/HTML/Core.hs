@@ -48,9 +48,16 @@ prop name = Property name . toPropValue
 attr :: Maybe VDom.Namespace -> AttrName -> Text -> Prop i
 attr = Attribute
 
--- | Create an event handler.
+-- | Create an event handler, which leaves the event as it is.
 handler :: EventType -> (Event -> Maybe i) -> Prop i
-handler = Handler
+handler et = Handler et handlerOptions
+
+-- | Change what a handler does to its event in the listener itself
+-- ('HandlerOptions'); any other property is left as it is.
+withHandlerOptions :: (HandlerOptions -> HandlerOptions) -> Prop i -> Prop i
+withHandlerOptions change = \case
+  Handler et options f -> Handler et (change options) f
+  other -> other
 
 ref :: forall i. (Maybe Element -> Maybe i) -> Prop i
 ref f =

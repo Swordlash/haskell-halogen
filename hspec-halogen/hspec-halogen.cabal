@@ -87,6 +87,7 @@ test-suite hspec-halogen-test
     hs-source-dirs:   test
     main-is:          Test.hs
     other-modules:    Example.Agreement
+                      Example.Busy
                       Example.Clock
                       Example.Counter
                       Example.Digits
@@ -99,6 +100,7 @@ test-suite hspec-halogen-test
                       Example.Todo
                       Test.Agreement
                       Test.Async
+                      Test.Busy
                       Test.Counter
                       Test.Digits
                       Test.Dispatch
@@ -124,6 +126,7 @@ test-suite hspec-halogen-test
         row-types,
         unliftio,
         haskell-halogen-core,
+        haskell-halogen-router,
         hspec-halogen
 
     if arch(wasm32) && !flag(interactive)

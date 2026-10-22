@@ -33,7 +33,7 @@ import Data.Void (Void, absurd)
 import Halogen.VDom.DOM (VDomSpec (..), buildVDom)
 import Halogen.VDom.DOM.Monad (MemDOM (..), appendChild, propertyEquals, runMemDOM, setProperty, setTextContent)
 import Halogen.VDom.DOM.Monad.Native qualified as N
-import Halogen.VDom.DOM.Prop (Prop (..), PropValue (..), buildProp)
+import Halogen.VDom.DOM.Prop (Prop (..), PropValue (..), buildProp, handlerOptions)
 import Halogen.VDom.Machine (Step, extract)
 import Halogen.VDom.Machine qualified as M
 import Halogen.VDom.Types (ElemName (..), Namespace (..), VDom (..))
@@ -476,13 +476,13 @@ spec = describe "native VDom" $ do
   describe "event handlers" $ do
     it "registers a listener for each handler prop" $ do
       (vspec, _) <- newSpec
-      s <- build vspec $ el "button" [Handler (EventType "click") (const (Just "clicked"))] []
+      s <- build vspec $ el "button" [Handler (EventType "click") handlerOptions (const (Just "clicked"))] []
       assertEqual "listener registered" ["click"]
         =<< N.listenerTypes (N.toNative (extract s))
 
     it "removes the listener when the handler prop is dropped" $ do
       (vspec, _) <- newSpec
-      s0 <- build vspec $ el "button" [Handler (EventType "click") (const (Just "clicked"))] []
+      s0 <- build vspec $ el "button" [Handler (EventType "click") handlerOptions (const (Just "clicked"))] []
       s1 <- step s0 $ el "button" [] []
       assertEqual "listener removed" [] =<< N.listenerTypes (N.toNative (extract s1))
 

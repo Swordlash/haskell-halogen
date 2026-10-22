@@ -146,7 +146,12 @@ thread while the rest of the tree goes on (as `liftAff`). What must happen at on
 focusing, reading the DOM as it is, a synchronous API such as `localStorage`, a scene handed to a
 canvas in order — goes through `H.liftEffect` (hooks: `Hooks.liftEffect`), which must not wait. An
 event such an effect dispatches is handled before the dispatch returns, nested in it
-(`enterCallback`), as the browser does. A cancelled fiber runs nothing more, not even the rest of
+(`enterCallback`), as the browser does. But a browser event that arrives while the loop is busy
+elsewhere (on wasm a listener also runs whatever Haskell work was left runnable, which may take the
+loop first) has its action queued, and the browser has acted on the event by the time it runs: a
+handler that must prevent the default or stop propagation whatever the loop is doing says so on the
+property (`HE.preventingDefault`, `HE.stoppingPropagation`), and the listener does it before handing
+the action over (`Halogen.VDom.DOM.Prop`); `Halogen.Router`'s links do. A cancelled fiber runs nothing more, not even the rest of
 the synchronous work that cancelled it; its worker, and the fibers of its parallel branches, go with
 it. A component that goes away cancels its fibers; a render pass that fails takes back the children
 it made, and the VDom backend rebuilds a machine whose patch failed. The loop and a fiber's worker

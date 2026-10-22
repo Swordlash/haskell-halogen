@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+* The package's own suite has a `Busy` example: links clicked while their
+  tree's loop is busy rendering, kept from being followed by
+  `Halogen.HTML.Events.preventingDefault` and `Halogen.Router`'s links, and
+  followed when the action prevents the default itself. Its test suite
+  depends on `haskell-halogen-router`.
+
 * `htmlContainer html` puts a container holding HTML the browser parsed on
   the page, as a prerendered page holds a component's, and `hydrate m
   container component input` mounts the component into it with core's

@@ -29,5 +29,10 @@
   `href`, `link` and `follow` for links a component follows without
   loading a page (a link's `href` and click handler are the router's,
   whatever the caller's properties say, and a click with a modifier key, on
-  a link to another target or on a download is left to the browser). Natively the address is kept in memory, so a page can be
+  a link to another target or on a download is left to the browser).
+  A link keeps the browser from following a plain click in the click's
+  listener (`Halogen.HTML.Events.preventingDefault`), not in `follow`:
+  `follow` runs when the tree's loop gets to it, which, for a link clicked
+  while the loop was busy (right after a change that re-renders the page),
+  was after the browser had loaded the link's page. Natively the address is kept in memory, so a page can be
   rendered for any route with `Halogen.Static`.

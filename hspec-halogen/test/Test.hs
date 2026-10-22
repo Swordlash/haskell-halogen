@@ -11,6 +11,9 @@ import Halogen.VDom.DOM.Monad (BrowserDOM)
 import Protolude
 import Test.Agreement qualified
 import Test.Async qualified
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+import Test.Busy qualified
+#endif
 import Test.Counter qualified
 import Test.Digits qualified
 import Test.Dispatch qualified
@@ -36,6 +39,9 @@ main = runBrowserTests $ do
   describe "Hydration" (Test.Hydrate.spec BrowserDOM)
   describe "IndexedDB" (Test.IndexedDB.spec BrowserDOM)
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+  -- These need the browser's DOM ('MonadBrowserDOM'), which 'BrowserDOM'
+  -- has only in a browser.
+  describe "Busy" (Test.Busy.spec BrowserDOM)
   describe "Embedded state" (Test.Hydrate.embedSpec BrowserDOM)
 #endif
 

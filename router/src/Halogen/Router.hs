@@ -216,6 +216,12 @@ data Follow route = Follow route MouseEvent
 -- (@onFollow@), which passes it to 'follow'; any other click is the
 -- browser's to follow as usual.
 --
+-- The browser is kept from following a plain click in the click's listener
+-- itself ('HE.preventingDefault'), not by the action: the action runs when
+-- the tree's loop gets to it, which, when the loop is busy as the link is
+-- clicked (a render under way), is after the browser has finished
+-- dispatching the click and loaded the page.
+--
 -- The link's @href@ and its click handler are the router's: they come
 -- after @props@, and of two properties of the same name an element keeps
 -- the last, so an @href@ or a click handler among @props@ is overridden.
@@ -228,13 +234,17 @@ link
   -> [HH.HTML w action]
   -> HH.HTML w action
 link router onFollow route props =
-  HH.a (props <> [HP.href (href router route), HE.handler' (EventType "click") clicked])
+  HH.a (props <> [HP.href (href router route), HE.preventingDefault (HE.handler' (EventType "click") clicked)])
   where
     clicked ev = if isPlainLeftClick (MouseEvent ev) then Just (onFollow (Follow route (MouseEvent ev))) else Nothing
 
--- | Follow a link's click: keep the browser from loading the page, and
--- 'navigate'. Both at once, in 'H.liftEffect', because by the time anything
--- the handler waits for has run, the browser has already followed the link.
+-- | Follow a link's click: 'navigate', at once, in 'H.liftEffect'.
+--
+-- The click from a 'link' has had its default prevented already, in its
+-- listener. This prevents it too, for a 'Follow' made by hand from a click
+-- handler of one's own, but that is only in time if the tree's loop was free
+-- when the click arrived: such a handler should be wrapped in
+-- 'HE.preventingDefault' as 'link''s is.
 follow
   :: forall route state action slots output m
    . (MonadIO m)

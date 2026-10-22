@@ -23,7 +23,6 @@ import Halogen.HTML qualified as HH
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
 import Halogen.Hooks qualified as Hooks
-import Halogen.Hooks.Extra.Actions.Events (preventDefault')
 import Halogen.Hooks.Extra.Hooks (useDebouncer, useGet, useLocalStorage, useModifyState_, usePrevious, usePutState, useThrottle)
 import Halogen.Hooks.Types (Hook, HookK (..), HookM)
 import Halogen.Query.Event qualified as HQE
@@ -202,14 +201,15 @@ app = Hooks.component $ \_input -> Hooks.do
           , HH.p_ [HH.text ("a render ago: " <> maybe "(nothing yet)" show previousCount)]
           ]
       , panel
-          "useDebouncer, preventDefault"
+          "useDebouncer, preventingDefault"
           "The second line catches up once the typing has stopped for 400ms, or at once on Enter."
           [ HH.form
-              [ HE.onSubmit $ \event -> do
-                  -- Submitting a form navigates, and navigating would throw
-                  -- the whole component away and start it again.
-                  preventDefault' event
-                  setSettled typed
+              [ -- Submitting a form navigates, and navigating would throw
+                -- the whole component away and start it again. The listener
+                -- prevents it while the browser dispatches the event; the
+                -- handler runs when the tree's loop gets to it, which may be
+                -- too late.
+                HE.preventingDefault $ HE.onSubmit $ \_ -> setSettled typed
               ]
               [ HH.input
                   [ HP.type_ I.InputText

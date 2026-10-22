@@ -11,6 +11,7 @@ import HPrelude
 import Halogen.HTML.Core qualified as Core
 import Halogen.HTML.Properties
 import Halogen.Query.Input
+import Halogen.VDom.DOM.Prop (HandlerOptions (..))
 import Web.Clipboard.ClipboardEvent
 import Web.Clipboard.ClipboardEvent.EventTypes qualified as CET
 import Web.Event.Event
@@ -34,6 +35,31 @@ handler et f = IProp $ Core.handler et (Just . Action . f)
 
 handler' :: forall r i. EventType -> (Event -> Maybe i) -> IProp r i
 handler' et f = IProp $ Core.handler et (fmap Action . f)
+
+-- | The handler, keeping the browser from taking the event's default action
+-- (following a link, submitting a form, typing a key) whenever it makes an
+-- action: a handler that makes none (say, 'handler'' for a key it does not
+-- handle) leaves the default alone.
+--
+-- > HH.form [HE.preventingDefault (HE.onSubmit (const Save))] […]
+--
+-- Calling 'Web.Event.Event.preventDefault' from the component's action
+-- handler, in 'Halogen.Query.HalogenM.liftEffect', is not the same: that runs
+-- when the tree's loop gets to the action, which is during the event's
+-- dispatch only if the loop is free when the event arrives. An event that
+-- arrives while the loop is busy elsewhere has its action queued, and the
+-- browser has followed the link by the time it runs. This prevents the
+-- default in the event listener itself, while the event is dispatched,
+-- before the action is handed to the loop. Anything else on a property
+-- leaves it as it is.
+preventingDefault :: forall r i. IProp r i -> IProp r i
+preventingDefault (IProp p) = IProp $ Core.withHandlerOptions (\(HandlerOptions _ stop) -> HandlerOptions True stop) p
+
+-- | The handler, stopping the event from reaching the listeners of the
+-- elements around whenever it makes an action, in the event listener itself,
+-- as 'preventingDefault' prevents the default.
+stoppingPropagation :: forall r i. IProp r i -> IProp r i
+stoppingPropagation (IProp p) = IProp $ Core.withHandlerOptions (\(HandlerOptions prevent _) -> HandlerOptions prevent True) p
 
 onAbort :: forall r i. (HasType "onAbort" Event r) => (Event -> i) -> IProp r i
 onAbort = handler (EventType "abort")
