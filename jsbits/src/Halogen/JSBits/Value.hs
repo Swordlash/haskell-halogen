@@ -17,6 +17,8 @@ module Halogen.JSBits.Value
   , toJSInt
   , toJSDouble
   , toJSBool
+  , toJSBytes
+  , fromJSBytes
   , Callback
   , mkCallback
   , mkSyncCallback
@@ -27,9 +29,17 @@ module Halogen.JSBits.Value
   )
 where
 
+import Data.ByteString (ByteString)
+import Data.ByteString qualified as ByteString
 import Data.Text (Text)
 import Data.Text qualified as Text
 
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+import Data.ByteString.Internal qualified as ByteString (create)
+import Data.ByteString.Unsafe (unsafeUseAsCStringLen)
+import Data.Word (Word8)
+import Foreign.Ptr (Ptr, castPtr)
+#endif
 #if defined(javascript_HOST_ARCH)
 import GHC.JS.Foreign.Callback qualified as JS
 import GHC.JS.Prim (JSVal, fromJSString, toJSString)
@@ -69,6 +79,16 @@ jsNull :: JSVal
 toJSInt :: Int -> JSVal
 toJSDouble :: Double -> JSVal
 toJSBool :: Bool -> JSVal
+
+-- | Bytes as a @Uint8Array@ of their own, copied out of the Haskell heap, and
+-- a @Uint8Array@ copied back into a 'ByteString'. A representation
+-- conversion, so it is here: each backend keeps a 'ByteString' differently
+-- (in the wasm instance's memory, or in a JavaScript array the JavaScript
+-- backend allocates), and the only way to move many bytes at once is to know
+-- which. Natively there is no array: 'toJSBytes' gives the placeholder and
+-- 'fromJSBytes' no bytes.
+toJSBytes :: ByteString -> IO JSVal
+fromJSBytes :: JSVal -> IO ByteString
 
 -- | A Haskell function JavaScript can call with one argument. Free it with
 -- 'freeCallback' once nothing will call it again.
@@ -121,6 +141,23 @@ toJSInt = JS.toJSInt
 toJSDouble = js_to_double
 toJSBool = js_to_bool
 
+-- An 'Addr#', and so a 'Ptr', arrives as two values: the byte array the
+-- JavaScript backend allocated, whose @u8@ is a @Uint8Array@ over all of it,
+-- and the offset into it. An empty 'ByteString' may point nowhere, which is
+-- why a length of 0 does not look at the array.
+toJSBytes bytes = unsafeUseAsCStringLen bytes $ \(ptr, len) -> js_bytes_copy (castPtr ptr) len
+fromJSBytes array = do
+  len <- js_bytes_length array
+  if len == 0 then pure ByteString.empty else ByteString.create len (js_bytes_into array)
+
+foreign import javascript unsafe "((buffer, offset, length) => { return length === 0 ? new Uint8Array(0) : buffer.u8.slice(offset, offset + length); })"
+  js_bytes_copy :: Ptr Word8 -> Int -> IO JSVal
+
+foreign import javascript unsafe "((array) => { return array.length; })" js_bytes_length :: JSVal -> IO Int
+
+foreign import javascript unsafe "((array, buffer, offset) => { buffer.u8.set(array, offset); })"
+  js_bytes_into :: JSVal -> Ptr Word8 -> IO ()
+
 foreign import javascript unsafe "(($1) => { return $1; })" js_to_double :: Double -> JSVal
 
 foreign import javascript unsafe "(($1) => { return $1; })" js_to_bool :: Bool -> JSVal
@@ -158,6 +195,23 @@ foreign import javascript unsafe "$1" js_to_int :: Int -> JSVal
 foreign import javascript unsafe "$1" js_to_double :: Double -> JSVal
 
 foreign import javascript unsafe "$1" js_to_bool :: Bool -> JSVal
+
+-- A 'ByteString' is in the instance's memory, pinned, so its address is an
+-- offset into @memory.buffer@. The view is made afresh in each call, because
+-- the buffer is replaced whenever the memory grows; and nothing allocates
+-- while an unsafe import runs, so the address holds for the copy.
+toJSBytes bytes = unsafeUseAsCStringLen bytes $ \(ptr, len) -> js_bytes_copy (castPtr ptr) len
+fromJSBytes array = do
+  len <- js_bytes_length array
+  if len == 0 then pure ByteString.empty else ByteString.create len (\ptr -> js_bytes_into array ptr len)
+
+foreign import javascript unsafe "new Uint8Array(__exports.memory.buffer, $1 >>> 0, $2).slice()"
+  js_bytes_copy :: Ptr Word8 -> Int -> IO JSVal
+
+foreign import javascript unsafe "$1.length" js_bytes_length :: JSVal -> IO Int
+
+foreign import javascript unsafe "new Uint8Array(__exports.memory.buffer, $2 >>> 0, $3).set($1)"
+  js_bytes_into :: JSVal -> Ptr Word8 -> Int -> IO ()
 
 type Callback = JSVal
 
@@ -223,6 +277,8 @@ jsNull = JSVal (unsafeCoerce ())
 toJSInt _ = jsNull
 toJSDouble _ = jsNull
 toJSBool _ = jsNull
+toJSBytes _ = pure jsNull
+fromJSBytes _ = pure ByteString.empty
 
 newtype Callback = Callback (JSVal -> IO ())
 
