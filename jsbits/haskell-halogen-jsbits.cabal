@@ -16,7 +16,7 @@ library
   hs-source-dirs: src
   default-language: GHC2021
   ghc-options: -Wall -Wextra -Wredundant-constraints -Wunused-packages
-  build-depends: base >= 4.20, template-haskell, directory, filepath, text
+  build-depends: base >= 4.20, bytestring, template-haskell, directory, filepath, text
   if arch(wasm32)
     build-depends: ghc-experimental
 
@@ -27,7 +27,7 @@ test-suite jsbits-test
   default-language: GHC2021
   ghc-options: -Wall -Wextra -Wredundant-constraints -Wunused-packages
   if arch(wasm32)
-    build-depends: base, ghc-experimental, haskell-halogen-jsbits
+    build-depends: base, bytestring, ghc-experimental, haskell-halogen-jsbits
   else
     buildable: False
 

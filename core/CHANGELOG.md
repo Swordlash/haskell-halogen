@@ -22,6 +22,30 @@
   matches a `Handler` itself changes; `Halogen.HTML.Core.handler` is as it
   was, and `Halogen.HTML.Core.withHandlerOptions` changes a handler's
   options. `buildProp` asks for `MonadIO`, which every DOM monad has.
+- New module `Web.Storage.IndexedDB`: a key-value store over the browser's
+  IndexedDB, for what is too big, too binary or too much for
+  `Web.Storage.Storage` (an offline cache, a document and its attachments).
+  A `Database` names a database, its version and its stores (`StoreName`);
+  stores are made when the database is created or opened at a later version,
+  so adding one is a version bump. The class `MonadIndexedDB` has `get`,
+  `put`, `delete`, `keys`, `getAll` and `clear` on one store, with keys of
+  `Text` and values of `ByteString` kept as a `Uint8Array` (never base64),
+  `writeMany`, which makes writes and deletions in several stores in one
+  transaction, all or none of them, and `deleteDatabase`. `getItem`,
+  `setItem` and `getAllItems` read and write values through
+  `StorageSerialize`, as `Web.Storage.Storage` does, and `itemWrite` and
+  `itemDeletion` make `writeMany`'s writes. Every call waits for the
+  browser, so call it from a component's `lift`, not from `H.liftEffect`.
+  What fails is thrown as an `IndexedDBError`, saying which database and why
+  (`Unavailable`, `UpgradeBlocked` by another tab, `VersionTooLow`,
+  `StoreNotFound`, `QuotaExceeded`, `NotBytes`, or the browser's own error).
+  `BrowserDOM` has an instance on both browser backends, which keeps one
+  open connection per database and closes it when another tab upgrades the
+  database (natively it fails with `Unavailable`); `MemDOM` has one that
+  keeps every database in memory, shared by the whole process as the
+  browser's are by an origin, and behaves the same; `ReaderT` and
+  `IdentityT` lift it, and so can any transformer, with an empty instance.
+
 - On the JavaScript backend, hashing a `Text`, a `ByteString` or a
   `ShortByteString` with hashable (a `HashMap Text`, a row-types `Rec`)
   no longer fails with `h$hs_XXH3_64bits_withSeed_offset is not defined`:

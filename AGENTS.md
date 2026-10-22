@@ -123,7 +123,11 @@ The class hierarchy (`Halogen.VDom.DOM.Monad.Class`) is split by capability: `Mo
 + listeners; all the reconciler needs), `MonadAttributes` (HTML attributes/properties), and
 `MonadBrowserDOM` (document splicing, window globals, storage). Methods have lifted defaults, so
 `ReaderT`/`IdentityT` instances are small; `StateT` is deliberately unsupported because
-`mkEventListener` has to *run* the transformer inside a DOM callback.
+`mkEventListener` has to *run* the transformer inside a DOM callback. IndexedDB is a class of its own,
+`MonadIndexedDB` in `Web.Storage.IndexedDB` (asynchronous, bytes), with its `BrowserDOM` and
+`MemDOM` instances in that module rather than in the backend modules: it needs no DOM, so neither
+instance is an orphan, and both exist on every architecture (natively `BrowserDOM`'s reports
+`Unavailable`).
 
 ### Flow of a component
 

@@ -17,6 +17,7 @@ import Test.Fork qualified as Fork
 import Test.Hashable qualified as Hashable
 import Test.Hspec (hspec)
 import Test.Hydrate qualified as Hydrate
+import Test.IndexedDB qualified as IndexedDB
 import Test.NativeDom qualified as NativeDom
 import Test.RenderRecovery qualified as RenderRecovery
 import Test.Runtime qualified as Runtime
@@ -38,6 +39,7 @@ main = hspec $ do
   Fork.spec
   Hashable.spec
   Hydrate.spec
+  IndexedDB.spec
   NativeDom.spec
   RenderRecovery.spec
   Runtime.spec

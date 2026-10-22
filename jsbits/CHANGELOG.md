@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+`Halogen.JSBits.Value` has `toJSBytes` and `fromJSBytes`, which copy a
+`ByteString` into a `Uint8Array` of its own and back, in one call each rather
+than a byte at a time: on WebAssembly through the instance's memory, on the
+JavaScript backend through the array the bytes are kept in. Natively they
+give the placeholder and no bytes. The package now depends on `bytestring`.
+
 `Halogen.JSBits.Value` has `jsNull`, `toJSInt`, `toJSDouble` and `toJSBool`,
 the values a binding passes where JavaScript takes any kind. On WebAssembly
 `mkSyncCallback` is now a sync export that runs its callback on a thread of
