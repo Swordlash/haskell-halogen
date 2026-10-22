@@ -51,7 +51,7 @@ data Tree m r = Tree
   -- ^ How many of the tree's @Initialize@ programs have not ended yet, and
   -- what is to run once none is left: nothing in the tree waits for them,
   -- but a page rendered ahead of its program does
-  -- ('Halogen.IO.Driver.runUIInitialized').
+  -- ('Halogen.IO.Driver.Mount.runUIInitialized').
   }
 
 -- | Run the components' monad (the fields are polymorphic, so not reached

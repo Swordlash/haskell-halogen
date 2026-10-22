@@ -6,7 +6,7 @@
 -- in-memory document ("Halogen.VDom.DOM.Monad.Native"): its children are
 -- built, its slots filled, and its @Initialize@ and its children's run to the
 -- end, 'Halogen.liftIO' and all, as do those of the components they render,
--- before the HTML is taken ('Halogen.IO.Driver.runUIInitialized'; a tree
+-- before the HTML is taken (the driver's @runUIInitialized@; a tree
 -- running in a browser waits for none of it). So a page can be
 -- rendered with what a component fetches or reads when it starts. What it
 -- leaves for later is not waited for: a fiber it forks, a subscription's next
@@ -42,7 +42,7 @@ import Data.Text qualified as T
 import HPrelude
 import Halogen.Component (Component)
 import Halogen.IO.Driver (HalogenSocket (..))
-import Halogen.IO.Driver qualified as AD
+import Halogen.IO.Driver.Mount qualified as AD
 import Halogen.VDom.DOM.Monad (MemDOM, MonadBrowserDOM, runMemDOM)
 import Halogen.VDom.DOM.Monad.Native qualified as N
 import Halogen.VDom.Driver (renderSpec)

@@ -26,8 +26,7 @@
   a fork or in its state, and have the query wait for it). A query to a
   component whose `Initialize` waits is answered as usual meanwhile.
   `Halogen.Static` still renders a page once every `Initialize`, and those
-  of the components they render, has ended, through the new
-  `Halogen.IO.Driver.runUIInitialized`; nothing else waits for that.
+  of the components they render, has ended; nothing else waits for that.
 - `Halogen.HTML.Events.preventingDefault` and `stoppingPropagation` wrap an
   event handler so that, whenever it makes an action, the event's default
   is prevented, or its propagation stopped, in the event's listener itself,

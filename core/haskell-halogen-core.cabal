@@ -198,6 +198,7 @@ library
       
     other-modules:
       HPrelude
+      Halogen.IO.Driver.Mount
     
     hs-source-dirs:   src
 
