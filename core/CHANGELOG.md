@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+- A component's `Initialize` that waits (in `lift`/`liftIO`, or for a query
+  to answer) now holds up only itself. A component counts as initialized
+  once its `Initialize` has run its synchronous part, up to its first wait
+  or its end: then the outputs it and its children raised meanwhile are
+  delivered, its parent's `Initialize` starts, and the rest of the
+  `Initialize` goes on while the tree does. The children's synchronous
+  initialization still comes before the parent's. The program whose
+  `modify` rendered new components goes on once they have run their
+  `Initialize` up to its first wait, and `runUI` and `hydrateUI` return
+  then too. This differs from purescript-halogen, which this driver
+  followed until now: there, a component's initializer waits for its
+  children's to end, and the program that rendered them and the mount wait
+  for all of them. So one island of a page whose `Initialize` loaded
+  something for seconds kept every ancestor made in the same render from
+  answering queries and delivering outputs, held the action whose `modify`
+  showed the page, and, on the first page, kept the root's own
+  `Initialize` (and the router subscription it made) from running: a link
+  clicked meanwhile changed the address and nothing else. Code that relied
+  on a component having loaded once its parent's `Initialize` runs, or
+  once the `modify` that created it or `runUI` returns, should ask it
+  instead, with a query that waits until it has loaded (keep what loads in
+  a fork or in its state, and have the query wait for it). A query to a
+  component whose `Initialize` waits is answered as usual meanwhile.
+  `Halogen.Static` still renders a page once every `Initialize`, and those
+  of the components they render, has ended; nothing else waits for that.
 - `Halogen.HTML.Events.preventingDefault` and `stoppingPropagation` wrap an
   event handler so that, whenever it makes an action, the event's default
   is prevented, or its propagation stopped, in the event's listener itself,

@@ -180,11 +180,12 @@ unsubscribe sid = HalogenM $ liftF $ Unsubscribe sid ()
 -- | Starts a `HalogenM` process running independent from the current `eval`
 -- | "thread".
 -- |
--- | A commonly use case for `fork` is in component initializers where some
--- | async action is started. Normally all interaction with the component will
--- | be blocked until the initializer completes, but if the async action is
--- | `fork`ed instead, the initializer can complete synchronously while the
--- | async action continues.
+-- | A common use case for `fork` is in component initializers where some
+-- | async action is started. An initializer that waits holds up only its
+-- | component's own initializer (see 'Halogen.Query.HalogenQ.Initialize'),
+-- | not the rest of the tree, but if the async action is `fork`ed instead,
+-- | the initializer can complete synchronously while the async action
+-- | continues.
 -- |
 -- | Some care needs to be taken when using a `fork` that can modify the
 -- | component state, as it's easy for the forked process to "clobber" the state

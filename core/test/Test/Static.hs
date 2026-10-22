@@ -47,6 +47,19 @@ initialized source =
       , eval = H.mkEval H.defaultEval {H.handleAction = \() -> liftIO (readIORef source) >>= put, H.initialize = Just ()}
       }
 
+-- | Loads its text the same way, and once it has, renders it beside a
+-- child that loads its own in turn.
+loading :: IORef Text -> H.Component H.VoidF () Void MemDOM
+loading source =
+  H.mkComponent
+    H.ComponentSpec
+      { initialState = \_ -> pure Nothing
+      , render = \case
+          Nothing -> HH.p_ [HH.text "loading"] :: H.ComponentHTML () ("child" .== H.Slot H.VoidF Void ()) MemDOM
+          Just st -> HH.div_ [HH.p_ [HH.text st], HH.slot_ "child" () (initialized source) ()]
+      , eval = H.mkEval H.defaultEval {H.handleAction = \() -> liftIO (readIORef source) >>= put . Just, H.initialize = Just ()}
+      }
+
 child :: H.Component H.VoidF () Void MemDOM
 child =
   H.mkComponent
@@ -124,6 +137,11 @@ spec = describe "static rendering" $ do
   it "renders what the component's initializer left" $ do
     source <- newIORef "after"
     renderToHtml (initialized source) () >>= assertEqual "markup" "<p>after</p>"
+
+  -- A tree running in the browser waits for none of this.
+  it "renders what the initializers of the components an initializer rendered left" $ do
+    source <- newIORef "after"
+    renderToHtml (loading source) () >>= assertEqual "markup" "<div><p>after</p><p>after</p></div>"
 
   it "renders a child in its slot" $
     renderToHtml parent () >>= assertEqual "markup" "<div class=\"parent\"><span>the child</span></div>"

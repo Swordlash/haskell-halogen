@@ -6,8 +6,6 @@ module Halogen.IO.Driver.Eval
   , launchOwned
   , launchAction
   , launchFree
-  , spawnAwait
-  , awaitAll
   , queueOrRun
   , runHandler
   , handlePending
@@ -53,12 +51,10 @@ evalM var (HalogenM hm) = foldF go hm
   where
     go :: forall x. HalogenF s act ps o m x -> Turn x
     go = \case
-      State f -> do
-        (a, initializers) <- sync (update f)
-        -- As in purescript-halogen, the program goes on once the children
-        -- the render made are initialized (they may wait, and it with them).
-        awaitAll initializers
-        pure a
+      -- Rendered before the program goes on, and the components the render
+      -- made have run their @Initialize@ up to its first wait; what that
+      -- waits for is not waited for (purescript-halogen waits for it).
+      State f -> sync (update f)
       Subscribe fes k -> sync $ do
         ds <- readIORef var
         sid <- fresh SubscriptionId ds
@@ -136,7 +132,7 @@ evalM var (HalogenM hm) = foldF go hm
         DriverState {refs} <- readIORef var
         pure $ k $ M.lookup p refs
 
-    update :: forall x. (s -> (x, s)) -> IO (x, [Fiber])
+    update :: forall x. (s -> (x, s)) -> IO x
     update f = do
       -- The field is taken by a pattern, not `ds.state`: a selector thunk
       -- is a new pointer, and `unsafeRefEq` would then never see an
@@ -144,19 +140,12 @@ evalM var (HalogenM hm) = foldF go hm
       ds@DriverState {state} <- readIORef var
       case f state of
         (a, state')
-          | unsafeRefEq state state' -> pure (a, [])
+          | unsafeRefEq state state' -> pure a
           | otherwise -> do
               writeIORef var ds {state = state'}
               -- Rendered before the program goes on, so that what it reads
               -- next (a ref, say) is the new state's.
-              initializers <- treeRender ds.tree var
-              pure (a, initializers)
-
--- | Wait for fibers to end, however they end.
-awaitAll :: [Fiber] -> Turn ()
-awaitAll = traverse_ $ \fb -> suspend $ \resume -> do
-  waiting <- onFiberOver fb (const (resume (Right ())))
-  unless waiting $ resume (Right ())
+              a <$ treeRender ds.tree var
 
 -- | A query answered by a component: 'Nothing' if it has gone away, or goes
 -- away before answering. Its own fiber, owned by that component, which the
@@ -209,21 +198,13 @@ launchAction var act = do
   ds <- readIORef var
   launchOwned var False (const pass) (evalM var (runNT ds.component.eval (HQ.Action act ()))) (report "An action")
 
--- | A program no component owns (the lifecycle work of a render
--- transaction, which waits on programs that are owned).
-launchFree :: Loop -> Turn () -> IO Fiber
+-- | A program no component owns: the lifecycle work of a render
+-- transaction, which starts programs that are owned. A failure of it is
+-- reported, as a failure of theirs is.
+launchFree :: Loop -> Turn () -> IO ()
 launchFree loop program = do
-  (fb, start) <- fiberFor loop (pure True) True (report "Lifecycle work")
+  (_, start) <- fiberFor loop (pure True) True (report "Lifecycle work")
   start program
-  pure fb
-
--- | Start a program owned by a component and wait for it to end, however it
--- ends.
-spawnAwait :: IORef (DriverState m r s f act ps i o) -> Bool -> Turn () -> Turn ()
-spawnAwait var closingOk program = suspend $ \resume ->
-  launchOwned var closingOk (const pass) program $ \outcome -> do
-    report "A lifecycle handler" outcome
-    resume (Right ())
 
 -- | Run now, or keep for later if the queue is open.
 queueOrRun :: IORef (Maybe [IO ()]) -> IO () -> IO ()

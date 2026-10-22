@@ -21,7 +21,7 @@ import Data.Row
 import HPrelude hiding (state)
 import Halogen.Component
 import Halogen.Data.Slot as SlotStorage
-import Halogen.IO.Driver.Runtime (Fiber, Loop, Turn)
+import Halogen.IO.Driver.Runtime (Fiber, Loop)
 import Halogen.Query.HalogenM
 import Halogen.Subscription qualified as HS
 import Web.DOM.Element (Element)
@@ -43,10 +43,15 @@ data Tree m r = Tree
   -- ^ 'Just' while a render transaction runs on the loop. Renders nested in
   -- it (a child's input changing its state) add to it, and it is carried
   -- out when the outermost one ends.
-  , render :: forall s f act ps i o. IORef (DriverState m r s f act ps i o) -> IO [Fiber]
-  -- ^ Renders a component; hands back the initializers that the render
-  -- transaction it opened started (none if it was nested in another), for
-  -- the program that changed the state to wait for.
+  , render :: forall s f act ps i o. IORef (DriverState m r s f act ps i o) -> IO ()
+  -- ^ Renders a component. The components the render made have run the
+  -- synchronous part of their @Initialize@ by the time it returns (unless
+  -- it was nested in another render, whose end runs them).
+  , initializing :: IORef (Int, [IO ()])
+  -- ^ How many of the tree's @Initialize@ programs have not ended yet, and
+  -- what is to run once none is left: nothing in the tree waits for them,
+  -- but a page rendered ahead of its program does
+  -- ('Halogen.IO.Driver.Mount.runUIInitialized').
   }
 
 -- | Run the components' monad (the fields are polymorphic, so not reached
@@ -54,14 +59,14 @@ data Tree m r = Tree
 treeRunM :: Tree m r -> m a -> IO a
 treeRunM Tree {runM} = runM
 
-treeRender :: Tree m r -> IORef (DriverState m r s f act ps i o) -> IO [Fiber]
+treeRender :: Tree m r -> IORef (DriverState m r s f act ps i o) -> IO ()
 treeRender Tree {render} = render
 
 -- | Lifecycle work collected during a render transaction: run once it has
--- committed, finalizers first. Initializers are programs, since a parent's
--- initializer waits for its children's.
+-- committed, finalizers first. Neither waits for what it starts: an
+-- initializer runs its component's @Initialize@ until that first waits.
 data Batch = Batch
-  { initializers :: IORef [Turn ()]
+  { initializers :: IORef [IO ()]
   -- ^ Newest first.
   , finalizers :: IORef [IO ()]
   }
@@ -76,7 +81,9 @@ data DriverState m r s f act ps i o = DriverState
   -- ^ Where the component's outputs go: its parent, or the tree's messages.
   , pendingQueries :: IORef (Maybe [IO ()])
   -- ^ Outputs of the children that come before this component has been
-  -- initialized; 'Nothing' after.
+  -- initialized; 'Nothing' after. It counts as initialized once its
+  -- @Initialize@ has run its synchronous part: reached its first wait, or
+  -- ended.
   , pendingOuts :: IORef (Maybe [IO ()])
   -- ^ This component's outputs that come before it has been initialized.
   , pendingHandlers :: IORef (Maybe [IO ()])

@@ -196,7 +196,9 @@ other `IO`, there is `unsafeIOToPageM`, unsafe in the same way as
 ### Mounting and talking to the component
 
 - `mount m component input`: mount into the page. The component has
-  rendered and run its initialisers when this returns.
+  rendered and run its initialisers up to their first wait when this
+  returns; what they load may still be on its way, which `shouldHaveText`
+  and `eventually` wait for.
 - `htmlContainer "<p>…</p>"` and `hydrate m container component input`: a
   container holding HTML the browser parsed, as a prerendered page holds a
   component's, and the component mounted into it with `hydrateUI`, adopting
