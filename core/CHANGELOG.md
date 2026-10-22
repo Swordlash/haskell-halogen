@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A page served over plain HTTP (not a secure context, so its
+  `crypto.randomUUID` is missing) no longer fails with
+  `TypeError: globalThis.crypto.randomUUID is not a function` when it asks
+  `MonadUUID` for a UUID, as a component does when it starts: the browser
+  backends make an RFC 4122 version 4 UUID from `crypto.getRandomValues`
+  there, without changing the page's `crypto`.
 - A component's `Initialize` that waits (in `lift`/`liftIO`, or for a query
   to answer) now holds up only itself. A component counts as initialized
   once its `Initialize` has run its synchronous part, up to its first wait
