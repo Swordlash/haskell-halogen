@@ -73,6 +73,7 @@ where
 import Control.Monad.Trans.Identity (IdentityT (..))
 import Data.Map.Strict qualified as M
 import Data.Set qualified as S
+import Data.Text qualified as T
 import HPrelude hiding (get, getAll, put)
 import Halogen.JSBits (JSText, JSVal, Safety (..), browserJS, fromJSBytes, fromJSText, inBrowser, isNull, jsValText, toJSBytes, toJSText)
 import Halogen.VDom.DOM.Monad.Browser (BrowserDOM)
@@ -113,8 +114,10 @@ data IndexedDBError = IndexedDBError
 instance Exception IndexedDBError
 
 data IndexedDBFailure
-  = -- | There is no IndexedDB here: natively in the browser instance, under
-    -- Node, or in a browser that turns it off (some do in a private window).
+  = -- | There is no IndexedDB here, or this page may not use it: natively
+    -- in the browser instance, under Node, in a browser that turns it off
+    -- (some do in a private window), or in a sandboxed frame or an opaque
+    -- origin, whose opening is refused with a @SecurityError@.
     Unavailable
   | -- | The database had to be upgraded (or deleted), and another tab keeps it
     -- open at its older version. A tab running this library closes its
@@ -156,13 +159,16 @@ class (Monad m) => MonadIndexedDB m where
   default delete :: (LiftsIndexedDB t n m) => Database -> StoreName -> Text -> m ()
   delete db store key = lift (delete db store key)
 
-  -- | Every key a store holds, in order. A key that is not text (something
-  -- other than this library wrote it) is left out.
+  -- | Every key a store holds, in IndexedDB's order: by UTF-16 code units,
+  -- which differs from 'Text''s order only in putting a character beyond
+  -- U+FFFF before one from U+E000 to U+FFFF. A key that is not text
+  -- (something other than this library wrote it) is left out.
   keys :: Database -> StoreName -> m [Text]
   default keys :: (LiftsIndexedDB t n m) => Database -> StoreName -> m [Text]
   keys db store = lift (keys db store)
 
-  -- | Everything a store holds, read at one moment.
+  -- | Everything a store holds, read at one moment. Being a 'Map', it is in
+  -- 'Text''s order rather than the store's; 'keys' has the store's.
   getAll :: Database -> StoreName -> m (Map Text ByteString)
   default getAll :: (LiftsIndexedDB t n m) => Database -> StoreName -> m (Map Text ByteString)
   getAll db store = lift (getAll db store)
@@ -352,7 +358,7 @@ instance MonadIndexedDB MemDOM where
   get db store key = withStore db store $ \entries -> (entries, M.lookup key entries)
   put db store key bytes = withStore db store $ \entries -> (M.insert key bytes entries, ())
   delete db store key = withStore db store $ \entries -> (M.delete key entries, ())
-  keys db store = withStore db store $ \entries -> (entries, M.keys entries)
+  keys db store = withStore db store $ \entries -> (entries, sortBy utf16Order (M.keys entries))
   getAll db store = withStore db store $ \entries -> (entries, entries)
   clear db store = withStore db store $ const (M.empty, ())
 
@@ -365,6 +371,18 @@ instance MonadIndexedDB MemDOM where
       write present (store, key, value) = M.adjust (M.alter (const value) key) store present
 
   deleteDatabase name = liftIO $ atomicModifyIORef'_ ambientDatabases (M.delete name)
+
+-- | How IndexedDB orders keys of text: by their UTF-16 code units, as
+-- JavaScript compares strings. 'Text' compares code points, which agrees
+-- except that a character beyond U+FFFF is two code units from
+-- U+D800 to U+DFFF, and so comes before one from U+E000 to U+FFFF.
+utf16Order :: Text -> Text -> Ordering
+utf16Order = comparing (concatMap units . T.unpack)
+  where
+    units :: Char -> [Int]
+    units c
+      | ord c < 0x10000 = [ord c]
+      | otherwise = let n = ord c - 0x10000 in [0xD800 + n `div` 0x400, 0xDC00 + n `mod` 0x400]
 
 -- | Do something to one store of a database.
 withStore :: Database -> StoreName -> (Map Text ByteString -> (Map Text ByteString, a)) -> MemDOM a

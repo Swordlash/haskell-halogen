@@ -44,6 +44,17 @@ spec m = do
     inPage m (IDB.delete db pages "b" >> IDB.keys db pages) `shouldReturn` ["a", "c"]
     inPage m (IDB.clear db pages >> IDB.keys db pages) `shouldReturn` []
 
+  -- The order 'MemDOM' reproduces: a character beyond U+FFFF is a surrogate
+  -- pair, whose code units come before U+E000.
+  it "orders keys by UTF-16 code units" $ runPage $ do
+    let db = database "utf16"
+    inPage m $ do
+      fresh db
+      IDB.put db pages "\xE000" "private use"
+      IDB.put db pages "\x10000" "beyond the BMP"
+      IDB.put db pages "a" "ascii"
+    inPage m (IDB.keys db pages) `shouldReturn` ["a", "\x10000", "\xE000"]
+
   it "reads and writes values through StorageSerialize" $ runPage $ do
     let db = database "typed"
     inPage m $ do

@@ -70,6 +70,14 @@ spec = describe "IndexedDB in memory" $ do
     runMemDOM (IDB.delete db pages "b" >> IDB.keys db pages) `shouldReturn` ["a", "c"]
     runMemDOM (IDB.clear db pages >> IDB.keys db pages) `shouldReturn` []
 
+  it "orders keys as IndexedDB does, by UTF-16 code units" $ do
+    let db = database "utf16"
+    fresh db $ do
+      IDB.put db pages "\xE000" "private use"
+      IDB.put db pages "\x10000" "beyond the BMP"
+      IDB.put db pages "a" "ascii"
+    runMemDOM (IDB.keys db pages) `shouldReturn` ["a", "\x10000", "\xE000"]
+
   it "keeps the stores of a database, and databases, apart" $ do
     let one = database "apart-one"
         two = database "apart-two"

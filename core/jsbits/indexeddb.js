@@ -33,6 +33,17 @@ function halogen_idb_failure(name, message) {
   return error;
 }
 
+// What opening or deleting a database failed with. A page that may not use
+// IndexedDB (a sandboxed frame, an opaque origin, storage turned off) has the
+// global but is refused with a SecurityError: for the program that is the
+// same as having no IndexedDB at all.
+function halogen_idb_denied(error) {
+  if (error !== null && error !== undefined && error.name === "SecurityError") {
+    return halogen_idb_failure("UnavailableError", String(error.message ?? "IndexedDB is not allowed here"));
+  }
+  return error;
+}
+
 function halogen_idb_database(name, version) {
   return { name: name, version: version, stores: [] };
 }
@@ -86,7 +97,13 @@ function halogen_idb_open(database, forget) {
       reject(halogen_idb_failure("UnavailableError", "there is no IndexedDB here"));
       return;
     }
-    const request = indexedDB.open(database.name, database.version);
+    let request;
+    try {
+      request = indexedDB.open(database.name, database.version);
+    } catch (error) {
+      reject(halogen_idb_denied(error));
+      return;
+    }
     // Whether the caller has had its answer. After a blocked upgrade it has,
     // but the request goes on, and succeeds once the other connection closes:
     // the connection it then opens is nobody's, and is closed at once.
@@ -116,7 +133,7 @@ function halogen_idb_open(database, forget) {
     request.onerror = () => {
       if (!answered) {
         answered = true;
-        reject(request.error);
+        reject(halogen_idb_denied(request.error));
       }
     };
     request.onblocked = () => {
@@ -180,8 +197,11 @@ function halogen_idb_operation(database, run) {
 function halogen_idb_get(database, store, key) {
   return halogen_idb_operation(database, (connection) => {
     const transaction = halogen_idb_transaction(connection, [store], "readonly");
-    return halogen_idb_request(transaction.objectStore(store).get(key)).then((value) =>
-      value === undefined ? null : halogen_idb_bytes(value, key),
+    // A cursor rather than get(), which answers undefined both when there is
+    // no record and when the record is undefined: one that is there and is
+    // not bytes is NotBytes here, as it is to halogen_idb_get_all.
+    return halogen_idb_request(transaction.objectStore(store).openCursor(key)).then((cursor) =>
+      cursor === null ? null : halogen_idb_bytes(cursor.value, key),
     );
   });
 }
@@ -285,9 +305,15 @@ function halogen_idb_delete_database(name) {
             reject(halogen_idb_failure("UnavailableError", "there is no IndexedDB here"));
             return;
           }
-          const request = indexedDB.deleteDatabase(name);
+          let request;
+          try {
+            request = indexedDB.deleteDatabase(name);
+          } catch (error) {
+            reject(halogen_idb_denied(error));
+            return;
+          }
           request.onsuccess = () => resolve(null);
-          request.onerror = () => reject(request.error);
+          request.onerror = () => reject(halogen_idb_denied(request.error));
           request.onblocked = () => reject(halogen_idb_failure("BlockedError", "the database is open elsewhere"));
         }),
     ),
