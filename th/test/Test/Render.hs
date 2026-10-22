@@ -28,7 +28,7 @@ render (HTML v) = go v
     prop = \case
       Attribute _ (AttrName a) t -> " " <> a <> "=\"" <> t <> "\""
       Property (PropName p) val -> " ." <> p <> "=" <> scalar val
-      Handler (EventType e) _ -> " @" <> e
+      Handler (EventType e) _ _ -> " @" <> e
       Ref _ -> " ref"
     scalar :: PropValue a -> Text
     scalar = \case

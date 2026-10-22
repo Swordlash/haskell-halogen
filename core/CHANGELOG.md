@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- `Halogen.HTML.Events.preventingDefault` and `stoppingPropagation` wrap an
+  event handler so that, whenever it makes an action, the event's default
+  is prevented, or its propagation stopped, in the event's listener itself,
+  while the browser is still dispatching it:
+  `HE.preventingDefault (HE.onSubmit (const Save))`. A handler that makes
+  no action (a key handler that ignores the key) leaves the event alone.
+  Calling `preventDefault` from the action instead, in `H.liftEffect`, is
+  only in time when the tree's loop is free as the event arrives. It is not
+  always: on WebAssembly an event's listener also runs whatever Haskell work
+  was left to run (the rest of what an earlier event started, a render among
+  it), and when that holds the loop, the action is queued and runs after the
+  browser has followed the link, submitted the form or typed the key. Use
+  them for a form's submit, a keyboard shortcut and a link of your own;
+  `Halogen.Router`'s links do. `H.liftEffect` itself is unchanged.
+- `Halogen.VDom.DOM.Prop.Handler` carries `HandlerOptions` (whether to
+  prevent the default, whether to stop propagation; `handlerOptions` for
+  neither) between the event type and the function, so code that builds or
+  matches a `Handler` itself changes; `Halogen.HTML.Core.handler` is as it
+  was, and `Halogen.HTML.Core.withHandlerOptions` changes a handler's
+  options. `buildProp` asks for `MonadIO`, which every DOM monad has.
 - On the JavaScript backend, hashing a `Text`, a `ByteString` or a
   `ShortByteString` with hashable (a `HashMap Text`, a row-types `Rec`)
   no longer fails with `h$hs_XXH3_64bits_withSeed_offset is not defined`:
