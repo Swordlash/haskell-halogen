@@ -36,3 +36,9 @@
   while the loop was busy (right after a change that re-renders the page),
   was after the browser had loaded the link's page. Natively the address is kept in memory, so a page can be
   rendered for any route with `Halogen.Static`.
+* `Halogen.Router.stop` takes a router's `popstate` listener off the window,
+  after which the browser's back and forward no longer reach its `changes`
+  (its own `navigate` and `redirect` still do). The listener otherwise
+  stays for as long as the page does, which is what a program that is run
+  again on the same page, as browser GHCi's `:main` runs it, needs to end
+  with the run's tree.

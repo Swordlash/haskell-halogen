@@ -6,8 +6,8 @@
 #
 #   sh examples/material/bundle.sh <output-dir>
 #
-# toolchain/build-wasm.sh runs this for the deployed build, and dev-wasm.sh for
-# the browser-GHCi page.
+# toolchain/build-wasm.sh runs this for the deployed build, and toolchain/dev.sh
+# for the browser-GHCi page.
 set -eu
 
 cd "$(dirname "$0")/../.."

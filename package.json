@@ -30,7 +30,7 @@
     "serve-ghcjs": "sh toolchain/serve-ghcjs.sh",
     "build-js": "sh toolchain/build-ghcjs.sh",
     "build-js-dev": "sh toolchain/build-ghcjs.sh --dev",
-    "dev-wasm": "sh examples/material/dev-wasm.sh",
+    "dev": "sh toolchain/dev.sh",
     "dev-test": "sh toolchain/dev-test.sh",
     "format": "sh run_fourmolu.sh",
     "serve": "npm run serve-wasm",

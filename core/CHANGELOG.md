@@ -46,6 +46,17 @@
   browser's are by an origin, and behaves the same; `ReaderT` and
   `IdentityT` lift it, and so can any transformer, with an empty instance.
 
+- `Halogen.IO.Util.keepForNextRun` and `endPreviousRun`, for a program that
+  is run again on the same page, as browser GHCi's `:main` runs it: the page
+  and the runtime stay from one run to the next, and with them the last
+  run's tree, still mounted, its subscriptions, forks and timers going. A
+  `main` that starts with `endPreviousRun` and hands `keepForNextRun` how
+  to end what it starts (the socket's `dispose`, and whatever else outlives
+  the tree, such as a router's listener) ends the last run properly before
+  starting its own: the tree's finalizers run, what it started ends and its
+  root leaves the page. With nothing kept, `endPreviousRun` does nothing,
+  so a program run once, anywhere else, is unaffected but for the one
+  action it keeps.
 - On the JavaScript backend, hashing a `Text`, a `ByteString` or a
   `ShortByteString` with hashable (a `HashMap Text`, a row-types `Rec`)
   no longer fails with `h$hs_XXH3_64bits_withSeed_offset is not defined`:

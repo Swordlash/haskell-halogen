@@ -15,6 +15,7 @@ spec = xdescribe "router" pass
 
 #else
 
+import Data.Foreign (toForeign)
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
 import Halogen.HTML.Core (HTML (..))
 import Halogen.HTML.Properties qualified as HP
@@ -22,11 +23,12 @@ import Halogen.Router qualified as Router
 import Halogen.Router.Duplex
 import Halogen.Subscription qualified as HS
 import Halogen.VDom.DOM (VDomSpec (..), buildVDom)
-import Halogen.VDom.DOM.Monad (runMemDOM)
+import Halogen.VDom.DOM.Monad (runMemDOM, window)
 import Halogen.VDom.DOM.Monad.Native qualified as N
 import Halogen.VDom.DOM.Prop (buildProp)
 import Halogen.VDom.Machine (extract)
 import Test.Hspec (Spec, describe, it, shouldBe, shouldReturn)
+import Web.Event.Event (Event (..))
 
 data Route = Home | Page Int
   deriving stock (Eq, Show)
@@ -45,6 +47,15 @@ recording router = do
   seen <- newIORef []
   void $ HS.subscribe (Router.changes router) $ \r -> modifyIORef' seen (<> [r])
   pure seen
+
+-- | What the browser does going back or forward: the window's @popstate@
+-- listeners run. Natively the window is the ambient document, which every
+-- router made here listens on.
+popstate :: IO ()
+popstate = do
+  target <- N.toNative <$> runMemDOM window
+  listeners <- readIORef target.listeners
+  for_ [l | l <- listeners, l.eventType == "popstate"] $ \l -> runMemDOM (l.fire (Event (toForeign ())))
 
 spec :: Spec
 spec = describe "router" $ do
@@ -67,6 +78,17 @@ spec = describe "router" $ do
       seen <- recording router
       Router.navigate router Home
       readIORef seen `shouldReturn` []
+    it "follows the history until it is stopped" $ do
+      router <- runMemDOM (Router.newRouter "/" Home route)
+      seen <- recording router
+      popstate
+      readIORef seen `shouldReturn` [Home]
+      Router.stop router
+      popstate
+      Router.stop router
+      readIORef seen `shouldReturn` [Home]
+      Router.navigate router (Page 1)
+      readIORef seen `shouldReturn` [Home, Page 1]
 
   describe "links" $
     it "keeps a link's href and click the router's, whatever the caller gives" $ do

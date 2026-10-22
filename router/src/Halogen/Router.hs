@@ -23,7 +23,8 @@
 -- it carries the router's own navigations and the browser's (back,
 -- forward, a link it followed itself, an edited fragment), which arrive as
 -- @popstate@. The @popstate@ listener is the router's for as long as the
--- page lives.
+-- page lives, unless the router is 'stop'ped, as a program that runs again
+-- on the same page (browser GHCi's @:main@) stops the last run's router.
 --
 -- Natively there is no browser: the address is kept in memory, starting at
 -- the base, and 'navigate' and 'redirect' change it there. That is enough
@@ -34,6 +35,7 @@ module Halogen.Router
   , newRouter
   , newHashRouter
   , pageBase
+  , stop
 
     -- * Where the page is
   , current
@@ -51,7 +53,7 @@ module Halogen.Router
 where
 
 import DOM.HTML.Indexed qualified as I
-import Data.IORef (IORef, newIORef, readIORef, writeIORef)
+import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.Text qualified as T
 import Halogen qualified as H
 import Halogen.HTML qualified as HH
@@ -94,6 +96,8 @@ data Router route = Router
   -- ^ The address natively, as a browser's @pathname + search + hash@; in a
   -- browser the address is the browser's.
   , notifier :: HS.Subscribe IO route
+  , popstate :: HS.Subscription IO
+  -- ^ The router's @popstate@ listener, which 'stop' takes away.
   }
 
 -- | A router for addresses that are paths under a base path: @\"\/\"@ for a
@@ -114,11 +118,29 @@ start :: (MonadBrowserDOM m, MonadUnliftIO m) => Addressing -> Text -> route -> 
 start addressing initial fallback duplex = do
   memory <- liftIO (newIORef initial)
   notifier <- liftIO HS.create
-  let router = Router {duplex, fallback, addressing, memory, notifier}
   target <- windowToEventTarget =<< window
   popstates <- HS.lowerEmitter (HQE.eventListener (EventType "popstate") target (const (Just ())))
-  void $ liftIO $ HS.subscribe popstates $ \() -> current router >>= HS.notify notifier.listener
-  pure router
+  -- The listener reads where the page is through a router whose
+  -- subscription is not yet known: 'current' reads only the address.
+  let reading = Router {duplex, fallback, addressing, memory, notifier, popstate = HS.Subscription pass}
+  listening <- liftIO $ HS.subscribe popstates $ \() -> current reading >>= HS.notify notifier.listener
+  -- Taking the listener off twice would free its callback twice, so only
+  -- the first 'stop' does.
+  stopped <- liftIO (newIORef False)
+  let popstate = HS.Subscription $ do
+        already <- atomicModifyIORef' stopped (True,)
+        unless already (HS.unsubscribe listening)
+  pure reading {popstate}
+
+-- | Stop following the browser's history: the router's @popstate@ listener
+-- is taken off the window, so a back or forward the browser goes no longer
+-- reaches 'changes'. Its own 'navigate' and 'redirect' still do. This is for
+-- a page whose program is run again on it, as browser GHCi's @:main@ runs
+-- it: the last run's router stops with the last run's tree (see
+-- "Halogen.IO.Util".'Halogen.IO.Util.keepForNextRun') rather than go on
+-- listening beside the next run's. Stopping a stopped router does nothing.
+stop :: (MonadIO m) => Router route -> m ()
+stop router = liftIO (HS.unsubscribe router.popstate)
 
 -- | The base path a page's @\<base href>@ names, which is how a page served
 -- under a path of its own can say what it is without the program being

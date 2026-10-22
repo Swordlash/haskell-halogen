@@ -9,7 +9,7 @@ category:           Web
 build-type:         Simple
 
 flag interactive
-    description: Run the example app in browser GHCi
+    description: Build the example for browser GHCi (toolchain/dev.sh)
     default:     False
     manual:      True
 
@@ -48,7 +48,7 @@ executable halogen-example-material
         protolude,
         haskell-halogen-core
 
-    -- Browser GHCi (dev-wasm.sh) reloads only the modules of the target it
+    -- Browser GHCi (toolchain/dev.sh) reloads only the modules of the target it
     -- loaded, so there the example's module is compiled into the executable
     -- rather than taken from the library, where edits would go unnoticed.
     if flag(interactive)
@@ -62,12 +62,15 @@ executable halogen-example-material
     elif arch(wasm32) || arch(javascript)
         build-depends:  halogen-example-material
 
+    -- The wasm program is a reactor, which the page starts through its
+    -- hs_start export. GHCi loads the program's modules and runs main itself,
+    -- so the interactive build is an ordinary program, and Main leaves the
+    -- export out when INTERACTIVE is defined.
     if arch(wasm32) && !flag(interactive)
         ghc-options:
             -no-hs-main
             -optl-mexec-model=reactor
             "-optl-Wl,--export=hs_start"
-        cpp-options: -DWASM
 
     if flag(interactive)
         cpp-options: -DINTERACTIVE
