@@ -8,6 +8,10 @@
 -- * A child's 'Receive' runs as a program of the child: until it waits, the
 --   render waits for it; once it waits, the render goes on.
 -- * A state change is rendered before the program goes on.
+-- * A component counts as initialized once its @Initialize@ has run its
+--   synchronous part (up to its first wait, or its end): its parent's runs
+--   after that, and its outputs flow, while what it waits for holds up
+--   nothing else (not the program whose render made it, nor 'runUI').
 -- * A component that goes away takes its programs with it: none touches it
 --   again, a query waiting on it answers 'Nothing', and what its finalizer
 --   forked ends with the finalizer.
@@ -24,7 +28,7 @@ module Test.DriverContract (spec) where
 
 import Control.Concurrent (forkIO, rtsSupportsBoundThreads, setNumCapabilities, threadDelay)
 import Control.Concurrent.MVar
-import Control.Exception (ErrorCall (..), SomeException, onException, throwIO)
+import Control.Exception (ErrorCall (..), SomeException, finally, onException, throwIO)
 import Control.Monad (forever, void, when)
 import Control.Monad.Catch (try)
 import Control.Monad.IO.Class (liftIO)
@@ -646,6 +650,109 @@ lifecycle = do
   dispose socket
   within "the finalizer's fork" (takeMVar forkKilled)
 
+----------------------------------------------------------------------
+-- A child whose Initialize waits, under a parent whose does not.
+
+-- | Where the island's Initialize waits, and what it signals: once it has
+-- loaded, or once its wait was cancelled.
+data Gate = Gate {open :: MVar (), loaded :: MVar (), cancelled :: MVar ()}
+
+data IslandAct = Load | Poked
+
+-- | An island: its Initialize subscribes to the pokes, then waits at the
+-- gate (in 'liftIO'), and its state says whether it has loaded. It raises
+-- each poke to its parent, while it waits too.
+island :: IORef [Text] -> Gate -> HS.Emitter IO () -> H.Component Query () Text IO
+island logRef gate pokes =
+  H.mkComponent
+    H.ComponentSpec
+      { initialState = \_ -> pure (0 :: Int)
+      , render = \_ -> HH.text "island" :: H.ComponentHTML IslandAct Empty IO
+      , eval = H.mkEval H.defaultEval {initialize = Just Load, handleAction, handleQuery}
+      }
+  where
+    note t = H.liftEffect (modifyIORef' logRef (<> [t]))
+    handleAction = \case
+      Load -> do
+        void (H.subscribe (Poked <$ pokes))
+        note "island waits"
+        liftIO (readMVar gate.open `onException` tryPutMVar gate.cancelled ())
+        put 1
+        note "island loaded"
+        H.liftEffect (putMVar gate.loaded ())
+      Poked -> H.raise "poked"
+    handleQuery :: Query a -> H.HalogenM Int IslandAct Empty Text IO (Maybe a)
+    handleQuery = \case
+      Current k -> Just . k <$> get
+      _ -> pure Nothing
+
+data HostAct = HostInit | Heard Text
+
+data HostQuery a = Reveal a | Conceal a | AskIsland (Maybe Int -> a)
+
+-- | The island's parent: it shows the island while its state says so.
+host :: IORef [Text] -> Gate -> HS.Emitter IO () -> Bool -> H.Component HostQuery () Void IO
+host logRef gate pokes shown =
+  H.mkComponent
+    H.ComponentSpec
+      { initialState = \_ -> pure shown
+      , render = \visible ->
+          HH.div_ [HH.slot "island" () (island logRef gate pokes) () Heard | visible]
+            :: H.ComponentHTML HostAct ("island" .== H.Slot Query Text ()) IO
+      , eval = H.mkEval H.defaultEval {initialize = Just HostInit, handleAction, handleQuery}
+      }
+  where
+    note t = H.liftEffect (modifyIORef' logRef (<> [t]))
+    handleAction = \case
+      HostInit -> note "host initialized"
+      Heard t -> note ("host heard " <> t)
+    handleQuery :: HostQuery a -> H.HalogenM Bool HostAct ("island" .== H.Slot Query Text ()) Void IO (Maybe a)
+    handleQuery = \case
+      Reveal a -> put True >> note "revealed" >> pure (Just a)
+      Conceal a -> put False >> pure (Just a)
+      AskIsland k -> Just . k <$> H.request "island" () Current
+
+-- | The host, mounted (within the bound: a mount that waited for the
+-- island would never return), showing the island or not. The gate is
+-- opened afterwards, so that nothing is left waiting.
+withIsland :: Bool -> (AD.HalogenSocket HostQuery Void IO -> IORef [Text] -> Gate -> HS.Listener IO () -> IO ()) -> IO ()
+withIsland shown body = do
+  onCapabilities
+  texts <- newIORef []
+  logRef <- newIORef []
+  gate <- Gate <$> newEmptyMVar <*> newEmptyMVar <*> newEmptyMVar
+  HS.Subscribe {HS.listener, HS.emitter} <- HS.create
+  socket <- within "the mount" (AD.runUI (walking texts) (host logRef gate emitter shown) ())
+  body socket logRef gate listener `finally` (tryPutMVar gate.open () >> dispose socket)
+
+initializedAtFirstWait :: IO ()
+initializedAtFirstWait = withIsland True $ \socket logRef gate _ -> do
+  readIORef logRef >>= assertEqual "the host was initialized once the island's Initialize waited, and runUI returned" ["island waits", "host initialized"]
+  putMVar gate.open ()
+  within "the island to load" (takeMVar gate.loaded)
+  within "the answer" (ask socket (H.mkRequest AskIsland)) >>= assertEqual "the island loaded afterwards" (Just (Just 1))
+  readIORef logRef >>= assertEqual "in that order" ["island waits", "host initialized", "island loaded"]
+
+renderGoesOn :: IO ()
+renderGoesOn = withIsland False $ \socket logRef _ _ -> do
+  within "the query that renders the island" (ask socket (H.mkTell Reveal)) >>= assertEqual "the program that made the island went on" (Just ())
+  readIORef logRef >>= assertEqual "while the island waits" ["host initialized", "island waits", "revealed"]
+  within "the answer" (ask socket (H.mkRequest AskIsland)) >>= assertEqual "the waiting island answered" (Just (Just 0))
+
+outputWhileWaiting :: IO ()
+outputWhileWaiting = withIsland False $ \socket logRef _ pokes -> do
+  _ <- within "the query that renders the island" (ask socket (H.mkTell Reveal))
+  HS.notify pokes ()
+  readIORef logRef >>= assertEqual "the output reached the host at once" ["host initialized", "island waits", "revealed", "host heard poked"]
+
+goneWhileInitializing :: IO ()
+goneWhileInitializing = withIsland True $ \socket logRef gate _ -> do
+  _ <- within "the query that removes the island" (ask socket (H.mkTell Conceal))
+  within "the island's wait to be cancelled" (takeMVar gate.cancelled)
+  putMVar gate.open ()
+  threadDelay 10_000
+  readIORef logRef >>= assertEqual "the island never loaded" ["island waits", "host initialized"]
+
 spec :: Spec
 spec =
   describe "driver contract" $ do
@@ -667,3 +774,7 @@ spec =
     it "takes back the children made by a render pass that failed" failedPass
     it "takes back the children made by a render pass that failed removing others" failedRemoval
     it "initializes the rest when an initializer fails, and ends a finalizer's forks with it" lifecycle
+    it "initializes a parent once its child's Initialize waits, and mounts the tree meanwhile" initializedAtFirstWait
+    it "lets the program whose render made a child go on while the child's Initialize waits" renderGoesOn
+    it "delivers a child's output while its Initialize waits" outputWhileWaiting
+    it "cancels the rest of an Initialize whose component goes away while it waits" goneWhileInitializing

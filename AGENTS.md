@@ -156,7 +156,13 @@ the event by the time it runs, so an effect that counts on the dispatch still be
 response to a click) is then too late. For the two that matter most there is a declaration on
 the property instead: a handler that must prevent the default or stop propagation whatever the
 loop is doing says so with `HE.preventingDefault` or `HE.stoppingPropagation`, and the listener
-does it before handing the action over (`Halogen.VDom.DOM.Prop`); `Halogen.Router`'s links do. A cancelled fiber runs nothing more, not even the rest of
+does it before handing the action over (`Halogen.VDom.DOM.Prop`); `Halogen.Router`'s links do. A component counts as initialized once its `Initialize` has run its
+synchronous part (reached its first wait, or ended), after its children's have: then the outputs
+kept for it are delivered and its parent's `Initialize` starts. Waiting in `Initialize` waits only
+for that component; its ancestors, the program whose `modify` rendered it and `runUI`/`hydrateUI`
+go on (purescript-halogen waits for initializers to end; this deliberately does not). Only
+`Halogen.Static`, through `runUIInitialized`, waits for every `Initialize` to end. A cancelled
+fiber runs nothing more, not even the rest of
 the synchronous work that cancelled it; its worker, and the fibers of its parallel branches, go with
 it. A component that goes away cancels its fibers; a render pass that fails takes back the children
 it made, and the VDom backend rebuilds a machine whose patch failed. The loop and a fiber's worker

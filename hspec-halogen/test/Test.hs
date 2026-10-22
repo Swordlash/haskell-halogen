@@ -13,6 +13,7 @@ import Test.Agreement qualified
 import Test.Async qualified
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 import Test.Busy qualified
+import Test.Islands qualified
 #endif
 import Test.Counter qualified
 import Test.Digits qualified
@@ -47,6 +48,7 @@ main = runBrowserTests $ do
   -- These need the browser's DOM ('MonadBrowserDOM'), which 'BrowserDOM'
   -- has only in a browser.
   describe "Busy" (Test.Busy.spec BrowserDOM)
+  describe "Islands" (Test.Islands.spec BrowserDOM)
   describe "Embedded state" (Test.Hydrate.embedSpec BrowserDOM)
   describe "Running again" (Test.LastRun.spec BrowserDOM)
 #endif

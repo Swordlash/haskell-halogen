@@ -5,7 +5,9 @@
 -- component is mounted, with the driver that runs it in a browser, into an
 -- in-memory document ("Halogen.VDom.DOM.Monad.Native"): its children are
 -- built, its slots filled, and its @Initialize@ and its children's run to the
--- end, 'Halogen.liftIO' and all, before the HTML is taken. So a page can be
+-- end, 'Halogen.liftIO' and all, as do those of the components they render,
+-- before the HTML is taken ('Halogen.IO.Driver.runUIInitialized'; a tree
+-- running in a browser waits for none of it). So a page can be
 -- rendered with what a component fetches or reads when it starts. What it
 -- leaves for later is not waited for: a fiber it forks, a subscription's next
 -- event, a timer. Once the HTML is taken the tree is disposed of: its
@@ -69,7 +71,7 @@ renderToHtmlWith
 renderToHtmlWith run component input = do
   document <- N.newDocument
   container <- N.newElement Nothing (ElemName "div")
-  HalogenSocket {dispose} <- run $ AD.runUI (renderSpec (N.fromNative document) (N.fromNative container)) component input
+  HalogenSocket {dispose} <- run $ AD.runUIInitialized (renderSpec (N.fromNative document) (N.fromNative container)) component input
   -- Taken before disposing of the tree, which removes its HTML from the
   -- container; disposed of even if taking it fails.
   (mconcat <$> (traverse N.renderToText =<< N.childNodes container)) `finally` run dispose

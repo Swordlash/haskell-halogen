@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+* The package's own suite has an `Islands` example: a routing shell over a
+  page whose islands wait seconds in their `Initialize`, and tests that the
+  components around them go on meanwhile (outputs, queries, links and the
+  page that replaces them), which they do since core stopped holding a
+  component's ancestors for its `Initialize`. A component `mount` returns
+  has run its `Initialize` up to its first wait, no longer to its end, so a
+  check of what it loads when it starts should wait for it, as
+  `shouldHaveText` does.
+
 * The package's own suite has a `Busy` example: links clicked while their
   tree's loop is busy rendering, kept from being followed by
   `Halogen.HTML.Events.preventingDefault` and `Halogen.Router`'s links, and

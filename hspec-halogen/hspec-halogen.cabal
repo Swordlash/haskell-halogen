@@ -95,6 +95,7 @@ test-suite hspec-halogen-test
                       Example.Dispatch
                       Example.Drag
                       Example.Family
+                      Example.Islands
                       Example.Loader
                       Example.Notebook
                       Example.Reconcile
@@ -109,6 +110,7 @@ test-suite hspec-halogen-test
                       Test.Family
                       Test.Hydrate
                       Test.IndexedDB
+                      Test.Islands
                       Test.LastRun
                       Test.Reconcile
                       Test.Todo
@@ -132,10 +134,12 @@ test-suite hspec-halogen-test
         haskell-halogen-router,
         hspec-halogen
 
-    -- The Busy example's click is JavaScript of the suite's own
-    -- (test/jsbits/busy.js), declared with browserJS as a package's is.
+    -- The Busy example's click and the Islands example's wait are
+    -- JavaScript of the suite's own (test/jsbits), declared with browserJS
+    -- as a package's is.
     if arch(javascript)
         js-sources: test/jsbits/busy.js
+                    test/jsbits/islands.js
 
     if arch(wasm32) && !flag(interactive)
         ghc-options:

@@ -3,6 +3,7 @@
 module Halogen.IO.Driver
   ( RenderSpec (..)
   , runUI
+  , runUIInitialized
   , HalogenSocket (..)
   )
 where
@@ -51,6 +52,11 @@ data RenderSpec (m :: Type -> Type) (r :: Type -> Type -> Row Type -> Type -> Ty
 -- and lifecycle are only ever touched there, one piece of work at a time,
 -- and its programs wait only in 'Halogen.Query.HalogenM.Lift' ('liftIO').
 --
+-- The tree is handed over once it has rendered and its components have
+-- run the synchronous part of their @Initialize@: what an @Initialize@
+-- waits for in 'liftIO' goes on afterwards, and holds up only its own
+-- component (see 'Halogen.Query.HalogenQ.Initialize').
+--
 -- All the driver asks of the component monad is a way into 'IO' and back:
 -- the loop, the fibers and their workers are the runtime's own threads.
 runUI
@@ -60,24 +66,47 @@ runUI
   -> Component f i o m
   -> i
   -> m (HalogenSocket f o m)
-runUI spec@RenderSpec {dispose} c i = withRunInIO $ \runInIO -> do
+runUI = mount False
+
+-- | 'runUI', handed over only once every @Initialize@ the tree has started
+-- has ended, what it waited for included, and the components those made
+-- have ended theirs. Nothing in a running tree waits for that; a page
+-- rendered ahead of its program does ("Halogen.Static"), so that it shows
+-- what the components load when they start.
+runUIInitialized
+  :: forall m r f i o
+   . (MonadUnliftIO m)
+  => RenderSpec m r
+  -> Component f i o m
+  -> i
+  -> m (HalogenSocket f o m)
+runUIInitialized = mount True
+
+mount
+  :: forall m r f i o
+   . (MonadUnliftIO m)
+  => Bool
+  -> RenderSpec m r
+  -> Component f i o m
+  -> i
+  -> m (HalogenSocket f o m)
+mount toTheEnd spec@RenderSpec {dispose} c i = withRunInIO $ \runInIO -> do
   loop <- newLoop
   batch <- newIORef Nothing
-  let tree = Tree {loop, runM = runInIO, batch, render = renderComponent tree spec}
+  initializing <- newIORef (0, [])
+  let tree = Tree {loop, runM = runInIO, batch, render = renderComponent tree spec, initializing}
   sio <- runInIO HS.create
   mounted <- newEmptyMVar
-  initialized <- newEmptyMVar
   -- The tree's outputs reach its listeners at once, on the tree's loop, as
   -- in purescript-halogen: a listener must not wait for the tree itself.
   let emit o = runInIO (HS.notify sio.listener o)
-  -- As in purescript-halogen, the tree is handed over once its components
-  -- are initialized (an initializer may wait; the loop does not).
   enter loop $ do
-    (root, initializers) <- withBatch tree (runComponent tree spec emit i c)
-    putMVar mounted root
-    whenAllOver initializers (putMVar initialized ())
+    -- The initializers have run their synchronous parts when this returns.
+    root <- withBatch tree (runComponent tree spec emit i c)
+    if toTheEnd
+      then whenInitialized tree (putMVar mounted root)
+      else putMVar mounted root
   root <- takeMVar mounted
-  takeMVar initialized
   disposed <- newIORef False
   pure
     $ HalogenSocket
@@ -106,7 +135,7 @@ runUI spec@RenderSpec {dispose} c i = withRunInIO $ \runInIO -> do
       -- Whichever thread runs this, a failure goes back to the caller.
       enter tree.loop $ putMVar done <=< (try :: IO () -> IO (Either SomeException ())) $ do
         wasDisposed <- atomicModifyIORef' disposed (True,)
-        unless wasDisposed $ void $ withBatch tree $ do
+        unless wasDisposed $ withBatch tree $ do
           ds <- readIORef var
           finalize tree (DriverStateX ds)
           for_ ds.rendering (treeRunM tree . dispose)
@@ -115,37 +144,34 @@ runUI spec@RenderSpec {dispose} c i = withRunInIO $ \runInIO -> do
 -- | Run the lifecycle work that a render transaction collects once the
 -- outermost one is over: finalizers, then initializers (a parent's after
 -- its children's). Also when it fails: what it did before failing stays
--- done. The initializers it started are handed back, to be waited for; a
--- nested transaction hands back none (the outermost one runs them).
-withBatch :: Tree m r -> IO a -> IO (a, [Fiber])
+-- done. Neither is waited for past its synchronous part, so when this
+-- returns every @Initialize@ the transaction started has reached its first
+-- wait or ended; a nested transaction leaves its own to the outermost one.
+withBatch :: Tree m r -> IO a -> IO a
 withBatch tree act =
   readIORef tree.batch >>= \case
-    Just _ -> (,[]) <$> act
+    Just _ -> act
     Nothing -> do
       b <- Batch <$> newIORef [] <*> newIORef []
       writeIORef tree.batch (Just b)
       result <- act `onException` carryOut b
-      (result,) <$> carryOut b
+      result <$ carryOut b
   where
     carryOut b = do
       writeIORef tree.batch Nothing
       sequence_ . reverse =<< readIORef b.finalizers
-      traverse (launchFree tree.loop) . reverse =<< readIORef b.initializers
+      traverse_ (launchFree tree.loop . sync) . reverse =<< readIORef b.initializers
 
--- | Run this (on the loop) once all these fibers are over.
-whenAllOver :: [Fiber] -> IO () -> IO ()
-whenAllOver fibers k = do
-  left <- newIORef (length fibers)
-  let ended = do
-        n <- atomicModifyIORef' left (\x -> (x - 1, x - 1))
-        when (n == 0) k
-  when (null fibers) k
-  for_ fibers $ \fb -> do
-    waiting <- onFiberOver fb (const ended)
-    unless waiting ended
+-- | Run this (on the loop) once none of the tree's @Initialize@ programs is
+-- left running: now, if none is.
+whenInitialized :: Tree m r -> IO () -> IO ()
+whenInitialized tree k = do
+  now <- atomicModifyIORef' tree.initializing $ \(n, ks) ->
+    if n == 0 then ((n, ks), True) else ((n, k : ks), False)
+  when now k
 
 -- | Create a component, render it, and have the render transaction
--- initialize it once its children are.
+-- initialize it after its children.
 runComponent
   :: forall m r f' i' o'
    . (MonadIO m)
@@ -160,18 +186,31 @@ runComponent tree spec handler input (Component cs) = do
   ds <- initDriverState cs initial handler tree
   b <- currentBatch tree
   before <- atomicModifyIORef' b.initializers ([],)
-  void $ renderComponent tree spec ds.selfRef
+  renderComponent tree spec ds.selfRef
   children <- readIORef b.initializers
   let var = ds.selfRef
       initializer = do
         -- None for a component a failed render pass took back.
-        life <- sync (readIORef ds.life)
+        life <- readIORef ds.life
         when (life == Alive) $ do
-          -- The children's initializers side by side, then this one's, then
-          -- what it was sent before it was ready for it.
-          sequentialTurn (traverse_ ParTurn (reverse children))
-          spawnAwait var False (evalM var (runNT cs.eval (HQ.Initialize ())))
-          sync $ handlePending ds.pendingQueries >> handlePending ds.pendingOuts
+          -- The children's initializers, then this one's @Initialize@, then
+          -- what the component was sent before it was ready for it. Each
+          -- @Initialize@ is a fiber of its component, which runs until it
+          -- first waits before 'launchOwned' returns, and no more is waited
+          -- for: unlike purescript-halogen, where a component's initializer
+          -- waits for its children's to end, one that waits (for what it
+          -- loads, say) holds up nothing but the rest of itself. Its
+          -- ancestors, the program whose render made it, and the queries and
+          -- outputs that pass through them would otherwise all wait for the
+          -- slowest @Initialize@ below them.
+          sequence_ (reverse children)
+          atomicModifyIORef' tree.initializing (\(n, ks) -> ((n + 1, ks), ()))
+          launchOwned var False (const pass) (evalM var (runNT cs.eval (HQ.Initialize ()))) $ \outcome -> do
+            report "A lifecycle handler" outcome
+            ks <- atomicModifyIORef' tree.initializing $ \(n, ks) ->
+              if n == 1 then ((0, []), ks) else ((n - 1, ks), [])
+            sequence_ (reverse ks)
+          handlePending ds.pendingQueries >> handlePending ds.pendingOuts
   writeIORef b.initializers (initializer : before)
   pure (DriverStateRef var)
 
@@ -182,15 +221,15 @@ currentBatch tree =
 
 -- | Render a component (if it is alive), in a render transaction: the
 -- actions raised meanwhile start once it is over.
-renderComponent :: (MonadIO m) => Tree m r -> RenderSpec m r -> IORef (DriverState m r s f act ps i o) -> IO [Fiber]
+renderComponent :: (MonadIO m) => Tree m r -> RenderSpec m r -> IORef (DriverState m r s f act ps i o) -> IO ()
 renderComponent tree spec var = do
   ds <- readIORef var
   life <- readIORef ds.life
   inPass <- readIORef ds.inPass
   if
-    | life /= Alive -> pure []
-    | inPass -> writeIORef ds.renderAgain True $> []
-    | otherwise -> fmap snd $ withBatch tree $ do
+    | life /= Alive -> pure ()
+    | inPass -> writeIORef ds.renderAgain True
+    | otherwise -> withBatch tree $ do
         outermost <- isNothing <$> readIORef ds.pendingHandlers
         when outermost $ writeIORef ds.pendingHandlers (Just [])
         let passes = do
@@ -316,7 +355,7 @@ discard tree spec (DriverStateX ds0) = do
 -- and the render transaction runs the finalizer. Once that is over the
 -- component is dead, and whatever of it still runs is cancelled.
 finalize :: Tree m r -> DriverStateX m r f o -> IO ()
-finalize tree (DriverStateX ds0) = fmap fst $ withBatch tree $ do
+finalize tree (DriverStateX ds0) = withBatch tree $ do
   let var = ds0.selfRef
   ds <- readIORef var
   life <- readIORef ds.life

@@ -259,8 +259,10 @@ instance Eq (Element s) where
 -- | Mount a component into a container of its own on the page. It is
 -- unmounted when the page is torn down.
 --
--- The component has rendered and run its initialisers by the time this
--- returns. Its outputs are collected from then on, for 'outputs'.
+-- The component has rendered, and run its initialisers up to their first
+-- wait, by the time this returns: what one loads when it starts may still be
+-- on its way, so check it with an expectation that waits ('shouldHaveText',
+-- 'eventually'). Its outputs are collected from then on, for 'outputs'.
 --
 -- The monad is the first argument, @mount BrowserDOM component input@, so a
 -- spec polymorphic in it passes it on as @mount m@.
