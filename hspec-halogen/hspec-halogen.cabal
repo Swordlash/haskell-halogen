@@ -94,6 +94,7 @@ test-suite hspec-halogen-test
                       Example.Drag
                       Example.Family
                       Example.Loader
+                      Example.Notebook
                       Example.Reconcile
                       Example.Todo
                       Test.Agreement
@@ -104,6 +105,7 @@ test-suite hspec-halogen-test
                       Test.Drag
                       Test.Family
                       Test.Hydrate
+                      Test.IndexedDB
                       Test.Reconcile
                       Test.Todo
     ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists -Wunused-packages
@@ -115,6 +117,7 @@ test-suite hspec-halogen-test
         DuplicateRecordFields
     build-depends:
         base,
+        bytestring,
         protolude,
         text,
         containers,
