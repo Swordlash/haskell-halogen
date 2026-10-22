@@ -5,7 +5,8 @@
 --
 -- A 'Router' is made once, when the application starts, and handed to the
 -- components that route ('current' to know where they are, 'changes' to hear
--- when that changes, 'link' and 'navigate' to go somewhere):
+-- when that changes, 'link' and 'navigate' to go somewhere, or 'linkProps'
+-- for a link written as HTML):
 --
 -- > main = runBrowserDOM $ do
 -- >   base <- Router.pageBase
@@ -46,6 +47,7 @@ module Halogen.Router
   , redirect
   , href
   , link
+  , linkProps
   , Follow (..)
   , follow
   , isPlainLeftClick
@@ -247,6 +249,8 @@ data Follow route = Follow route MouseEvent
 -- The link's @href@ and its click handler are the router's: they come
 -- after @props@, and of two properties of the same name an element keeps
 -- the last, so an @href@ or a click handler among @props@ is overridden.
+--
+-- It is 'HH.a' with 'linkProps' after @props@.
 link
   :: forall route w action
    . Router route
@@ -255,8 +259,27 @@ link
   -> [HP.IProp I.HTMLa action]
   -> [HH.HTML w action]
   -> HH.HTML w action
-link router onFollow route props =
-  HH.a (props <> [HP.href (href router route), HE.preventingDefault (HE.handler' (EventType "click") clicked)])
+link router onFollow route props = HH.a (props <> linkProps router onFollow route)
+
+-- | What makes an @\<a>@ a link to a route, as 'link' makes it: the
+-- route's @href@ and the click handler that hands a plain click to the
+-- component (@onFollow@), with the default prevented in the listener. For a
+-- link whose element is written some other way, such as in an @hh@ quote
+-- of "Halogen.TH":
+--
+-- > <a class="nav" {{ Router.linkProps router Followed (Post 1) }}>The first post</a>
+--
+-- Of two properties of the same name an element keeps the last, so an
+-- @href@ or a click handler written after these overrides the router's:
+-- write them last, as 'link' puts them after its @props@.
+linkProps
+  :: forall route action
+   . Router route
+  -> (Follow route -> action)
+  -> route
+  -> [HP.IProp I.HTMLa action]
+linkProps router onFollow route =
+  [HP.href (href router route), HE.preventingDefault (HE.handler' (EventType "click") clicked)]
   where
     clicked ev = if isPlainLeftClick (MouseEvent ev) then Just (onFollow (Follow route (MouseEvent ev))) else Nothing
 

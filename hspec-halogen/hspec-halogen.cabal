@@ -19,6 +19,7 @@ build-type:         Simple
 extra-doc-files:    CHANGELOG.md
                     README.md
 extra-source-files: jsbits/*.js
+                    test/jsbits/*.js
                     js/runner.mjs
                     js/open.mjs
 
@@ -127,8 +128,14 @@ test-suite hspec-halogen-test
         row-types,
         unliftio,
         haskell-halogen-core,
+        haskell-halogen-jsbits,
         haskell-halogen-router,
         hspec-halogen
+
+    -- The Busy example's click is JavaScript of the suite's own
+    -- (test/jsbits/busy.js), declared with browserJS as a package's is.
+    if arch(javascript)
+        js-sources: test/jsbits/busy.js
 
     if arch(wasm32) && !flag(interactive)
         ghc-options:

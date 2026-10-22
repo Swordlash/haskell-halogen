@@ -42,3 +42,8 @@
   stays for as long as the page does, which is what a program that is run
   again on the same page, as browser GHCi's `:main` runs it, needs to end
   with the run's tree.
+* `Halogen.Router.linkProps` gives the properties that make an `<a>` a
+  link to a route, the route's `href` and the click handler that prevents
+  the default in its listener, for a link whose element is written some
+  other way: in an `hh` quote, `<a {{ Router.linkProps router Followed
+  route }}>`. `link` is `HH.a` with them after its own properties.

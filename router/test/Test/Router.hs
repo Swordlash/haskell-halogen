@@ -4,7 +4,7 @@
 -- it is the browser's address, which the examples gallery's test drives.
 module Test.Router (spec) where
 
-import Protolude hiding (optional)
+import Protolude hiding (Handler, optional)
 
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 
@@ -17,6 +17,7 @@ spec = xdescribe "router" pass
 
 import Data.Foreign (toForeign)
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
+import Halogen.HTML qualified as HH
 import Halogen.HTML.Core (HTML (..))
 import Halogen.HTML.Properties qualified as HP
 import Halogen.Router qualified as Router
@@ -25,10 +26,10 @@ import Halogen.Subscription qualified as HS
 import Halogen.VDom.DOM (VDomSpec (..), buildVDom)
 import Halogen.VDom.DOM.Monad (runMemDOM, window)
 import Halogen.VDom.DOM.Monad.Native qualified as N
-import Halogen.VDom.DOM.Prop (buildProp)
+import Halogen.VDom.DOM.Prop (HandlerOptions (..), Prop (..), buildProp, handlerOptions)
 import Halogen.VDom.Machine (extract)
 import Test.Hspec (Spec, describe, it, shouldBe, shouldReturn)
-import Web.Event.Event (Event (..))
+import Web.Event.Event (Event (..), EventType (..))
 
 data Route = Home | Page Int
   deriving stock (Eq, Show)
@@ -90,21 +91,23 @@ spec = describe "router" $ do
       Router.navigate router (Page 1)
       readIORef seen `shouldReturn` [Home, Page 1]
 
-  describe "links" $
+  describe "links" $ do
     it "keeps a link's href and click the router's, whatever the caller gives" $ do
       router <- runMemDOM (Router.newRouter "/base/" Home route)
-      doc <- N.newDocument
-      let vspec =
-            VDomSpec
-              { buildWidget = \_ -> absurd
-              , hydrateWidget = \_ _ -> absurd
-              , buildAttributes = buildProp (\_ -> pure ())
-              , document = N.fromNative doc
-              }
-          HTML vdom = Router.link router (const ()) (Page 2) [HP.href "elsewhere"] [] :: HTML Void ()
-      element <- N.toNative . extract <$> runMemDOM (buildVDom vspec vdom)
+      element <- built (Router.link router (const ()) (Page 2) [HP.href "elsewhere"] [])
       N.propertyList element `shouldReturn` [("href", "/base/page/2")]
       N.listenerTypes element `shouldReturn` ["click"]
+
+    it "gives the properties of a link for an element written by hand" $ do
+      router <- runMemDOM (Router.newRouter "/base/" Home route)
+      let props = Router.linkProps router (const ()) (Page 2)
+      element <- built (HH.a ([HP.href "elsewhere"] <> props) [HH.text "two"])
+      N.propertyList element `shouldReturn` [("href", "/base/page/2")]
+      N.listenerTypes element `shouldReturn` ["click"]
+      -- The listener prevents the default of a click it hands over, which
+      -- the in-memory DOM cannot show: the handler says so.
+      [options | HP.IProp (Handler (EventType "click") options _) <- props]
+        `shouldBe` [handlerOptions {preventDefault = True}]
 
   describe "by fragment" $ do
     it "is at the root with no fragment, and goes nowhere going there" $ do
@@ -124,5 +127,18 @@ spec = describe "router" $ do
       Router.navigate router (Page 3)
       Router.current router `shouldReturn` Page 3
       readIORef seen `shouldReturn` [Page 3]
+
+-- | An element as the in-memory DOM builds it.
+built :: HTML Void () -> IO N.NativeNode
+built (HTML vdom) = do
+  doc <- N.newDocument
+  let vspec =
+        VDomSpec
+          { buildWidget = \_ -> absurd
+          , hydrateWidget = \_ _ -> absurd
+          , buildAttributes = buildProp (\_ -> pure ())
+          , document = N.fromNative doc
+          }
+  N.toNative . extract <$> runMemDOM (buildVDom vspec vdom)
 
 #endif

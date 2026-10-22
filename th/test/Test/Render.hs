@@ -1,7 +1,9 @@
 {-# LANGUAGE GADTs #-}
 
 -- | Halogen 'HTML' as text, for comparing what a quote built with what the
--- same markup written by hand builds: the two must render alike.
+-- same markup written by hand builds: the two must render alike. Each text
+-- node is shown in «», so two texts side by side differ from one text of
+-- both, as they do in a page (and to hydration).
 module Test.Render
   ( render
   )
@@ -20,7 +22,7 @@ render :: HTML w i -> Text
 render (HTML v) = go v
   where
     go = \case
-      Text t -> t
+      Text t -> "«" <> t <> "»"
       Elem ns (ElemName n) ps kids -> "<" <> spaced ns n <> mconcat (map prop ps) <> ">" <> mconcat (map go kids) <> "</" <> n <> ">"
       Keyed _ (ElemName n) ps kids -> "<" <> n <> mconcat (map prop ps) <> ">" <> mconcat (map (go . snd) kids) <> "</" <> n <> ">"
       Widget _ -> "<widget>"

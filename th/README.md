@@ -62,7 +62,7 @@ What a value may be depends on where it stands:
 | among the children of an element | an `HTML w i`, a list of them, a `Text`, a `Css` (embedded as a `<style>` element), or a `Maybe` of one of those (the `Children` class) |
 | the value of an attribute | what the property takes: `Text` for `id`, `Bool` for `disabled`, an `Int` for `colspan`, an `InputType` for `type`, a handler for `onClick`, a `Css` or a `Text` for `style`, a `RefLabel` for `ref` |
 | part of an attribute's text, `class="a {{ b }}"` | a `Text` |
-| among the attributes, `<div {{ p }}>` | an `IProp r i`, a list of them, or a `Maybe` (the `Props` class) |
+| among the attributes, `<div {{ p }}>` | an `IProp r i`, a list of them, or a `Maybe` (the `Props` class): a router link is `<a {{ Router.linkProps router Followed route }}>` (`haskell-halogen-router`) |
 | a value in CSS, `color: {{ c }}` | anything Clay renders (its `Val` class): a `Color`, a `Size`, a `Text`, … |
 | part of a value, `border: 1px solid {{ c }}` | the same |
 | a selector, `{{ s }} { … }` | a `Selector`; in text, `.size-{{ n }} { … }`, a `Text` |
@@ -98,10 +98,19 @@ children of one element ends among them. `{% end %}`, `{% endif %}` and
   (`type`, `value`, `step`, `width`) takes its Haskell value, or, written as
   text, is set as the attribute.
 - `style="…"` is `HP.styleText`; `style={{ x }}` takes Clay's `Css` or a `Text` (the `Styled` class). A `Css` among the children, `{{ style }}`, is a `<style>` element with it.
-- Text follows JSX: a text with a newline in it has every line trimmed and
-  the lines joined by one space, so indentation never becomes a text node;
-  a text on one line is kept as it is. Entities are decoded, `<!-- -->` is
-  dropped.
+- Text follows JSX: a line break between two words is one space, and a
+  line break next to a tag, a `{{ }}` or a `{% %}`, with the spaces around
+  it, is nothing. So indentation never becomes a text node, `{{ a }}` and
+  `{{ b }}` on lines of their own have nothing between them, and neither do
+  `Hello,` and a `{{ name }}` on the next line. A space that must be there
+  goes on one line with what it separates (`Hello, {{ name }}`), or in a
+  hole of its own, `{{ " " :: Text }}`, as JSX's `{' '}`. Text on one line
+  is kept as it is, spaces and all. Precisely: a tag, a `{{ }}` or a
+  `{% %}` ends a text; a text over several lines loses the leading spaces
+  of every line but its first and the trailing spaces of every line but its
+  last, its lines left empty are dropped, and the rest are joined by one
+  space. Only ASCII whitespace is trimmed, never a `&nbsp;`. Entities
+  are decoded, `<!-- -->` is dropped.
 
 ## SVG
 

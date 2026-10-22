@@ -53,13 +53,13 @@ handler' et f = IProp $ Core.handler et (fmap Action . f)
 -- before the action is handed to the loop. Anything else on a property
 -- leaves it as it is.
 preventingDefault :: forall r i. IProp r i -> IProp r i
-preventingDefault (IProp p) = IProp $ Core.withHandlerOptions (\(HandlerOptions _ stop) -> HandlerOptions True stop) p
+preventingDefault (IProp p) = IProp $ Core.withHandlerOptions (\options -> options {preventDefault = True}) p
 
 -- | The handler, stopping the event from reaching the listeners of the
 -- elements around whenever it makes an action, in the event listener itself,
 -- as 'preventingDefault' prevents the default.
 stoppingPropagation :: forall r i. IProp r i -> IProp r i
-stoppingPropagation (IProp p) = IProp $ Core.withHandlerOptions (\(HandlerOptions prevent _) -> HandlerOptions prevent True) p
+stoppingPropagation (IProp p) = IProp $ Core.withHandlerOptions (\options -> options {stopPropagation = True}) p
 
 onAbort :: forall r i. (HasType "onAbort" Event r) => (Event -> i) -> IProp r i
 onAbort = handler (EventType "abort")

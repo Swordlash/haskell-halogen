@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 -- | Links clicked while the tree's loop is busy rendering.
 --
@@ -37,21 +37,19 @@ import Halogen qualified as H
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
+import Halogen.JSBits (Safety (..), browserJS)
 import Halogen.Router qualified as Router
 import Protolude hiding (State)
 import Web.Event.Event (EventType (..), preventDefault)
 import Web.UIEvent.MouseEvent (MouseEvent, toEvent)
 
-#if defined(javascript_HOST_ARCH)
-foreign import javascript unsafe "((n) => { const link = document.querySelector('.busy-link-' + n); if (!link) return 3; let prevented = null; const last = (e) => { prevented = e.defaultPrevented; e.preventDefault(); }; window.addEventListener('click', last); link.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true, button: 0})); window.removeEventListener('click', last); return prevented === null ? 2 : prevented ? 1 : 0; })"
-  js_click_link :: Int -> IO Int
-#elif defined(wasm32_HOST_ARCH)
-foreign import javascript unsafe "const link = document.querySelector('.busy-link-' + $1); if (!link) return 3; let prevented = null; const last = (e) => { prevented = e.defaultPrevented; e.preventDefault(); }; window.addEventListener('click', last); link.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true, button: 0})); window.removeEventListener('click', last); return prevented === null ? 2 : prevented ? 1 : 0;"
-  js_click_link :: Int -> IO Int
-#else
-js_click_link :: Int -> IO Int
-js_click_link _ = pure 3
-#endif
+-- The click is dispatched by test/jsbits/busy.js, declared once for both
+-- browser backends; natively the stub answers 0, which is never shown, since
+-- the suite only reports a skip there.
+$( browserJS
+     ["test/jsbits/busy.js"]
+     [("js_click_link", "halogen_busy_click_link", Unsafe, [t|Int -> IO Int|])]
+ )
 
 -- | The routes of the router the component is given: a hash router's, so
 -- that a link followed by the browser only changes the fragment.

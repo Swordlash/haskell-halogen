@@ -131,6 +131,15 @@ spec = do
             two
           </p>|]
         `same` HH.p_ [HH.text "one two"]
+    it "a text over several lines keeps the spaces of its first and last line where they meet a tag" $
+      [hh|<p><b>a</b> and
+            more <i>b</i></p>|]
+        `same` HH.p_ [HH.b_ [HH.text "a"], HH.text " and more ", HH.i_ [HH.text "b"]]
+    it "a text over several lines keeps a non-breaking space at a line's edge" $
+      [hh|<p>
+            &nbsp;a&nbsp;
+          </p>|]
+        `same` HH.p_ [HH.text "\xa0\&a\xa0"]
     it "a hole before /> in text or in a quoted value keeps the /> as text" $ do
       let label = "a" :: Text
       [hh|<p title="{{ label }}/>">{{ label }}/></p>|] `same` HH.p [HP.title "a/>"] [HH.text "a", HH.text "/>"]
@@ -190,6 +199,38 @@ spec = do
           none = Nothing :: Maybe Html
       [hh|<p>Hi {{ who }}{{ strong }}<ul>{{ items }}</ul>{{ none }}</p>|]
         `same` HH.p_ [HH.text "Hi ", HH.text who, strong, HH.ul_ items]
+    it "holes on lines of their own have nothing between them" $ do
+      let a = "a" :: Text
+          b = HH.b_ [HH.text "b"] :: Html
+      [hh|<p>
+            {{ a }}
+            {{ b }}
+
+            {{ a }}
+          </p>|]
+        `same` HH.p_ [HH.text a, b, HH.text a]
+    it "a space between holes on one line stays" $ do
+      let a = "a" :: Text
+      [hh|<p>
+            {{ a }} {{ a }}
+          </p>|]
+        `same` HH.p_ [HH.text a, HH.text " ", HH.text a]
+    it "a text and a hole on separate lines have no space between them, unless it is a hole" $ do
+      let who = "you" :: Text
+      [hh|<p>
+            Hello,
+            {{ who }}
+            and
+            {{ " " :: Text }}{{ who }}
+          </p>|]
+        `same` HH.p_ [HH.text "Hello,", HH.text who, HH.text "and", HH.text " ", HH.text who]
+    it "a text on one line keeps its spaces next to a hole" $ do
+      let who = "you" :: Text
+      [hh|<p>
+            Hello, {{ who }} and
+            more
+          </p>|]
+        `same` HH.p_ [HH.text "Hello, ", HH.text who, HH.text " and more"]
     it "the expression is any Haskell: fields, lambdas, case" $ do
       let p = Person {name = "Ann", age = 41}
       [hh|<p>{{ p.name }} is {{ T.pack (show p.age) }}, {{ (\case { Person {age = a} | a > 40 -> "over"; _ -> "under" :: Text }) p }} forty</p>|]
@@ -210,6 +251,25 @@ spec = do
       let n = 2 :: Int
       [hh|<p>{% let m = n * 2 %}{{ T.pack (show m) }} and {{ T.pack (show (m + 1)) }}</p>|]
         `same` HH.p_ [HH.text "4", HH.text " and ", HH.text "5"]
+    it "statements on lines of their own make no text" $ do
+      let names = ["a", "b"] :: [Text]
+      [hh|<ul>
+            {% for x in names %}
+              {% let shown = x <> "!" %}
+              {% if x /= "" %}
+                <li>{{ shown }}</li>
+              {% end %}
+            {% end %}
+          </ul>|]
+        `same` HH.ul_ [HH.li_ [HH.text (x <> "!")] | x <- names]
+    it "a text inside a statement on lines of its own is trimmed" $ do
+      let n = 2 :: Int
+      [hh|<p>
+            {% for _ in [1 .. n] %}
+              again
+            {% end %}
+          </p>|]
+        `same` HH.p_ [HH.text "again", HH.text "again"]
     it "nested statements" $ do
       let rows = [[1, 2], [3]] :: [[Int]]
       [hh|<table>{% for r in rows %}<tr>{% for c in r %}{% if even c %}<td>{{ T.pack (show c) }}</td>{% end %}{% end %}</tr>{% end %}</table>|]
