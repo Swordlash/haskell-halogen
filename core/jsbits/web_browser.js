@@ -47,6 +47,19 @@ function js_document_set_cookie(value, document) {
   document.cookie = value;
 }
 
+// crypto.randomUUID exists only in a secure context (HTTPS or localhost); a
+// page served over plain HTTP, say on a private network, has only
+// getRandomValues, which is enough to make the same thing: an RFC 4122
+// version 4 UUID, 122 random bits with the version and variant set. The page's
+// crypto is left as it is.
 function js_crypto_random_uuid() {
-  return globalThis.crypto.randomUUID();
+  const crypto = globalThis.crypto;
+  if (typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+  return [h.slice(0, 8), h.slice(8, 12), h.slice(12, 16), h.slice(16, 20), h.slice(20)].join("-");
 }
