@@ -7,6 +7,11 @@ author:             Mateusz Goślinowski
 maintainer:         mateusz.goslinowski@gmail.com
 category:           Web
 
+flag interactive
+  description: Build the example for browser GHCi (toolchain/dev.sh)
+  default:     False
+  manual:      True
+
 common shared
   default-language: GHC2021
   ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture -Wredundant-constraints -Wunused-packages
@@ -49,11 +54,22 @@ executable halogen-example-all
         halogen-example-th,
         halogen-example-vanilla
 
-  if arch(wasm32)
+  -- The wasm program is a reactor, which the page starts through its
+  -- hs_start export. GHCi loads the program's modules and runs main itself,
+  -- so the interactive build is an ordinary program, and Main leaves the
+  -- export out when INTERACTIVE is defined.
+  if arch(wasm32) && !flag(interactive)
     ghc-options:
       -no-hs-main
       -optl-mexec-model=reactor
       "-optl-Wl,--export=hs_start"
+
+  -- Unlike the other examples, the gallery needs no sources of its own for
+  -- browser GHCi (toolchain/dev.sh): its modules are the executable's
+  -- already, so GHCi reloads them, and the examples it mounts are libraries
+  -- to it, which GHCi is restarted to rebuild.
+  if flag(interactive)
+    cpp-options: -DINTERACTIVE
 
 -- Every route's page, with the gallery's shell already rendered into it,
 -- written natively at build time (toolchain/build-wasm.sh runs it). Only a

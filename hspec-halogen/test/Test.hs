@@ -22,6 +22,11 @@ import Test.IndexedDB qualified
 import Test.Reconcile qualified
 import Test.Todo qualified
 
+-- Natively BrowserDOM has no MonadBrowserDOM, which this spec asks for.
+#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+import Test.LastRun qualified
+#endif
+
 main :: IO ()
 main = runBrowserTests $ do
   describe "Counter" (Test.Counter.spec BrowserDOM)
@@ -37,6 +42,7 @@ main = runBrowserTests $ do
   describe "IndexedDB" (Test.IndexedDB.spec BrowserDOM)
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
   describe "Embedded state" (Test.Hydrate.embedSpec BrowserDOM)
+  describe "Running again" (Test.LastRun.spec BrowserDOM)
 #endif
 
 #if defined(wasm32_HOST_ARCH) && !defined(INTERACTIVE)

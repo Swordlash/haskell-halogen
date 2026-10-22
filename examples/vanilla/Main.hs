@@ -4,13 +4,13 @@ module Main where
 
 import Example.Vanilla (Query)
 import Halogen (HalogenSocket (..))
+import Halogen.IO.Util qualified as HA
 import Halogen.Subscription qualified as HS
 import Halogen.VDom.DOM.Monad (BrowserDOM, runBrowserDOM)
 import Protolude
 
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 import Example.Vanilla (component)
-import Halogen.IO.Util as HA
 import Halogen.VDom.Driver (hydrateUI)
 import Web.DOM.ParentNode (QuerySelector (..))
 #endif
@@ -36,12 +36,17 @@ attachComponent = panic "This module can only be run on JavaScript"
 
 main :: IO ()
 main = runBrowserDOM $ do
-  HalogenSocket {messages} <- attachComponent
+  -- Browser GHCi (toolchain/dev.sh) keeps the page between runs of :main,
+  -- with the last run's tree still mounted: end it, and keep this one for
+  -- the next run to end.
+  HA.endPreviousRun
+  socket@HalogenSocket {messages} <- attachComponent
+  HA.keepForNextRun socket
 
   void $ HS.subscribe messages $ \st ->
     liftIO $ logStr $ "State changed: " <> show st
 
-#if defined(wasm32_HOST_ARCH)
+#if defined(wasm32_HOST_ARCH) && !defined(INTERACTIVE)
 foreign export javascript "hs_start" start :: IO ()
 
 start :: IO ()

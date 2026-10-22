@@ -4,13 +4,13 @@ module Main where
 
 import Example.Hooks (Output (..))
 import Halogen qualified as H
+import Halogen.IO.Util qualified as HA
 import Halogen.Subscription qualified as HS
 import Halogen.VDom.DOM.Monad (BrowserDOM, runBrowserDOM)
 import Protolude
 
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 import Example.Hooks (app)
-import Halogen.IO.Util qualified as HA
 import Halogen.VDom.Driver (runUI)
 #endif
 
@@ -24,11 +24,16 @@ attachComponent = panic "This example runs in a browser: build it with the JavaS
 
 main :: IO ()
 main = runBrowserDOM $ do
-  H.HalogenSocket {messages} <- attachComponent
+  -- Browser GHCi (toolchain/dev.sh) keeps the page between runs of :main,
+  -- with the last run's tree still mounted: end it, and keep this one for
+  -- the next run to end.
+  HA.endPreviousRun
+  socket@H.HalogenSocket {messages} <- attachComponent
+  HA.keepForNextRun socket
   void $ HS.subscribe messages $ \(Counted n) ->
     liftIO $ putStrLn ("[output] the counter reached " <> show n :: Text)
 
-#if defined(wasm32_HOST_ARCH)
+#if defined(wasm32_HOST_ARCH) && !defined(INTERACTIVE)
 foreign export javascript "hs_start" start :: IO ()
 
 start :: IO ()

@@ -7,6 +7,11 @@ author:             Mateusz Goślinowski
 maintainer:         mateusz.goslinowski@gmail.com
 category:           Web
 
+flag interactive
+  description: Build the example for browser GHCi (toolchain/dev.sh)
+  default:     False
+  manual:      True
+
 common shared
   default-language: GHC2021
   ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture -Wredundant-constraints -Wunused-packages
@@ -61,14 +66,32 @@ executable halogen-example-pixi
   hs-source-dirs:   .
   build-depends:    protolude
 
+  -- Browser GHCi (toolchain/dev.sh) reloads only the modules of the target it
+  -- loaded, so there the example's module is compiled into the executable
+  -- rather than taken from the library, where edits would go unnoticed.
+  if flag(interactive)
+    hs-source-dirs: src
+    other-modules:  Example.Pixi
+    build-depends:
+        clay >= 0.16.0,
+        row-types,
+        haskell-halogen-core,
+        haskell-halogen-pixi
   -- The example itself only runs in a browser: on a host GHC, Main says so.
-  if arch(wasm32) || arch(javascript)
+  elif arch(wasm32) || arch(javascript)
     build-depends:
         haskell-halogen-core,
         halogen-example-pixi
 
-  if arch(wasm32)
+  -- The wasm program is a reactor, which the page starts through its
+  -- hs_start export. GHCi loads the program's modules and runs main itself,
+  -- so the interactive build is an ordinary program, and Main leaves the
+  -- export out when INTERACTIVE is defined.
+  if arch(wasm32) && !flag(interactive)
     ghc-options:
       -no-hs-main
       -optl-mexec-model=reactor
       "-optl-Wl,--export=hs_start"
+
+  if flag(interactive)
+    cpp-options: -DINTERACTIVE

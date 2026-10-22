@@ -32,6 +32,7 @@ npm run serve-wasm -- <example> # build one example to wasm and serve it on :808
 npm run build-wasm-all          # every example, wasm-opt'd; Pages deploys only public/all
 npm run test-gallery            # the built `all` gallery in headless Chromium (Playwright)
 npm run build-js                # JS backend: build all, bundle the material example into dist/
+npm run dev -- <example>        # an example in browser GHCi, reloaded and rerun on save
 npm run dev-test -- <package>   # a package's browser test suite in browser GHCi, rerun on save
 npm run format                  # fourmolu over core, hooks, router, pixi, hspec-halogen, th, material/test, examples
 ```
@@ -227,6 +228,12 @@ storage, …) is built only from public hooks.
   the page with the component already rendered into `#app` by `Halogen.Static` (see `vanilla`, and
   `all`, which writes a page per route under `HALOGEN_BASE_PATH`); `Main.hs` then mounts with
   `hydrateUI`, which adopts that HTML.
+  For `npm run dev` (`toolchain/dev.sh`, browser GHCi), the executable needs the `interactive`
+  flag every example has, which compiles the example's own modules into it and drops the reactor
+  options, and its `main` starts with `HA.endPreviousRun` and passes its socket to
+  `HA.keepForNextRun` (`Halogen.IO.Util`), which dispose of the last `:main`'s tree; the
+  dev page is derived from `web/index.html` by replacing its `index.js` module script with GHCi's
+  `../main.js`, so keep that script tag.
 - Each example's component lives in a library module (`src/Example/<Name>.hs`); `Main.hs` only starts
   it. `examples/all/Gallery.hs` mounts those components by route (a path, through
   `haskell-halogen-router`), so a new example appears on the deployed site only once it is added

@@ -113,10 +113,15 @@ path.
 `serve-wasm` opens <http://127.0.0.1:8080> automatically. Set `PORT` to choose another port, or
 `NO_OPEN=1` to suppress opening the browser (for example in CI).
 
-For browser hot reload of the material example, install
-[ghciwatch](https://mercurytechnologies.github.io/ghciwatch/) and run `npm run dev-wasm`. This
-starts wasm browser GHCi, opens its Material-enabled page, and reruns `main` after Haskell source
-changes.
+To work on an example with GHCi rather than a build per change, install
+[ghciwatch](https://mercurytechnologies.github.io/ghciwatch/) and run `npm run dev -- <example>`
+(`vanilla`, `hooks`, `pixi`, `material`, `th` or `all`). It loads the example into wasm browser
+GHCi, opens its page at <http://127.0.0.1:8080/assets/index.html> (`PORT` changes the port), and
+reloads the example and reruns `main` whenever you save one of its modules; a change to a library,
+a cabal file or the example's `web/` restarts GHCi, which opens a new page. The page is the
+example's own `web/index.html`, loading GHCi's script in place of `index.js`. GHCi's interpreter
+runs in it, so reloading the page ends the session until GHCi is restarted. `npm run dev -- --repl
+<example>` starts plain GHCi instead, for running `:main` yourself, and works without ghciwatch.
 
 ### JavaScript backend
 
@@ -141,6 +146,13 @@ Create `examples/<name>/` with a `halogen-example-<name>.cabal` (executable name
 `cabal.project` picks the package up, and `toolchain/build-wasm-all.sh` picks up the directory. If
 the example needs bundling, add a `bundle.sh` beside it and the build script will run it, passing
 the output directory as its argument.
+
+For `npm run dev`, give the executable the `interactive` flag the other examples have, which
+compiles the example's modules into it (GHCi reloads only those of the target it loaded) and drops
+the wasm reactor options and the `hs_start` export, and have `main` start with
+`Halogen.IO.Util.endPreviousRun` and pass the socket of what it mounts to `keepForNextRun`: GHCi
+keeps the page between runs of `:main`, and these dispose of the last run's component before the
+next one mounts. `examples/vanilla` has both.
 
 The page can arrive with the component already in it, before `app.wasm` has loaded. Add a native
 executable `halogen-example-<name>-prerender` (not buildable on the browser backends) that renders
