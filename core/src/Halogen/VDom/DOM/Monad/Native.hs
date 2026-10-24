@@ -50,6 +50,8 @@ where
 import Control.Exception.Safe (throwString)
 import Data.Map.Strict qualified as M
 import Data.Text qualified as T
+import Data.Text.Lazy qualified as TL
+import Data.Text.Lazy.Builder qualified as TB
 import HPrelude
 import Halogen.VDom.DOM.Monad.Class
 import Halogen.VDom.DOM.Monad.Mem
@@ -354,7 +356,9 @@ listenerTypes node = sort . map (.eventType) <$> readIORef node.listeners
 renderToText :: NativeNode -> IO Text
 renderToText node = do
   context <- maybe (pure topContext) (contextWithin topContext) =<< readIORef node.parentRef
-  renderIn context node
+  -- Materialise only the complete tree: doing this at each element copies
+  -- its descendants again at every ancestor.
+  TL.toStrict . TB.toLazyText <$> renderIn context node
 
 -- | What serialising a node depends on besides the node: where it sits.
 data Context = Context
@@ -387,13 +391,13 @@ contextWithin outer node = case node.kind of
     pure Context {parent = Just (namespace, name), element, choice}
   _ -> pure topContext
 
-renderIn :: Context -> NativeNode -> IO Text
+renderIn :: Context -> NativeNode -> IO TB.Builder
 renderIn context node = case node.kind of
   TextNode -> do
     txt <- readIORef node.content
     refuseNul "a text" txt
     case context.element of
-      Just raw | raw `elem` rawTextElements -> rawText raw txt
+      Just raw | raw `elem` rawTextElements -> TB.fromText <$> rawText raw txt
       _ -> pure (escapeText txt)
   DocumentNode -> renderChildren topContext node
   ElementNode ns (ElemName name) -> do
@@ -438,7 +442,7 @@ renderIn context node = case node.kind of
           foldl' (\acc (key, v) -> M.alter (const v) (Nothing, key) acc) (Valued <$> attributes)
             $ reflected
             <> foldMap (\mine -> [("selected", if mine then Just Bare else Nothing)]) picked
-        open = "<" <> name <> foldMap renderAttribute (M.toAscList merged) <> ">"
+        open = "<" <> TB.fromText name <> foldMap renderAttribute (M.toAscList merged) <> ">"
     for_ (M.toList merged) $ \case
       ((_, attribute), Valued v) -> refuseNul ("the attribute " <> attribute) v
       _ -> pass
@@ -453,13 +457,17 @@ renderIn context node = case node.kind of
             inside <- contextWithin context node
             renderChildren inside node
         let kept
-              | html && name `elem` ["pre", "textarea", "listing"] && "\n" `T.isPrefixOf` inner = "\n" <> inner
+              | html && name `elem` ["pre", "textarea", "listing"] =
+                  -- Inspect the prefix without making a strict copy of the
+                  -- subtree, and reuse the chunks when writing it out.
+                  let txt = TB.toLazyText inner
+                   in TB.fromLazyText (if "\n" `TL.isPrefixOf` txt then "\n" <> txt else txt)
               | otherwise = inner
-        pure $ open <> kept <> "</" <> name <> ">"
+        pure $ open <> kept <> "</" <> TB.fromText name <> ">"
 
 -- | The children in turn, with an empty comment between two text nodes,
 -- except in a raw-text element, where the comment would be text.
-renderChildren :: Context -> NativeNode -> IO Text
+renderChildren :: Context -> NativeNode -> IO TB.Builder
 renderChildren context parent = do
   children <- readIORef parent.kids
   rendered <- traverse (renderIn context) children
@@ -526,9 +534,9 @@ mathMLNamespace = "http://www.w3.org/1998/Math/MathML"
 -- | What an attribute holds once serialised: a boolean one has no value.
 data AttributeValue = Bare | Valued Text
 
-renderAttribute :: ((Maybe Text, Text), AttributeValue) -> Text
+renderAttribute :: ((Maybe Text, Text), AttributeValue) -> TB.Builder
 renderAttribute ((ns, name), v) =
-  " " <> qualified <> case v of
+  " " <> TB.fromText qualified <> case v of
     Bare -> ""
     Valued txt -> "=\"" <> escapeAttribute txt <> "\""
   where
@@ -726,24 +734,28 @@ rawText parent txt
         == parent
         && maybe False ((`elem` ("\t\n\f\r />" :: [Char])) . fst) (T.uncons (T.drop (T.length parent) s))
 
-escapeText :: Text -> Text
-escapeText = T.concatMap $ \case
-  '&' -> "&amp;"
-  '<' -> "&lt;"
-  '>' -> "&gt;"
-  '\xa0' -> "&nbsp;"
-  '\r' -> "&#13;"
-  c -> T.singleton c
+escapeText :: Text -> TB.Builder
+escapeText = escape False
 
-escapeAttribute :: Text -> Text
-escapeAttribute = T.concatMap $ \case
-  '&' -> "&amp;"
-  '<' -> "&lt;"
-  '>' -> "&gt;"
-  '"' -> "&quot;"
-  '\xa0' -> "&nbsp;"
-  '\r' -> "&#13;"
-  c -> T.singleton c
+escapeAttribute :: Text -> TB.Builder
+escapeAttribute = escape True
+
+-- Keep the ordinary prefix as one slice. Escape the remainder in whole
+-- Text passes: a builder operation for every escape allocates too much when
+-- escapes are dense. Ampersands go first so new references stay intact.
+escape :: Bool -> Text -> TB.Builder
+escape attribute txt =
+  let (plain, rest) = T.break needsEscape txt
+   in TB.fromText plain <> TB.fromText (escaped rest)
+  where
+    needsEscape c = c == '&' || c == '<' || c == '>' || c == '\xa0' || c == '\r' || (attribute && c == '"')
+    escaped =
+      (if attribute then T.replace "\"" "&quot;" else identity)
+        . T.replace "\r" "&#13;"
+        . T.replace "\xa0" "&nbsp;"
+        . T.replace ">" "&gt;"
+        . T.replace "<" "&lt;"
+        . T.replace "&" "&amp;"
 
 --------------------------------------------------------------------------------
 -- Selectors
