@@ -20,6 +20,7 @@ module Halogen.Canvas.Pixi.FFI
   , addChild
   , removeChild
   , parentOf
+  , sameObject
   , setChildIndex
   , destroyObject
   , clearGraphics
@@ -128,6 +129,7 @@ $( browserJS
      , ("addChild", "halogen_pixi_add_child", Unsafe, [t|Object -> Object -> IO ()|])
      , ("removeChild", "halogen_pixi_remove_child", Unsafe, [t|Object -> Object -> IO ()|])
      , ("parentOfRaw", "halogen_pixi_parent_of", Unsafe, [t|Object -> IO (Nullable Object)|])
+     , ("sameObject", "halogen_pixi_same_object", Unsafe, [t|Object -> Object -> IO Bool|])
      , ("setChildIndex", "halogen_pixi_set_child_index", Unsafe, [t|Object -> Object -> Int -> IO ()|])
      , ("destroyObject", "halogen_pixi_destroy_object", Unsafe, [t|Object -> IO ()|])
      , ("clearGraphics", "halogen_pixi_clear_graphics", Unsafe, [t|Object -> IO ()|])

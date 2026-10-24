@@ -26,7 +26,9 @@ import Halogen.Query.HalogenQ qualified as HQ
 import Halogen.Query.Input
 import Halogen.Query.Input qualified as Input
 import Halogen.Subscription qualified as HS
+import Halogen.VDom.DOM.Prop (ElemRef (..))
 import Unsafe.Coerce (unsafeCoerce)
+import Web.DOM.Element (Element)
 
 data HalogenSocket query output m = HalogenSocket
   { query :: forall a. query a -> m (Maybe a)
@@ -48,6 +50,11 @@ data RenderSpec (m :: Type -> Type) (r :: Type -> Type -> Row Type -> Type -> Ty
   , renderChild :: forall s act ps o. r s act ps o -> r s act ps o
   , removeChild :: forall s act ps o. r s act ps o -> m ()
   , dispose :: forall s act ps o. r s act ps o -> m ()
+  , sameElement :: Element -> Element -> m Bool
+  -- ^ Whether two handles are the one element. Only the renderer knows
+  -- what its elements are (on wasm two handles for one element need not be
+  -- equal), and the driver asks when a @ref@'s element is removed: see
+  -- 'Input.RefUpdate'. A renderer that makes no elements is never asked.
   }
 
 -- | Mount a component. The tree runs on a loop of its own (see
@@ -271,7 +278,18 @@ renderPass tree spec var = do
       handler = \case
         -- A ref is recorded as soon as its element is created or removed:
         -- initializers, which run after the render, may look it up.
-        Input.RefUpdate (Input.RefLabel p) el -> modifyIORef' var $ \d -> d {refs = M.alter (const el) p d.refs}
+        Input.RefUpdate (Input.RefLabel p) (Created el) -> modifyIORef' var $ \d -> d {refs = M.insert p el d.refs}
+        -- A removal clears the label only if it still holds the element
+        -- that goes. When a keyed element is replaced by one under a new
+        -- key with the same label, the reconciler builds the children under
+        -- new keys before it halts those whose keys went
+        -- ('Halogen.VDom.Utils.diffWithKeyAndIxE'), so the removal comes
+        -- second and would otherwise take away the element just recorded.
+        Input.RefUpdate (Input.RefLabel p) (Removed el) -> do
+          held <- M.lookup p . (.refs) <$> readIORef var
+          for_ held $ \current -> do
+            same <- treeRunM tree (specSameElement spec current el)
+            when same $ modifyIORef' var $ \d -> d {refs = M.delete p d.refs}
         Input.Action act -> enterCallback tree.loop (runHandler var (launchAction var act))
       childHandler :: act -> IO ()
       childHandler act = queueOrRun ds.pendingQueries (runHandler var (launchAction var act))
@@ -392,6 +410,9 @@ specRender RenderSpec {render} = render
 
 specRemove :: RenderSpec m r -> r s act ps o -> m ()
 specRemove RenderSpec {removeChild} = removeChild
+
+specSameElement :: RenderSpec m r -> Element -> Element -> m Bool
+specSameElement RenderSpec {sameElement} = sameElement
 
 specChild :: RenderSpec m r -> r s act ps o -> r s act ps o
 specChild RenderSpec {renderChild = child} = child

@@ -51,6 +51,7 @@ $( browserJS
      , ("js_parent_node", "js_parent_node", Unsafe, [t|Node -> IO (Nullable ParentNode)|])
      , ("js_next_sibling", "js_next_sibling", Unsafe, [t|Node -> IO (Nullable Node)|])
      , ("js_first_child", "js_first_child", Unsafe, [t|Node -> IO (Nullable Node)|])
+     , ("js_same_node", "js_same_node", Unsafe, [t|Node -> Node -> IO Bool|])
      , ("js_node_type", "js_node_type", Unsafe, [t|Node -> IO Int|])
      , ("js_namespace_uri", "js_namespace_uri", Unsafe, [t|Element -> IO (Nullable JSVal)|])
      , ("js_local_name", "js_local_name", Unsafe, [t|Element -> IO JSText|])
@@ -91,6 +92,7 @@ instance MonadDOM BrowserDOM where
   parentNode node = liftIO $ fmap Node . nullableToMaybe <$> js_parent_node node
   nextSibling node = liftIO $ fmap Node . nullableToMaybe <$> js_next_sibling node
   firstChild node = liftIO $ fmap Node . nullableToMaybe <$> js_first_child node
+  sameNode a b = liftIO $ js_same_node a b
 
   -- The node types are the DOM's: 1 an element, 3 a text, 8 a comment.
   nodeKind node = liftIO $ do

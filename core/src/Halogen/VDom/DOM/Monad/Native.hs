@@ -858,6 +858,7 @@ instance MonadDOM MemDOM where
   parentNode node = liftIO $ fmap fromNative <$> readIORef (toNative node).parentRef
   nextSibling node = liftIO $ fmap fromNative <$> nextSiblingNative (toNative node)
   firstChild node = liftIO $ fmap fromNative . head <$> readIORef (toNative node).kids
+  sameNode a b = pure (toNative a == toNative b)
   nodeKind node = liftIO $ do
     let n = toNative node
     case n.kind of

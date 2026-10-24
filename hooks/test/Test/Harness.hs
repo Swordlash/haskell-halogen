@@ -88,6 +88,7 @@ renderSpec renders =
     , AD.renderChild = identity
     , AD.removeChild = \_ -> pure ()
     , AD.dispose = \_ -> pure ()
+    , AD.sameElement = \_ _ -> pure False
     }
 
 renderHtml

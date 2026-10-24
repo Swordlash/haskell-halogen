@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- A `ref` on a keyed element now follows the element that replaces it.
+  When a keyed child carrying `HP.ref label` was replaced by one under a
+  new key with the same label, the component was left with nothing under
+  the label, and every later `getRef`/`getHTMLElementRef` answered
+  `Nothing`: the reconciler builds children under new keys before it
+  removes those whose keys went, so the old element's removal came last
+  and cleared the entry the new one had just written. A removal now clears
+  the label only if it still holds the element that goes. This changes
+  three public types. `Halogen.Query.Input.RefUpdate` carries the
+  `ElemRef Element` (`Created el` or `Removed el`, from
+  `Halogen.VDom.DOM.Prop`) instead of a `Maybe Element`, and
+  `Halogen.HTML.Core.ref` takes a function of it, so the removed element
+  is passed on rather than dropped. `MonadDOM` has a new method,
+  `sameNode :: DomNode m -> DomNode m -> m Bool`, whether two handles are
+  one node (`===` in a browser, the node's identity in `MemDOM`); a
+  `ReaderT` or `IdentityT` instance gets it lifted, and a backend of your
+  own has to answer it. And `Halogen.IO.Driver.RenderSpec` has a new field,
+  `sameElement :: Element -> Element -> m Bool`, which
+  `Halogen.VDom.Driver`'s render spec answers with `sameNode`; a render
+  spec of your own that makes no elements (a test's, say) can answer
+  `\_ _ -> pure False`, since it is never asked.
 - Native HTML serialisation (`renderToText` and `Halogen.Static`) builds
   markup with a text builder, converting to strict `Text` once at the end,
   instead of copying each subtree at every ancestor. Escaping copies runs

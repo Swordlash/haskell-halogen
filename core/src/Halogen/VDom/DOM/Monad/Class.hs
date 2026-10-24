@@ -134,6 +134,21 @@ class (PrimMonad m) => MonadDOM m where
   default elementToEventTarget :: (LiftsDOM t n m) => DomElement m -> m (DomEventTarget m)
   elementToEventTarget = lift . elementToEventTarget
 
+  -- | Whether two handles are the same node: the DOM's @===@, not a
+  -- comparison of what the nodes hold.
+  --
+  -- The handles cannot answer this themselves. On wasm each value that
+  -- crosses the FFI gets a handle of its own, so two handles for one node
+  -- need not be one Haskell value, and comparing them as Haskell values
+  -- could take one node for two. What asks is the driver's refs: when a
+  -- keyed element is replaced by one under a new key with the same @ref@
+  -- label, the successor is created before its predecessor is removed, and
+  -- the removal must clear the label only if it still holds the element
+  -- that goes.
+  sameNode :: DomNode m -> DomNode m -> m Bool
+  default sameNode :: (LiftsDOM t n m) => DomNode m -> DomNode m -> m Bool
+  sameNode a b = lift (sameNode a b)
+
   createTextNode :: Text -> DomDocument m -> m (DomNode m)
   default createTextNode :: (LiftsDOM t n m) => Text -> DomDocument m -> m (DomNode m)
   createTextNode value doc = lift (createTextNode value doc)

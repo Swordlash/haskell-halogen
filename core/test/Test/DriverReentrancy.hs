@@ -50,6 +50,7 @@ testRenderSpec =
     , AD.renderChild = id
     , AD.removeChild = \_ -> pure ()
     , AD.dispose = \_ -> pure ()
+    , AD.sameElement = \_ _ -> pure False
     }
 
 renderTest

@@ -55,6 +55,10 @@ function js_first_child(node) {
   return node.firstChild;
 }
 
+function js_same_node(a, b) {
+  return a === b;
+}
+
 function js_node_type(node) {
   return node.nodeType;
 }
