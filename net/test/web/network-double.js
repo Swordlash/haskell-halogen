@@ -46,18 +46,22 @@
   };
 
   // Run go once the name is released, or abandon once the signal aborts,
-  // whichever comes first.
+  // whichever comes first. An abort takes the waiter out of the name's
+  // list as well: a release or a reset afterwards must not run it, since
+  // what it would act on (a stream's controller) has been errored already.
   const whenReleased = (entry, signal, go, abandon) => {
-    const onAbort = () => {
-      entry.aborted = true;
-      abandon(signal.reason);
-    };
-    if (signal?.aborted) return onAbort();
-    signal?.addEventListener("abort", onAbort, { once: true });
     const released = () => {
       signal?.removeEventListener("abort", onAbort);
       go();
     };
+    const onAbort = () => {
+      entry.aborted = true;
+      const at = entry.waiting.indexOf(released);
+      if (at >= 0) entry.waiting.splice(at, 1);
+      abandon(signal.reason);
+    };
+    if (signal?.aborted) return onAbort();
+    signal?.addEventListener("abort", onAbort, { once: true });
     if (entry.released) released();
     else entry.waiting.push(released);
   };
