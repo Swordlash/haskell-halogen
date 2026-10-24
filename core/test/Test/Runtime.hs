@@ -105,6 +105,31 @@ nested = do
   assertEqual "the whole failed" "failed" outcome
   readIORef logRef >>= assertEqual "the second branch did not start" ["inner", "outer"]
 
+-- | A thread that brings work while another runs the loop queues it and
+-- goes on: neither 'enter' nor 'enterCallback' waits for the work. (A
+-- browser event's handler on WebAssembly does wait while the runner is
+-- runnable, see 'enterCallback'; natively it is 'enter'.)
+queuesBehind :: IO ()
+queuesBehind = do
+  loop <- newLoop
+  holding <- newEmptyMVar
+  release <- newEmptyMVar
+  logRef <- newIORef []
+  let note t = atomicModifyIORef' logRef (\l -> (l <> [t :: Text], ()))
+  _ <- forkIO $ enter loop $ do
+    putMVar holding ()
+    takeMVar release
+    note "holder"
+  takeMVar holding
+  within "enter on a held loop" (enter loop (note "entered"))
+  within "enterCallback on a held loop" (enterCallback loop (note "callback"))
+  readIORef logRef >>= assertEqual "nothing queued ran yet" []
+  done <- newEmptyMVar
+  enter loop (putMVar done ())
+  putMVar release ()
+  within "the queued work" (takeMVar done)
+  readIORef logRef >>= assertEqual "the queued work ran after the holder's, in order" ["holder", "entered", "callback"]
+
 -- | Threads that take the loop (or hand it to a runner) and are killed while
 -- they do: the loop is never left taken with nobody to run it.
 loopHandOff :: IO ()
@@ -157,5 +182,6 @@ spec =
     it "runs nothing more of a fiber once its own work cancelled it" selfCancel
     it "runs work the loop's own thread enters inside the work running, and stops parallel siblings of a failure" nested
     it "fails the whole when a parallel branch fails outside its error continuation" branchThrows
+    it "queues work brought while another thread runs the loop, without waiting for it" queuesBehind
     it "never strands the loop when the thread taking it is killed" loopHandOff
     it "kills every worker of a cancelled fiber, whenever its starter was killed" workerHandOff

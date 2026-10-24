@@ -164,12 +164,24 @@ focusing, reading the DOM as it is, a synchronous API such as `localStorage`, a 
 canvas in order — goes through `H.liftEffect` (hooks: `Hooks.liftEffect`), which must not wait. An
 event such an effect dispatches is handled before the dispatch returns, nested in it
 (`enterCallback`), as the browser does. "At once" means at once in the action, which is inside the
-browser's dispatch of the event only when the loop was free as the event arrived: an event that
-arrives while the loop is busy elsewhere (on wasm a listener also runs whatever Haskell work was
-left runnable, which may take the loop first) has its action queued, and the browser has acted on
-the event by the time it runs, so an effect that counts on the dispatch still being under way
-(preventing the default, reading a form's value before the browser changes it, focusing in
-response to a click) is then too late. For the two that matter most there is a declaration on
+browser's dispatch of the event when the loop was free as the event arrived. On wasm it is also
+when the loop was held by a thread that is runnable but not running: the glue's scheduler hands
+the page back after about 15 ms with threads still runnable, and a callback the page makes
+returns with the threads it woke still runnable, so a long render can be left unfinished between
+two tasks with an event dispatched in between. The listener then yields to the loop's
+runner, inside the dispatch, until the work it queued has run (`letRunnerFinish` in the runtime;
+the runner's `threadStatus` is `ThreadRunning`). The page waits for that work inside the dispatch,
+and work that mostly computes takes a few times as long to finish this way, since a yield hands
+over only a short slice. Otherwise the action is queued and the browser has acted on the event by
+the time it runs: when the loop's runner is the one that dispatched the event (a render that
+focuses an element; its status is then `BlockedOnForeignCall`, under the listener on the
+JavaScript stack), and on the JavaScript backend, where a callback that yields is carried on
+asynchronously, so a listener there never waits. A handler nests in a synchronous effect under
+way (`withinEffect`) only when the effect's thread is that blocked runner: on wasm an effect can
+also be preempted between tasks, and a handler arriving then waits for it like for any other work.
+An effect that counts on the dispatch still being under way (preventing the default, reading a
+form's value before the browser changes it, focusing in response to a click) is then too late. For
+the two that matter most there is a declaration on
 the property instead: a handler that must prevent the default or stop propagation whatever the
 loop is doing says so with `HE.preventingDefault` or `HE.stoppingPropagation`, and the listener
 does it before handing the action over (`Halogen.VDom.DOM.Prop`); `Halogen.Router`'s links do. A component counts as initialized once its `Initialize` has run its

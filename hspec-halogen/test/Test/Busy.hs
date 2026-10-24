@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 module Test.Busy (spec) where
 
 import Example.Busy qualified as Busy
@@ -41,11 +43,29 @@ spec m = do
     find ui ".busy-outcome" >>= (`shouldHaveText` "stopped")
     find ui ".busy-handled" >>= (`shouldHaveText` "ListenerStops")
 
+  -- Only on WebAssembly: the JavaScript backend cannot run the loop's other
+  -- threads inside a dispatch, so a click there finds the loop held by
+  -- nothing runnable, and the test would not show anything.
+  onWasm "lets the loop's preempted work finish inside the dispatch, so the action prevents the default (WebAssembly only)" $ runPage $ do
+    (_, ui) <- mountIt m
+    find ui ".busy-preempted" >>= click
+    find ui ".busy-preempted-outcome" >>= (`shouldHaveText` "prevented")
+    -- The click's action ran after the render it found under way, not
+    -- inside it.
+    find ui ".busy-handled" >>= (`shouldHaveText` "Filled ActionPrevents")
+
   it "follows a router link a user clicks, without loading a page" $ runPage $ do
     (router, ui) <- mountIt m
     find ui ("." <> Busy.linkClass Busy.RouterLink) >>= click
     find ui ".busy-handled" >>= (`shouldHaveText` "RouterLink")
     unsafeIOToPageM (Router.current router) `shouldReturn` Just 1
+
+onWasm :: [Char] -> IO () -> Spec
+#if defined(javascript_HOST_ARCH)
+onWasm = xit
+#else
+onWasm = it
+#endif
 
 -- | The component, with a hash router of its own.
 mountIt :: forall m -> (MonadBrowserTest m, MonadBrowserDOM m) => PageM s (Router.Router Busy.Route, Mounted s H.VoidF Void m)
