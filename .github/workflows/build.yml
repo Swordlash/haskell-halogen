@@ -222,7 +222,7 @@ jobs:
       run: npm run build-js
 
     # Before the tests: the suites built with hspec-halogen (hspec-halogen's,
-    # material's and net's) run in headless Chromium, driven by the
+    # material's, net's and tauri's) run in headless Chromium, driven by the
     # hspec-halogen executable, a native program that needs the host GHC.
     - name: Install Chromium
       run: npx playwright install --with-deps --only-shell chromium
@@ -357,7 +357,7 @@ jobs:
       run: npm run build-wasm-all
 
     # Before the tests: the suites built with hspec-halogen (hspec-halogen's,
-    # material's and net's) run in headless Chromium, driven by the
+    # material's, net's and tauri's) run in headless Chromium, driven by the
     # hspec-halogen executable, which is a native program, built with the
     # host GHC installed above.
     - name: Install Chromium

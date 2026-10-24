@@ -1,0 +1,132 @@
+cabal-version:      3.4
+name:               haskell-halogen-tauri
+version:            0.1.0.0
+synopsis:           Tauri v2's IPC for a haskell-halogen app in a Tauri webview
+description:
+  Bindings to Tauri v2's global API (@window.__TAURI__@, which a Tauri app
+  has when it sets @app.withGlobalTauri@), for a Halogen app that runs in a
+  Tauri webview: "Halogen.Tauri.Invoke" calls the app's Rust commands,
+  "Halogen.Tauri.Event" listens to and emits Tauri events, as emitters a
+  component subscribes to, and "Halogen.Tauri.Window" has the current
+  window's own events.
+  .
+  Arguments, results and payloads go through aeson on this side, as they go
+  through serde on the Rust side. Outside Tauri (in a plain browser, and
+  natively) 'isTauri' is 'False', a command gives @NotInTauri@, an emitter
+  never fires and an emit does nothing, so one program runs in a browser and
+  in the webview.
+homepage:           https://github.com/Swordlash/haskell-halogen
+license:            Apache-2.0
+license-file:       LICENSE
+author:             Mateusz Goślinowski
+maintainer:         mateusz.goslinowski@gmail.com
+category:           Web
+build-type:         Simple
+extra-doc-files:    CHANGELOG.md, README.md
+extra-source-files: jsbits/*.js, test/jsbits/*.js, test/web/*.js
+
+flag interactive
+    description: Build the browser test suite for browser GHCi (toolchain/dev-test.sh)
+    default:     False
+    manual:      True
+
+common defaults
+    default-language: GHC2021
+    ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists -Wunused-packages
+    default-extensions:
+        DataKinds
+        DeriveAnyClass
+        DerivingStrategies
+        DuplicateRecordFields
+        LambdaCase
+        NoFieldSelectors
+        OverloadedRecordDot
+        OverloadedStrings
+        StrictData
+
+library
+    import:           defaults
+    hs-source-dirs:   src
+    exposed-modules:  Halogen.Tauri
+                      Halogen.Tauri.Event
+                      Halogen.Tauri.Invoke
+                      Halogen.Tauri.Window
+    other-modules:    Halogen.Tauri.Internal
+    build-depends:
+        base >= 4.20 && < 5,
+        aeson,
+        bytestring,
+        text,
+        haskell-halogen-core,
+        haskell-halogen-jsbits
+
+    if arch(javascript)
+        js-sources:   jsbits/tauri.js
+        ghc-options:  -fexpose-all-unfoldings
+
+    if arch(wasm32)
+        ghc-options:  -fexpose-all-unfoldings
+
+-- Commands and events in headless Chromium (see hspec-halogen), against a
+-- stand-in for Tauri's global API, test/web/tauri-double.js, which the runner
+-- loads into the page. Natively it only reports that it skipped. First, so
+-- that toolchain/dev-test.sh picks it.
+test-suite Halogen-tauri-browser-test
+    import:           defaults
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          Browser.hs
+    -- A spec takes the monad its components run in as a type argument.
+    default-extensions: RequiredTypeArguments
+    other-modules:    Test.Component
+                      Test.Double
+                      Test.Events
+                      Test.Invoke
+    build-depends:
+        base,
+        aeson,
+        bytestring,
+        hspec,
+        mtl,
+        row-types,
+        text,
+        haskell-halogen-core,
+        haskell-halogen-jsbits,
+        haskell-halogen-tauri,
+        hspec-halogen
+
+    -- The suite's own view of the double (test/jsbits), declared with
+    -- browserJS as a package's is.
+    if arch(javascript)
+        js-sources:   test/jsbits/double.js
+
+    if arch(wasm32) && !flag(interactive)
+        ghc-options:
+            -no-hs-main
+            -optl-mexec-model=reactor
+            "-optl-Wl,--export=hs_start"
+
+    if flag(interactive)
+        cpp-options:  -DINTERACTIVE
+
+-- What the package does outside Tauri, on every backend (under Node on the
+-- browser backends, where there is no window.__TAURI__ either), and how
+-- arguments are encoded.
+test-suite Halogen-tauri-test
+    import:           defaults
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          Test.hs
+    other-modules:    Test.Outside
+    build-depends:
+        base,
+        aeson,
+        hspec,
+        text,
+        haskell-halogen-core,
+        haskell-halogen-tauri
+
+source-repository head
+  type:     git
+  location: https://github.com/Swordlash/haskell-halogen.git
+  subdir:   tauri
