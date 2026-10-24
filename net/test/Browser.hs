@@ -11,11 +11,16 @@ import Halogen.VDom.DOM.Monad (BrowserDOM)
 import Test.Component qualified
 import Test.Fetch qualified
 import Test.Hspec.Halogen (describe, runBrowserTests)
+import Test.Network qualified
 
+-- The double is reset first, since under browser GHCi the page keeps what it
+-- noted in the run before.
 main :: IO ()
-main = runBrowserTests $ do
-  describe "fetch" Test.Fetch.spec
-  describe "in a component" (Test.Component.spec BrowserDOM)
+main = do
+  Test.Network.reset
+  runBrowserTests $ do
+    describe "fetch" Test.Fetch.spec
+    describe "in a component" (Test.Component.spec BrowserDOM)
 
 #if defined(wasm32_HOST_ARCH) && !defined(INTERACTIVE)
 foreign export javascript "hs_start" main :: IO ()

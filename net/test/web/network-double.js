@@ -18,6 +18,11 @@
 //                       x-echo-method, x-echo-credentials and x-echo-mode,
 //                       and an x-echo-<name> for each header the request
 //                       had.
+//
+// What it notes lives in the page, which browser GHCi (toolchain/dev-test.sh)
+// keeps from one :main to the next, so the suite calls reset() as it starts:
+// every name is forgotten, and a request still held from the run before is
+// let go first, its answer to nobody.
 (() => {
   const realFetch = globalThis.fetch.bind(globalThis);
   const names = new Map();
@@ -33,6 +38,10 @@
       const entry = named(name);
       entry.released = true;
       entry.waiting.splice(0).forEach((go) => go());
+    },
+    reset: () => {
+      for (const entry of names.values()) entry.waiting.splice(0).forEach((go) => go());
+      names.clear();
     },
   };
 
