@@ -267,6 +267,7 @@ renderSpecWith adoption document container =
     , renderChild = identity
     , removeChild
     , dispose = removeChild
+    , sameElement = \a b -> join (DOM.sameNode <$> DOM.elementToNode a <*> DOM.elementToNode b)
     }
   where
     render

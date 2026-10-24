@@ -55,6 +55,7 @@ function halogen_pixi_add_to_stage(holder, child) {
 function halogen_pixi_add_child(parent, child) { parent.addChild(child); halogen_pixi_touch(parent); }
 function halogen_pixi_remove_child(parent, child) { parent.removeChild(child); halogen_pixi_touch(parent); }
 function halogen_pixi_parent_of(object) { return object.parent ?? null; }
+function halogen_pixi_same_object(a, b) { return a === b; }
 function halogen_pixi_set_child_index(parent, child, index) { parent.setChildIndex(child, index); }
 function halogen_pixi_destroy_object(object) { object.destroy({ children: true, texture: false, textureSource: false }); }
 function halogen_pixi_clear_graphics(object) { object.clear(); }

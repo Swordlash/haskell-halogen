@@ -59,13 +59,14 @@ withHandlerOptions change = \case
   Handler et options f -> Handler et (change options) f
   other -> other
 
-ref :: forall i. (Maybe Element -> Maybe i) -> Prop i
-ref f =
-  Ref
-    $ f
-    . \case
-      Created x -> Just x
-      Removed _ -> Nothing
+-- | A property that hears of its element being created and removed.
+--
+-- The removed element is passed on, not just the fact of a removal: when a
+-- keyed element is replaced by one under a new key, the new one is created
+-- before the old one is removed, and whoever keeps the element needs to tell
+-- the removal of the old one from that of the one it holds.
+ref :: forall i. (ElemRef Element -> Maybe i) -> Prop i
+ref = Ref
 
 class IsProp a where
   toPropValue :: a -> PropValue a

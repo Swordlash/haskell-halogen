@@ -67,6 +67,7 @@ walking texts =
     , AD.renderChild = id
     , AD.removeChild = \_ -> pure ()
     , AD.dispose = \_ -> pure ()
+    , AD.sameElement = \_ _ -> pure False
     }
   where
     render
@@ -101,6 +102,7 @@ tracking fresh live refuse =
     , AD.renderChild = id
     , AD.removeChild = remove
     , AD.dispose = remove
+    , AD.sameElement = \_ _ -> pure False
     }
   where
     render

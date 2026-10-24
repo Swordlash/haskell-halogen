@@ -19,6 +19,7 @@ import Test.Hspec (hspec)
 import Test.Hydrate qualified as Hydrate
 import Test.IndexedDB qualified as IndexedDB
 import Test.NativeDom qualified as NativeDom
+import Test.Refs qualified as Refs
 import Test.RenderRecovery qualified as RenderRecovery
 import Test.Runtime qualified as Runtime
 import Test.Static qualified as Static
@@ -41,6 +42,7 @@ main = hspec $ do
   Hydrate.spec
   IndexedDB.spec
   NativeDom.spec
+  Refs.spec
   RenderRecovery.spec
   Runtime.spec
   Static.spec

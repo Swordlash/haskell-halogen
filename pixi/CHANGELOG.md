@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+`PixiDOM` answers core's new `MonadDOM` method `sameNode`, whether two
+handles are one display object, with `===` on Pixi's side: on wasm two
+handles for one object need not be one Haskell value.
+
 `PixiDOM` answers core's new `MonadDOM` methods for reading a tree
 (`nextSibling`, `firstChild`, `nodeKind`, `nodeToElement`) as for a scene
 that is never adopted from a page: no object has a sibling or a child to

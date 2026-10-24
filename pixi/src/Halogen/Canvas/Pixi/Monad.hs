@@ -78,6 +78,11 @@ instance MonadDOM PixiDOM where
     FFI.destroyObject child
   parentNode = liftIO . FFI.parentOf
 
+  -- Two handles for one display object need not be equal (on wasm each
+  -- crossing of the FFI makes a new one), so identity is asked of Pixi's
+  -- side, as the browser backend asks the DOM's.
+  sameNode a b = liftIO $ FFI.sameObject a b
+
   -- A scene is never adopted: there is no page it arrived with, so what a
   -- canvas holds is always what was built into it. Answering as if every
   -- object were empty and not an element is what makes hydrating one build

@@ -1,9 +1,12 @@
 -- | How a render reconciles the page with the HTML it renders: an element is
 -- kept and patched where the new HTML still has it, and replaced only where
 -- the element itself changed; a property is written only when its value did.
-module Test.Reconcile (spec) where
+-- And a ref follows the element that replaces the one it was on.
+module Test.Reconcile (spec, refSpec) where
 
+import Control.Monad.UUID (MonadUUID)
 import Example.Reconcile qualified as Reconcile
+import Halogen.VDom.DOM.Monad (MonadBrowserDOM)
 import Protolude hiding (find)
 import Test.Hspec.Halogen
 
@@ -78,3 +81,38 @@ spec m = do
     press' ui "grow"
     find ui ".increment" >>= (`shouldBeSameElement` increment)
     find ui ".count" >>= (`shouldHaveText` "2")
+
+-- | The ref of an element that another replaces under the same label.
+-- Among keyed children the reconciler builds the element under a new key
+-- before it removes the one whose key went, so the old one's removal comes
+-- last, and must not take the new one's ref away. (An element whose tag
+-- changes goes before its successor is built; it is here so that it stays
+-- right whichever way round it happens.)
+--
+-- Apart from 'spec' because the component writes to the element it finds,
+-- which takes the browser's DOM ('MonadBrowserDOM').
+refSpec :: forall m -> (MonadBrowserTest m, MonadUUID m, MonadBrowserDOM m) => Spec
+refSpec m = do
+  let press' ui name = find ui ("button." <> name) >>= click
+      -- The ref holds the element now in the page: what the component
+      -- writes through it shows there.
+      refHoldsTheField ui = do
+        press' ui "mark"
+        find ui ".lost" >>= (`shouldHaveText` "")
+        field <- find ui ".field"
+        getAttribute field "data-marked" `shouldReturn` Just "marked"
+
+  it "holds the element that replaced a keyed one with a new key" $ runPage $ do
+    ui <- mount m Reconcile.replacing ()
+    old <- find ui ".field"
+    press' ui "rekey"
+    isAttached old `shouldReturn` False
+    refHoldsTheField ui
+
+  it "holds the element that replaced one whose tag changed" $ runPage $ do
+    ui <- mount m Reconcile.replacing ()
+    old <- find ui ".field"
+    press' ui "retag"
+    isAttached old `shouldReturn` False
+    find ui ".field" >>= \field -> getProperty field "tagName" `shouldReturn` "B"
+    refHoldsTheField ui

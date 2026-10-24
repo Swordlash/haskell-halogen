@@ -50,6 +50,7 @@ main = runBrowserTests $ do
   describe "Busy" (Test.Busy.spec BrowserDOM)
   describe "Islands" (Test.Islands.spec BrowserDOM)
   describe "Embedded state" (Test.Hydrate.embedSpec BrowserDOM)
+  describe "Refs across a replacement" (Test.Reconcile.refSpec BrowserDOM)
   describe "Running again" (Test.LastRun.spec BrowserDOM)
 #endif
 

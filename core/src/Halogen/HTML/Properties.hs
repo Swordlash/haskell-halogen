@@ -44,8 +44,8 @@ castProp = coerce
 ref :: forall r i. RefLabel -> IProp r i
 ref = IProp . Core.ref . go
   where
-    go :: RefLabel -> Maybe Element -> Maybe (Input i)
-    go p mel = Just (RefUpdate p mel)
+    go :: RefLabel -> ElemRef Element -> Maybe (Input i)
+    go p el = Just (RefUpdate p el)
 
 alt :: (HasType "alt" Text r) => Text -> IProp r i
 alt = prop "alt"
