@@ -22,6 +22,7 @@ spec = xdescribe "refs" $ pure ()
 #else
 
 import Control.Monad.State.Class (gets, modify)
+import Control.Monad.UUID (MonadUUID)
 import Data.Row (Empty)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -29,7 +30,7 @@ import Data.Void (Void)
 import Halogen qualified as H
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Properties qualified as HP
-import Halogen.VDom.DOM.Monad (MemDOM, runMemDOM)
+import Halogen.VDom.DOM.Monad (runMemDOM)
 import Halogen.VDom.DOM.Monad.Native qualified as N
 import Halogen.VDom.Driver qualified as VD
 import Halogen.VDom.Types (ElemName (..))
@@ -51,8 +52,10 @@ data Query a
   | Held (Maybe Element -> a)
 
 -- | A keyed element under a ref, between two keyed siblings: a new key or
--- a new tag replaces it with another element under the same label.
-field :: H.Component Query () Void MemDOM
+-- a new tag replaces it with another element under the same label. Nothing
+-- in it is the in-memory DOM's; 'holdsAfter' and 'clearedWhenRemoved',
+-- which read that tree, are what run it there.
+field :: forall m. (MonadUUID m) => H.Component Query () Void m
 field =
   H.mkComponent
     H.ComponentSpec
@@ -68,7 +71,7 @@ field =
                    ]
                 <> [("after", HH.span_ [])]
             )
-          :: H.ComponentHTML () Empty MemDOM
+          :: H.ComponentHTML () Empty m
       , eval =
           H.mkEval
             H.defaultEval
