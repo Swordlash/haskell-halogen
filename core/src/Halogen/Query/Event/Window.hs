@@ -259,8 +259,7 @@ interval period = makeEmitter $ \tick -> do
   where
     step = fromIntegral (max 1 period) * 1_000_000 :: Word64
     ticking stopped tick due = do
-      now <- getMonotonicTimeNSec
-      when (due > now) $ threadDelay (fromIntegral ((due - now + 999) `div` 1000))
+      sleepUntil due
       done <- readIORef stopped
       unless done $ do
         tick ()
@@ -269,6 +268,16 @@ interval period = makeEmitter $ \tick -> do
         -- skipped.
         let missed = if after > due then (after - due) `div` step else 0
         ticking stopped tick (due + step * (1 + missed))
+    -- 'threadDelay' takes an 'Int' of microseconds, which on the 32-bit
+    -- browser backends holds about 35 minutes: a longer wait is taken in
+    -- pieces, with the clock read again after each, so that an hourly tick
+    -- is hourly there too.
+    sleepUntil due = do
+      now <- getMonotonicTimeNSec
+      when (due > now) $ do
+        threadDelay (fromIntegral (min longest ((due - now + 999) `div` 1000)))
+        sleepUntil due
+    longest = 1_000_000_000 :: Word64
 
 -- | Each frame the browser draws, with its time: milliseconds since the
 -- page started loading, as @performance.now()@ counts them, the same for
