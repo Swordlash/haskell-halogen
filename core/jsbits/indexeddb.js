@@ -2,23 +2,22 @@
 // file and calls these by name; the wasm backend embeds it into its JSFFI
 // module (Halogen.JSBits).
 //
-// IndexedDB answers through events, and the Haskell side waits through one
-// awaited import, which on the JavaScript backend may only return nothing. So
-// every call is an operation in two halves: a function that describes it and
-// returns an object at once (nothing has happened yet), and
-// halogen_idb_run, which does it and resolves once it is done, never
-// rejecting. The outcome is left on the object, as its result or its error,
-// for the Haskell side to read afterwards. A failure is reported the same way
-// on both backends that way, rather than as whatever each makes of a rejected
-// promise.
+// IndexedDB answers through events, and every call here answers with a
+// promise instead. A call is an operation in two halves: a function that
+// describes it and returns an object at once (nothing has happened yet), and
+// halogen_idb_run, which does it and returns the promise of its result, for
+// the Haskell side to await (Halogen.JSBits.Promise). A failure is that
+// promise's rejection.
 //
 // Errors are the browser's own (a DOMException, whose name says what went
 // wrong) or one of ours, an Error with a name of our choosing:
 // UnavailableError when there is no IndexedDB at all, BlockedError when an
 // upgrade or a deletion waits on a connection someone else keeps open,
 // NotFoundError with the store's name as its message, NotBytesError with the
-// key as its message. Web.Storage.IndexedDB turns each name into a Haskell
-// failure.
+// key as its message. A rejection is always one of these, with a name and a
+// message that are strings: whatever else an operation fails with is made
+// into one (see halogen_idb_rejection). Web.Storage.IndexedDB turns each name
+// into a Haskell failure.
 
 // One open connection per database name, as a promise of it and the version
 // it was opened at: opening is the slow part, and a connection can serve any
@@ -191,7 +190,7 @@ function halogen_idb_bytes(value, key) {
 }
 
 function halogen_idb_operation(database, run) {
-  return { database: database, run: run, result: null, error: null };
+  return { database: database, run: run };
 }
 
 function halogen_idb_get(database, store, key) {
@@ -320,10 +319,29 @@ function halogen_idb_delete_database(name) {
   );
 }
 
-// Do an operation, and resolve once it is done, its outcome on the object.
-// Calls on one database run their transactions in the order they reach this
-// function: each waits for the same connection, and a promise runs what
-// waits for it in the order it was asked.
+// What an operation is rejected with: the browser's error or one of ours as
+// it is, and anything else an Error with the name and message read from it,
+// so that every rejection has a name and a message that are strings. A
+// failure with nothing to say for itself is an UnknownError.
+function halogen_idb_rejection(error) {
+  if (error === null || error === undefined) {
+    return halogen_idb_failure("UnknownError", "the operation failed");
+  }
+  if (typeof error.name === "string" && typeof error.message === "string") {
+    return error;
+  }
+  return halogen_idb_failure(String(error.name ?? "Error"), String(error.message ?? error));
+}
+
+// Do an operation, and return the promise of its result. Calls on one
+// database run their transactions in the order they reach this function:
+// each waits for the same connection, and a promise runs what waits for it
+// in the order it was asked.
+//
+// It never throws: what the operation throws as it starts is a rejection,
+// as is what it fails with later. The rejection is handled here as well as
+// returned, so that an operation whose waiter is gone is not reported as
+// unhandled; whoever awaits the promise still gets it.
 function halogen_idb_run(operation) {
   let work;
   try {
@@ -331,30 +349,9 @@ function halogen_idb_run(operation) {
   } catch (error) {
     work = Promise.reject(error);
   }
-  return Promise.resolve(work).then(
-    (result) => {
-      operation.result = result;
-    },
-    (error) => {
-      operation.error = error ?? halogen_idb_failure("UnknownError", "the operation failed");
-    },
-  );
-}
-
-function halogen_idb_failed(operation) {
-  return operation.error !== null;
-}
-
-function halogen_idb_error_name(operation) {
-  return String(operation.error.name ?? "Error");
-}
-
-function halogen_idb_error_message(operation) {
-  return String(operation.error.message ?? operation.error);
-}
-
-function halogen_idb_result(operation) {
-  return operation.result;
+  const result = Promise.resolve(work).catch((error) => Promise.reject(halogen_idb_rejection(error)));
+  result.catch(() => {});
+  return result;
 }
 
 function halogen_idb_length(array) {

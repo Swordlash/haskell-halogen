@@ -1,4 +1,3 @@
-{-# LANGUAGE InterruptibleFFI #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 -- | A key-value store over the browser's IndexedDB: what a page keeps that
@@ -75,7 +74,8 @@ import Data.Map.Strict qualified as M
 import Data.Set qualified as S
 import Data.Text qualified as T
 import HPrelude hiding (get, getAll, put)
-import Halogen.JSBits (JSText, JSVal, Safety (..), browserJS, fromJSBytes, fromJSText, inBrowser, isNull, jsValText, toJSBytes, toJSText)
+import Halogen.JSBits (JSText, JSVal, Safety (..), browserJS, fromJSBytes, inBrowser, isNull, jsValText, toJSBytes, toJSText)
+import Halogen.JSBits.Promise (JSError (..), Promise (..), await)
 import Halogen.VDom.DOM.Monad.Browser (BrowserDOM)
 import Halogen.VDom.DOM.Monad.Mem (MemDOM)
 import System.IO.Unsafe (unsafePerformIO)
@@ -229,9 +229,8 @@ itemDeletion store key = (store, key, Nothing)
 -- The browser
 
 -- Each call is described by one binding, which returns at once, and done by
--- 'js_idb_run', which waits: an awaited binding may only return nothing on
--- the JavaScript backend, so the outcome is left on the operation and read
--- afterwards. See @jsbits/indexeddb.js@.
+-- 'js_idb_run', which returns the promise of its result for 'perform' to
+-- await. See @jsbits/indexeddb.js@.
 $( browserJS
      ["jsbits/indexeddb.js"]
      [ ("js_idb_database", "halogen_idb_database", Unsafe, [t|JSText -> Int -> IO JSVal|])
@@ -246,11 +245,7 @@ $( browserJS
      , ("js_idb_batch_put", "halogen_idb_batch_put", Unsafe, [t|JSVal -> JSText -> JSText -> JSVal -> IO ()|])
      , ("js_idb_batch_delete", "halogen_idb_batch_delete", Unsafe, [t|JSVal -> JSText -> JSText -> IO ()|])
      , ("js_idb_delete_database", "halogen_idb_delete_database", Unsafe, [t|JSText -> IO JSVal|])
-     , ("js_idb_run", "halogen_idb_run", Safe, [t|JSVal -> IO ()|])
-     , ("js_idb_failed", "halogen_idb_failed", Unsafe, [t|JSVal -> IO Bool|])
-     , ("js_idb_error_name", "halogen_idb_error_name", Unsafe, [t|JSVal -> IO JSText|])
-     , ("js_idb_error_message", "halogen_idb_error_message", Unsafe, [t|JSVal -> IO JSText|])
-     , ("js_idb_result", "halogen_idb_result", Unsafe, [t|JSVal -> IO JSVal|])
+     , ("js_idb_run", "halogen_idb_run", Unsafe, [t|JSVal -> IO Promise|])
      , ("js_idb_length", "halogen_idb_length", Unsafe, [t|JSVal -> IO Int|])
      , ("js_idb_index", "halogen_idb_index", Unsafe, [t|JSVal -> Int -> IO JSVal|])
      ]
@@ -301,20 +296,14 @@ descriptor db = do
   pure d
 
 -- | Describe an operation, do it, and wait for its result, or throw what it
--- failed with.
---
--- The awaited binding is forced: on WebAssembly its @()@ comes back as a
--- thunk, and the thread waits for the promise only when that is forced.
+-- failed with: the promise's rejection, by its name.
 perform :: Text -> IO JSVal -> IO JSVal
 perform database describe = do
   unless inBrowser $ throwIO (IndexedDBError database Unavailable)
   operation <- describe
-  evaluate =<< js_idb_run operation
-  js_idb_failed operation >>= \case
-    False -> js_idb_result operation
-    True -> do
-      name <- fromJSText <$> js_idb_error_name operation
-      message <- fromJSText <$> js_idb_error_message operation
+  js_idb_run operation >>= await >>= \case
+    Right result -> pure result
+    Left JSError {name, message} ->
       throwIO . IndexedDBError database $ case name of
         "UnavailableError" -> Unavailable
         "BlockedError" -> UpgradeBlocked
