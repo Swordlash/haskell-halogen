@@ -17,7 +17,7 @@ module Halogen.Net.Internal
   )
 where
 
-import Control.Monad (join, unless)
+import Control.Monad (join, unless, when)
 import Data.Foldable (traverse_)
 import Data.IORef (IORef, atomicModifyIORef', newIORef)
 import Data.Sequence (Seq (..), (|>))
@@ -44,38 +44,52 @@ $( browserJS
 -- that opened it before handing it to a component) would miss whatever
 -- arrived in between, its @open@ event included, and never know it had.
 data Backlog a = Backlog
-  { kept :: IORef (Maybe (Seq a))
-  -- ^ What arrived before the first subscriber; 'Nothing' once that has
-  -- subscribed and been handed all of it.
+  { kept :: IORef (Kept a)
   , channel :: HS.Subscribe IO a
   }
 
+-- | What the backlog holds: everything so far, while nobody has
+-- subscribed; what is still to be handed over, while the first subscriber
+-- is being handed it; nothing, from then on.
+data Kept a = Keeping (Seq a) | HandingOver (Seq a) | Live
+
 newBacklog :: IO (Backlog a)
 newBacklog = do
-  kept <- newIORef (Just Empty)
+  kept <- newIORef (Keeping Empty)
   channel <- HS.create
   pure Backlog {kept, channel}
 
 give :: Backlog a -> a -> IO ()
 give backlog a = do
   held <- atomicModifyIORef' backlog.kept $ \case
-    Just queue -> (Just (queue |> a), True)
-    Nothing -> (Nothing, False)
+    Keeping queue -> (Keeping (queue |> a), True)
+    HandingOver queue -> (HandingOver (queue |> a), True)
+    Live -> (Live, False)
   unless held (HS.notify backlog.channel.listener a)
 
 -- | The first subscriber is registered before the backlog is handed over,
 -- and the backlog is handed over one value at a time, each taken off the
 -- queue as it goes. Whatever arrives meanwhile (a handler may run a
 -- component's action, which may let the page run) joins the end of the
--- queue rather than overtaking it, and the queue becomes 'Nothing' only
--- once it is empty.
+-- queue rather than overtaking it, and the backlog is 'Live' only once the
+-- queue is empty.
+--
+-- One hand-over at a time: a handler may itself subscribe (a component's
+-- action subscribing another emitter of the same socket, say), and a
+-- second hand-over started from inside the first would deliver the rest of
+-- the queue ahead of the value the first is in the middle of. The later
+-- subscriber is registered and hears the rest from the hand-over under way.
 backlogEmitter :: Backlog a -> HS.Emitter IO a
 backlogEmitter backlog = HS.Emitter $ \handler -> do
   subscription <- backlog.channel.emitter.registerHandler handler
+  first <- atomicModifyIORef' backlog.kept $ \case
+    Keeping queue -> (HandingOver queue, True)
+    other -> (other, False)
   let drain = join $ atomicModifyIORef' backlog.kept $ \case
-        Just (a :<| rest) -> (Just rest, HS.notify backlog.channel.listener a >> drain)
-        _ -> (Nothing, pure ())
-  drain
+        HandingOver (a :<| rest) -> (HandingOver rest, HS.notify backlog.channel.listener a >> drain)
+        HandingOver Empty -> (Live, pure ())
+        other -> (other, pure ())
+  when first drain
   pure subscription
 
 -- | The callbacks a connection hands the browser, to free together once the

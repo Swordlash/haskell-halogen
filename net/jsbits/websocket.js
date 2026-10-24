@@ -75,15 +75,20 @@ function halogen_net_websocket_send(socket, data) {
   }
 }
 
-// A negative code closes with none, and with no reason.
+// The code and the reason go to the browser as they are, so that it
+// refuses what it refuses (a code a page may not use, a reason too long).
 function halogen_net_websocket_close(socket, code, reason) {
   try {
-    if (code < 0) socket.close();
-    else socket.close(code, reason);
+    socket.close(code, reason);
     return null;
   } catch (error) {
     return error;
   }
+}
+
+// Closing with no code and no reason, which the browser never refuses.
+function halogen_net_websocket_close_plain(socket) {
+  socket.close();
 }
 
 function halogen_net_websocket_ready_state(socket) {

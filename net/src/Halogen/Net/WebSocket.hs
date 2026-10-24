@@ -105,7 +105,6 @@ module Halogen.Net.WebSocket
 where
 
 import Control.Exception (finally)
-import Control.Monad (void)
 import Control.Monad.IO.Class (MonadIO (..))
 import Data.ByteString (ByteString)
 import Data.Foldable (for_)
@@ -126,6 +125,7 @@ $( browserJS
      , ("js_send_text", "halogen_net_websocket_send", Unsafe, [t|JSVal -> JSText -> IO JSVal|])
      , ("js_send_bytes", "halogen_net_websocket_send", Unsafe, [t|JSVal -> JSVal -> IO JSVal|])
      , ("js_close", "halogen_net_websocket_close", Unsafe, [t|JSVal -> Int -> JSText -> IO JSVal|])
+     , ("js_close_plain", "halogen_net_websocket_close_plain", Unsafe, [t|JSVal -> IO ()|])
      , ("js_ready_state", "halogen_net_websocket_ready_state", Unsafe, [t|JSVal -> IO Int|])
      , ("js_protocol", "halogen_net_websocket_protocol", Unsafe, [t|JSVal -> IO JSText|])
      ]
@@ -256,7 +256,7 @@ close socket code reason = liftIO $ maybe (Right ()) Left <$> (refusal =<< js_cl
 -- | Start closing the socket with no code and no reason, which the browser
 -- never refuses; the server, and 'closed', then see code 1005.
 close' :: (MonadIO m) => Socket -> m ()
-close' socket = liftIO $ void $ js_close socket.raw (-1) (toJSText "")
+close' socket = liftIO $ js_close_plain socket.raw
 
 -- | Where the socket is now. Natively, always 'Closed'.
 readyState :: (MonadIO m) => Socket -> m ReadyState

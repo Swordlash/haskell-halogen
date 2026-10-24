@@ -6,10 +6,13 @@ module Test.WebSocket (spec) where
 
 import Control.Applicative ((<|>))
 import Control.Concurrent (threadDelay)
+import Control.Monad (void, when)
 import Data.ByteString qualified as ByteString
+import Data.IORef (atomicModifyIORef', newIORef, readIORef)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Halogen.Net.WebSocket qualified as WS
+import Halogen.Subscription qualified as HS
 import Test.Hspec
 import Test.Sockets
 
@@ -92,6 +95,27 @@ spec = do
       waitUntil "the third message arrives" ((== [WS.TextMessage "third"]) <$> later)
       heard `shouldReturn` [WS.TextMessage "first", WS.TextMessage "second", WS.TextMessage "third"]
 
+    it "is handed over in order even to a subscriber made by a handler" $ do
+      socket <- opened' "ws://double/nested" []
+      accept "nested" ""
+      serverSends "nested" (WS.TextMessage "first")
+      serverSends "nested" (WS.TextMessage "second")
+      serverSends "nested" (WS.TextMessage "third")
+      waitUntil "the socket opens" ((== WS.Open) <$> WS.readyState socket)
+      threadDelay 100_000
+      -- The first handler subscribes another on the first message: the
+      -- second subscriber hears the rest of the backlog in order, after the
+      -- first has, rather than ahead of what the first is being handed.
+      outer <- newIORef []
+      inner <- newIORef []
+      void $ HS.subscribe (WS.messages socket) $ \m -> do
+        atomicModifyIORef' outer (\ms -> (ms <> [m], ()))
+        when (m == WS.TextMessage "first")
+          $ void
+          $ HS.subscribe (WS.messages socket) (\n -> atomicModifyIORef' inner (\ns -> (ns <> [n], ())))
+      readIORef outer `shouldReturn` [WS.TextMessage "first", WS.TextMessage "second", WS.TextMessage "third"]
+      readIORef inner `shouldReturn` [WS.TextMessage "second", WS.TextMessage "third"]
+
     it "no longer reaches a subscriber that unsubscribed" $ do
       socket <- opened' "ws://double/unsubscribed" []
       accept "unsubscribed" ""
@@ -145,6 +169,7 @@ spec = do
       socket <- opened' "ws://127.0.0.1:2/" []
       refusedWith "InvalidAccessError" =<< WS.close socket 1001 ""
       refusedWith "InvalidAccessError" =<< WS.close socket 5000 ""
+      refusedWith "InvalidAccessError" =<< WS.close socket (-1) ""
       refusedWith "SyntaxError" =<< WS.close socket 1000 (Text.replicate 124 "a")
       WS.readyState socket `shouldReturn` WS.Connecting
       WS.close' socket
