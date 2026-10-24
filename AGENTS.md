@@ -6,8 +6,9 @@ This file provides guidance to AI coding agents working with code in this reposi
 
 A port of purescript-halogen to GHC Haskell, as a multi-package cabal project: `core`
 (`haskell-halogen-core`, the port itself), `jsbits` (compile-time shared JavaScript embedding), `hooks` (`purescript-halogen-hooks` port), `router` (`purescript-routing-duplex` port, with the
-browser's history), `net` (the browser's networking: so far `fetch`, a thin binding on
-`Halogen.JSBits.Promise` that aborts its request when the waiting fiber is killed), `tauri`
+browser's history), `net` (the browser's networking: `fetch`, a thin binding on
+`Halogen.JSBits.Promise` that aborts its request when the waiting fiber is killed, and
+WebSocket and server-sent events, whose events arrive through `Halogen.Subscription` emitters), `tauri`
 (Tauri v2's IPC through its global API `window.__TAURI__`: commands with aeson JSON, events as
 emitters, the current window's events), `material`
 (Material Components bindings), `pixi` (PixiJS v8 canvas backend), `sound` (music and sound
@@ -15,7 +16,7 @@ effects: a player over an abstract backend, and a browser backend), `hspec-halog
 (an hspec harness that tests components in a real browser), `th` (`haskell-halogen-th`: the `hh`
 and `clay` quasi-quoters, HTML and CSS with Haskell inside, parsed by ghc-lib-parser), and
 `examples/*` (one browser app each, plus `examples/all`, the gallery that mounts the others and is what
-Pages deploys). `hooks`, `router`, `material`, `pixi`, `hspec-halogen` and `th` depend only on `core`; `tauri` on `core` (for `Halogen.Subscription`'s emitters) and `jsbits`; `net` and `sound` depend on none of them, only on `jsbits`. Everything builds from the root
+Pages deploys). `hooks`, `router`, `net` (for `Halogen.Subscription`), `material`, `pixi`, `hspec-halogen` and `th` depend only on `core`; `tauri` on `core` (for `Halogen.Subscription`'s emitters) and `jsbits`; `sound` depends on none of them, only on `jsbits`. Everything builds from the root
 `cabal.project`, so a `core` change is type-checked against every dependent and example.
 
 Every package is compiled for three targets: native GHC, the GHC JavaScript backend, and GHC
@@ -46,7 +47,9 @@ npm run format                  # fourmolu over core, hooks, router, net, tauri,
 `Halogen-net-browser-test` fetches the files in `net/test/web/` from the runner's server, and
 what that server cannot do (a request held until the test lets it go, a body that stops halfway,
 a response echoing its request) from `net/test/web/network-double.js`, which wraps the page's
-`fetch`. `Halogen-tauri-browser-test` runs against `tauri/test/web/tauri-double.js`, a stand-in
+`fetch`; its WebSocket and EventSource tests drive `net/test/web/socket-double.js`, which stands in
+for the servers for addresses on the host `double` and leaves every other address to the browser.
+`Halogen-tauri-browser-test` runs against `tauri/test/web/tauri-double.js`, a stand-in
 for Tauri's global API (a table of commands and an event bus), since there is no Tauri in CI.
 `hspec-halogen-test` is also
 the harness's examples, and where core's browser behaviour (events, properties the page changes,
