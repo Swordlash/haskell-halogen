@@ -34,7 +34,7 @@ import Web.Event.Event (Event, EventType)
 import Web.Event.Internal.Types (EventTarget)
 import Web.HTML.Common
 import Web.HTML.HTMLDocument.ReadyState as ReadyState
-import Web.UIEvent.MouseEvent
+import Web.UIEvent.MouseEvent (MouseEvent (..))
 
 data PropValue val where
   IntProp :: (Integral a) => a -> PropValue a

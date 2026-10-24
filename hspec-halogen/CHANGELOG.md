@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+* The package's own suite has a `Window` example: a component that
+  subscribes to haskell-halogen-core's `Halogen.Query.Event.Window`
+  emitters, and tests that it hears a key pressed on the page, the window
+  resized, the page hidden and shown, the browser go offline and online,
+  the screen's frames in time order and a timer's ticks, and that none of
+  them delivers anything more once the component has unsubscribed or is
+  gone. The page's events are dispatched by the test itself
+  (`test/jsbits/window.js`), and the page's visibility, which a headless
+  page cannot change, is overridden on the document while a test needs it.
+
 * A page action that fails (a click, a key press or a drag the runner could
   not perform, which Playwright reports when it times out waiting for the
   element, say) fails the test with a `JSError` from

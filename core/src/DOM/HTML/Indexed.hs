@@ -9,8 +9,8 @@ import Web.Clipboard.ClipboardEvent
 import Web.Event.Event
 import Web.HTML.Event.DragEvent
 import Web.UIEvent.FocusEvent
-import Web.UIEvent.KeyboardEvent
-import Web.UIEvent.MouseEvent
+import Web.UIEvent.KeyboardEvent (KeyboardEvent)
+import Web.UIEvent.MouseEvent (MouseEvent)
 import Web.UIEvent.PointerEvent
 import Web.UIEvent.TouchEvent
 import Web.UIEvent.WheelEvent

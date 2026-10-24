@@ -86,6 +86,9 @@ readystatechange = EventType "readystatechange"
 reset :: EventType
 reset = EventType "reset"
 
+resize :: EventType
+resize = EventType "resize"
+
 select :: EventType
 select = EventType "select"
 
@@ -100,3 +103,6 @@ toggle = EventType "toggle"
 
 unload :: EventType
 unload = EventType "unload"
+
+visibilitychange :: EventType
+visibilitychange = EventType "visibilitychange"

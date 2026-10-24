@@ -21,9 +21,9 @@ import Web.HTML.Event.DragEvent.EventTypes qualified as DET
 import Web.HTML.Event.EventTypes qualified as ET
 import Web.UIEvent.FocusEvent
 import Web.UIEvent.FocusEvent.EventTypes qualified as FET
-import Web.UIEvent.KeyboardEvent
+import Web.UIEvent.KeyboardEvent (KeyboardEvent (..))
 import Web.UIEvent.KeyboardEvent.EventTypes qualified as KET
-import Web.UIEvent.MouseEvent
+import Web.UIEvent.MouseEvent (MouseEvent (..))
 import Web.UIEvent.MouseEvent.EventTypes qualified as MET
 import Web.UIEvent.PointerEvent
 import Web.UIEvent.TouchEvent

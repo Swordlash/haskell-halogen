@@ -101,6 +101,7 @@ test-suite hspec-halogen-test
                       Example.Promised
                       Example.Reconcile
                       Example.Todo
+                      Example.Window
                       Test.Agreement
                       Test.Async
                       Test.Busy
@@ -116,6 +117,7 @@ test-suite hspec-halogen-test
                       Test.Promised
                       Test.Reconcile
                       Test.Todo
+                      Test.Window
     ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists -Wunused-packages
     default-extensions:
         OverloadedStrings
@@ -143,6 +145,7 @@ test-suite hspec-halogen-test
         js-sources: test/jsbits/busy.js
                     test/jsbits/islands.js
                     test/jsbits/promised.js
+                    test/jsbits/window.js
 
     if arch(wasm32) && !flag(interactive)
         ghc-options:
