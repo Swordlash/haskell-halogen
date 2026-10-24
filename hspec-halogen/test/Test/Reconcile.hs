@@ -95,10 +95,11 @@ refSpec :: forall m -> (MonadBrowserTest m, MonadUUID m, MonadBrowserDOM m) => S
 refSpec m = do
   let press' ui name = find ui ("button." <> name) >>= click
       -- The ref holds the element now in the page: what the component
-      -- writes through it shows there.
+      -- writes through it shows there. And the spare label holds nothing.
       refHoldsTheField ui = do
         press' ui "mark"
         find ui ".lost" >>= (`shouldHaveText` "")
+        find ui ".stale" >>= (`shouldHaveText` "")
         field <- find ui ".field"
         getAttribute field "data-marked" `shouldReturn` Just "marked"
 
@@ -115,4 +116,11 @@ refSpec m = do
     press' ui "retag"
     isAttached old `shouldReturn` False
     find ui ".field" >>= \field -> getProperty field "tagName" `shouldReturn` "B"
+    refHoldsTheField ui
+
+  it "moves to the new label when the element's ref changes label" $ runPage $ do
+    ui <- mount m Reconcile.replacing ()
+    old <- find ui ".field"
+    press' ui "relabel-ref"
+    find ui ".field" >>= (`shouldBeSameElement` old)
     refHoldsTheField ui

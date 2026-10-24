@@ -1,8 +1,8 @@
 -- | A component whose buttons each change one thing about what it renders,
 -- for watching how a render reconciles the page with the new HTML: what it
 -- keeps, what it patches, and what it replaces. And one whose element under
--- a ref is replaced by another under the same label, for watching what the
--- ref holds afterwards.
+-- a ref is replaced by another under the same label, or kept under another
+-- label, for watching what the ref holds afterwards.
 module Example.Reconcile (component, replacing) where
 
 import Control.Monad.UUID (MonadUUID)
@@ -73,25 +73,30 @@ component =
 
 data Replacing = Replacing
   { field :: H.RefLabel
+  , spare :: H.RefLabel
   , generation :: Int
   , retagged :: Bool
   , lost :: Bool
+  , stale :: Bool
   }
 
-data ReplacingAction = Rekey | Retag | Mark
+data ReplacingAction = Rekey | Retag | RelabelRef | Mark
 
 -- | A keyed element under a ref, among keyed siblings. "rekey" gives it a
 -- new key and "retag" a new tag, either of which replaces it with a new
--- element under the same label; "mark" finds the element through the ref
--- and writes an attribute on it, so a test can see which element the ref
--- holds, and says so on the page when the ref holds none.
+-- element under the same label, and "relabel-ref" puts the same element under
+-- the spare label (keeping the one it was under in reserve); "mark" finds
+-- the element through the ref and writes an attribute on it, so a test can
+-- see which element the ref holds, and says so on the page when the ref
+-- holds none, or when the spare label still holds one.
 replacing :: forall q i o m. (MonadUUID m, MonadBrowserDOM m) => H.Component q i o m
 replacing =
   H.mkComponent
     H.ComponentSpec
       { initialState = \_ -> do
           field <- H.newRefLabel "field"
-          pure Replacing {field, generation = 0, retagged = False, lost = False}
+          spare <- H.newRefLabel "spare"
+          pure Replacing {field, spare, generation = 0, retagged = False, lost = False, stale = False}
       , render
       , eval = H.mkEval H.defaultEval {H.handleAction = handleAction}
       }
@@ -106,8 +111,10 @@ replacing =
       HH.div_
         [ button "rekey" Rekey
         , button "retag" Retag
+        , button "relabel-ref" RelabelRef
         , button "mark" Mark
         , HH.span [cls "lost"] [HH.text (if model.lost then "lost" else "")]
+        , HH.span [cls "stale"] [HH.text (if model.stale then "stale" else "")]
         , HH.withKeys
             HH.div
             [cls "fields"]
@@ -121,7 +128,11 @@ replacing =
     handleAction = \case
       Rekey -> modify $ \s -> s {generation = s.generation + 1} :: Replacing
       Retag -> modify $ \s -> s {retagged = not s.retagged} :: Replacing
-      Mark ->
+      RelabelRef -> modify $ \s -> s {field = s.spare, spare = s.field} :: Replacing
+      Mark -> do
         (H.getRef =<< gets (.field)) >>= \case
           Just element -> H.liftEffect (setAttribute Nothing (HH.AttrName "data-marked") "marked" element)
           Nothing -> modify $ \s -> s {lost = True} :: Replacing
+        (H.getRef =<< gets (.spare)) >>= \case
+          Just _ -> modify $ \s -> s {stale = True} :: Replacing
+          Nothing -> pass

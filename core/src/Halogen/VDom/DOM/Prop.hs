@@ -206,6 +206,22 @@ buildProp emit el = renderProp
           writeMutVar (snd handler) (options, f)
           atomicModifyMutVar'_ events (M.insert ty handler)
           pure v2
+        -- A ref kept across a patch is told the element went from the old
+        -- function and came to the new one. A ref holds a function, not a
+        -- label, so the patch cannot tell whether the label changed; when
+        -- it did, the old label has to stop holding the element and the
+        -- new one has to start. The driver clears a label on 'Removed'
+        -- only while it holds this very element (see @renderPass@ in
+        -- "Halogen.IO.Driver.Mount"), so 'Removed' first and 'Created'
+        -- second leave the element under the new label and nothing of it
+        -- under the old one, and an unchanged label is cleared and written
+        -- again with the same element. The other order would lose it: the
+        -- 'Removed' after the 'Created' would find the element it removes
+        -- and take the label away.
+        (Ref f1, Ref f2) -> do
+          mbEmit (f1 (Removed el))
+          mbEmit (f2 (Created el))
+          pure v2
         (_, _) ->
           pure v2
 
@@ -218,7 +234,11 @@ buildProp emit el = renderProp
         Handler evty@(DOM.EventType ty) _ _ -> do
           handler <- (M.! ty) <$> readMutVar prevEvents
           elementToEventTarget el >>= removeEventListener evty (fst handler)
-        Ref _ -> pass
+        -- A ref that a patch drops lets go of the element, which stays: no
+        -- halt is coming to say so while the element is there, and when it
+        -- comes, 'haltProp' finds no ref among the props to tell.
+        Ref f ->
+          mbEmit (f (Removed el))
 
 -- | 'atomicModifyMutVar'' with the result discarded.
 atomicModifyMutVar'_ :: (PrimMonad m) => MutVar (PrimState m) a -> (a -> a) -> m ()

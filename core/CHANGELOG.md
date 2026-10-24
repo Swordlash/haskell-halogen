@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- A `ref` now follows its prop on an element a render keeps and patches.
+  When the same element went from `HP.ref a` to `HP.ref b`, `getRef b`
+  answered `Nothing` and `getRef a` went on answering the element; when
+  the `ref` prop was dropped from an element that stayed, its label went
+  on holding the element until the element itself was removed. A patch
+  now records the element under the new label and clears it from the old
+  one, and clears the label of a prop that goes. Adding a `ref` prop to an
+  element that stays already recorded it, and still does. Nothing in the
+  API changes; a function given to `Halogen.HTML.Core.ref` is now also
+  called on every patch of its element, with `Removed el` from the old
+  function and then `Created el` from the new one, which the driver turns
+  into the same entry when the label has not changed.
 - A `ref` on a keyed element now follows the element that replaces it.
   When a keyed child carrying `HP.ref label` was replaced by one under a
   new key with the same label, the component was left with nothing under
