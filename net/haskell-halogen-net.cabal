@@ -1,7 +1,7 @@
 cabal-version:      3.4
 name:               haskell-halogen-net
 version:            0.1.0.0
-synopsis:           The browser's fetch for haskell-halogen
+synopsis:           The browser's fetch, WebSocket and server-sent events for haskell-halogen
 description:
   "Halogen.Net.Fetch" binds the browser's @fetch@: a request described as a
   Haskell value, its response's status and headers, and its body read once,
@@ -15,6 +15,13 @@ description:
   and gives a handle to wait for, or abort, later. Natively there is no
   engine to make a request, and every request fails with
   @NotInBrowserError@.
+  .
+  "Halogen.Net.WebSocket" and "Halogen.Net.EventSource" bind the browser's
+  @WebSocket@ and @EventSource@ (server-sent events). Opening one waits for
+  nothing, for @H.liftEffect@; what the connection does afterwards (its
+  opening, its messages or events, its errors, its closing) arrives through
+  "Halogen.Subscription" emitters, for @H.subscribe@, which keep what
+  arrives before their first subscriber. Natively they never connect.
 homepage:           https://github.com/Swordlash/haskell-halogen
 license:            Apache-2.0
 license-file:       LICENSE
@@ -47,23 +54,32 @@ library
     import:           defaults
     hs-source-dirs:   src
     exposed-modules:  Halogen.Net.Fetch
+                      Halogen.Net.WebSocket
+                      Halogen.Net.EventSource
+    other-modules:    Halogen.Net.Internal
     build-depends:
         base >= 4.20 && < 5,
         bytestring,
+        containers,
         text,
+        haskell-halogen-core,
         haskell-halogen-jsbits
 
     if arch(javascript)
         js-sources:   jsbits/fetch.js
+                      jsbits/net.js
+                      jsbits/websocket.js
+                      jsbits/eventsource.js
         ghc-options:  -fexpose-all-unfoldings
 
     if arch(wasm32)
         ghc-options:  -fexpose-all-unfoldings
 
 -- The requests themselves, in headless Chromium (see hspec-halogen), against
--- the files in test/web, which the runner serves next to the page. Natively
--- it only reports that it skipped. First, so that toolchain/dev-test.sh
--- picks it.
+-- the files in test/web, which the runner serves next to the page, and the
+-- doubles there for what a static file server cannot be (a WebSocket or
+-- event-stream server among them). Natively it only reports that it
+-- skipped. First, so that toolchain/dev-test.sh picks it.
 test-suite Halogen-net-browser-test
     import:           defaults
     type:             exitcode-stdio-1.0
@@ -72,8 +88,12 @@ test-suite Halogen-net-browser-test
     -- A spec takes the monad its components run in as a type argument.
     default-extensions: RequiredTypeArguments
     other-modules:    Test.Component
+                      Test.EventSource
                       Test.Fetch
                       Test.Network
+                      Test.SocketComponent
+                      Test.Sockets
+                      Test.WebSocket
     build-depends:
         base,
         bytestring,
@@ -90,6 +110,7 @@ test-suite Halogen-net-browser-test
     -- browserJS as a package's is.
     if arch(javascript)
         js-sources:   test/jsbits/network.js
+                      test/jsbits/sockets.js
 
     if arch(wasm32) && !flag(interactive)
         ghc-options:
@@ -100,15 +121,17 @@ test-suite Halogen-net-browser-test
     if flag(interactive)
         cpp-options:  -DINTERACTIVE
 
--- What a request is made of, on every backend, and natively what fetching
--- gives where there is no browser. Core is here only for its JavaScript
--- polyfills, which hspec needs on the JavaScript backend: see Test.hs.
+-- What a request is made of, on every backend, and natively what fetching,
+-- a socket and an event source give where there is no browser. Core is here
+-- for Halogen.Subscription, and on the JavaScript backend for its polyfills,
+-- which hspec needs there: see Test.hs.
 test-suite Halogen-net-test
     import:           defaults
     type:             exitcode-stdio-1.0
     hs-source-dirs:   test
     main-is:          Test.hs
-    other-modules:    Test.Request
+    other-modules:    Test.Inert
+                      Test.Request
     build-depends:
         base,
         hspec,
