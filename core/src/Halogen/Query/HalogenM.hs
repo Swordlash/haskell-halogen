@@ -82,6 +82,21 @@ instance (MonadIO m) => MonadIO (HalogenM state' action slots' output m) where
 -- until it is done. So it must not wait -- not on an 'MVar', a delay, a
 -- JavaScript promise or a query to this tree -- or the whole tree waits
 -- with it; use 'liftIO' for that.
+--
+-- In an event's action, "at once" is inside the browser's dispatch of the
+-- event, so @preventDefault@ still counts, when the tree's loop is free as
+-- the event arrives. On WebAssembly it is also when the loop is held by
+-- work that was preempted between two of the page's tasks (a long render):
+-- the event's listener lets that work finish, inside the dispatch, and then
+-- runs the action there; the page waits for it meanwhile, and work that
+-- mostly computes takes a few times as long to finish that way. When the
+-- event is dispatched from the loop's own work (a render that focuses an
+-- element, an effect that clicks one), and on the JavaScript backend
+-- whenever the loop is busy, the action is queued and runs after the
+-- browser has acted on the event; a handler that must prevent the default
+-- or stop propagation in every case declares it with
+-- 'Halogen.HTML.Events.preventingDefault' or
+-- 'Halogen.HTML.Events.stoppingPropagation'.
 liftEffect :: forall state action slots output m a. (Functor m) => m a -> HalogenM state action slots output m a
 liftEffect = HalogenM . liftF . LiftEffect
 

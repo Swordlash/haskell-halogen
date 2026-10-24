@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- On WebAssembly an event's action now runs inside the browser's dispatch
+  of the event also when the tree's loop was busy with work the scheduler
+  had preempted between two of the page's tasks, such as a long render the
+  event arrived in the middle of: the event's listener lets that work
+  finish, inside the dispatch, and then runs the action there, so
+  `preventDefault`, reading a form's value or focusing from `H.liftEffect`
+  in the action is still in time. The page waits for that work inside the
+  dispatch, and work that mostly computes, rather than changes the page,
+  can take a few times as long to finish this way, since each turn hands it
+  only a short slice. An event dispatched from the loop's own work (a
+  render that focuses an element, an effect that clicks one), and every
+  busy loop on the JavaScript backend, still has its action queued until
+  the dispatch is over; `HE.preventingDefault` and `HE.stoppingPropagation`
+  remain the way to prevent the default or stop propagation in every case.
+
 - `Halogen.Query.Event.Window` has emitters for what happens to the page
   as a whole, for a component to subscribe to rather than render a handler
   for: `keyDown` and `keyUp` anywhere on the page, `mouseMove`,
@@ -115,10 +130,9 @@
   `HE.preventingDefault (HE.onSubmit (const Save))`. A handler that makes
   no action (a key handler that ignores the key) leaves the event alone.
   Calling `preventDefault` from the action instead, in `H.liftEffect`, is
-  only in time when the tree's loop is free as the event arrives. It is not
-  always: on WebAssembly an event's listener also runs whatever Haskell work
-  was left to run (the rest of what an earlier event started, a render among
-  it), and when that holds the loop, the action is queued and runs after the
+  only in time when the action runs inside the dispatch, which it does not
+  always (see the entry above): when the loop is busy and its work cannot
+  finish inside the dispatch, the action is queued and runs after the
   browser has followed the link, submitted the form or typed the key. Use
   them for a form's submit, a keyboard shortcut and a link of your own;
   `Halogen.Router`'s links do. `H.liftEffect` itself is unchanged.

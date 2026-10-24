@@ -16,7 +16,9 @@
 --   browser's own: an event a piece of work dispatches (from a
 --   'Halogen.Query.HalogenM.liftEffect') is handled there and then, nested
 --   in it, as the browser runs handlers while it dispatches; so is work the
---   thread running the loop brings it itself.
+--   thread running the loop brings it itself. And on WebAssembly a browser
+--   event that finds the loop held by a thread that was merely preempted
+--   lets that thread finish, inside the dispatch ('enterCallback').
 --
 -- * A component's program runs as a 'Fiber': a continuation, driven in
 --   'Turn'. Its synchronous parts run on the loop; at a suspension ('await')
@@ -63,7 +65,7 @@ module Halogen.IO.Driver.Runtime
   )
 where
 
-import Control.Concurrent (ThreadId, forkIO, forkIOWithUnmask, myThreadId, throwTo)
+import Control.Concurrent (ThreadId, forkIO, forkIOWithUnmask, myThreadId, throwTo, yield)
 import Control.Exception (SomeAsyncException (..), SomeException, catch, finally, fromException, mask, mask_, onException, throwIO, try)
 import Control.Monad (ap, unless, void, when)
 import Control.Monad.IO.Class (MonadIO (..))
@@ -71,22 +73,28 @@ import Data.Foldable (for_, traverse_)
 import Data.IORef
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
+import Data.Maybe (isNothing)
 import Data.Sequence (Seq, ViewL (..), viewl, (<|), (|>))
 import Data.Sequence qualified as Seq
 import Data.Set (Set)
 import Data.Set qualified as Set
+import GHC.Conc (ThreadStatus (..), threadStatus)
 import Prelude
 import UnliftIO (AsyncCancelled (..))
 
 ----------------------------------------------------------------------
 -- The loop
 
--- | Whether a thread is running the loop (and which, once it has started),
--- and what waits for it.
+-- | Whether a thread is running the loop (and which), and what waits for it.
 data LoopState = LoopState
   { running :: !Bool
   , runner :: !(Maybe ThreadId)
-  -- ^ 'Nothing' while the loop passes to a thread just forked to run it.
+  -- ^ While the loop runs, 'Nothing' only as it passes to a thread about
+  -- to be forked to run it: the thread is recorded as soon as it exists,
+  -- before it has started (see 'handOver'). Meaningless while it does not.
+  , handOvers :: !Int
+  -- ^ How many times the loop has been taken to be handed to a new thread
+  -- ('handing'), so that 'handOver' records only the thread of the latest.
   , effects :: !Int
   -- ^ How many synchronous effects of components ('withinEffect') are
   -- under way on the loop.
@@ -99,13 +107,18 @@ data LoopState = LoopState
 newtype Loop = Loop (IORef LoopState)
 
 newLoop :: IO Loop
-newLoop = Loop <$> newIORef (LoopState False Nothing 0 Seq.empty Set.empty)
+newLoop = Loop <$> newIORef (LoopState False Nothing 0 0 Seq.empty Set.empty)
 
-data Entry = Claimed | Nested | Queued | Handed
+-- | How a thread entered the loop: it took it ('Claimed'), ran the work
+-- inside the work running ('Nested'), queued it behind the thread running
+-- the loop ('Behind'), queued it as a worker, which never waits ('Queued'),
+-- or took the loop for a thread it starts ('Handed').
+data Entry = Claimed | Nested | Behind | Queued | Handed
 
 -- | Have the loop run a piece of work: on this thread and at once when
 -- nobody runs the loop (and then whatever is queued meanwhile), otherwise
--- after what is queued already. Never waits.
+-- after what is queued already. Never waits (unlike 'enterCallback' on
+-- WebAssembly).
 --
 -- The thread running the loop that enters it again, from inside a piece of
 -- work (an emitter a 'Halogen.Query.HalogenM.liftEffect' notifies, say),
@@ -124,6 +137,17 @@ enter = enterWith False
 -- whenever the loop is inside a synchronous effect ('withinEffect'). (There
 -- is only ever one thread running, and a handler is called either from the
 -- page's own event loop, with no effect under way, or by the effect.)
+--
+-- On WebAssembly the loop can also be held by a thread that is runnable
+-- but not running: the scheduler hands the page back after a slice of
+-- time with threads still runnable, and runs them again in a later task
+-- (a callback the page makes, likewise, returns with the threads it woke
+-- still runnable), so a long render can be cut in two with an event
+-- dispatched in between.
+-- Nothing of the loop is on the JavaScript stack under such an event, so
+-- there the handler lets that thread go on ('yield'), inside the dispatch,
+-- until the work it queued has run, and returns only then (see
+-- 'letRunnerFinish').
 enterCallback :: Loop -> IO () -> IO ()
 enterCallback = enterWith browser
   where
@@ -133,12 +157,41 @@ enterCallback = enterWith browser
     browser = False
 #endif
 
+-- | Whether a browser event's handler that finds the loop held by a
+-- runnable thread lets it finish, inside the dispatch. Only on WebAssembly,
+-- where a 'yield' inside a synchronous callback runs the other runnable
+-- threads before the callback returns. On the JavaScript backend a
+-- callback that yields is carried on asynchronously
+-- (@syncCallback1 ContinueAsync@): it would return to the browser at the
+-- first 'yield', its event dispatched, so waiting would gain nothing.
+waitsForRunner :: Bool
+#if defined(wasm32_HOST_ARCH)
+waitsForRunner = True
+#else
+waitsForRunner = False
+#endif
+
 enterWith :: Bool -> Loop -> IO () -> IO ()
-enterWith callback loop@(Loop ref) work = do
+enterWith callback loop@(Loop ref) work0 = do
   me <- myThreadId
+  -- Set once queued work has run (or failed), for a handler that waits for
+  -- it below.
+  ran <- newIORef False
+  let waits = callback && waitsForRunner
+      work = if waits then work0 `finally` writeIORef ran True else work0
+  -- A browser event's handler runs nested in an effect under way only when
+  -- the effect's thread is under it on the stack. Where handlers wait for
+  -- a runnable runner, that thread may instead have been preempted inside
+  -- the effect, between two of the page's tasks; nested, the handler's
+  -- work would run beside the effect, not inside it. There only a runner
+  -- that is not runnable (blocked in the call that dispatched the event)
+  -- is under this thread. Read before the state is changed below: the
+  -- runner cannot change its status without running, and it does not run
+  -- between here and there.
+  under <- if waits then runnerStuck else pure True
   -- Masked from taking the loop to running it: the loop must not be left
   -- taken with nobody to run it.
-  mask $ \restore -> do
+  behind <- mask $ \restore -> do
     entry <- atomicModifyIORef' ref $ \s ->
       if
         -- A worker (a 'liftIO' body that notifies an emitter, say) is
@@ -147,15 +200,65 @@ enterWith callback loop@(Loop ref) work = do
         | Set.member me s.workers ->
             if s.running
               then (s {queue = s.queue |> work}, Queued)
-              else (s {running = True, runner = Nothing}, Handed)
+              else (handing s, Handed)
         | not s.running -> (s {running = True, runner = Just me}, Claimed)
-        | maybe False (sameThread me) s.runner || (callback && s.effects > 0) -> (s, Nested)
-        | otherwise -> (s {queue = s.queue |> work}, Queued)
+        | maybe False (sameThread me) s.runner || (callback && s.effects > 0 && under) -> (s, Nested)
+        | otherwise -> (s {queue = s.queue |> work}, Behind)
     case entry of
-      Claimed -> runLoop loop restore work
-      Nested -> restore work
-      Queued -> pure ()
-      Handed -> handOver loop work
+      Claimed -> False <$ runLoop loop restore work
+      Nested -> False <$ restore work
+      Behind -> pure True
+      Queued -> pure False
+      Handed -> False <$ handOver loop work
+  -- Outside the mask: the work is queued already, so nothing is left
+  -- half-done if this thread is interrupted while it waits, and an
+  -- exception thrown at it (the page's, or a 'killThread') lands at once
+  -- rather than when the wait is over. Masked, a 'yield' would hand over
+  -- just the same, so masking would only delay such an exception.
+  when (behind && waits) $ letRunnerFinish loop ran
+  where
+    -- Whether the thread running the loop is not runnable: blocked in a
+    -- foreign call (the one that dispatched the event being handled, under
+    -- this thread on the stack), or otherwise, or finished. A loop nobody
+    -- runs, or one being handed to a thread not yet forked, has no such
+    -- thread.
+    runnerStuck = do
+      s <- readIORef ref
+      case s.runner of
+        Just r | s.running -> (/= ThreadRunning) <$> threadStatus r
+        _ -> pure False
+
+-- | Yield to the thread running the loop until the work this thread queued
+-- has run, for as long as yielding lets that thread go on.
+--
+-- What the runner is doing decides: if it is runnable ('ThreadRunning') it
+-- was preempted between pieces of the page's work, nothing of it is on the
+-- JavaScript stack, and a 'yield' lets it run on. Blocked
+-- ('BlockedOnForeignCall'), it is the one that made the call that
+-- dispatched this event (a render that focuses an element, say), under
+-- this thread on the stack: it cannot go on until this handler returns.
+-- Blocked otherwise, or finished, it is waiting for something only the
+-- page can bring. In those cases the work stays queued, to run once the
+-- dispatch is over, as before.
+--
+-- The state is read again at every turn: the loop may change hands while
+-- this thread waits. A loop taken with no runner recorded is being handed
+-- to a new thread (between 'disown' and 'handOver'), which is about to be
+-- recorded, so that counts as running.
+letRunnerFinish :: Loop -> IORef Bool -> IO ()
+letRunnerFinish (Loop ref) ran = go
+  where
+    go = do
+      done <- readIORef ran
+      unless done $ do
+        s <- readIORef ref
+        if
+          | not s.running -> pure ()
+          | Just r <- s.runner ->
+              threadStatus r >>= \case
+                ThreadRunning -> yield >> go
+                _ -> pure ()
+          | otherwise -> yield >> go
 
 -- | 'compare', not '==': GHC's JavaScript runtime has the @cmp_thread@ that
 -- 'Ord' 'ThreadId' calls, but not the @eq_thread@ that 'Eq' calls.
@@ -178,21 +281,44 @@ post loop@(Loop ref) work = mask_ $ do
   mine <- atomicModifyIORef' ref $ \s ->
     if s.running
       then (s {queue = s.queue |> work}, False)
-      else (s {running = True, runner = Nothing}, True)
+      else (handing s, True)
   when mine $ handOver loop work
 
 -- | Start a thread to run the loop, which this thread has taken, beginning
 -- with this work. Called masked. If no thread can be started the loop is
 -- given up, with the work back at the front of its queue for whoever
 -- enters next.
+--
+-- The loop is taken for it beforehand, with 'handing'.
+--
+-- The new thread is recorded as the runner twice: here, as soon as it
+-- exists, so that a loop handed over but not yet started shows who holds it
+-- (a browser event's handler on WebAssembly waits for a runnable runner),
+-- and by the thread itself as it starts. The thread may run first, and even
+-- run the loop to its end, before this records it; so this records it only
+-- if no runner is recorded and the loop has not been taken for another
+-- hand-over since, or it could name a finished thread as the runner of
+-- someone else's turn. A record left on a loop nobody runs is harmless:
+-- whoever takes the loop next records itself.
 handOver :: Loop -> IO () -> IO ()
-handOver loop@(Loop ref) work =
-  void (forkIOWithUnmask $ \unmask -> adopt >> runLoop loop unmask work)
-    `onException` atomicModifyIORef' ref (\s -> (s {running = False, runner = Nothing, queue = work <| s.queue}, ()))
+handOver loop@(Loop ref) work = do
+  -- Nobody else can take the loop for a hand-over until this one's thread
+  -- has run it, so this is the count of this hand-over.
+  n <- (.handOvers) <$> readIORef ref
+  t <-
+    forkIOWithUnmask (\unmask -> adopt >> runLoop loop unmask work)
+      `onException` atomicModifyIORef' ref (\s -> (s {running = False, runner = Nothing, queue = work <| s.queue}, ()))
+  atomicModifyIORef' ref $ \s ->
+    if s.handOvers == n && isNothing s.runner then (s {runner = Just t}, ()) else (s, ())
   where
     adopt = do
       me <- myThreadId
       atomicModifyIORef' ref (\s -> (s {runner = Just me}, ()))
+
+-- | Take the loop for a thread that is about to be forked to run it (with
+-- 'handOver'): it is running, by no thread yet.
+handing :: LoopState -> LoopState
+handing s = s {running = True, runner = Nothing, handOvers = s.handOvers + 1}
 
 -- | The next piece of work, or, with none, give the loop up (in the same
 -- step, so that work queued just then is not stranded).
@@ -220,7 +346,7 @@ runLoop loop restore = go
         Right () -> next loop >>= traverse_ go
 
 disown :: Loop -> IO ()
-disown (Loop ref) = atomicModifyIORef' ref (\s -> (s {runner = Nothing}, ()))
+disown (Loop ref) = atomicModifyIORef' ref (\s -> (handing s, ()))
 
 ----------------------------------------------------------------------
 -- Fibers

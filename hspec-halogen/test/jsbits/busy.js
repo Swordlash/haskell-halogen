@@ -15,3 +15,17 @@ function halogen_busy_click_link(n) {
   window.removeEventListener('click', last);
   return prevented === null ? 2 : prevented ? 1 : 0;
 }
+
+// Calls release, which lets the Busy example's waiting action go on and
+// returns once that action's long render has begun, and then, in the same
+// task, clicks link n as halogen_busy_click_link does. Both happen in a
+// task of their own, after the action has started to wait; the promise
+// gives the click's outcome by name.
+function halogen_busy_release_then_click(release, n) {
+  return new Promise((resolve) =>
+    setTimeout(() => {
+      release(null);
+      resolve(['followed', 'prevented', 'stopped', 'missing'][halogen_busy_click_link(n)]);
+    }, 0),
+  );
+}
