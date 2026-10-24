@@ -258,16 +258,22 @@ interval period = makeEmitter $ \tick -> do
     when (self /= thread) (killThread thread)
   where
     step = fromIntegral (max 1 period) * 1_000_000 :: Word64
+    -- Asked before the wait as well as after it: a tick's action that
+    -- unsubscribed (on this thread, which then is not killed) would
+    -- otherwise keep the thread, and the action with it, for one more
+    -- period.
     ticking stopped tick due = do
-      sleepUntil due
       done <- readIORef stopped
       unless done $ do
-        tick ()
-        after <- getMonotonicTimeNSec
-        -- The next tick still to come: those that came due meanwhile are
-        -- skipped.
-        let missed = if after > due then (after - due) `div` step else 0
-        ticking stopped tick (due + step * (1 + missed))
+        sleepUntil due
+        still <- readIORef stopped
+        unless still $ do
+          tick ()
+          after <- getMonotonicTimeNSec
+          -- The next tick still to come: those that came due meanwhile are
+          -- skipped.
+          let missed = if after > due then (after - due) `div` step else 0
+          ticking stopped tick (due + step * (1 + missed))
     -- 'threadDelay' takes an 'Int' of microseconds, which on the 32-bit
     -- browser backends holds about 35 minutes: a longer wait is taken in
     -- pieces, with the clock read again after each, so that an hourly tick
