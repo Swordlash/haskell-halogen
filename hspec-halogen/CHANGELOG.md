@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+* A page action that fails (a click, a key press or a drag the runner could
+  not perform, which Playwright reports when it times out waiting for the
+  element, say) fails the test with a `JSError` from
+  haskell-halogen-jsbits' `Halogen.JSBits.Promise`, which names the error
+  and gives its message, on both browser backends. The actions return a
+  `Promise` that the harness awaits; before, on the JavaScript backend the
+  failure was an `IOError` with the message alone, and on WebAssembly
+  whatever the JavaScript FFI made of the rejection.
+
 * The package's own suite has a `Promised` example: work started in
   `H.liftEffect`, which returns a `Promise` (haskell-halogen-jsbits'
   `Halogen.JSBits.Promise`) kept in the state and awaited by a later

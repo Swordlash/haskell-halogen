@@ -18,14 +18,15 @@ module Halogen.Sound.Browser
 where
 
 import Halogen.JSBits
+import Halogen.JSBits.Promise (Promise (..), await)
 import Halogen.Sound.Backend
 import Protolude
 
--- Natively nothing is fetched (a fetch never calls back) and a voice never
--- ends. 'fetchClip' does not wait there.
+-- Natively nothing is fetched and a voice never ends: 'fetchClip' does not
+-- wait there.
 $( browserJS
      ["jsbits/sound.js"]
-     [ ("js_fetch", "halogen_sound_fetch", Unsafe, [t|JSText -> Callback -> IO ()|])
+     [ ("js_fetch", "halogen_sound_fetch", Unsafe, [t|JSText -> IO Promise|])
      , ("js_release", "halogen_sound_release", Unsafe, [t|JSVal -> IO ()|])
      , ("js_start", "halogen_sound_start", Unsafe, [t|JSVal -> Double -> Bool -> Bool -> Double -> Callback -> Callback -> IO JSVal|])
      , ("js_stop", "halogen_sound_stop", Unsafe, [t|JSVal -> IO ()|])
@@ -57,15 +58,16 @@ newtype Clip = Clip JSVal
 -- its end.
 data Voice = Voice JSVal Callback Callback
 
+-- | Fetch a file into a blob URL, and wait for it. A fetch that fails, for
+-- want of a response or with an error status, is 'Nothing', and what it
+-- failed with goes no further: the player has no use for it, a sound that
+-- cannot be had being one it plays without (see 'Halogen.Sound').
 fetchClip :: Text -> IO (Maybe Clip)
 fetchClip _ | not inBrowser = pure Nothing
-fetchClip url = do
-  result <- newEmptyMVar
-  done <- mkCallback $ \value -> putMVar result (if isNull value then Nothing else Just (Clip value))
-  js_fetch (toJSText url) done
-  clip <- takeMVar result
-  freeCallback done
-  pure clip
+fetchClip url =
+  js_fetch (toJSText url) >>= await <&> \case
+    Right blobUrl -> Just (Clip blobUrl)
+    Left _ -> Nothing
 
 releaseClip :: Clip -> IO ()
 releaseClip (Clip url) = js_release url

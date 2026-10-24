@@ -98,7 +98,7 @@ and wired into `test/Test.hs`.
   On the JS backend the same suites run in Chromium too: `ghcjs-test-wrapper.sh` recognises a
   program that uses hspec-halogen's page functions and hands it to `hspec-halogen test`, which
   bundles `<suite>.jsexe/all.js` with esbuild and loads it; its FFI is
-  `Test.Hspec.Halogen.Internal.Page` (`interruptible` imports for the async calls). Both
+  `Test.Hspec.Halogen.Internal.Page` (bindings returning a `Promise` for the async calls). Both
   browser suites therefore also test core's JS-backend DOM code (`core/jsbits/monad_dom.js`).
   Natively `hspec-halogen` builds (its page functions do nothing, see
   `Test.Hspec.Halogen.Internal.Page`) so suites type-check for HLS; there `runBrowserTests`
@@ -108,10 +108,11 @@ and wired into `test/Test.hs`.
   so every JS program linking core has them, test suites included. `POLYFILLS.md` lists each one
   with where its real fix belongs upstream; add a polyfill there, not in a package's own jsbits.
 - Two wasm facts the harness depends on: an async (`safe`) JSFFI import returns a *thunk*, and the
-  calling thread only waits for the promise when it is forced, so an `IO ()` import must be forced
-  (`evaluate`) or the test runs on while the page still acts. And a JS→Haskell callback is not run
-  on the spot: the glue schedules the RTS scheduler loop as a task (`scheduler.postTask` in
-  Chromium), which is why every harness action ends with `settle`.
+  calling thread only waits for the promise when it is forced. `Halogen.JSBits.Promise.await` is
+  where a binding's wait is forced (its own are the only `safe` bindings), so the harness's page
+  actions return a `Promise` and await it, and the test does not run on while the page still acts.
+  And a JS→Haskell callback is not run on the spot: the glue schedules the RTS scheduler loop as a
+  task (`scheduler.postTask` in Chromium), which is why every harness action ends with `settle`.
 - `toolchain/test-gallery.mjs` tests the deployed artefact rather than a component: it serves the built
   `dist-newstyle/wasm/public/all` and checks that each route mounts its example and unmounts the
   previous one, through clicks, back, forward and a reload. It runs in CI and gates the Pages deploy;

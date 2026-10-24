@@ -1,11 +1,22 @@
 // The browser backend of haskell-halogen-sound: linked by the JavaScript
 // backend, embedded into the JSFFI module by the wasm one (Halogen.JSBits).
 
-function halogen_sound_fetch(url, done) {
-  fetch(url, { priority: "low" })
-    .then(function (r) { return r.ok ? r.blob() : null; })
-    .then(function (b) { done(b ? URL.createObjectURL(b) : null); })
-    .catch(function () { done(null); });
+// Fetch a file whole and return the promise of a blob URL for it. A
+// response with an error status is a rejection too, as is a fetch that gets
+// no response at all: either way there is no clip. The rejection is handled
+// here as well as returned, so that a fetch nobody waits for any more is not
+// reported as unhandled; whoever awaits the promise still gets it.
+function halogen_sound_fetch(url) {
+  var clip = fetch(url, { priority: "low" })
+    .then(function (r) {
+      if (r.ok) return r.blob();
+      var e = new Error(r.status + " " + r.statusText + " for " + url);
+      e.name = "HTTPError";
+      return Promise.reject(e);
+    })
+    .then(function (b) { return URL.createObjectURL(b); });
+  clip.catch(function () {});
+  return clip;
 }
 
 function halogen_sound_release(url) { URL.revokeObjectURL(url); }
