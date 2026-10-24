@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Halogen playground</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #ffffff;
+        --fg: #1a1a1a;
+        --muted: #666666;
+        --panel: #f4f4f5;
+        --border: #d4d4d8;
+        --error: #b91c1c;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #111113;
+          --fg: #e4e4e7;
+          --muted: #a1a1aa;
+          --panel: #1c1c20;
+          --border: #3f3f46;
+          --error: #fca5a5;
+        }
+      }
+      body {
+        margin: 0;
+        padding: 16px;
+        background: var(--bg);
+        color: var(--fg);
+        font: 15px/1.4 system-ui, sans-serif;
+      }
+      main {
+        display: grid;
+        gap: 12px;
+        max-width: 1100px;
+        margin: 0 auto;
+      }
+      @media (min-width: 860px) {
+        main {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+      h1 {
+        font-size: 1.2rem;
+        margin: 0 0 8px;
+      }
+      textarea,
+      input,
+      pre {
+        box-sizing: border-box;
+        width: 100%;
+        background: var(--panel);
+        color: var(--fg);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 8px;
+        font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace;
+      }
+      textarea {
+        height: 60vh;
+        resize: vertical;
+      }
+      pre {
+        min-height: 2.5em;
+        margin: 0;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .controls {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+      button {
+        font: inherit;
+        padding: 4px 14px;
+      }
+      .label {
+        color: var(--muted);
+        font-size: 0.85rem;
+        margin: 10px 0 4px;
+      }
+      #stderr {
+        color: var(--error);
+      }
+      #app {
+        min-height: 2.5em;
+        padding: 8px;
+        border: 1px dashed var(--border);
+        border-radius: 6px;
+      }
+    </style>
+    <script type="module" src="./index.js"></script>
+  </head>
+  <body>
+    <main>
+      <section>
+        <h1>Halogen playground</h1>
+        <div class="controls">
+          <input id="ghcArgs" type="text" aria-label="GHC arguments" spellcheck="false" />
+          <button id="run" disabled>Run</button>
+        </div>
+        <textarea id="source" aria-label="Main.hs" spellcheck="false"></textarea>
+      </section>
+      <section>
+        <div class="label">Status</div>
+        <pre id="status">Loading…</pre>
+        <div class="label">#app</div>
+        <div id="app"></div>
+        <div class="label">stdout</div>
+        <pre id="stdout"></pre>
+        <div class="label">stderr</div>
+        <pre id="stderr"></pre>
+        <div class="label">Timings</div>
+        <pre id="timings"></pre>
+      </section>
+    </main>
+  </body>
+</html>

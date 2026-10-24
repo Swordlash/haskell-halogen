@@ -16,7 +16,8 @@ effects: a player over an abstract backend, and a browser backend), `hspec-halog
 (an hspec harness that tests components in a real browser), `th` (`haskell-halogen-th`: the `hh`
 and `clay` quasi-quoters, HTML and CSS with Haskell inside, parsed by ghc-lib-parser), and
 `examples/*` (one browser app each, plus `examples/all`, the gallery that mounts the others and is what
-Pages deploys). `hooks`, `router`, `net` (for `Halogen.Subscription`), `material`, `pixi`, `hspec-halogen` and `th` depend only on `core`; `tauri` on `core` (for `Halogen.Subscription`'s emitters) and `jsbits`; `sound` depends on none of them, only on `jsbits`. Everything builds from the root
+Pages deploys). `learn/` is no package: it is GHC itself running in a page, compiling and mounting a
+component the reader wrote (the proof for an in-browser tutorial; its `README.md` has the measurements). `hooks`, `router`, `net` (for `Halogen.Subscription`), `material`, `pixi`, `hspec-halogen` and `th` depend only on `core`; `tauri` on `core` (for `Halogen.Subscription`'s emitters) and `jsbits`; `sound` depends on none of them, only on `jsbits`. Everything builds from the root
 `cabal.project`, so a `core` change is type-checked against every dependent and example.
 
 Every package is compiled for three targets: native GHC, the GHC JavaScript backend, and GHC
@@ -35,6 +36,8 @@ npm run test                    # toolchain/run-tests.sh — all three in sequen
 npm run serve-wasm -- <example> # build one example to wasm and serve it on :8080
 npm run build-wasm-all          # every example, wasm-opt'd; Pages deploys only public/all
 npm run test-gallery            # the built `all` gallery in headless Chromium (Playwright)
+npm run build-learn             # learn/'s page and the rootfs GHC runs on, into dist-newstyle/wasm/learn
+npm run test-learn              # that page in headless Chromium: compile, mount and click a counter
 npm run build-js                # JS backend: build all, bundle the material example into dist/
 npm run dev -- <example>        # an example in browser GHCi, reloaded and rerun on save
 npm run dev-test -- <package>   # a package's browser test suite in browser GHCi, rerun on save
