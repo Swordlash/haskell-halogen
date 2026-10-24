@@ -17,6 +17,7 @@ module Halogen.Net.Internal
   )
 where
 
+import Control.Exception (onException)
 import Control.Monad (join, unless, when)
 import Data.Foldable (traverse_)
 import Data.IORef (IORef, atomicModifyIORef', newIORef)
@@ -79,6 +80,11 @@ give backlog a = do
 -- second hand-over started from inside the first would deliver the rest of
 -- the queue ahead of the value the first is in the middle of. The later
 -- subscriber is registered and hears the rest from the hand-over under way.
+--
+-- A hand-over that a handler's exception cuts short gives the backlog back
+-- (what was still to come is kept again, for the next subscriber to be
+-- handed) and takes the subscription away, since its subscriber never gets
+-- the means to; the exception then goes on to whoever subscribed.
 backlogEmitter :: Backlog a -> HS.Emitter IO a
 backlogEmitter backlog = HS.Emitter $ \handler -> do
   subscription <- backlog.channel.emitter.registerHandler handler
@@ -89,7 +95,12 @@ backlogEmitter backlog = HS.Emitter $ \handler -> do
         HandingOver (a :<| rest) -> (HandingOver rest, HS.notify backlog.channel.listener a >> drain)
         HandingOver Empty -> (Live, pure ())
         other -> (other, pure ())
-  when first drain
+      giveBack = do
+        HS.unsubscribe subscription
+        atomicModifyIORef' backlog.kept $ \case
+          HandingOver rest -> (Keeping rest, ())
+          other -> (other, ())
+  when first (drain `onException` giveBack)
   pure subscription
 
 -- | The callbacks a connection hands the browser, to free together once the

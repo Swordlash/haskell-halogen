@@ -6,6 +6,7 @@ module Test.WebSocket (spec) where
 
 import Control.Applicative ((<|>))
 import Control.Concurrent (threadDelay)
+import Control.Exception (IOException, throwIO, try)
 import Control.Monad (void, when)
 import Data.ByteString qualified as ByteString
 import Data.IORef (atomicModifyIORef', newIORef, readIORef)
@@ -115,6 +116,27 @@ spec = do
           $ HS.subscribe (WS.messages socket) (\n -> atomicModifyIORef' inner (\ns -> (ns <> [n], ())))
       readIORef outer `shouldReturn` [WS.TextMessage "first", WS.TextMessage "second", WS.TextMessage "third"]
       readIORef inner `shouldReturn` [WS.TextMessage "second", WS.TextMessage "third"]
+
+    it "is kept for the next subscriber when a handler throws while it is handed over" $ do
+      socket <- opened' "ws://double/thrown" []
+      accept "thrown" ""
+      serverSends "thrown" (WS.TextMessage "first")
+      serverSends "thrown" (WS.TextMessage "second")
+      waitUntil "the socket opens" ((== WS.Open) <$> WS.readyState socket)
+      threadDelay 100_000
+      -- A handler that throws on the first message ends the hand-over; the
+      -- rest is kept for the next subscriber, and the one that threw hears
+      -- nothing more.
+      thrown <- newIORef []
+      result <- try $ HS.subscribe (WS.messages socket) $ \m -> do
+        atomicModifyIORef' thrown (\ms -> (ms <> [m], ()))
+        throwIO (userError "a handler that fails")
+      either (\e -> show (e :: IOException) `shouldContain` "a handler that fails") (const (expectationFailure "the exception was swallowed")) result
+      (heard, _) <- listen (WS.messages socket)
+      heard `shouldReturn` [WS.TextMessage "second"]
+      serverSends "thrown" (WS.TextMessage "third")
+      waitUntil "the third message arrives" ((== [WS.TextMessage "second", WS.TextMessage "third"]) <$> heard)
+      readIORef thrown `shouldReturn` [WS.TextMessage "first"]
 
     it "no longer reaches a subscriber that unsubscribed" $ do
       socket <- opened' "ws://double/unsubscribed" []
