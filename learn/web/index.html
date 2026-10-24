@@ -77,6 +77,16 @@
         font: inherit;
         padding: 4px 14px;
       }
+      .layers {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 8px;
+      }
+      .layers .label {
+        margin: 0;
+      }
       .label {
         color: var(--muted);
         font-size: 0.85rem;
@@ -102,6 +112,7 @@
           <input id="ghcArgs" type="text" aria-label="GHC arguments" spellcheck="false" />
           <button id="run" disabled>Run</button>
         </div>
+        <div class="layers" id="layers" aria-label="Layers"><span class="label">Layers:</span></div>
         <textarea id="source" aria-label="Main.hs" spellcheck="false"></textarea>
       </section>
       <section>

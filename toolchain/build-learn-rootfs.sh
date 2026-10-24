@@ -14,12 +14,19 @@
 #                      /tmp/hslib/lib         GHC's libdir: settings, the global
 #                                             package DB, every boot library's .so
 #                                             and .dyn_hi, and the base layer's
-#   layers/<name>.tar.zst   further layers, if LEARN_LAYERS asks for any
-#   rootfs.json      what the page hands to dyld and GHC: the paths in the
-#                    archive and the layers' package DBs
+#   layers/<name>.tar.zst   further layers (LEARN_LAYERS), each with its
+#                    package DB, and layers/<name>/ the files a layer's
+#                    packages need on the page (material's CSS and JavaScript)
+#   rootfs.json      the manifest: what the page hands to dyld and GHC (the
+#                    paths in the archive), and every archive's parts, sizes,
+#                    package DB and assets (see learn/README.md for each field)
 #   dyld.mjs, post-link.mjs, prelude.mjs   GHC's wasm dynamic linker, from the libdir
 #   bsdtar.wasm      libarchive's bsdtar, which the page extracts the archives with
 #   index.html, index.js                   learn/web/
+#
+# An archive larger than LEARN_PART_MB is served as parts (<archive>.00,
+# .01, ...), which the page fetches and joins before extracting, so that no
+# file is over Pages' limit.
 #
 # The base layer is haskell-halogen-jsbits, haskell-halogen-core and every
 # library they need that GHC does not ship (BASE_LAYER below), taken from the
@@ -32,8 +39,16 @@
 # A further layer is an archive of its own, extracted on top of the base one,
 # with a package DB of its own (/tmp/hslib/layers/<name>/package.conf.d, its
 # package.cache built here), which the page passes to GHC with -package-db: it
-# holds what the layer's packages need that the layers below it do not. See
+# holds what the layer's packages need that the base layer does not. A layer
+# stands on the base layer alone, never on another layer, so that a page can
+# load any of them, in any order; a library two layers need belongs in the
+# base layer, and the build stops if two layers would both carry one. See
 # learn/README.md for why a DB of its own rather than the global one.
+#
+# The boot libraries are trimmed to what a reader's program and GHC itself
+# use (BOOT_TRIM below), and the ghc package, whose interfaces only a program
+# importing the GHC API reads, is hidden and its interfaces left out, unless
+# LEARN_GHC_API=1. Its library stays: the playground is linked with it.
 #
 # This follows GHC's own browser playground (its testsuite's
 # ghc-api-browser/playground001.sh) and try-miso's build-root.sh.
@@ -42,9 +57,15 @@
 #   ZSTD_CLEVEL    zstd level for the archives (default 19, as for a release;
 #                  3 packs in seconds, for trying things out)
 #   LEARN_LAYERS   further layers, as name=package,package... separated by
-#                  spaces, each on top of those before it (default
-#                  'hooks=haskell-halogen-hooks'; empty for none), for example
+#                  spaces (default: DEFAULT_LAYERS below, every package of
+#                  this project a lesson can use; empty for none), for example
 #                  LEARN_LAYERS='hooks=haskell-halogen-hooks router=haskell-halogen-router'
+#   LEARN_PART_MB  the largest file served, in MB (default 95, under the
+#                  100 MB a file on GitHub may have); a larger archive is
+#                  split into parts of this size
+#   LEARN_GHC_API  when set to 1, keep the ghc package exposed, with its
+#                  interfaces (32 MB, 8 MB compressed), for programs that
+#                  import the GHC API
 #   WASM_SO_OPT    when set, wasm-opt flags the layers' .so are run through,
 #                  as GHC's own build does its libraries' (see learn/README.md
 #                  for what that gains)
@@ -69,12 +90,27 @@ case ${1-} in
     ;;
 esac
 level=${ZSTD_CLEVEL:-19}
-# One further layer by default, so that the page (and test-learn) show a layer
-# working: haskell-halogen-hooks.
-layers=${LEARN_LAYERS-hooks=haskell-halogen-hooks}
+part_bytes=$((${LEARN_PART_MB:-95} * 1000000))
 
 # The roots of the base layer; the rest of it is their dependencies' closure.
 BASE_LAYER="haskell-halogen-jsbits haskell-halogen-core"
+# Every package of this project a lesson can use, a layer each. Each holds
+# its package and what that needs beyond the base layer: hooks, router, net
+# and pixi only themselves; material also clock and extra; th also
+# ghc-lib-parser (as big as GHC's own library) and the parsers it uses, which
+# is why it is a layer of its own that only a lesson about quasi-quotes loads.
+# sound and tauri are not here: a lesson has no sound to play nor a Tauri to
+# talk to.
+DEFAULT_LAYERS="hooks=haskell-halogen-hooks router=haskell-halogen-router net=haskell-halogen-net material=haskell-halogen-material pixi=haskell-halogen-pixi th=haskell-halogen-th"
+layers=${LEARN_LAYERS-$DEFAULT_LAYERS}
+# Boot packages that neither GHC (the closure of ghc, ghci, ghc-boot,
+# template-haskell, hpc and ghc-heap) nor any package above depends on, so no
+# reader's program can use them either: Cabal is a sixth of the libdir, and
+# the rest are haddock's, GHCi's line editor, the toolchain configurator,
+# compact regions and the two compatibility shims for bignum. ghc-pkg refuses
+# to unregister one that a package left depends on, and ghc-pkg check runs on
+# the result. (ghc-platform looks as unused, but ghc-boot depends on it.)
+BOOT_TRIM="Cabal Cabal-syntax haddock-api haddock-library xhtml haskeline ghc-toolchain ghc-compact integer-gmp ghc-bignum"
 
 build_dir=dist-newstyle/wasm
 wasm_ghc=$(command -v wasm32-wasi-ghc)
@@ -144,8 +180,7 @@ find "$stage/tmp/clib" -type d -empty -delete
 rm -f "$stage/tmp/clib/libsetjmp.so" "$stage/tmp/clib"/libwasi-emulated-*.so
 
 # 4. /tmp/hslib/lib: the libdir, trimmed to what a dynamic, non-profiled
-# compiler reads. Cabal and Cabal-syntax are a sixth of it, and no program
-# here needs them.
+# compiler reads, and to the boot packages something uses (BOOT_TRIM).
 step "/tmp/hslib/lib"
 hslib=$stage/tmp/hslib/lib
 mkdir -p "$stage/tmp/hslib"
@@ -153,7 +188,6 @@ cp -RL "$libdir" "$hslib"
 chmod -R u+w "$hslib"
 global_db=$hslib/package.conf.d
 pkg() { "$wasm_ghc_pkg" --no-user-package-db --global-package-db="$global_db" "$@"; }
-pkg unregister Cabal Cabal-syntax
 find "$hslib" '(' \
   -name '*.hi' \
   -o -name '*.a' \
@@ -164,14 +198,63 @@ find "$hslib" '(' \
   -o -name 'libHSrts*_debug*.so' \
   -o -name '*.conf.copy' \
   ')' -delete
-rm -rf "$hslib/doc" "$hslib/html" "$hslib/latex" "$hslib"/*.mjs "$hslib"/*.js "$hslib"/*.txt
+rm -rf "${hslib:?}/doc" "${hslib:?}/html" "${hslib:?}/latex" "${hslib:?}"/*.mjs "${hslib:?}"/*.js "${hslib:?}"/*.txt
 # The one directory with every libHS*.so in it (the boot packages'
 # dynamic-library-dirs), with a directory of interfaces per unit beside them.
 searchdir=$(find "$hslib" -type f -name 'libHSbase-*.so' -exec dirname {} \; | head -n 1)
 [ -n "$searchdir" ] || { printf 'No libHSbase .so in %s\n' "$hslib" >&2; exit 1; }
-# What is left of Cabal and Cabal-syntax once unregistered: their .so and
-# their interfaces.
-rm -rf "$searchdir"/*Cabal*
+size() { if [ $# -eq 0 ]; then echo 0; else du -cb "$@" 2>/dev/null | tail -n 1 | cut -f1; fi; }
+mb() { awk -v b="$1" 'BEGIN { printf "%8.2f MB", b / 1e6 }'; }
+# shellcheck disable=SC2086
+trim_ids=$(for p in $BOOT_TRIM; do pkg field "$p" id --simple-output; done)
+# shellcheck disable=SC2086
+pkg unregister $BOOT_TRIM
+for id in $trim_ids; do
+  printf '%s\n' "$searchdir/$id" "$searchdir/libHS$id-ghc${compiler_id#ghc-}.so"
+done >"$work/trimmed.txt"
+# shellcheck disable=SC2046
+printf '    unregistered and deleted %s: %s\n' "$BOOT_TRIM" "$(mb "$(size $(cat "$work/trimmed.txt"))")"
+while read -r path; do rm -rf "${path:?}"; done <"$work/trimmed.txt"
+# The documentation is gone, so the boot packages' .conf no longer name it
+# (ghc-pkg check would warn about every one). Unless LEARN_GHC_API=1, ghc is
+# hidden and its interfaces left out, and its .conf no longer lists the
+# modules it has no interfaces for, so that ghc-pkg check holds and
+# -package ghc says there is no such module rather than failing on a missing
+# interface. Only its library is used, by libplayground.so, which dyld loads
+# by its file name.
+ghc_id=$(pkg field ghc id --simple-output)
+if [ "${LEARN_GHC_API-}" != 1 ]; then
+  printf '    hid ghc and left out its interfaces: %s\n' \
+    "$(mb "$(find "$searchdir/$ghc_id" -name '*.dyn_hi' -printf '%s\n' | awk '{ s += $1 } END { print s + 0 }')")"
+  find "$searchdir/$ghc_id" -name '*.dyn_hi' -delete
+  find "$searchdir/$ghc_id" -mindepth 1 -type d -empty -delete
+  hide=$ghc_id
+else
+  hide=
+fi
+python3 -I - "$global_db" "$hide" <<'PY'
+import glob
+import os
+import re
+import sys
+
+db, hide = sys.argv[1:]
+
+
+def strip(text, field):
+    return re.sub(rf"(?m)^{field}:.*(\n[ \t].*)*\n?", "", text)
+
+
+for path in glob.glob(os.path.join(db, "*.conf")):
+    text = open(path, encoding="utf-8").read()
+    text = strip(strip(text, "haddock-interfaces"), "haddock-html")
+    if hide and os.path.basename(path) == hide + ".conf":
+        text = strip(strip(text, "exposed-modules"), "hidden-modules")
+        text = re.sub(r"(?m)^exposed:.*$", "exposed: False", text)
+    open(path, "w", encoding="utf-8").write(text)
+PY
+pkg recache
+pkg check
 
 inject() {
   python3 -I toolchain/learn-inject.py --ghc-version "${compiler_id#ghc-}" \
@@ -188,22 +271,18 @@ pkg check
 pkg describe haskell-halogen-core >/dev/null
 
 # 6. Further layers, each in a package DB of its own beside the libdir, on top
-# of the global DB and the layers before it.
-present="--present $global_db"
-stack=""
+# of the global DB alone: what an earlier layer has, this one may not need.
+taken=""
 for layer in $layers; do
   name=$(layer_name "$layer")
   root=$stage/tmp/hslib/layers/$name
   step "layer $name: $(layer_packages "$layer")"
   # shellcheck disable=SC2046,SC2086
   inject --db "$root/package.conf.d" --so-dir "$root/lib" --hi-dir "$root" \
-    $present --listing "$work/$name.txt" $(layer_packages "$layer")
-  stack="$stack --package-db=$root/package.conf.d"
-  # shellcheck disable=SC2086
-  pkg $stack recache
-  # shellcheck disable=SC2086
-  pkg $stack check
-  present="$present --present $root/package.conf.d"
+    --present "$global_db" $taken --listing "$work/$name.txt" $(layer_packages "$layer")
+  pkg --package-db="$root/package.conf.d" recache
+  pkg --package-db="$root/package.conf.d" check
+  taken="$taken --taken $root/package.conf.d"
 done
 
 # 7. Optionally, wasm-opt the layers' .so, as GHC's own build does its
@@ -271,40 +350,148 @@ if [ -n "$bsdtar_sha256" ]; then
 fi
 cp "$bsdtar_cache" "$out/bsdtar.wasm"
 
+# What a layer's packages need on the page besides their libraries: their
+# JavaScript and CSS (layers/<name>/), and what they load from elsewhere at
+# run time. Material's components call the functions material/jsbits/material.js
+# puts on globalThis, which imports the @material npm packages and so is not
+# embedded in the library through browserJS as other packages' jsbits are:
+# the page loads it, bundled as examples/material/bundle.sh bundles it for the
+# example, with the components' CSS. Pixi loads PixiJS from a CDN itself.
+# Nothing else does: every other package's JavaScript is in its library.
 in_rootfs() { printf '/%s' "${1#"$stage/"}"; }
-layers_json=""
+manifest=$work/manifest.txt
+: >"$manifest"
 for layer in $layers; do
   name=$(layer_name "$layer")
-  layers_json="$layers_json${layers_json:+,}
-    { \"name\": \"$name\", \"archive\": \"layers/$name.tar.zst\", \"packageDb\": \"$(in_rootfs "$stage/tmp/hslib/layers/$name/package.conf.d")\" }"
+  {
+    printf 'layer %s\n' "$name"
+    printf 'packages %s\n' "$(layer_packages "$layer")"
+    printf 'db %s\n' "$(in_rootfs "$stage/tmp/hslib/layers/$name/package.conf.d")"
+    printf 'listing %s\n' "$work/$name.txt"
+    printf 'tree %s\n' "$work/layers/$name"
+  } >>"$manifest"
+  for p in $(layer_packages "$layer"); do
+    case $p in
+      haskell-halogen-material)
+        step "layer $name: material.js and material.css"
+        if [ ! -x node_modules/.bin/esbuild ] || [ ! -x node_modules/.bin/sass ]; then
+          printf 'No esbuild or sass in node_modules: run npm ci first.\n' >&2
+          exit 1
+        fi
+        sh examples/material/bundle.sh "$out/layers/$name"
+        printf 'asset script layers/%s/material.js\n' "$name" >>"$manifest"
+        printf 'asset stylesheet layers/%s/material.css\n' "$name" >>"$manifest"
+        font=$(sed -n 's/.*src: url(\(https:[^)]*\)).*/\1/p' examples/material/style.scss | head -n 1)
+        if [ -n "$font" ]; then
+          printf 'external %s the Material Icons font, which material.css names\n' "$font" >>"$manifest"
+        fi
+        ;;
+      haskell-halogen-pixi)
+        cdn=$(sed -n 's/.*moduleUrl = "\(https:[^"]*\)".*/\1/p' pixi/src/Halogen/Canvas/Pixi.hs | head -n 1)
+        if [ -z "$cdn" ]; then
+          printf 'No default moduleUrl in pixi/src/Halogen/Canvas/Pixi.hs\n' >&2
+          exit 1
+        fi
+        printf 'external %s PixiJS, which Halogen.Canvas.Pixi.defaultConfig imports when a canvas mounts\n' "$cdn" >>"$manifest"
+        ;;
+    esac
+  done
 done
-cat >"$out/rootfs.json" <<EOF
-{
-  "ghc": "$compiler_id",
-  "libdir": "/tmp/hslib/lib",
-  "searchDirs": ["/tmp/clib", "$(in_rootfs "$searchdir")"],
-  "mainSoPath": "/tmp/libplayground.so",
-  "layers": [$layers_json${layers_json:+
-  }]
-}
-EOF
 
-# 9. The archives: the layers', then the base one without them.
+# 9. The archives: the layers', then the base one without them, each split
+# into parts if it is larger than a file served may be.
 step "archives (zstd -$level)"
 pack() { ZSTD_CLEVEL=$level ZSTD_NBTHREADS=0 tar -C "$stage" --zstd -cf "$@"; }
+split_large() {
+  if [ "$(size "$1")" -gt "$part_bytes" ]; then
+    split -d -a 2 -b "$part_bytes" "$1" "$1."
+    rm "$1"
+    printf '    split %s into %s parts\n' "${1#"$out/"}" "$(find "$(dirname "$1")" -name "$(basename "$1").??" | wc -l)"
+  fi
+}
 for layer in $layers; do
   name=$(layer_name "$layer")
   mkdir -p "$out/layers"
   pack "$out/layers/$name.tar.zst" "tmp/hslib/layers/$name"
+  split_large "$out/layers/$name.tar.zst"
 done
 if [ -n "$layers" ]; then
   mv "$stage/tmp/hslib/layers" "$work/layers"
 fi
 pack "$out/rootfs.tar.zst" tmp
+split_large "$out/rootfs.tar.zst"
+
+# The manifest, rootfs.json (learn/README.md describes every field).
+python3 -I - "$out" "$manifest" "$work/base.txt" "$stage/tmp" "$compiler_id" "$(in_rootfs "$searchdir")" "$BASE_LAYER" <<'PY'
+import glob
+import json
+import os
+import sys
+
+out, manifest, base_listing, tree, ghc, searchdir, base_packages = sys.argv[1:]
+
+
+def tree_size(path):
+    return sum(os.path.getsize(os.path.join(d, f)) for d, _, files in os.walk(path) for f in files)
+
+
+def archive(path):
+    whole = os.path.join(out, path)
+    files = [whole] if os.path.exists(whole) else sorted(glob.glob(whole + ".[0-9][0-9]"))
+    if not files:
+        sys.exit(f"no {path} in {out}")
+    parts = [{"path": os.path.relpath(f, out), "size": os.path.getsize(f)} for f in files]
+    return {"archive": path, "parts": parts, "compressedSize": sum(p["size"] for p in parts)}
+
+
+def unit_ids(listing):
+    return [line.split()[1] for line in open(listing, encoding="utf-8") if line.startswith("unit ")]
+
+
+rootfs = {
+    **archive("rootfs.tar.zst"),
+    "size": tree_size(tree),
+    "packages": base_packages.split(),
+    "units": unit_ids(base_listing),
+}
+layers, layer = [], None
+for line in open(manifest, encoding="utf-8"):
+    key, _, value = line.rstrip("\n").partition(" ")
+    if key == "layer":
+        layer = {"name": value, "assets": [], "external": []}
+        layers.append(layer)
+    elif key == "packages":
+        layer["packages"] = value.split()
+    elif key == "db":
+        layer["packageDb"] = value
+    elif key == "listing":
+        layer["units"] = unit_ids(value)
+    elif key == "tree":
+        layer["size"] = tree_size(value)
+    elif key == "asset":
+        kind, path = value.split(" ", 1)
+        layer["assets"].append({"kind": kind, "path": path, "size": os.path.getsize(os.path.join(out, path))})
+    elif key == "external":
+        url, what = value.split(" ", 1)
+        layer["external"].append({"url": url, "what": what})
+for layer in layers:
+    layer.update(archive(f"layers/{layer['name']}.tar.zst"))
+# The fields the first page read come first (name, archive, packageDb).
+order = ["name", "archive", "packageDb", "packages", "units", "parts", "size", "compressedSize", "assets", "external"]
+config = {
+    "ghc": ghc,
+    "libdir": "/tmp/hslib/lib",
+    "searchDirs": ["/tmp/clib", searchdir],
+    "mainSoPath": "/tmp/libplayground.so",
+    "rootfs": rootfs,
+    "layers": [{k: layer[k] for k in order} for layer in layers],
+}
+with open(os.path.join(out, "rootfs.json"), "w", encoding="utf-8") as f:
+    json.dump(config, f, indent=2)
+    f.write("\n")
+PY
 
 # Sizes, uncompressed, by part.
-size() { du -cb "$@" 2>/dev/null | tail -n 1 | cut -f1; }
-mb() { awk -v b="$1" 'BEGIN { printf "%8.2f MB", b / 1e6 }'; }
 part() {
   # part <label> <files...>
   label=$1
@@ -333,12 +520,30 @@ step "sizes"
   part "rest of libdir" $(find "$hslib" -type f ! -name '*.so' ! -name '*.dyn_hi')
 }
 printf '  %-28s %s\n' "rootfs, uncompressed" "$(mb "$(size "$stage/tmp")")"
-printf '  %-28s %s\n' "rootfs.tar.zst" "$(mb "$(size "$out/rootfs.tar.zst")")"
-for layer in $layers; do
-  name=$(layer_name "$layer")
-  printf '  %-28s %s, %s uncompressed\n' "layers/$name.tar.zst" \
-    "$(mb "$(size "$out/layers/$name.tar.zst")")" "$(mb "$(size "$work/layers/$name")")"
-done
+python3 -I - "$out/rootfs.json" <<'PY'
+import json
+import sys
+
+config = json.load(open(sys.argv[1], encoding="utf-8"))
+
+
+def mb(n):
+    return f"{n / 1e6:8.2f} MB"
+
+
+r = config["rootfs"]
+print(f"  {'rootfs.tar.zst':28} {mb(r['compressedSize'])} in {len(r['parts'])} file(s)")
+print(f"  {'layer':10} {'units':>5} {'uncompressed':>12} {'compressed':>12} {'files':>5}  assets")
+for layer in config["layers"]:
+    assets = ", ".join(a["path"] for a in layer["assets"]) or "-"
+    external = f"; loads {', '.join(e['url'] for e in layer['external'])}" if layer["external"] else ""
+    print(
+        f"  {layer['name']:10} {len(layer['units']):5} {mb(layer['size'])} {mb(layer['compressedSize'])}"
+        f" {len(layer['parts']):5}  {assets}{external}"
+    )
+layers = sum(layer["compressedSize"] + sum(a["size"] for a in layer["assets"]) for layer in config["layers"])
+print(f"  {'every archive and asset':28} {mb(r['compressedSize'] + layers)}")
+PY
 largest=$(find "$out" -type f -printf '%s %p\n' | sort -n | tail -n 1)
 printf '  largest file served: %s (%s)\n' "${largest#* }" "$(mb "${largest%% *}")"
 
