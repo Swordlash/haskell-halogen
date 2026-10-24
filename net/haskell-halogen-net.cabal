@@ -1,0 +1,123 @@
+cabal-version:      3.4
+name:               haskell-halogen-net
+version:            0.1.0.0
+synopsis:           The browser's fetch for haskell-halogen
+description:
+  "Halogen.Net.Fetch" binds the browser's @fetch@: a request described as a
+  Haskell value, its response's status and headers, and its body read once,
+  as text or as bytes. A rejection (a request that got no response, or was
+  aborted) is a value rather than an exception, and an HTTP error status a
+  response like any other, as in the browser.
+  .
+  @fetch@ waits, for a component's @lift@, and aborts its request when the
+  thread waiting is killed, as a component's worker is when the component
+  goes away. @start@ starts a request without waiting, for @H.liftEffect@,
+  and gives a handle to wait for, or abort, later. Natively there is no
+  engine to make a request, and every request fails with
+  @NotInBrowserError@.
+homepage:           https://github.com/Swordlash/haskell-halogen
+license:            Apache-2.0
+license-file:       LICENSE
+author:             Mateusz Goślinowski
+maintainer:         mateusz.goslinowski@gmail.com
+category:           Web
+build-type:         Simple
+extra-doc-files:    CHANGELOG.md, README.md
+extra-source-files: jsbits/*.js, test/jsbits/*.js, test/web/*.js, test/web/*.txt, test/web/*.bin
+
+flag interactive
+    description: Build the browser test suite for browser GHCi (toolchain/dev-test.sh)
+    default:     False
+    manual:      True
+
+common defaults
+    default-language: GHC2021
+    ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists -Wunused-packages
+    default-extensions:
+        DataKinds
+        DerivingStrategies
+        DuplicateRecordFields
+        LambdaCase
+        NoFieldSelectors
+        OverloadedRecordDot
+        OverloadedStrings
+        StrictData
+
+library
+    import:           defaults
+    hs-source-dirs:   src
+    exposed-modules:  Halogen.Net.Fetch
+    build-depends:
+        base >= 4.20 && < 5,
+        bytestring,
+        text,
+        haskell-halogen-jsbits
+
+    if arch(javascript)
+        js-sources:   jsbits/fetch.js
+        ghc-options:  -fexpose-all-unfoldings
+
+    if arch(wasm32)
+        ghc-options:  -fexpose-all-unfoldings
+
+-- The requests themselves, in headless Chromium (see hspec-halogen), against
+-- the files in test/web, which the runner serves next to the page. Natively
+-- it only reports that it skipped. First, so that toolchain/dev-test.sh
+-- picks it.
+test-suite Halogen-net-browser-test
+    import:           defaults
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          Browser.hs
+    -- A spec takes the monad its components run in as a type argument.
+    default-extensions: RequiredTypeArguments
+    other-modules:    Test.Component
+                      Test.Fetch
+                      Test.Network
+    build-depends:
+        base,
+        bytestring,
+        hspec,
+        mtl,
+        row-types,
+        text,
+        haskell-halogen-core,
+        haskell-halogen-jsbits,
+        haskell-halogen-net,
+        hspec-halogen
+
+    -- The suite's own view of the network (test/jsbits), declared with
+    -- browserJS as a package's is.
+    if arch(javascript)
+        js-sources:   test/jsbits/network.js
+
+    if arch(wasm32) && !flag(interactive)
+        ghc-options:
+            -no-hs-main
+            -optl-mexec-model=reactor
+            "-optl-Wl,--export=hs_start"
+
+    if flag(interactive)
+        cpp-options:  -DINTERACTIVE
+
+-- What a request is made of, on every backend, and natively what fetching
+-- gives where there is no browser. Core is here only for its JavaScript
+-- polyfills, which hspec needs on the JavaScript backend: see Test.hs.
+test-suite Halogen-net-test
+    import:           defaults
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          Test.hs
+    other-modules:    Test.Request
+    build-depends:
+        base,
+        hspec,
+        text,
+        haskell-halogen-core,
+        haskell-halogen-jsbits,
+        haskell-halogen-net
+
+source-repository head
+  type:     git
+  location: https://github.com/Swordlash/haskell-halogen.git
+  subdir:   net

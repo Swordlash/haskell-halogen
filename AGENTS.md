@@ -6,13 +6,14 @@ This file provides guidance to AI coding agents working with code in this reposi
 
 A port of purescript-halogen to GHC Haskell, as a multi-package cabal project: `core`
 (`haskell-halogen-core`, the port itself), `jsbits` (compile-time shared JavaScript embedding), `hooks` (`purescript-halogen-hooks` port), `router` (`purescript-routing-duplex` port, with the
-browser's history), `material`
+browser's history), `net` (the browser's networking: so far `fetch`, a thin binding on
+`Halogen.JSBits.Promise` that aborts its request when the waiting fiber is killed), `material`
 (Material Components bindings), `pixi` (PixiJS v8 canvas backend), `sound` (music and sound
 effects: a player over an abstract backend, and a browser backend), `hspec-halogen`
 (an hspec harness that tests components in a real browser), `th` (`haskell-halogen-th`: the `hh`
 and `clay` quasi-quoters, HTML and CSS with Haskell inside, parsed by ghc-lib-parser), and
 `examples/*` (one browser app each, plus `examples/all`, the gallery that mounts the others and is what
-Pages deploys). `hooks`, `router`, `material`, `pixi`, `hspec-halogen` and `th` depend only on `core`; `sound` depends on none of them. Everything builds from the root
+Pages deploys). `hooks`, `router`, `material`, `pixi`, `hspec-halogen` and `th` depend only on `core`; `net` and `sound` depend on none of them, only on `jsbits`. Everything builds from the root
 `cabal.project`, so a `core` change is type-checked against every dependent and example.
 
 Every package is compiled for three targets: native GHC, the GHC JavaScript backend, and GHC
@@ -34,14 +35,18 @@ npm run test-gallery            # the built `all` gallery in headless Chromium (
 npm run build-js                # JS backend: build all, bundle the material example into dist/
 npm run dev -- <example>        # an example in browser GHCi, reloaded and rerun on save
 npm run dev-test -- <package>   # a package's browser test suite in browser GHCi, rerun on save
-npm run format                  # fourmolu over core, hooks, router, pixi, hspec-halogen, th, material/test, examples
+npm run format                  # fourmolu over core, hooks, router, net, pixi, hspec-halogen, th, material/test, examples
 ```
 
-`core`, `hooks`, `router` and `sound` have test suites that run under Node (`Halogen-core-test`,
-`Halogen-hooks-test`, `Halogen-router-test`, `Halogen-sound-test`), and `material` and `hspec-halogen` have ones that run in a browser
-(`Halogen-material-test`, `hspec-halogen-test`; on wasm and JS, see below). `hspec-halogen-test` is also
+`core`, `hooks`, `router`, `net` and `sound` have test suites that run under Node (`Halogen-core-test`,
+`Halogen-hooks-test`, `Halogen-router-test`, `Halogen-net-test`, `Halogen-sound-test`), and `material`, `net` and `hspec-halogen` have ones that run in a browser
+(`Halogen-material-test`, `Halogen-net-browser-test`, `hspec-halogen-test`; on wasm and JS, see below).
+`Halogen-net-browser-test` fetches the files in `net/test/web/` from the runner's server, and
+what that server cannot do (a request held until the test lets it go, a body that stops halfway,
+a response echoing its request) from `net/test/web/network-double.js`, which wraps the page's
+`fetch`. `hspec-halogen-test` is also
 the harness's examples, and where core's browser behaviour (events, properties the page changes,
-keyed moves, refs, forks, subscriptions) is tested for real. All are hspec, `main-is: Test.hs` which aggregates `Test.*` specs. Run one suite or one test with hspec's
+keyed moves, refs, forks, subscriptions) is tested for real. All are hspec, `main-is: Test.hs` (net's browser suite: `Browser.hs`) which aggregates `Test.*` specs. Run one suite or one test with hspec's
 `--match`:
 
 ```sh
