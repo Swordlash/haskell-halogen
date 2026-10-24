@@ -98,6 +98,7 @@ test-suite hspec-halogen-test
                       Example.Islands
                       Example.Loader
                       Example.Notebook
+                      Example.Promised
                       Example.Reconcile
                       Example.Todo
                       Test.Agreement
@@ -112,6 +113,7 @@ test-suite hspec-halogen-test
                       Test.IndexedDB
                       Test.Islands
                       Test.LastRun
+                      Test.Promised
                       Test.Reconcile
                       Test.Todo
     ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists -Wunused-packages
@@ -134,12 +136,13 @@ test-suite hspec-halogen-test
         haskell-halogen-router,
         hspec-halogen
 
-    -- The Busy example's click and the Islands example's wait are
-    -- JavaScript of the suite's own (test/jsbits), declared with browserJS
-    -- as a package's is.
+    -- The Busy example's click, the Islands example's wait and the
+    -- Promised example's work are JavaScript of the suite's own
+    -- (test/jsbits), declared with browserJS as a package's is.
     if arch(javascript)
         js-sources: test/jsbits/busy.js
                     test/jsbits/islands.js
+                    test/jsbits/promised.js
 
     if arch(wasm32) && !flag(interactive)
         ghc-options:

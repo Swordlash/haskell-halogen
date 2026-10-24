@@ -23,6 +23,7 @@ import Test.Family qualified
 import Test.Hspec.Halogen (describe, runBrowserTests)
 import Test.Hydrate qualified
 import Test.IndexedDB qualified
+import Test.Promised qualified
 import Test.Reconcile qualified
 import Test.Todo qualified
 
@@ -44,6 +45,7 @@ main = runBrowserTests $ do
   describe "Drag" (Test.Drag.spec BrowserDOM)
   describe "Hydration" (Test.Hydrate.spec BrowserDOM)
   describe "IndexedDB" (Test.IndexedDB.spec BrowserDOM)
+  describe "Promised" (Test.Promised.spec BrowserDOM)
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
   -- These need the browser's DOM ('MonadBrowserDOM'), which 'BrowserDOM'
   -- has only in a browser.
