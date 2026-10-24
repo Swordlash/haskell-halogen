@@ -9,16 +9,18 @@ description: Embed shared browser JavaScript into typed WebAssembly FFI imports.
 license: Apache-2.0
 license-file: LICENSE
 build-type: Simple
-extra-source-files: README.md, CHANGELOG.md, test/fixture.js, test/boundary-a.js, test/boundary-b.js
+extra-source-files: README.md, CHANGELOG.md, jsbits/promise.js, test/fixture.js, test/boundary-a.js, test/boundary-b.js, test/promise.js
 
 library
-  exposed-modules: Halogen.JSBits, Halogen.JSBits.Value
+  exposed-modules: Halogen.JSBits, Halogen.JSBits.Promise, Halogen.JSBits.Value
   hs-source-dirs: src
   default-language: GHC2021
   ghc-options: -Wall -Wextra -Wredundant-constraints -Wunused-packages
   build-depends: base >= 4.20, bytestring, template-haskell, directory, filepath, text
   if arch(wasm32)
     build-depends: ghc-experimental
+  if arch(javascript)
+    js-sources: jsbits/promise.js
 
 test-suite jsbits-test
   type: exitcode-stdio-1.0
@@ -30,6 +32,22 @@ test-suite jsbits-test
     build-depends: base, bytestring, ghc-experimental, haskell-halogen-jsbits
   else
     buildable: False
+
+-- Promise's, on every backend: under Node on both browser backends, and
+-- natively, where there is nothing to await. On WebAssembly it is a reactor
+-- whose test is the async export hs_test, since a command's main cannot wait
+-- for a promise; wasm-test-runner.mjs calls it.
+test-suite jsbits-promise-test
+  type: exitcode-stdio-1.0
+  main-is: Promise.hs
+  hs-source-dirs: test
+  default-language: GHC2021
+  ghc-options: -Wall -Wextra -Wredundant-constraints -Wunused-packages
+  build-depends: base, haskell-halogen-jsbits
+  if arch(javascript)
+    js-sources: test/promise.js
+  if arch(wasm32)
+    ghc-options: -no-hs-main -optl-mexec-model=reactor "-optl-Wl,--export=hs_test"
 
 source-repository head
   type: git

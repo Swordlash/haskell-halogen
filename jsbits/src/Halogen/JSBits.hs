@@ -80,7 +80,10 @@ wasmJS files bindings = do
 -- @js-sources@, each binding imports its JavaScript function by name. A safe
 -- binding there is @interruptible@: it awaits the function's Promise and
 -- throws its rejection as an 'IOError'. It must return @IO ()@, and the module
--- splicing it needs @InterruptibleFFI@.
+-- splicing it needs @InterruptibleFFI@. A binding whose work is awaited later,
+-- or whose result or rejection is wanted, returns a
+-- "Halogen.JSBits.Promise" 'Halogen.JSBits.Promise.Promise' from an 'Unsafe'
+-- binding instead.
 --
 -- Natively, with no engine to call, each binding is 'inert': it does nothing
 -- and returns nothing in particular.

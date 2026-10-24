@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+* The package's own suite has a `Promised` example: work started in
+  `H.liftEffect`, which returns a `Promise` (haskell-halogen-jsbits'
+  `Halogen.JSBits.Promise`) kept in the state and awaited by a later
+  action, and tests that the page keeps rendering clicks while it waits and
+  that a rejection is shown as a value.
+
 * The package's own suite has an `Islands` example: a routing shell over a
   page whose islands wait seconds in their `Initialize`, and tests that the
   components around them go on meanwhile (outputs, queries, links and the

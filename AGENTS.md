@@ -77,6 +77,9 @@ and wired into `test/Test.hs`.
 - `wasm-test-runner.mjs` must `process.exit` as soon as `wasi.start` returns: a JS→Haskell callback
   can leave `rts_schedulerLoop` queued on `setImmediate`, which crashes with "RTS is not initialised"
   if it runs after the RTS has shut down. `toolchain/test-wasm-runner.sh` checks exit codes survive.
+  A command's `main` cannot wait for a promise (it throws `WouldBlockException`), so a Node suite
+  that awaits one (`jsbits-promise-test`) is a reactor exporting `main` as the async export
+  `hs_test`, which the runner calls, awaits, and exits 0 or 1 after.
 - A browser test suite (built with `hspec-halogen`, e.g. material's) is a wasm *reactor* exporting
   `hs_start`, whose `main` is `runBrowserTests spec`. `wasm-test-wrapper.sh` recognises the export
   and hands the binary to the native `hspec-halogen` executable (`hspec-halogen test`, built by
@@ -190,6 +193,9 @@ objects. Sources must ship in `extra-source-files`; `addDependentFile` tracks ed
 Material's shared JS is already bundled with its external npm dependencies.
 On wasm, `foreign import javascript "wrapper"` callbacks run synchronously until
 they block; on JS, `syncCallback1 ContinueAsync` gives the same behaviour.
+A binding that starts asynchronous work returns a `Promise` (`Halogen.JSBits.Promise`)
+from an `Unsafe` import, and the program `await`s it, which gives a rejection back as a value,
+instead of declaring a `Safe` import and forcing its result with `evaluate`.
 
 ### Hooks
 
