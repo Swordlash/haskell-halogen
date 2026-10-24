@@ -77,6 +77,14 @@ var h$realloc = typeof h$realloc === "function" ? h$realloc : function (buffer, 
   return resized;
 };
 
+// `==` on ThreadId: ghc-internal 9.12 asks the RTS's C eq_thread, which the
+// JavaScript runtime has no counterpart of (it has h$cmp_thread, for
+// `compare`). A thread is one object for as long as it lives, and its tid is
+// unique, so that is what is compared; the result is a CBool.
+var h$eq_thread = typeof h$eq_thread === "function" ? h$eq_thread : function (t1, t2) {
+  return t1.tid === t2.tid ? 1 : 0;
+};
+
 // XXH3-64, the with-seed variants, ported from xxHash 0.8.3 (the copy
 // hashable 1.5.1.0 compiles natively), so that a hash is the same 64-bit
 // value on the JavaScript backend as in C. xxHash is Copyright (C) 2012-2023

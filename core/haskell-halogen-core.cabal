@@ -134,6 +134,7 @@ library
       Halogen.Query
       Halogen.Query.ChildQuery
       Halogen.Query.Event
+      Halogen.Query.Event.Window
       Halogen.Query.Input
       Halogen.Query.HalogenM
       Halogen.Query.HalogenQ
@@ -181,6 +182,7 @@ library
       Web.HTML.Event.EventTypes
       Web.HTML.HTMLDocument
       Web.HTML.HTMLDocument.ReadyState
+      Web.HTML.HTMLDocument.VisibilityState
       Web.HTML.Window
       Web.Storage.IndexedDB
       Web.Storage.Serialize
@@ -275,6 +277,7 @@ test-suite Halogen-core-test
                     Test.Storage
                     Test.SvgAttributes
                     Test.Utils
+                    Test.WindowEvents
 
 benchmark render-to-text
     import: defaults

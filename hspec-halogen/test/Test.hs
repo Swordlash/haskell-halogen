@@ -14,6 +14,7 @@ import Test.Async qualified
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 import Test.Busy qualified
 import Test.Islands qualified
+import Test.Window qualified
 #endif
 import Test.Counter qualified
 import Test.Digits qualified
@@ -54,6 +55,7 @@ main = runBrowserTests $ do
   describe "Embedded state" (Test.Hydrate.embedSpec BrowserDOM)
   describe "Refs across a replacement" (Test.Reconcile.refSpec BrowserDOM)
   describe "Running again" (Test.LastRun.spec BrowserDOM)
+  describe "Window" (Test.Window.spec BrowserDOM)
 #endif
 
 #if defined(wasm32_HOST_ARCH) && !defined(INTERACTIVE)

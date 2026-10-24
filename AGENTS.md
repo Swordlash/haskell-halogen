@@ -46,7 +46,7 @@ what that server cannot do (a request held until the test lets it go, a body tha
 a response echoing its request) from `net/test/web/network-double.js`, which wraps the page's
 `fetch`. `hspec-halogen-test` is also
 the harness's examples, and where core's browser behaviour (events, properties the page changes,
-keyed moves, refs, forks, subscriptions) is tested for real. All are hspec, `main-is: Test.hs` (net's browser suite: `Browser.hs`) which aggregates `Test.*` specs. Run one suite or one test with hspec's
+keyed moves, refs, forks, subscriptions, the window's emitters) is tested for real. All are hspec, `main-is: Test.hs` (net's browser suite: `Browser.hs`) which aggregates `Test.*` specs. Run one suite or one test with hspec's
 `--match`:
 
 ```sh

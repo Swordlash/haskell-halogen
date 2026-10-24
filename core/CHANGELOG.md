@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+- `Halogen.Query.Event.Window` has emitters for what happens to the page
+  as a whole, for a component to subscribe to rather than render a handler
+  for: `keyDown` and `keyUp` anywhere on the page, `mouseMove`,
+  `mouseDown` and `mouseUp`, `resize` (the viewport's new width and
+  height), `visibility` (the document's `VisibilityState` each time the tab
+  is hidden or shown), `online` (`True` and `False` as the browser goes
+  online and offline), and `windowEvent` and `documentEvent` for any other
+  event type, with a function that picks the events wanted. There are two
+  clocks as well: `interval`, a tick every so many milliseconds from a
+  thread of its own, which keeps to its start rather than drifting and
+  skips ticks a slow handler had no time for, and `animationFrame`, the
+  time of each frame the browser draws. Every one of them is an
+  `Emitter IO`, which `H.subscribe` and the hooks' `subscribe` take as it
+  is: those that listen to the page are made in the component's monad,
+  best with `H.liftEffect` (`keys <- H.liftEffect Window.keyDown`), so
+  that the subscription is in place once the component's `Initialize`
+  has run its synchronous part, as `lift` would leave it until after a
+  wait; the clocks are plain values
+  (`H.subscribe (Tick <$ Window.interval 1000)`). Each subscription is a
+  listener, frame request or thread of its own that unsubscribing takes
+  away, so a component that goes away leaves nothing behind. Natively the
+  page's emitters listen on the in-memory window, where nothing dispatches
+  the page's events, and `animationFrame` never fires; `interval` ticks on
+  every backend.
+- `Web.UIEvent.KeyboardEvent` reads an event's `key` (what the key means,
+  `"a"` or `"Enter"`) and `code` (which physical key it is, `"KeyA"`),
+  and `Web.UIEvent.MouseEvent` its `clientX` and `clientY`, where in the
+  viewport the pointer was. Both modules now have export lists, which
+  export what they did before and these; code that imports either of them
+  whole and has a `key`, `code`, `clientX` or `clientY` of its own may now
+  have to hide the new names or import the module qualified.
+- `Web.HTML.HTMLDocument.visibilityState` reads whether the page can be
+  seen, a `VisibilityState` (`Visible` or `Hidden`, from the new
+  `Web.HTML.HTMLDocument.VisibilityState`). `Web.HTML.Event.EventTypes`
+  has `resize` and `visibilitychange`.
+
 - A `ref` now follows its prop on an element a render keeps and patches.
   When the same element went from `HP.ref a` to `HP.ref b`, `getRef b`
   answered `Nothing` and `getRef a` went on answering the element; when
