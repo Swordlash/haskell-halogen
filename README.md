@@ -19,6 +19,7 @@ AI usage disclaimer: All code until tag `0.9.0` was hand-written. Any later comm
 | [core/](core/) | `haskell-halogen-core` | The Halogen port itself: components, VDom, events, SVG, layouts. |
 | [hooks/](hooks/) | `haskell-halogen-hooks` | A port of `purescript-halogen-hooks`: a component as one function. |
 | [router/](router/) | `haskell-halogen-router` | Routing by the page's address: a port of `purescript-routing-duplex`, joined to the browser's history. |
+| [net/](net/) | `haskell-halogen-net` | The browser's `fetch`: a request as a value, its response and body as values, aborted when the component waiting for it goes away. |
 | [material/](material/) | `haskell-halogen-material` | Google Material Components bindings. |
 | [pixi/](pixi/) | `haskell-halogen-pixi` | A PixiJS v8 canvas rendering backend. |
 | [jsbits/](jsbits/) | `haskell-halogen-jsbits` | Compile-time embedding of shared browser JavaScript into WASM FFI. |
@@ -28,8 +29,8 @@ AI usage disclaimer: All code until tag `0.9.0` was hand-written. Any later comm
 | [th-plugin/](th-plugin/) | `haskell-halogen-th-plugin` | A GHC plugin that expands the quotes as a module is parsed, so every error, type errors included, is at its place in the file. |
 | [examples/](examples/) | `halogen-example-*` | One runnable browser app per library, and `all`, which mounts them in one page. |
 
-`hooks`, `router`, `material`, `pixi`, `hspec-halogen` and `th` depend on `core`; `sound` is
-independent of those runtime libraries. WASM backends also use the `jsbits`
+`hooks`, `router`, `material`, `pixi`, `hspec-halogen` and `th` depend on `core`; `net` and
+`sound` are independent of those runtime libraries. WASM backends also use the `jsbits`
 compile-time helper. `th` builds natively and for WebAssembly, not with the JavaScript
 backend, which cannot build `ghc-lib-parser`. Every package builds from the one `cabal.project` at the
 repository root, so a change to
@@ -188,6 +189,21 @@ such as `/project/`, which `pageBase` reads from the page's `<base href>`), `cur
 component follows without loading a page. `newHashRouter` routes by fragment instead. Natively the
 address is kept in memory, so `Halogen.Static` can render a page for each route, as the gallery's
 prerender does.
+
+## Fetching
+
+`haskell-halogen-net`'s `Halogen.Net.Fetch` is the browser's `fetch`. A component waits for a
+response in `lift`, and the request is aborted if the component goes away first:
+
+```haskell
+Load -> do
+  outcome <- fetch (request GET "/api/notes") >>= either (pure . Left) text
+  modify $ \st -> st {notes = outcome}
+```
+
+`start` begins a request inside an event's dispatch (`H.liftEffect`) and gives a handle to wait
+for or abort later. A rejection (no response, or an abort) is a `Left JSError`; an HTTP error
+status is a response whose `ok` is `False`.
 
 ## Hooks
 

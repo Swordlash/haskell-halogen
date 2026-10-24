@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+The browser backend's `fetchClip` awaits the fetch as a `Promise`
+(haskell-halogen-jsbits' `Halogen.JSBits.Promise`) rather than through a
+callback. What it gives is unchanged: a file the browser cannot fetch, or
+that answers with an error status, is `Nothing`, and the reason goes no
+further, as the player plays without a sound it cannot have.
+
 The browser backend is declared once, without CPP: natively its bindings are
 `browserJS`'s inert stubs, and `fetchClip` returns `Nothing` without waiting.
 The browser jsbits are the same file on both browser backends, linked by the

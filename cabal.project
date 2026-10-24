@@ -6,6 +6,7 @@ packages:
   material
   hooks
   router
+  net
   hspec-halogen
   th
   th-plugin

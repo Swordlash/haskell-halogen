@@ -38,7 +38,29 @@ function halogen_test_query_selector_all(scope, selector) {
   return Array.from(scope.querySelectorAll(selector));
 }
 
-async function halogen_test_act(action, element, text) {
+// The runner's actions, each returning the promise of its end, which
+// Test.Hspec.Halogen.Internal.Page awaits. A rejection (an action the runner
+// could not perform) is handled here as well as returned, so that one whose
+// wait was cut short is not reported as unhandled, which the runner counts as
+// an error in the page; whoever awaits the promise still gets it.
+function halogen_test_quiet(promise) {
+  promise.catch(() => {});
+  return promise;
+}
+
+function halogen_test_act(action, element, text) {
+  return halogen_test_quiet(halogen_test_act_now(action, element, text));
+}
+
+function halogen_test_drag(source, target) {
+  return halogen_test_quiet(halogen_test_drag_now(source, target));
+}
+
+function halogen_test_press(key) {
+  return halogen_test_quiet(halogen_test_press_now(key));
+}
+
+async function halogen_test_act_now(action, element, text) {
   const target = 'halogen-test-' + (globalThis.__halogenTestTargets = (globalThis.__halogenTestTargets ?? 0) + 1);
   element.setAttribute('data-halogen-test-target', target);
   try {
@@ -57,7 +79,7 @@ async function halogen_test_act(action, element, text) {
   }
 }
 
-async function halogen_test_drag(source, target) {
+async function halogen_test_drag_now(source, target) {
   const counter = () => 'halogen-test-' + (globalThis.__halogenTestTargets = (globalThis.__halogenTestTargets ?? 0) + 1);
   const [from, to] = [counter(), counter()];
   source.setAttribute('data-halogen-test-target', from);
@@ -89,7 +111,7 @@ async function halogen_test_drag(source, target) {
   }
 }
 
-async function halogen_test_press(key) {
+async function halogen_test_press_now(key) {
   const bridge = globalThis.__halogenTest;
   if (bridge) {
     await bridge.press(key);

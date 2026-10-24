@@ -1,9 +1,10 @@
-{-# LANGUAGE InterruptibleFFI #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 -- | Everything "Test.Hspec.Halogen" asks of the page it runs in, through the
--- functions in @jsbits/page.js@, imported once for both browser backends. The
--- safe ones await the runner and throw what it rejects with.
+-- functions in @jsbits/page.js@, imported once for both browser backends.
+-- Those that wait for the page (the runner's actions, a settling) return a
+-- promise, which is awaited here, and what it is rejected with is thrown as
+-- a 'JSError'.
 --
 -- Natively the package still builds, so that the suites using it type-check
 -- and the Haskell language server can load them, but nothing here can run:
@@ -36,6 +37,8 @@ module Test.Hspec.Halogen.Internal.Page
 where
 
 import Halogen.JSBits (JSText, JSVal, Safety (..), browserJS, fromJSText, jsValText, toJSText)
+import Halogen.JSBits qualified as JSBits
+import Halogen.JSBits.Promise (Promise (..), await)
 import Protolude
 import Web.DOM.Internal.Types (Element (..))
 
@@ -51,10 +54,10 @@ $( browserJS
      , ("js_remove", "halogen_test_remove", Unsafe, [t|JSVal -> IO ()|])
      , ("js_query_selector", "halogen_test_query_selector", Unsafe, [t|Element -> JSText -> IO JSVal|])
      , ("js_query_selector_all", "halogen_test_query_selector_all", Unsafe, [t|Element -> JSText -> IO JSVal|])
-     , ("js_act", "halogen_test_act", Safe, [t|JSText -> Element -> JSText -> IO ()|])
-     , ("js_drag", "halogen_test_drag", Safe, [t|Element -> Element -> IO ()|])
-     , ("js_press", "halogen_test_press", Safe, [t|JSText -> IO ()|])
-     , ("js_settle", "halogen_test_settle", Safe, [t|IO ()|])
+     , ("js_act", "halogen_test_act", Unsafe, [t|JSText -> Element -> JSText -> IO Promise|])
+     , ("js_drag", "halogen_test_drag", Unsafe, [t|Element -> Element -> IO Promise|])
+     , ("js_press", "halogen_test_press", Unsafe, [t|JSText -> IO Promise|])
+     , ("js_settle", "halogen_test_settle", Unsafe, [t|IO Promise|])
      , ("js_focus", "halogen_test_focus", Unsafe, [t|Element -> IO ()|])
      , ("js_blur", "halogen_test_blur", Unsafe, [t|Element -> IO ()|])
      , ("js_text_content", "halogen_test_text_content", Unsafe, [t|Element -> IO JSText|])
@@ -166,11 +169,14 @@ sameElement a b = js_same_element a b == 1
 isConnected :: Element -> IO Bool
 isConnected = js_is_connected
 
--- | Wait for a safe import to finish. On WebAssembly its result comes back as
--- a thunk, and the thread only blocks on the promise when that is forced, so a
--- @()@ nobody looks at would let the test run on while the page still acts.
-awaitJS :: IO () -> IO ()
-awaitJS action = action >>= evaluate
+-- | Start something in the page and wait until it is done, throwing what it
+-- failed with (a Playwright action the runner could not perform, say) as a
+-- 'Halogen.JSBits.Promise.JSError', which fails the test with its name and
+-- message. Natively nothing was started, and there is nothing to wait for.
+awaitJS :: IO Promise -> IO ()
+awaitJS start
+  | not JSBits.inBrowser = pass
+  | otherwise = start >>= await >>= either throwIO (const pass)
 
 -- | @null@ or @undefined@: natively, always.
 absent :: JSVal -> Bool

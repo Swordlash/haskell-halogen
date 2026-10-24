@@ -115,6 +115,11 @@
   keeps every database in memory, shared by the whole process as the
   browser's are by an origin, and behaves the same; `ReaderT` and
   `IdentityT` lift it, and so can any transformer, with an empty instance.
+  The browser instance waits for each operation through
+  haskell-halogen-jsbits' `Halogen.JSBits.Promise.await`, which hands back
+  a rejection as a value, and turns that rejection's name and message into
+  the `IndexedDBError`, so the same failure reads the same on WebAssembly
+  and on the JavaScript backend.
 
 - `Halogen.IO.Util.keepForNextRun` and `endPreviousRun`, for a program that
   is run again on the same page, as browser GHCi's `:main` runs it: the page

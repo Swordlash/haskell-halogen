@@ -1,4 +1,3 @@
-{-# LANGUAGE InterruptibleFFI #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 -- | A page whose islands take a while to start, under a shell that routes.
@@ -32,15 +31,16 @@ import Halogen.HTML qualified as HH
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
 import Halogen.JSBits (Safety (..), browserJS)
+import Halogen.JSBits.Promise (Promise (..), await)
 import Halogen.Router qualified as Router
 import Protolude hiding (State)
 
 -- What an island waits for is test/jsbits/islands.js's: a promise that
--- settles after so many milliseconds. Natively the stub returns at once,
+-- settles after so many milliseconds. Natively 'await' returns at once,
 -- which is never seen, since the suite only reports a skip there.
 $( browserJS
      ["test/jsbits/islands.js"]
-     [("js_islands_wait", "halogen_islands_wait", Safe, [t|Int -> IO ()|])]
+     [("js_islands_wait", "halogen_islands_wait", Unsafe, [t|Int -> IO Promise|])]
  )
 
 -- | The routes: the plain page, or the slow page of this number.
@@ -209,9 +209,7 @@ island =
     load () =
       get >>= \case
         Waiting ms -> do
-          -- On a worker, while the tree goes on. The wait is a promise: on
-          -- WebAssembly the import hands back a thunk, and the worker waits
-          -- for the promise only when it is forced.
-          liftIO (js_islands_wait ms >>= evaluate)
+          -- On a worker, while the tree goes on.
+          liftIO (js_islands_wait ms >>= void . await)
           put Loaded
         Loaded -> pass

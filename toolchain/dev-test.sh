@@ -47,14 +47,16 @@ case "$port" in
 esac
 
 # The page the suite runs in: the package's test/web assets, bundled as the
-# runner bundles them, around browser GHCi's own script.
+# runner bundles them, around browser GHCi's own script. Every file there is
+# served, as the runner serves it (net's suite fetches its fixtures), and the
+# .css and .js files are loaded into the page.
 prepare_page() {
   rm -rf "$public_dir"
   mkdir -p "$public_dir"
   if [ -f "$package/test/web/bundle.sh" ]; then
     sh "$package/test/web/bundle.sh" "$public_dir"
   fi
-  find "$package/test/web" -maxdepth 1 \( -name '*.css' -o -name '*.js' \) -exec cp {} "$public_dir" \; 2>/dev/null || true
+  find "$package/test/web" -maxdepth 1 -type f ! -name bundle.sh -exec cp {} "$public_dir" \; 2>/dev/null || true
   {
     printf '<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="utf-8">\n'
     printf '    <title>%s tests (browser GHCi)</title>\n' "$package_name"
