@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Native HTML serialisation (`renderToText` and `Halogen.Static`) builds
+  markup with a text builder, converting to strict `Text` once at the end,
+  instead of copying each subtree at every ancestor. Escaping copies runs
+  of ordinary text together rather than allocating one `Text` per character.
+  The result type and HTML output are unchanged. A native `render-to-text`
+  Cabal benchmark measures render time and allocation; see `bench/README.md`.
 - A page served over plain HTTP (not a secure context, so its
   `crypto.randomUUID` is missing) no longer fails with
   `TypeError: globalThis.crypto.randomUUID is not a function` when it asks

@@ -8,7 +8,7 @@ license-file:       LICENSE
 author:             Mateusz Goślinowski
 maintainer:         mateusz.goslinowski@gmail.com
 category:           Web
-extra-source-files: CHANGELOG.md, NOTICE, jsbits/*.js
+extra-source-files: CHANGELOG.md, NOTICE, jsbits/*.js, bench/README.md, bench/results.csv
 
 flag js-polyfills
   description:
@@ -274,6 +274,21 @@ test-suite Halogen-core-test
                     Test.Storage
                     Test.SvgAttributes
                     Test.Utils
+
+benchmark render-to-text
+    import: defaults
+    type: exitcode-stdio-1.0
+    hs-source-dirs: bench
+    main-is: RenderToText.hs
+    ghc-options: -rtsopts
+    build-depends:
+      base >= 4.20,
+      containers,
+      criterion >= 1.6,
+      haskell-halogen-core,
+      text
+    if arch(wasm32) || arch(javascript)
+      buildable: False
 
 source-repository head
   type:     git

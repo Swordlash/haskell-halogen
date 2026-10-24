@@ -29,6 +29,7 @@ import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (for_)
 import Data.IORef
 import Data.Text (Text)
+import Data.Text qualified as T
 import Data.Void (Void, absurd)
 import Halogen.VDom.DOM (VDomSpec (..), buildVDom)
 import Halogen.VDom.DOM.Monad (MemDOM (..), appendChild, propertyEquals, runMemDOM, setProperty, setTextContent)
@@ -120,6 +121,15 @@ spec = describe "native VDom" $ do
       s <- build vspec $ el "div" [attr "title" "a\"b&c"] [Text "1 < 2 & 3 > 2"]
       assertEqual "markup"
         "<div title=\"a&quot;b&amp;c\">1 &lt; 2 &amp; 3 &gt; 2</div>"
+        =<< snapshot s
+
+    it "keeps Unicode runs around escapes across output chunks" $ do
+      (vspec, _) <- newSpec
+      let run = T.replicate 20000 "ż😀"
+          value = run <> "<&\"\r\xa0" <> run
+      s <- build vspec $ el "p" [attr "title" value] [Text value]
+      assertEqual "markup"
+        ("<p title=\"" <> run <> "&lt;&amp;&quot;&#13;&nbsp;" <> run <> "\">" <> run <> "&lt;&amp;\"&#13;&nbsp;" <> run <> "</p>")
         =<< snapshot s
 
     it "omits the closing tag for void elements" $ do
@@ -302,6 +312,16 @@ spec = describe "native VDom" $ do
       (vspec, _) <- newSpec
       s <- build vspec $ el "pre" [] [Text "\nindented"]
       assertEqual "markup" "<pre>\n\nindented</pre>" =<< snapshot s
+
+    it "keeps a newline that starts a textarea's value" $ do
+      (vspec, _) <- newSpec
+      s <- build vspec $ el "textarea" [Property "value" (TxtProp "\n<&")] []
+      assertEqual "markup" "<textarea>\n\n&lt;&amp;</textarea>" =<< snapshot s
+
+    it "does not double a pre's newline after an adjacent-text separator" $ do
+      (vspec, _) <- newSpec
+      s <- build vspec $ el "pre" [] [Text "", Text "\nindented"]
+      assertEqual "markup" "<pre><!---->\nindented</pre>" =<< snapshot s
 
     it "empties an element whose text content is set, as the DOM does" $ do
       (vspec, _) <- newSpec
