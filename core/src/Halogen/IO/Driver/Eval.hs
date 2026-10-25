@@ -60,8 +60,12 @@ evalM var (HalogenM hm) = foldF go hm
         sid <- fresh SubscriptionId ds
         life <- readIORef ds.life
         -- None while the component is being finalized.
+        -- An emitter the page notifies (a DOM listener's) brings an event
+        -- as an element's own listener does, nested in an effect that
+        -- dispatched it; any other thread's notification is queued as
+        -- 'enter' queues it ('enterCallback').
         when (life == Alive) $ do
-          sub <- HS.subscribe (fes sid) $ \act -> enter ds.tree.loop (launchAction var act)
+          sub <- HS.subscribe (fes sid) $ \act -> enterCallback ds.tree.loop (launchAction var act)
           modifyIORef' ds.subscriptions (M.insert sid sub)
         pure (k sid)
       Unsubscribe sid next -> sync $ do

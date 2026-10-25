@@ -252,6 +252,7 @@ test-suite Halogen-core-test
                       exceptions,
                       hashable,
                       haskell-halogen-core,
+                      haskell-halogen-jsbits,
                       hspec >= 2,
                       mtl,
                       row-types,

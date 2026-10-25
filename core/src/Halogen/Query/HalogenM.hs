@@ -89,11 +89,13 @@ instance (MonadIO m) => MonadIO (HalogenM state' action slots' output m) where
 -- work that was preempted between two of the page's tasks (a long render):
 -- the event's listener lets that work finish, inside the dispatch, and then
 -- runs the action there; the page waits for it meanwhile, and work that
--- mostly computes takes a few times as long to finish that way. When the
--- event is dispatched from the loop's own work (a render that focuses an
--- element, an effect that clicks one), and on the JavaScript backend
--- whenever the loop is busy, the action is queued and runs after the
--- browser has acted on the event; a handler that must prevent the default
+-- mostly computes takes a few times as long to finish that way. An event a
+-- synchronous effect dispatches (an effect that clicks an element) is
+-- handled inside that dispatch, nested in the effect. When the event is
+-- dispatched from the loop's own work outside an effect (a render that
+-- focuses an element), and on the JavaScript backend whenever the loop is
+-- busy outside an effect, the action is queued and runs after the browser
+-- has acted on the event; a handler that must prevent the default
 -- or stop propagation in every case declares it with
 -- 'Halogen.HTML.Events.preventingDefault' or
 -- 'Halogen.HTML.Events.stoppingPropagation'.
@@ -172,6 +174,17 @@ queryAll label q =
 -- | When a component is disposed of any active subscriptions will automatically
 -- | be stopped and no further subscriptions will be possible during
 -- | finalization.
+--
+-- An emitter the page notifies while it dispatches an event (one over a DOM
+-- listener, such as 'Halogen.Query.Event.eventListener''s or
+-- "Halogen.Query.Event.Window"'s) has its action run as an element's own
+-- handler's is: when a synchronous effect ('liftEffect') dispatched the
+-- event, inside that dispatch, before the effect goes on, so that the
+-- action may still prevent the event's default. So is one the tree's own
+-- work makes (an effect that notifies the emitter). A notification from
+-- any other thread (a 'liftIO' body's, a timer's) has its action run at
+-- once only when the tree is idle, and otherwise queued behind what runs
+-- (see 'Halogen.IO.Driver.Runtime.enterCallback').
 subscribe :: forall state action slots output m. (Functor m) => HS.Emitter IO action -> HalogenM state action slots output m SubscriptionId
 subscribe es = HalogenM $ liftF $ Subscribe (const es) identity
 

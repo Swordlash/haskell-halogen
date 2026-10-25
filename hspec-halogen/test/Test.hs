@@ -56,6 +56,7 @@ main = runBrowserTests $ do
   describe "Refs across a replacement" (Test.Reconcile.refSpec BrowserDOM)
   describe "Running again" (Test.LastRun.spec BrowserDOM)
   describe "Window" (Test.Window.spec BrowserDOM)
+  describe "Dispatch to a subscription" (Test.Dispatch.subscribedSpec BrowserDOM)
 #endif
 
 #if defined(wasm32_HOST_ARCH) && !defined(INTERACTIVE)

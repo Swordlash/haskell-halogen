@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- A subscription's action now runs nested in the synchronous effect that
+  dispatched its event, as an element's own handler's does: a component
+  that subscribes to a DOM listener (`Halogen.Query.Event.eventListener`,
+  the emitters of `Halogen.Query.Event.Window`, or any emitter fed from a
+  `mkEventListener` callback) and dispatches an event to it from
+  `H.liftEffect` (`element.click()`, `dispatchEvent`) has the action handled
+  before the dispatch returns, so the effect sees what the action did, and
+  `preventDefault` or `stopPropagation` in the action, in `H.liftEffect`,
+  still takes effect: a checkbox clicked that way stays unchecked. Before,
+  the action was queued until the effect's action had ended, after the
+  browser had acted on the event. This holds on both browser backends. Only
+  a notification the page makes, from a callback it calls while it
+  dispatches, is nested so: a notification from a `liftIO` body, a timer
+  (`Window.interval`) or any other thread of the program is still queued
+  behind the work under way, as before, since that thread is not under the
+  effect and its action would run beside it rather than inside it.
+  Natively nothing changes: an event an effect dispatches into the
+  in-memory DOM was already handled on the loop's own thread, nested.
+
 - On WebAssembly an event's action now runs inside the browser's dispatch
   of the event also when the tree's loop was busy with work the scheduler
   had preempted between two of the page's tasks, such as a long render the
@@ -11,10 +30,12 @@
   in the action is still in time. The page waits for that work inside the
   dispatch, and work that mostly computes, rather than changes the page,
   can take a few times as long to finish this way, since each turn hands it
-  only a short slice. An event dispatched from the loop's own work (a
-  render that focuses an element, an effect that clicks one), and every
-  busy loop on the JavaScript backend, still has its action queued until
-  the dispatch is over; `HE.preventingDefault` and `HE.stoppingPropagation`
+  only a short slice. An event a synchronous effect dispatches (an effect
+  that clicks an element) is handled nested in the effect, as before. An
+  event dispatched from the loop's own work outside an effect (a render
+  that focuses an element), and every loop busy outside an effect on the
+  JavaScript backend, still has its action queued until the dispatch is
+  over; `HE.preventingDefault` and `HE.stoppingPropagation`
   remain the way to prevent the default or stop propagation in every case.
 
 - `Halogen.Query.Event.Window` has emitters for what happens to the page

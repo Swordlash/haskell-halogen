@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+`Halogen.JSBits.Value` has `inSyncCallback`, which says whether the calling
+thread is running the body of a callback made with `mkSyncCallback`: one
+JavaScript called, perhaps from the middle of a synchronous import the program
+made, rather than a thread the program forked or an asynchronous callback's.
+haskell-halogen-core asks it to nest an event the page dispatches in the work
+that dispatched it, and only such an event. The thread is noted for as long as
+the body runs, in a list kept for the purpose, which costs each call of a sync
+callback two atomic updates.
+
 `Halogen.JSBits.Promise` has `Promise`, a JavaScript promise kept to be
 awaited later, so that starting asynchronous work and waiting for it are two
 steps: a binding may now return `IO Promise` as an `Unsafe` binding, which
