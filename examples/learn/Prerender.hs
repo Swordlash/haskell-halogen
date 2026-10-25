@@ -51,10 +51,21 @@ main = do
 -- | The page with a @\<base href>@ first in its head, before anything it
 -- applies to.
 withBase :: Text -> Text -> Text
-withBase base = T.replace "<head>" ("<head>\n    <base href=\"" <> base <> "\">")
+withBase base = T.replace "<head>" ("<head>\n    <base href=\"" <> escape base <> "\">")
 
 -- | A lesson's page is titled after it.
 withTitle :: Route -> Text -> Text
 withTitle r = case lessonOf r of
   Nothing -> identity
-  Just lesson -> T.replace "<title>Learn Halogen</title>" ("<title>" <> show lesson.number <> ". " <> lesson.title <> " — Learn Halogen</title>")
+  Just lesson -> T.replace "<title>Learn Halogen</title>" ("<title>" <> escape (show lesson.number <> ". " <> lesson.title) <> " — Learn Halogen</title>")
+
+-- | Text as it is written in an attribute's value in double quotes or in an
+-- element's text: a title may hold a @<@ or an @&@ (\"Forms & inputs\"), and
+-- a base path anything @HALOGEN_BASE_PATH@ says.
+escape :: Text -> Text
+escape = T.concatMap $ \case
+  '<' -> "&lt;"
+  '>' -> "&gt;"
+  '&' -> "&amp;"
+  '"' -> "&quot;"
+  c -> T.singleton c

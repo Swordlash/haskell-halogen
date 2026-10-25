@@ -18,11 +18,16 @@
 // type error is reported at its line with the last result still showing;
 // every lesson in examples/learn/lessons compiles its Solution.hs without a
 // diagnostic and shows something (one line per lesson, which is how a new
-// lesson is checked); the routes survive back and forward, the reader's code
-// a reload, and the compiler a second visit, from the Cache API; on a narrow
-// screen nothing large is downloaded until asked; a compiler that fails to
-// load can be retried, and loads from a manifest without a version or sizes
-// too (asking the server for them); and nothing is logged as an error.
+// lesson is checked); an error GHC throws rather than reports is still a
+// failed compile; the routes survive back and forward; lesson 6's hash router
+// keeps the lesson's address under the page's <base href>, Back included;
+// what lesson 5's Finalize prints shows on every compile after the first;
+// Escape then Tab leaves the editor; the reader's code survives a reload, and
+// the compiler a second visit, from the Cache API; on a narrow screen nothing
+// large is downloaded until asked; a compiler that fails to load can be
+// retried, and loads from a manifest without a version or sizes too (asking
+// the server for them); a layer that fails to load is its lessons' failure
+// alone, and can be retried; and nothing is logged as an error.
 import assert from "node:assert/strict";
 import { lstat, readFile, readdir, stat } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -64,6 +69,7 @@ for (const slug of (await readdir(lessonsDir)).sort()) {
     slug,
     number: Number(slug.slice(0, 2)),
     title,
+    layers: (markdown.match(/^layers:\s*(.+)$/m)?.[1] ?? "").split(/[\s,]+/).filter(Boolean),
     solution: await readFile(join(dir, "Solution.hs"), "utf8"),
   });
 }
@@ -276,6 +282,12 @@ try {
     console.log("ok  a lesson entered while another's layer downloads gets its own layer, and Compile");
   }
 
+  // An error GHC throws rather than reports (one in the module's header) is
+  // a failed compile too, not a program that compiled and stopped.
+  await setEditor(page, "module Lesson (component) where\n\nimport Data.Row (type (.==))\n");
+  assert.match(await compile("an import GHC cannot parse"), /did not compile/);
+  console.log("ok  an error in the module's header is reported as a failed compile");
+
   // Every lesson: its start compiles (warnings allowed, since an exercise
   // may leave something unused), and its solution compiles with no
   // diagnostic at all and shows something.
@@ -291,14 +303,18 @@ try {
       shown: (await page.locator("#learn-result").innerHTML()).length > 0,
     };
   };
-  for (const lesson of lessons) {
-    await page.locator("header a.learn-brand").click();
-    await page.locator(".learn-home ol a", { hasText: lesson.title }).click();
-    await page.waitForURL(`${url}${lesson.slug}/`);
-    await page.locator("article h1", { hasText: lesson.title }).waitFor({ timeout: 5000 });
-    await page.locator(".learn-editor .cm-editor").waitFor({ timeout: 5000 });
+  // A lesson, from the introduction's list, once it can compile.
+  const openLesson = async (lesson, on = page) => {
+    await on.locator("header a.learn-brand").click();
+    await on.locator(".learn-home ol a", { hasText: lesson.title }).click();
+    await on.waitForURL(`${url}${lesson.slug}/`);
+    await on.locator("article h1", { hasText: lesson.title }).waitFor({ timeout: 5000 });
+    await on.locator(".learn-editor .cm-editor").waitFor({ timeout: 5000 });
     // The lesson's layers may be loading still.
-    await page.locator("button.learn-compile:not([disabled])").waitFor({ timeout: 120000 });
+    await on.locator("button.learn-compile:not([disabled])").waitFor({ timeout: 120000 });
+  };
+  for (const lesson of lessons) {
+    await openLesson(lesson);
     const start = await runLesson("button.learn-reset");
     const solution = await runLesson("button.learn-solution");
     const startOk = /^Compiled and ran/.test(start.outcome) && start.errors.length === 0;
@@ -322,6 +338,55 @@ try {
   await page.waitForURL(`${url}${last.slug}/`);
   await page.locator("article h1", { hasText: last.title }).waitFor({ timeout: 5000 });
   console.log("ok  back and forward");
+
+  // Lesson 6's hash router, under the page's <base href>: its links and
+  // what it pushes are the lesson's own address with the route after the #,
+  // not the base's, and Back goes to its route before without leaving the
+  // lesson.
+  const routing = lessons.find((lesson) => lesson.slug === "06-router");
+  if (routing) {
+    await openLesson(routing);
+    await page.locator("button.learn-solution").click();
+    assert.match(await compile("lesson 6, Solution.hs"), /^Compiled and ran/);
+    const about = page.locator("#learn-result a", { hasText: "About" });
+    assert.equal(await about.getAttribute("href"), `${base}06-router/#/about`, "the link names the lesson's address");
+    await about.click();
+    await page.waitForURL(`${url}06-router/#/about`);
+    await page.locator("#learn-result p", { hasText: "You are at About" }).waitFor({ timeout: 5000 });
+    await page.goBack();
+    await page.waitForURL(`${url}06-router/`);
+    await page.locator("#learn-result p", { hasText: "You are at Home" }).waitFor({ timeout: 5000 });
+    assert.equal(await page.locator("article h1", { hasText: routing.title }).count(), 1, "Back stays in the lesson");
+    console.log("ok  lesson 6's links keep the lesson's address, and Back returns to the route before, in the lesson");
+  }
+
+  // What lesson 5's Finalize prints, as the next compile ends the last
+  // run's component, shows under the editor, every time.
+  const lifecycle = lessons.find((lesson) => lesson.slug === "05-lifecycle");
+  if (lifecycle) {
+    await openLesson(lifecycle);
+    await page.locator("button.learn-solution").click();
+    assert.match(await compile("lesson 5, Solution.hs"), /^Compiled and ran/);
+    for (let i = 1; i <= 4; i++) {
+      await page.waitForTimeout(1100);
+      assert.match(await compile(`lesson 5 again, ${i}`), /^Compiled and ran/);
+      const stdout = (await page.locator(".learn-stdout").allTextContents()).join("");
+      assert.match(stdout, /Finalized after \d+ seconds\./, `compile ${i} shows what the last run's Finalize printed`);
+    }
+    console.log("ok  what lesson 5's Finalize prints shows on every compile after the first");
+  }
+
+  // Tab indents in the editor, and Escape then Tab leaves it.
+  await page.locator(".learn-editor .cm-content").click();
+  const typed = await page.evaluate(() => document.querySelector(".learn-editor .cm-content").innerText.length);
+  await page.keyboard.press("Tab");
+  await page.waitForFunction((n) => document.querySelector(".learn-editor .cm-content").innerText.length === n + 2, typed);
+  assert.ok(await page.evaluate(() => !!document.activeElement.closest(".cm-editor")), "Tab stays in the editor");
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Tab");
+  assert.ok(await page.evaluate(() => !document.activeElement.closest(".cm-editor")), "Escape then Tab leaves the editor");
+  await page.locator("button.learn-reset").click();
+  console.log("ok  Tab indents by two spaces, and Escape then Tab moves the focus out of the editor");
 
   // The reader's code survives a reload, and the compiler comes from the
   // cache the second time.
@@ -395,6 +460,38 @@ try {
   );
   console.log("ok  a compiler that fails to load says why, and Retry loads it, from a manifest without a version or sizes");
   await flaky.close();
+
+  // A layer that does not load is its lessons' failure, with a Retry of its
+  // own: the compiler is ready, and a lesson without the layer compiles.
+  const layered = lessons.find((lesson) => lesson.layers.length);
+  if (layered) {
+    const name = layered.layers[0];
+    const partly = await browser.newContext({ viewport: { width: 1400, height: 900 } });
+    const lacking = await partly.newPage();
+    watch(lacking, /503/);
+    let refusals = 0;
+    await lacking.route(new RegExp(`rootfs/layers/${name}\\.tar\\.zst`), (route) =>
+      refusals++ < 2 ? route.fulfill({ status: 503, body: "" }) : route.continue(),
+    );
+    const since = Date.now();
+    await lacking.goto(`${url}${layered.slug}/`);
+    await lacking.locator("button.learn-retry-layers").waitFor({ timeout: 300000 });
+    await untilReady(lacking, since);
+    assert.match(await lacking.locator(".learn-result-column .learn-error").textContent(), /503/, "the layer's failure is shown");
+    await lacking.locator("button.learn-retry-layers").click();
+    for (const deadline = Date.now() + 30000; refusals < 2; await lacking.waitForTimeout(100)) {
+      assert.ok(Date.now() < deadline, "Retry fetches the layer again");
+    }
+    await lacking.locator("button.learn-retry-layers").waitFor({ timeout: 30000 });
+    await openLesson(lessons[0], lacking);
+    await lacking.locator("button.learn-compile").click();
+    await lacking.locator("button.learn-compile:not([disabled])").waitFor({ timeout: 120000 });
+    assert.match(await lacking.locator(".learn-outcome").textContent(), /^Compiled and ran/, "a lesson without the layer compiles");
+    await openLesson(layered, lacking);
+    assert.equal(await lacking.locator("button.learn-retry-layers").count(), 0, "coming back loads the layer");
+    console.log(`ok  a layer (${name}) that fails to load is ${layered.slug}'s failure alone, and loads when tried again`);
+    await partly.close();
+  }
 
   assert.deepEqual(errors, [], "errors in the page");
   console.log("ok  no errors in the page");

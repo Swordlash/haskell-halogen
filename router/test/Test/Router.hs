@@ -2,17 +2,22 @@
 
 -- | The router over the in-memory address it keeps natively. In a browser
 -- it is the browser's address, which the tutorial's test
--- (toolchain/test-learn.mjs) drives.
+-- (toolchain/test-learn.mjs) drives. What a hash router writes is checked
+-- on every backend.
 module Test.Router (spec) where
 
+import Halogen.Router qualified as Router
 import Protolude hiding (Handler, optional)
+import Test.Hspec (Spec, describe, it, shouldBe)
 
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 
-import Test.Hspec (Spec, xdescribe)
+import Test.Hspec (xdescribe)
 
 spec :: Spec
-spec = xdescribe "router" pass
+spec = describe "router" $ do
+  addresses
+  xdescribe "in memory" pass
 
 #else
 
@@ -21,7 +26,6 @@ import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Core (HTML (..))
 import Halogen.HTML.Properties qualified as HP
-import Halogen.Router qualified as Router
 import Halogen.Router.Duplex
 import Halogen.Subscription qualified as HS
 import Halogen.VDom.DOM (VDomSpec (..), buildVDom)
@@ -29,7 +33,7 @@ import Halogen.VDom.DOM.Monad (runMemDOM, window)
 import Halogen.VDom.DOM.Monad.Native qualified as N
 import Halogen.VDom.DOM.Prop (HandlerOptions (..), Prop (..), buildProp, handlerOptions)
 import Halogen.VDom.Machine (extract)
-import Test.Hspec (Spec, describe, it, shouldBe, shouldReturn)
+import Test.Hspec (shouldReturn)
 import Web.Event.Event (Event (..), EventType (..))
 
 data Route = Home | Page Int
@@ -61,6 +65,7 @@ popstate = do
 
 spec :: Spec
 spec = describe "router" $ do
+  addresses
   describe "by path" $ do
     it "writes every address under its base" $ do
       router <- runMemDOM (Router.newRouter "haskell-halogen" Home route)
@@ -121,9 +126,9 @@ spec = describe "router" $ do
       Router.navigate router Home
       readIORef seen `shouldReturn` [Page 1, Home]
 
-    it "writes routes after a #" $ do
+    it "writes routes after a #, on the page's own path" $ do
       router <- runMemDOM (Router.newHashRouter Home route)
-      Router.href router (Page 3) `shouldBe` "#/page/3"
+      Router.href router (Page 3) `shouldBe` "/#/page/3"
       seen <- recording router
       Router.navigate router (Page 3)
       Router.current router `shouldReturn` Page 3
@@ -143,3 +148,13 @@ built (HTML vdom) = do
   N.toNative . extract <$> runMemDOM (buildVDom vspec vdom)
 
 #endif
+
+-- A bare "#/about" resolves against the page's <base href>, not its
+-- address: under a base of "/" a lesson at "/06-router/" would link and
+-- push "/#/about", leaving the lesson.
+addresses :: Spec
+addresses = describe "a hash router's address" $ do
+  it "is the whole address, so that a <base href> does not move it" $ do
+    Router.fragmentAddress "/06-router/" "#/about" `shouldBe` "/06-router/#/about"
+    Router.fragmentAddress "/06-router/?x=1#/post/2" "#/about" `shouldBe` "/06-router/?x=1#/about"
+    Router.fragmentAddress "/a/b#" "#/" `shouldBe` "/a/b#/"

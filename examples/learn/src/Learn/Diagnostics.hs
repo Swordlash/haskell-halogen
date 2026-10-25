@@ -14,6 +14,7 @@ module Learn.Diagnostics
   ( Diagnostic (..)
   , Severity (..)
   , parseDiagnostics
+  , didNotCompile
   )
 where
 
@@ -72,6 +73,20 @@ parseDiagnostics = go . T.lines
     unindent ls =
       let depth = minimum (maxBound : [T.length (T.takeWhile isSpace x) | x <- ls, not (T.null (T.strip x))])
        in map (T.drop depth) ls
+
+-- | Whether what GHC wrote says the program did not compile: it reported
+-- an error, or GHC itself failed (a panic). The page cannot tell this from
+-- how the run ended alone: the playground fails in a way of its own when
+-- GHC's @load@ reports errors, but an error GHC throws instead (one in a
+-- module's header, such as an import it cannot parse) or a panic ends the
+-- run as the program's own @main@ failing does, with the message on stderr.
+-- A program's own failure is not written as a location line, and not as a
+-- panic.
+didNotCompile :: Text -> Bool
+didNotCompile output =
+  any ((== Error) . (.severity)) (parseDiagnostics output)
+    || "Please report this as a GHC bug" `T.isInfixOf` output
+    || "panic! (the 'impossible' happened)" `T.isInfixOf` output
 
 -- | A location line: the diagnostic it starts (its message still empty),
 -- and what follows the severity on the line, without GHC's codes.

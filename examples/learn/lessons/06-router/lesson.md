@@ -30,4 +30,4 @@ Add a route with a number in it, `Post Int`, at `/post/1`, `/post/2` and so on:
 2. its codec in the record: `.+ (#Post .== RD.path "post" (RD.int RD.segment))`. `RD.segment` reads a segment, and `RD.int` reads it as an `Int`. Without the codec, GHC says which constructor has none;
 3. two links, `link (Post 1) "Post 1"` and `link (Post 2) "Post 2"`.
 
-Compile and click them: the address ends in `#/post/1`, and the page says where you are.
+Compile and click them: the address ends in `#/post/1`, and the page says where you are. The browser's Back button then returns to the route before, through the lesson's own router, and the tutorial stays on this lesson.

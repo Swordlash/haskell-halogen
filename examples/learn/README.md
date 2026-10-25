@@ -94,7 +94,9 @@ the browser. Lessons are numbered from 01 with no gaps, and **listed in
 what the index lists (and fails for a lesson directory it leaves out),
 because a new file is something cabal does not notice even when it matches
 the package's `extra-source-files`, while an edited index is; an edited
-lesson file it does notice. The files are embedded into the app at compile time
+lesson file it does notice. That holds for a lesson's optional `Main.hs`
+too: one added to a lesson that had none goes unseen until the index is
+edited (a blank line will do, or a comment, a line starting with `#`). The files are embedded into the app at compile time
 (`Learn.Lessons`); a lesson that cannot be read fails the build with what is
 wrong with it.
 
@@ -142,13 +144,17 @@ The text is Markdown, of which the page reads this much (`Learn.Markdown`):
 - fenced code blocks between lines of three backticks; ` ```haskell ` marks
   one as Haskell (the `<code>` gets `class="language-haskell"`);
 - unordered lists (`- ` or `* ` at the start of a line) and ordered lists
-  (`1. `); an item can go on over lines indented under it, but cannot hold
-  blocks of its own, and lists do not nest;
+  (`1. `, which start at their first item's number); an item can go on over
+  lines indented under it, but cannot hold blocks of its own; blank lines
+  between items do not end a list; lists do not nest, and an indented item
+  is a build error;
 - blockquotes: lines starting with `>`, whose content is read as blocks;
 - inline, anywhere: `` `code` ``, `**bold**`, `*italic*` or `_italic_` (an
   underscore inside a word, as in `handle_action`, is just an underscore, and
-  so is a `*` before a space), `[text](address)`, and `\` before a character
-  to write it as it is.
+  so is a `*` before a space or another `*`), `[text](address)` (the text
+  ends at the first `]`, and the address at the `)` that closes its `(`, so
+  it may hold parentheses that balance), and `\` before a character to
+  write it as it is.
 
 Everything else is text as written. Something opened and not closed (a code
 block, a backtick, a `**`, a link) is a build error naming the line.
@@ -189,8 +195,11 @@ session keeps `haskell-halogen-core` loaded, so the reference that
 component and keeps how to end it. Write a `Main.hs` of your own when the
 lesson needs something else around its component: an input, the component's
 output messages printed with `putStrLn` (the page shows what the program
-writes to stdout while the compile runs, so a `Finalize` of the previous run
-shows and a click handler's output does not), two components, a router. It is the module `Main`, imports
+writes to stdout while the compile runs, a line at a time, as the playground
+makes stdout line-buffered and flushes it when a run ends: so the previous
+run's `Finalize`, which the next compile's `HA.endPreviousRun` runs,
+shows under the editor, and a click handler's output does not), two
+components, a router. It is the module `Main`, imports
 `Lesson`, and must do the same three things: `HA.endPreviousRun` first, mount
 into `#learn-result`, and `HA.keepForNextRun` with whatever ends what it
 started. (The page ends the last run itself when the reader leaves a lesson,
