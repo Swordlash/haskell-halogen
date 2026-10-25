@@ -20,7 +20,7 @@ Material's components are drawn by its JavaScript: once a text field is on the p
 
 So `component` names those two constraints and is still polymorphic in `m`: it says what it needs, not where it runs. The program around it picks the monad, `BrowserDOM`, which has both instances; an application with a monad of its own gives that monad the two instances and uses the same component. Natively, `BrowserDOM`'s `MonadMaterial` instance only lets code type-check.
 
-That JavaScript, and the stylesheet that makes the components look like Material, come with the layer as `material.js` and `material.css`. The program around your module adds both to the page, as an application's `index.html` would, and mounts the component once they have loaded.
+That JavaScript, and the stylesheet that makes the components look like Material, come with the layer as `material.js` and `material.css`. The page adds both to the document as the layer loads, as an application's `index.html` would, so they are there before your component mounts.
 
 ## Exercise
 
