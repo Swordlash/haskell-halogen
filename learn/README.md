@@ -533,9 +533,15 @@ It does not show:
   (`createPipe: unsupported operation`). A program uses JavaScript through
   library bindings only; a tutorial chapter about FFI would need its bindings
   in a layer.
-- Anything but Chromium on a fast desktop. Firefox and Safari are untested
+- Anything but Chromium and WebKit on a fast desktop. Firefox is untested
   here (GHC's own playground is tested on all three, and dyld works around a
-  WebKit `table.grow` bug), and so are phones.
+  WebKit `table.grow` bug). Playwright's WebKit (Safari 26's engine) loads the
+  compiler in about 20 s on the deployed tutorial and compiles and runs the
+  testing lesson's suite, with a desktop window and with an iPhone's; so does
+  Chromium with a phone's screen and touch (a Pixel 7's), once the reader has
+  asked for the compiler, which a small screen does not load by itself. What
+  a real phone does is still untested: the emulation gives it the desktop's
+  memory and speed.
 - The editor, error markers, persistence, or a lesson naming its layers:
   those are the tutorial's ([`examples/learn`](../examples/learn/README.md)),
   on this rootfs; this page only has `?layers=` and `learn.loadLayer`.
@@ -558,8 +564,9 @@ It does not show:
   are single-threaded JavaScript and wasm instantiation; on a slow laptop or a
   phone expect several times as long. A progress display matters (the
   manifest's sizes are for that; the page shows bytes received against them).
-- **Safari**: untested here; WebKit is the browser most likely to fall short
-  on memory.
+- **Safari**: WebKit loads the compiler and compiles on a desktop (above);
+  an iPhone's memory limit, tighter than the desktop's, is untested, and
+  WebKit is the browser most likely to fall short on it.
 - **Keeping it in step**: the rootfs must be built with exactly the GHC that
   `cabal-wasm.project` pins and from the same build of our packages (the
   layers' `.so` and interfaces are ABI-bound to both, and to the base layer:

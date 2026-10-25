@@ -530,8 +530,10 @@ function halogen_test_outer_html(element) {
   return element.outerHTML;
 }
 
+// isVisible: the same sense of visible the actions wait for, so that what
+// shouldBeVisible accepts is what click would act on.
 function halogen_test_is_visible(element) {
-  return element.checkVisibility();
+  return halogen_test_visible(element);
 }
 
 // 1 or 0: a number crosses both backends' pure imports the same way.

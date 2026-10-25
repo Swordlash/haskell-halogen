@@ -465,8 +465,10 @@ classes element = T.words <$> getProperty element "className"
 outerHTML :: Element s -> PageM s Text
 outerHTML (Element element) = unsafeIOToPageM $ Page.outerHTMLOf element
 
--- | Whether the element takes up space on the page: not hidden, not inside
--- something hidden, not @display: none@.
+-- | Whether the element is visible as Playwright counts it, the sense the
+-- actions wait for: it has a box, and neither it nor what holds it is
+-- @display: none@, @content-visibility: hidden@ or @visibility: hidden@.
+-- Opacity is not looked at, nor whether something covers it.
 isVisible :: Element s -> PageM s Bool
 isVisible (Element element) = unsafeIOToPageM $ Page.checkVisibility element
 

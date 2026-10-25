@@ -176,8 +176,10 @@ component =
         -- lesson's start again (Reset).
         -- Storage the browser denies (a strict private window) must not
         -- stop the lesson: the code is then kept for this visit only.
-        void $ H.liftEffect $ tryAny $
-          if text == lesson.start
+        void
+          $ H.liftEffect
+          $ tryAny
+          $ if text == lesson.start
             then removeStorageItem LocalStorage (storageKey lesson)
             else writeStorageItem LocalStorage (storageKey lesson) text
         let edited = text /= lesson.start

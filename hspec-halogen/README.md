@@ -309,7 +309,8 @@ how it went.
 ### Reading and checking
 
 - `textContent`, `getProperty element "value"` (as JavaScript's `String()`
-  renders it), `getAttribute`, `classes`, `outerHTML` and `isVisible`.
+  renders it), `getAttribute`, `classes`, `outerHTML` and `isVisible`, which
+  is visible in Playwright's sense above, the same the actions wait for.
 - `isAttached`: whether the element is still in the page. Elements compare
   with `==` as JavaScript's `===` does, and `shouldBeSameElement` checks that
   a render kept an element rather than replacing it.

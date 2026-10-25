@@ -26,6 +26,12 @@
   The haskell-halogen tutorial runs its testing lesson's spec this way, in
   the GHC it runs in the page.
 
+* `isVisible`, and with it `shouldBeVisible` and `shouldBeHidden`, count an
+  element with `visibility: hidden`, on it or on what holds it, as hidden,
+  as Playwright does and as the actions' waits already did; before, only
+  `display: none` and `content-visibility: hidden` hid an element from them,
+  so `shouldBeVisible` could pass on a button `click` would not act on.
+
 * `runBrowserTestsIn element spec` runs a suite with every test's page
   inside `element` rather than at the end of the body, for a page that has
   more on it than the suite (the tutorial's result pane). `runBrowserTests`

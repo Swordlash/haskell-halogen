@@ -101,6 +101,15 @@ spec m = do
     runPage (mount m Editing.component () >>= (`find` "button.invisible") >>= click)
       `shouldThrow` \(JSError _ message) -> "Timeout 5000ms exceeded" `T.isInfixOf` message
 
+  -- What the actions wait for is what isVisible reports: visibility: hidden
+  -- hides an element from both.
+  it "counts an element hidden by visibility as hidden" $ runPage $ do
+    ui <- mount m Editing.component ()
+    invisible <- find ui "button.invisible"
+    isVisible invisible `shouldReturn` False
+    shouldBeHidden invisible
+    find ui "button.tab-first" >>= shouldBeVisible
+
   -- Five seconds too: a read-only field never becomes editable.
   it "does not clear a read-only field, and fails as the runner does" $
     runPage (mount m Editing.component () >>= (`find` "input.readonly") >>= clear)
