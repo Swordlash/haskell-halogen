@@ -188,7 +188,7 @@ example_restart_globs() {
 
 set -- --watch "$example_dir"
 lines=$(example_restart_globs "$example_dir")
-for library in core jsbits hooks router net tauri material pixi sound th th-plugin; do
+for library in core jsbits hooks router net custom-element tauri material pixi sound th th-plugin; do
   for dir in src jsbits; do
     if [ -d "$library/$dir" ]; then
       set -- "$@" --watch "$library/$dir" --restart-glob "$library/$dir/**"

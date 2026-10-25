@@ -4,7 +4,8 @@
 // program. Then, for each layer the build has (rootfs.json), the page loads
 // it and runs a program that uses it, which loads its libraries and calls
 // their JavaScript: a hooks counter, a router link, a fetch from this server,
-// a Material button with its CSS, a Pixi scene on a canvas, an hh quote
+// a custom element defined over the page's HTML, a Material button with its
+// CSS, a Pixi scene on a canvas, an hh quote
 // from haskell-halogen-th, and an hspec-halogen spec, whose report is the
 // program's output.
 //
@@ -262,6 +263,53 @@ fetched =
 ` + mainOf("fetched"),
     async verify(page) {
       await appText(page, `fetched: ${hello}`);
+    },
+  },
+
+  // A custom element: plain HTML put into #app, its element defined from a
+  // component afterwards (so that it is upgraded where it is), and an
+  // attribute the page sets heard as the component's new input. The run
+  // ends with the HTML taken out again, for the next run's #app.
+  elements: {
+    what: "a custom element from the elements layer, defined over HTML in the page, its attribute set from JavaScript",
+    source: String.raw`{-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE OverloadedStrings #-}
+
+module Main (main) where
+
+import Control.Monad.State (put)
+import Data.Maybe (fromMaybe)
+import Data.Text (Text)
+import Halogen qualified as H
+import Halogen.CustomElement (Definition (..), Registration (..))
+import Halogen.CustomElement qualified as CE
+import Halogen.HTML qualified as HH
+import Halogen.IO.Util qualified as HA
+import Halogen.VDom.DOM.Monad (BrowserDOM, PropValue (..), nodeToElement, runBrowserDOM, setProperty)
+import Web.DOM.Internal.Types (toNode)
+import Web.DOM.ParentNode (QuerySelector (..))
+import Web.HTML.Common (PropName (..))
+
+greeting :: H.Component q Text o BrowserDOM
+greeting = H.component pure (\name -> HH.p_ [HH.text ("an element greets " <> name)]) [H.onReceive put]
+
+main :: IO ()
+main = runBrowserDOM $ do
+  HA.endPreviousRun
+  app <- maybe (error "the page has no #app") pure =<< HA.selectElement (QuerySelector "#app")
+  container <- maybe (error "#app is not an element") pure =<< nodeToElement (toNode app)
+  let html = setProperty (PropName "innerHTML") . TxtProp
+  html "<x-playground-greeting name=\"Ada\"></x-playground-greeting>" container
+  registration <- CE.define "x-playground-greeting" CE.defaultDefinition {input = fromMaybe "nobody" . CE.attr "name", observed = ["name"]} greeting
+  HA.keepForNextRun (registration.dispose >> html "" container)
+`,
+    async verify(page) {
+      const element = page.locator("#app x-playground-greeting");
+      // Playwright's selectors go into open shadow roots.
+      await element.locator("p", { hasText: "an element greets Ada" }).waitFor({ timeout: 10000 });
+      await element.evaluate((e) => e.setAttribute("name", "Grace"));
+      await element.locator("p", { hasText: "an element greets Grace" }).waitFor({ timeout: 10000 });
+      assert.equal(await element.evaluate((e) => e.innerHTML), "", "the component renders in the shadow root, not among the page's children");
     },
   },
 

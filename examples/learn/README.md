@@ -75,7 +75,10 @@ listed at its line with the last result still mounted, that **every lesson's
 `Start.hs` compiles and its `Solution.hs` compiles with no diagnostic and
 shows something** (one line per lesson; for lesson 13, whose program runs a
 spec, hspec's report under the editor: one failure for `Start.hs`, none for
-`Solution.hs`, and nothing left in the result), that back, forward, a second visit
+`Solution.hs`, and nothing left in the result; for lesson 14, whose program
+puts a page of its own around the lesson's custom element, that the element
+and the page's buttons do what the text says, before the exercise and after
+it), that back, forward, a second visit
 (from the cache) and Reset work, that a narrow screen downloads nothing large
 until asked, that a failed load can be retried and loads from a manifest
 without a version or sizes too, and that nothing is logged as an error.
@@ -129,8 +132,9 @@ args: -package haskell-halogen-hooks
   separated by spaces or commas. The page extracts a layer the first time a
   lesson needs it and passes its package database to GHC (`-package-db`).
   The rootfs has `hooks`, `router`, `net`, `material`, `pixi` and `th`, one
-  per package of the same name (`haskell-halogen-hooks`, ...), and `hspec`,
-  for `hspec-halogen` (see `learn/README.md`, "Layers").
+  per package of the same name (`haskell-halogen-hooks`, ...), `elements`,
+  for `haskell-halogen-custom-element`, and `hspec`, for `hspec-halogen` (see
+  `learn/README.md`, "Layers").
 - `args` (optional): further GHC arguments, separated by spaces, after the
   ones every compile has (`-package haskell-halogen-core
   -Wno-missed-extra-shared-lib -i/tmp`). A layer's package still has to be
@@ -207,8 +211,11 @@ runs, shows under the editor, and a click handler's output does not), two
 components, a router. It is the module `Main`, imports
 `Lesson`, and must do the same three things: `HA.endPreviousRun` first, mount
 into `#learn-result`, and `HA.keepForNextRun` with whatever ends what it
-started. A `Main.hs` may also run a spec of the lesson's instead, as lesson
-13's does: `Lesson` exports `spec` beside `component`, and `main` is
+started. Lesson 14's puts plain HTML and a script into `#learn-result`
+rather than mount there, defines a custom element over it from the
+`definition` its `Lesson` exports beside `component`, and keeps the
+registration's `dispose` and the HTML's removal. A `Main.hs` may also run a
+spec of the lesson's instead, as lesson 13's does: `Lesson` exports `spec` beside `component`, and `main` is
 `HA.endPreviousRun` then `runBrowserTestsIn result (spec BrowserDOM)`
 (`hspec-halogen`'s `Test.Hspec.Halogen`), which runs each test in a page of
 its own inside `#learn-result` and prints hspec's report to stdout, which

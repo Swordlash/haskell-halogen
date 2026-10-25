@@ -1,0 +1,99 @@
+cabal-version:      3.0
+name:               halogen-example-custom-element
+version:            0.1.0.0
+synopsis:           haskell-halogen-custom-element example: Halogen components as custom elements on a plain page
+license:            Apache-2.0
+author:             Mateusz Goślinowski
+maintainer:         mateusz.goslinowski@gmail.com
+category:           Web
+
+flag interactive
+  description: Build the example for browser GHCi (toolchain/dev.sh)
+  default:     False
+  manual:      True
+
+common shared
+  default-language: GHC2021
+  ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture -Wredundant-constraints -Wunused-packages
+
+  default-extensions:
+      RankNTypes
+      GeneralizedNewtypeDeriving
+      MultiParamTypeClasses
+      FunctionalDependencies
+      FlexibleContexts
+      FlexibleInstances
+      UndecidableInstances
+      GADTs
+      DeriveFunctor
+      DerivingStrategies
+      NoImplicitPrelude
+      KindSignatures
+      DataKinds
+      OverloadedStrings
+      TypeOperators
+      LambdaCase
+      TypeFamilies
+      OverloadedRecordDot
+      RecordWildCards
+      NamedFieldPuns
+      DuplicateRecordFields
+      PartialTypeSignatures
+      DefaultSignatures
+      StandaloneKindSignatures
+      NoFieldSelectors
+      DerivingVia
+      CPP
+      StrictData
+      RequiredTypeArguments
+      ExplicitNamespaces
+
+
+library
+  import:           shared
+  hs-source-dirs:   src
+  exposed-modules:  Example.CustomElement
+  build-depends:
+      protolude,
+      aeson,
+      row-types,
+      haskell-halogen-core,
+      haskell-halogen-custom-element
+
+executable halogen-example-custom-element
+  import:           shared
+  main-is:          Main.hs
+  hs-source-dirs:   .
+  build-depends:
+      protolude,
+      haskell-halogen-core
+
+  -- Browser GHCi (toolchain/dev.sh) reloads only the modules of the target it
+  -- loaded, so there the example's module is compiled into the executable
+  -- rather than taken from the library, where edits would go unnoticed.
+  -- Natively there is no page to define elements on, and Main only says so,
+  -- so it needs neither.
+  if flag(interactive)
+    hs-source-dirs: src
+    other-modules:  Example.CustomElement
+    build-depends:
+        aeson,
+        row-types,
+        haskell-halogen-custom-element
+  elif arch(javascript) || arch(wasm32)
+    build-depends:
+        halogen-example-custom-element,
+        haskell-halogen-custom-element
+
+  -- The wasm program is a reactor, which the page starts through its
+  -- hs_start export. GHCi loads the program's modules and runs main itself,
+  -- so the interactive build is an ordinary program, and Main leaves the
+  -- export out when INTERACTIVE is defined.
+  if arch(wasm32) && !flag(interactive)
+    ghc-options:
+      -no-hs-main
+      -optl-mexec-model=reactor
+      "-optl-Wl,--export=hs_start"
+
+  if flag(interactive)
+    cpp-options: -DINTERACTIVE

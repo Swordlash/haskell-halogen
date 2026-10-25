@@ -1,0 +1,121 @@
+cabal-version:      3.4
+name:               haskell-halogen-custom-element
+version:            0.1.0.0
+synopsis:           Halogen components as custom elements (Web Components), and others' custom elements in Halogen
+description:
+  "Halogen.CustomElement" turns a Halogen component into a custom element,
+  which any page can use as it uses a built-in one: from plain HTML, or from
+  React, Vue, Svelte, Astro or HTMX, none of which needs to know Halogen is
+  behind it. The element's attributes and properties are the component's
+  input, which it hears as @Receive@; what it raises is dispatched as
+  @CustomEvent@s; and its queries can be the element's methods, which return
+  a promise of the answer. Each element mounts its own tree, in a shadow root
+  with styles of its own or in the element itself, when it is connected to the
+  document, and disposes of it when it is removed (but not when it is only
+  moved).
+  .
+  A name can be defined again, which swaps the component of every element of
+  it, as a program run again in the same page needs, and a definition can be
+  taken back, which leaves the name inert.
+  .
+  For custom elements made elsewhere, @onEvent@ reads a @CustomEvent@'s
+  detail as JSON. Natively there is no page: @define@ only checks its name.
+homepage:           https://github.com/Swordlash/haskell-halogen
+license:            Apache-2.0
+license-file:       LICENSE
+author:             Mateusz Goślinowski
+maintainer:         mateusz.goslinowski@gmail.com
+category:           Web
+build-type:         Simple
+extra-doc-files:    CHANGELOG.md, README.md
+extra-source-files: jsbits/*.js, test/jsbits/*.js
+
+flag interactive
+    description: Build the browser test suite for browser GHCi (toolchain/dev-test.sh)
+    default:     False
+    manual:      True
+
+common defaults
+    default-language: GHC2021
+    ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists -Wunused-packages
+    default-extensions:
+        DataKinds
+        DerivingStrategies
+        DuplicateRecordFields
+        LambdaCase
+        NoFieldSelectors
+        OverloadedRecordDot
+        OverloadedStrings
+        StrictData
+
+library
+    import:           defaults
+    hs-source-dirs:   src
+    exposed-modules:  Halogen.CustomElement
+    build-depends:
+        base >= 4.20 && < 5,
+        aeson >= 2.2.1,
+        bytestring,
+        containers,
+        mtl,
+        row-types,
+        text,
+        unliftio,
+        haskell-halogen-core,
+        haskell-halogen-jsbits
+
+    if arch(javascript)
+        js-sources:   jsbits/custom-element.js
+        ghc-options:  -fexpose-all-unfoldings
+
+    if arch(wasm32)
+        ghc-options:  -fexpose-all-unfoldings
+
+-- Elements defined, connected, changed, moved, removed and defined again in
+-- headless Chromium (see hspec-halogen), on both browser backends, with what
+-- a page would do to them (test/jsbits). Natively it only reports that it
+-- skipped.
+test-suite Halogen-custom-element-test
+    import:           defaults
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          Test.hs
+    -- A spec takes the monad its components run in as a type argument.
+    default-extensions: RequiredTypeArguments
+    other-modules:    Example.Counter
+                      Example.Listener
+                      Test.Define
+                      Test.Lifecycle
+                      Test.Methods
+                      Test.Page
+                      Test.Using
+    build-depends:
+        base,
+        aeson,
+        bytestring,
+        mtl,
+        row-types,
+        text,
+        haskell-halogen-core,
+        haskell-halogen-custom-element,
+        haskell-halogen-jsbits,
+        hspec-halogen
+
+    -- The page's side of the tests (test/jsbits), declared with browserJS as
+    -- a package's is.
+    if arch(javascript)
+        js-sources:   test/jsbits/elements.js
+
+    if arch(wasm32) && !flag(interactive)
+        ghc-options:
+            -no-hs-main
+            -optl-mexec-model=reactor
+            "-optl-Wl,--export=hs_start"
+
+    if flag(interactive)
+        cpp-options:  -DINTERACTIVE
+
+source-repository head
+  type:     git
+  location: https://github.com/Swordlash/haskell-halogen.git
+  subdir:   custom-element
