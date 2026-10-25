@@ -79,6 +79,7 @@ import Data.Sequence qualified as Seq
 import Data.Set (Set)
 import Data.Set qualified as Set
 import GHC.Conc (ThreadStatus (..), threadStatus)
+import Halogen.JSBits (inSyncCallback)
 import Prelude
 import UnliftIO (AsyncCancelled (..))
 
@@ -128,11 +129,13 @@ data Entry = Claimed | Nested | Behind | Queued | Handed
 enter :: Loop -> IO () -> IO ()
 enter = enterWith False
 
--- | 'enter', for a browser event's handler. A browser runs an event's
--- handlers while it dispatches it, so an event a component dispatches from
--- a synchronous effect is handled before the effect goes on: the handler
--- may still prevent the event's default action, or stop its propagation.
--- In the browser the handler runs on a thread of its own while the thread
+-- | 'enter', for a browser event's handler: an element's listener, or an
+-- emitter a component subscribed to (one 'Halogen.Query.Event.eventListener'
+-- made, say), when the page calls it. A browser runs an event's handlers
+-- while it dispatches it, so an event a component dispatches from a
+-- synchronous effect is handled before the effect goes on: the handler may
+-- still prevent the event's default action, or stop its propagation. In
+-- the browser the handler runs on a thread of its own while the thread
 -- running the loop waits for the dispatch to return, so there it is nested
 -- whenever the loop is inside a synchronous effect ('withinEffect'). (There
 -- is only ever one thread running, and a handler is called either from the
@@ -148,8 +151,36 @@ enter = enterWith False
 -- there the handler lets that thread go on ('yield'), inside the dispatch,
 -- until the work it queued has run, and returns only then (see
 -- 'letRunnerFinish').
+--
+-- All of this is so only for a thread the page called: one running a
+-- callback made with 'Halogen.JSBits.mkSyncCallback', as every DOM
+-- listener is ('Halogen.JSBits.inSyncCallback'). Any other thread that
+-- comes here is given 'enter', whatever the loop is doing:
+--
+-- * a worker (a 'liftIO' body that notifies an emitter) never runs the
+--   loop itself, nor waits, as 'enter' has it;
+--
+-- * the thread running the loop runs the work there and then, nested, as
+--   'enter' has it too;
+--
+-- * any other thread (a timer's, such as
+--   'Halogen.Query.Event.Window.interval''s, or one a program forked
+--   itself) runs the work at once only when the loop is idle, and
+--   otherwise queues it and goes on. Such a thread is not under the effect
+--   on the stack, whatever it finds: on WebAssembly it may run while the
+--   effect's thread is blocked in the call that dispatched an event (another
+--   thread is then running that event's handler), and on the JavaScript
+--   backend while the effect's thread is merely preempted. Nested, its work
+--   would run beside the effect, or beside the handler, rather than inside
+--   it.
+--
+-- Natively this is always 'enter': there the DOM ("Halogen.VDom.DOM.Monad.Native")
+-- runs a listener on the thread that dispatches the event, so an event an
+-- effect dispatches is nested because the loop's own thread brings it.
 enterCallback :: Loop -> IO () -> IO ()
-enterCallback = enterWith browser
+enterCallback loop work = do
+  called <- if browser then inSyncCallback else pure False
+  enterWith called loop work
   where
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
     browser = True

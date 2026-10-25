@@ -21,8 +21,13 @@
 --   commit.
 -- * Work the tree's own thread brings it (an emitter a synchronous effect
 --   notifies) runs there and then.
+-- * So does an event a synchronous effect dispatches, through a callback
+--   the page calls (an emitter fed by a DOM listener): it is handled before
+--   the effect goes on, on every backend.
 -- * Work a program's worker brings it (an emitter a 'liftIO' notifies) is
---   not run by that worker, which may be killed by it.
+--   not run by that worker, which may be killed by it; nor is it run inside
+--   a synchronous effect under way, and neither is work any other thread
+--   brings: both wait for the effect, and the action it is in, to end.
 -- * A failing program ends alone: the rest of the tree goes on.
 module Test.DriverContract (spec) where
 
@@ -47,6 +52,7 @@ import Halogen.HTML qualified as HH
 import Halogen.HTML.Core qualified as HC
 import Halogen.IO.Driver qualified as AD
 import Halogen.IO.Driver.State (RenderStateX (..))
+import Halogen.JSBits (freeCallback, invokeCallback, jsNull, mkSyncCallback)
 import Halogen.Query.Input (Input)
 import Halogen.Subscription qualified as HS
 import Halogen.VDom.Types (VDom (..), runGraft)
@@ -170,6 +176,15 @@ data Act
     -- the second.
     TickFrom (MVar ()) (MVar ())
   | Tick
+  | -- | In an effect, calls a callback as the page calls a DOM listener,
+    -- which notifies 'Note', and notes once the call has returned.
+    CallBack
+  | -- | In an effect, starts a thread of its own that notifies 'Note' and
+    -- signals, waits for the signal, and notes.
+    FromThread
+  | -- | Forks a program whose 'liftIO' notifies 'Note' and signals; then, in
+    -- an effect, waits for the signal and notes.
+    WorkerInEffect
 
 data Query a
   = Bump (Text -> a)
@@ -245,6 +260,20 @@ logging texts logRef ticker acts self =
       Dispatch -> do
         H.liftEffect (HS.notify self (Note "handled while dispatched"))
         note "dispatched"
+      CallBack -> H.liftEffect $ do
+        callback <- mkSyncCallback (\_ -> HS.notify self (Note "handled in the call"))
+        invokeCallback callback jsNull
+        freeCallback callback
+        note' "the effect went on"
+      FromThread -> H.liftEffect $ do
+        notified <- newEmptyMVar
+        _ <- forkIO (HS.notify self (Note "from a thread") >> putMVar notified ())
+        takeMVar notified
+        note' "the effect went on"
+      WorkerInEffect -> do
+        notified <- H.liftEffect newEmptyMVar
+        _ <- H.fork (liftIO (HS.notify self (Note "from the worker") >> putMVar notified ()))
+        H.liftEffect (takeMVar notified >> note' "the effect went on")
       TickFrom killed wentOn -> do
         fid <- H.fork $ forever $ do
           liftIO (threadDelay 1_000)
@@ -407,6 +436,29 @@ nestedDispatch :: IO ()
 nestedDispatch = withLogging $ \acts _ _ logRef -> do
   HS.notify acts Dispatch
   readIORef logRef >>= assertEqual "handled before the effect returned" ["handled while dispatched", "dispatched"]
+
+-- | A callback the page calls in the middle of an effect: the work it
+-- brings is the event's handler, nested in the effect. Natively the call
+-- runs on the loop's own thread; in a browser on a thread of its own,
+-- which is a sync callback's.
+callbackDispatch :: IO ()
+callbackDispatch = withLogging $ \acts _ _ logRef -> do
+  HS.notify acts CallBack
+  readIORef logRef >>= assertEqual "handled before the effect went on" ["handled in the call", "the effect went on"]
+
+-- | A thread that is neither the loop's nor one the page called queues its
+-- work while an effect is under way, though the effect's thread is blocked
+-- (as it would be in a browser's dispatch): it is not under the effect.
+threadDuringEffect :: IO ()
+threadDuringEffect = withLogging $ \acts _ _ logRef -> do
+  HS.notify acts FromThread
+  readIORef logRef >>= assertEqual "handled after the effect's action" ["the effect went on", "from a thread"]
+
+-- | So does a worker, which never runs the loop.
+workerDuringEffect :: IO ()
+workerDuringEffect = withLogging $ \acts _ _ logRef -> do
+  HS.notify acts WorkerInEffect
+  readIORef logRef >>= assertEqual "handled after the effect's action" ["the effect went on", "from the worker"]
 
 ----------------------------------------------------------------------
 -- A child that tells its parent to remove it, and would go on.
@@ -773,6 +825,9 @@ spec =
     it "cancels a parallel branch whose sibling failed later" parallelFailsLater
     it "runs work an effect brings the tree there and then" nestedDispatch
     it "finishes a handler that kills the fork whose worker brought it" workerNotify
+    it "handles an event a callback brings in the middle of an effect before the effect goes on" callbackDispatch
+    it "queues work another thread brings while an effect is under way" threadDuringEffect
+    it "queues work a worker brings while an effect is under way" workerDuringEffect
     it "takes back the children made by a render pass that failed" failedPass
     it "takes back the children made by a render pass that failed removing others" failedRemoval
     it "initializes the rest when an initializer fails, and ends a finalizer's forks with it" lifecycle

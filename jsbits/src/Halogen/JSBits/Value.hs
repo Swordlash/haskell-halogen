@@ -22,6 +22,7 @@ module Halogen.JSBits.Value
   , Callback
   , mkCallback
   , mkSyncCallback
+  , inSyncCallback
   , freeCallback
   , invokeCallback
   , inBrowser
@@ -29,10 +30,14 @@ module Halogen.JSBits.Value
   )
 where
 
+import Control.Concurrent (ThreadId, myThreadId)
+import Control.Exception (finally, mask)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as ByteString
+import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import System.IO.Unsafe (unsafePerformIO)
 
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 import Data.ByteString.Internal qualified as ByteString (create)
@@ -101,7 +106,53 @@ mkCallback :: (JSVal -> IO ()) -> IO Callback
 -- from a synchronous JSFFI import (a component that dispatches an event
 -- from a synchronous effect) needs; on the JavaScript backend a
 -- @ContinueAsync@ callback.
+--
+-- While its body runs, its thread is one 'inSyncCallback' answers 'True'
+-- for.
 mkSyncCallback :: (JSVal -> IO ()) -> IO Callback
+
+-- | Whether this thread is running the body of a callback made with
+-- 'mkSyncCallback': one JavaScript called, perhaps from the middle of a
+-- synchronous import this program made (a component that dispatches an
+-- event from a synchronous effect). A thread the program forked itself, or
+-- one an asynchronous callback ('mkCallback') runs on, is not, and neither
+-- is one the body forks. A body that waits stays one until it ends, though
+-- by then JavaScript has had the call back.
+--
+-- haskell-halogen-core asks it to tell an event the page dispatches, which
+-- may arrive in the middle of the component's work that dispatched it, from
+-- a notification any other thread makes.
+inSyncCallback :: IO Bool
+inSyncCallback = do
+  me <- myThreadId
+  any (sameThread me) <$> readIORef syncCallbackThreads
+
+-- | The threads running a sync callback's body, one entry for each body
+-- (natively a callback runs on its caller's thread, which may be in one
+-- already).
+syncCallbackThreads :: IORef [ThreadId]
+syncCallbackThreads = unsafePerformIO (newIORef [])
+{-# NOINLINE syncCallbackThreads #-}
+
+-- | Run a sync callback's body with its thread noted in
+-- 'syncCallbackThreads'.
+asSyncCallback :: IO () -> IO ()
+asSyncCallback body = mask $ \restore -> do
+  me <- myThreadId
+  atomicModifyIORef' syncCallbackThreads (\ts -> (me : ts, ()))
+  restore body `finally` atomicModifyIORef' syncCallbackThreads (\ts -> (dropOne me ts, ()))
+  where
+    dropOne me = \case
+      [] -> []
+      t : ts
+        | sameThread me t -> ts
+        | otherwise -> t : dropOne me ts
+
+-- | 'compare', not '==': GHC's JavaScript runtime has the @cmp_thread@ that
+-- 'Ord' 'ThreadId' calls, but not the @eq_thread@ that 'Eq' calls.
+sameThread :: ThreadId -> ThreadId -> Bool
+sameThread a b = compare a b == EQ
+
 freeCallback :: Callback -> IO ()
 
 -- | Call a callback from Haskell.
@@ -165,7 +216,7 @@ foreign import javascript unsafe "(($1) => { return $1; })" js_to_bool :: Bool -
 type Callback = JS.Callback (JSVal -> IO ())
 
 mkCallback = JS.asyncCallback1
-mkSyncCallback = JS.syncCallback1 JS.ContinueAsync
+mkSyncCallback f = JS.syncCallback1 JS.ContinueAsync (asSyncCallback . f)
 freeCallback = JS.releaseCallback
 invokeCallback callback = js_invoke (unsafeCoerce callback)
 
@@ -219,7 +270,7 @@ mkCallback = js_callback
 
 foreign import javascript "wrapper" js_callback :: (JSVal -> IO ()) -> IO Callback
 
-mkSyncCallback f = js_sync_callback (continueAsync . f)
+mkSyncCallback f = js_sync_callback (continueAsync . asSyncCallback . f)
 
 -- A sync export: the browser runs listeners while it dispatches an event,
 -- and re-entering Haskell from a synchronous JSFFI import is only
@@ -283,7 +334,7 @@ fromJSBytes _ = pure ByteString.empty
 newtype Callback = Callback (JSVal -> IO ())
 
 mkCallback = pure . Callback
-mkSyncCallback = mkCallback
+mkSyncCallback f = mkCallback (asSyncCallback . f)
 freeCallback _ = pure ()
 invokeCallback (Callback f) = f
 
