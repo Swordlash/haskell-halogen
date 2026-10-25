@@ -7,7 +7,9 @@
 --   the tree goes on, and the program resumes after what came before.
 -- * A child's 'Receive' runs as a program of the child: until it waits, the
 --   render waits for it; once it waits, the render goes on.
--- * A state change is rendered before the program goes on.
+-- * A state change is rendered before the program goes on, and a state
+--   operation that changes nothing renders nothing, in a component that
+--   'H.hoist' moved to another monad too.
 -- * A component counts as initialized once its @Initialize@ has run its
 --   synchronous part (up to its first wait, or its end): its parent's runs
 --   after that, and its outputs flow, while what it waits for holds up
@@ -38,10 +40,12 @@ import Control.Monad (forever, void, when)
 import Control.Monad.Catch (try)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Parallel (parallel, sequential)
+import Control.Monad.Reader (ReaderT, runReaderT)
 import Control.Monad.State.Class (get, modify, put, state)
 import Data.Foldable (for_, traverse_)
 import Data.IORef
 import Data.Kind (Type)
+import Data.NT (type (~>) (..))
 import Data.Row (Empty, Row, type (.==))
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -762,6 +766,34 @@ goneWhileInitializing = withIsland True $ \socket logRef gate _ -> do
   threadDelay 10_000
   readIORef logRef >>= assertEqual "the island never loaded" ["island waits", "host initialized"]
 
+data TouchQuery a
+  = -- | Reads the state and leaves it as it is.
+    Look a
+  | Put Int a
+
+-- | A component of another monad than the tree's, as one in an
+-- application's @ReaderT@ (or a store's @StoreT@) is once the tree is
+-- hoisted to the monad underneath.
+looker :: H.Component TouchQuery () Void (ReaderT () IO)
+looker =
+  H.component
+    (\_ -> pure (0 :: Int))
+    (\n -> HH.text (T.pack (show n)) :: H.ComponentHTML () Empty (ReaderT () IO))
+    [ H.onQuery $ \case
+        Look a -> get >> pure (Just a)
+        Put n a -> put n >> pure (Just a)
+    ]
+
+hoistedNoOp :: IO ()
+hoistedNoOp = do
+  texts <- newIORef []
+  socket <- AD.runUI (walking texts) (H.hoist (NT (`runReaderT` ())) looker) ()
+  _ <- ask socket (H.mkTell Look)
+  _ <- ask socket (H.mkTell Look)
+  _ <- ask socket (H.mkTell (Put 1))
+  readIORef texts >>= assertEqual "rendered at first and for the one change" ["0", "1"]
+  dispose socket
+
 spec :: Spec
 spec =
   describe "driver contract" $ do
@@ -769,6 +801,7 @@ spec =
     it "runs what arrives while the tree is busy afterwards, in order" busyTree
     it "lets other work run while a program waits, and resumes it after" suspension
     it "renders a state change before the program goes on" renderedFirst
+    it "renders nothing for a get, in a hoisted component too" hoistedNoOp
     it "does not deadlock when a child's Receive waits for its parent" receiveAsksParent
     it "cancels a waiting action of a component that goes away" goneWhileWaiting
     it "answers Nothing to a query whose component goes away" queryWhileGoing
