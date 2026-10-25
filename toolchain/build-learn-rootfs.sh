@@ -26,6 +26,8 @@
 #                    package DB and assets, and a version, a hash of the
 #                    archives (see learn/README.md for each field)
 #   dyld.mjs, post-link.mjs, prelude.mjs   GHC's wasm dynamic linker, from the libdir
+#   browser_wasi_shim.js   the WASI shim dyld and the page share, from
+#                    learn/vendor/browser_wasi_shim/
 #   bsdtar.wasm      libarchive's bsdtar, which the page extracts the archives with
 #   index.html, index.js                   learn/web/
 #
@@ -389,6 +391,25 @@ if text.count(spread) == 1 and text.count(loop) == 1:
     print("    patched dyld.mjs to look up only the functions each library imports")
 else:
     print("    dyld.mjs has changed: left as it is (see the comment in build-learn-rootfs.sh)")
+PY
+# dyld imports browser_wasi_shim from esm.sh, and the page must use the same
+# copy, as the WASI instance dyld makes checks the file system the page hands
+# it against its own copy's classes. So dyld and the page both import the
+# copy in learn/vendor/ (its header says where it comes from), which the
+# rootfs ships beside dyld.mjs, and the tutorial does not depend on esm.sh
+# being up. Unlike the patch above, this one must apply: a dyld left
+# importing esm.sh would have a copy of its own, so the build stops instead.
+cp learn/vendor/browser_wasi_shim/browser_wasi_shim.js "$out/"
+python3 -I - "$out/dyld.mjs" <<'PY'
+import sys
+
+path = sys.argv[1]
+text = open(path, encoding="utf-8").read()
+remote = 'import("https://esm.sh/gh/haskell-wasm/browser_wasi_shim")'
+if text.count(remote) != 1:
+    sys.exit(f"{path} no longer imports browser_wasi_shim as {remote}: see build-learn-rootfs.sh")
+open(path, "w", encoding="utf-8").write(text.replace(remote, 'import("./browser_wasi_shim.js")'))
+print("    pointed dyld.mjs at browser_wasi_shim.js beside it")
 PY
 bsdtar_cache=$build_dir/bsdtar.wasm
 if [ ! -f "$bsdtar_cache" ]; then

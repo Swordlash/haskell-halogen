@@ -84,12 +84,15 @@ the console (`wasi: 0 0`, …): the constructor calls
 
 **Workaround:** `hspec-halogen/js/runner.mjs` and the tutorial's
 `examples/learn/web/index.js` pass `{ debug: false }`. The other examples'
-`web/index.js` files don't, so their pages log those lines.
+`web/index.js` files don't, so their pages log those lines. The compiler's
+copy (`learn/vendor/browser_wasi_shim/`, haskell-wasm's fork) behaves the
+same, and every `WASI` made on it (`learn/web/index.js`,
+`examples/learn/js/playground.js`, GHC's `dyld.mjs`) passes `{ debug: false }`.
 
-**Upstream:** default to off when `options.debug` is absent. First check
-whether 0.4.x still does this; if not, upgrading fixes it. Its `random_get`
-also uses `Math.random`, where `crypto.getRandomValues` would be the better
-source.
+**Upstream:** default to off when `options.debug` is absent. 0.4.2, the last
+release, and upstream's main still do this, so upgrading does not fix it.
+Upgrading would fix the other wart of 0.3.0: its `random_get` uses
+`Math.random`, where 0.4.x uses `crypto.getRandomValues`.
 
 ### cabal-install: reuses the host `ghc-pkg` after the compiler changes
 

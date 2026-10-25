@@ -251,8 +251,9 @@ ordinary static server, at the cost of a request per part on every visit.
 
 ## Notes
 
-- `browser_wasi_shim` comes from esm.sh, unpinned, because the rootfs'
-  `dyld.mjs` imports it from there and the page must share that copy
+- The compiler's `browser_wasi_shim` is the rootfs' `browser_wasi_shim.js`, a
+  copy of haskell-wasm's fork kept in `learn/vendor/`, which the rootfs build
+  also points its `dyld.mjs` at, since the page must share dyld's copy
   (`learn/README.md`). The app's own `index.js` uses the pinned
   `@bjorn3/browser_wasi_shim` from jsDelivr, as every example's does; the two
   do not meet.

@@ -7,14 +7,15 @@
 // dynamic linker (dyld.mjs) and hands back its run function.
 //
 // Everything is relative to the rootfs directory the caller names, which
-// holds rootfs.json, rootfs.tar.zst, layers/, dyld.mjs and bsdtar.wasm.
+// holds rootfs.json, rootfs.tar.zst, layers/, dyld.mjs, browser_wasi_shim.js
+// and bsdtar.wasm.
 //
-// browser_wasi_shim is imported from the address dyld.mjs imports it from, so
-// that the page and dyld share one copy of it (dyld checks the file system's
-// objects against its own classes). Vendoring it means rewriting that import
-// in the copy of dyld.mjs the rootfs ships, which is the rootfs build's to do.
+// browser_wasi_shim is imported from the rootfs' browser_wasi_shim.js, the
+// file the rootfs' copy of dyld.mjs imports, so that the page and dyld share
+// one instance of the module (dyld checks the file system's objects against
+// its own classes). The rootfs build copies it there from learn/vendor/ and
+// points dyld at it, so nothing the compiler needs comes from another site.
 
-const shimUrl = "https://esm.sh/gh/haskell-wasm/browser_wasi_shim";
 const cacheName = "halogen-learn-rootfs";
 
 // What every compile passes to GHC before the lesson's own arguments.
@@ -292,7 +293,7 @@ async function boot(root, wanted) {
   };
   report({ phase: "manifest" });
   const m = await manifest(root);
-  const shim = await import(shimUrl);
+  const shim = await import(new URL("browser_wasi_shim.js", m.base).href);
   const layers = m.layers.filter((layer) => wanted.includes(layer.name));
   // A layer's failure is kept for ensureLayers to report, not the boot's.
   const settled = (promise) => promise.then((archive) => ({ archive }), (error) => ({ error }));

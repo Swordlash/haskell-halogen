@@ -13,9 +13,9 @@
 //
 // It prints what the page measured (fetch, extract, loading the compiler, each
 // layer, each run) and how much memory the page's renderer process used at its
-// peak, and fails on any error in the page. The page imports browser_wasi_shim
-// from esm.sh, and the pixi layer PixiJS from jsDelivr, so this needs the
-// network; if jsDelivr cannot be reached, the pixi run is skipped and says so.
+// peak, and fails on any error in the page. The pixi layer loads PixiJS from
+// jsDelivr, so that run needs the network; if jsDelivr cannot be reached, it
+// is skipped and says so. Everything else the page loads is the rootfs'.
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import { createServer } from "node:http";

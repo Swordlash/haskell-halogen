@@ -55,9 +55,9 @@ already covers.
 
 The page needs nothing but a static server: no COOP/COEP headers,
 `crossOriginIsolated` is false and there is no `SharedArrayBuffer` (the test
-checks this). Its one request off the site is browser_wasi_shim from esm.sh
-(below), and the layers' external dependencies (PixiJS, a font) when they are
-used.
+checks this). It requests nothing off the site but the layers' external
+dependencies (PixiJS, a font), when they are used: browser_wasi_shim is
+`vendor/`'s copy, shipped beside `dyld.mjs` (below).
 
 Packing is reproducible: GNU tar packs the members sorted by name, with
 every time set to the epoch and no owner, so packing the same built
@@ -116,7 +116,8 @@ and fails; with `${pkgroot}` the script runs `ghc-pkg recache` and `check` on
 the result. A program needs only `-package haskell-halogen-core`.
 
 The page also gets `rootfs.json` (the manifest, below), `dyld.mjs`,
-`post-link.mjs` and `prelude.mjs` from the libdir, and `bsdtar.wasm`.
+`post-link.mjs` and `prelude.mjs` from the libdir, `browser_wasi_shim.js` from
+`vendor/browser_wasi_shim/`, and `bsdtar.wasm`.
 
 ### Trimming the boot libraries
 
@@ -366,7 +367,7 @@ Compressed sizes are each part compressed alone at `zstd -19`
 | the `th` layer | 194.7 MB | 21.9 MB |
 | material's assets (`material.js`, `material.css`) | 0.33 MB | |
 | `bsdtar.wasm` | | 1.2 MB |
-| `dyld.mjs` + `post-link.mjs` + `prelude.mjs`, page, manifest | | 0.08 MB |
+| `dyld.mjs` + `post-link.mjs` + `prelude.mjs`, `browser_wasi_shim.js`, page, manifest | | 0.16 MB |
 
 At `zstd -3` the base archive is 64.3 MB and `th`'s 27.1 MB. The largest file
 served is `rootfs.tar.zst`, 52.0 MB; the whole output directory is 76.5 MB.
@@ -543,12 +544,20 @@ It does not show:
   a layer must be rebuilt with the base layer it stands on). The script takes
   all of them from the project's wasm build in one go, so a GHC bump or a
   package change needs only a rebuild, but the tutorial's text must be checked
-  against the packages it was built with. browser_wasi_shim is imported from
-  `https://esm.sh/gh/haskell-wasm/browser_wasi_shim`, unpinned, because
-  `dyld.mjs` imports it from there and the page must share its copy; vendoring
-  it means downloading a pinned build (esm.sh serves
-  `gh/haskell-wasm/browser_wasi_shim@<commit>`) and rewriting that import in the
-  shipped `dyld.mjs`, as the dyld patch rewrites its import object.
+  against the packages it was built with. GHC's `dyld.mjs` imports
+  browser_wasi_shim from `https://esm.sh/gh/haskell-wasm/browser_wasi_shim`,
+  unpinned, and the page must share dyld's copy (the WASI instance dyld makes
+  checks the file system the page hands it against its own copy's classes).
+  So the script ships `vendor/browser_wasi_shim/browser_wasi_shim.js` beside
+  `dyld.mjs` and rewrites that import to it, and the pages import the same
+  file: an outage of esm.sh does not take the compiler down, and the shim
+  changes only when that file does. The script stops if dyld no longer
+  imports it as it expects, since a dyld left with a copy of its own would
+  not recognise the page's file system. The file's header says which commit it was built
+  from and how to build a later one; it is one of the inputs `--key` hashes
+  (all of `learn/`), so a new copy rebuilds the rootfs in CI. It is not in the
+  manifest's `version`, which only keys the archives the tutorial caches: like
+  `dyld.mjs`, the shim is fetched as an ordinary module on every visit.
 - **External dependencies**: the pixi layer needs jsDelivr at run time and
   material's icons need Google Fonts; a reader behind a filter that blocks
   them gets a canvas that never draws, or icons as words. The manifest lists
@@ -563,8 +572,14 @@ It does not show:
   (Copyright (c) 2025 Cheng Shao); downloaded once from
   `https://haskell-wasm.github.io/bsdtar-wasm/bsdtar.wasm`, the build GHC's
   playground loads, and pinned by its SHA-256 in the script.
-- browser_wasi_shim: [haskell-wasm/browser_wasi_shim](https://github.com/haskell-wasm/browser_wasi_shim),
-  MIT OR Apache-2.0, through esm.sh.
+- `browser_wasi_shim.js`: [haskell-wasm/browser_wasi_shim](https://github.com/haskell-wasm/browser_wasi_shim),
+  MIT OR Apache-2.0 (`vendor/browser_wasi_shim/LICENSE-*`), bundled from its
+  source at commit `2f86b49` (the one esm.sh served) with esbuild, as its
+  header says. That fork rather than `@bjorn3/browser_wasi_shim` from npm:
+  the fork is upstream's unreleased main with GHC's changes, the one GHC's
+  playground is tested on, and the last release, 0.4.2, copies a whole file
+  on every write that grows it, which extracting the rootfs' large libraries
+  would pay for quadratically.
 - `dyld.mjs`, `post-link.mjs`, `prelude.mjs`: GHC's, from the toolchain's
   libdir (BSD-3-Clause), `dyld.mjs` patched as above.
 - `layers/material/material.js`, `material.css`: our `material/jsbits` and
