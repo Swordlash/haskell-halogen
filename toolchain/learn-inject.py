@@ -1,12 +1,17 @@
 """Register a layer of packages in the playground's rootfs (learn/).
 
     python3 -I toolchain/learn-inject.py --db DB --so-dir DIR --hi-dir DIR \\
-      --present DB... --source DB... --ghc-version V --listing FILE ROOT...
+      --present DB... [--taken DB...] --source DB... --ghc-version V \\
+      --listing FILE ROOT...
 
 Called by toolchain/build-learn-rootfs.sh. A layer is the closure of the
 ROOT packages (package names, looked up in the --source DBs, the project's
-own last) minus every unit a --present DB has already: the global package DB
-and the layers below this one. For each unit in it this copies
+own last) minus every unit a --present DB has already: the global package DB,
+which the base layer is in. A --taken DB is another layer's: a layer stands
+on the base layer alone, so that a page can load any set of layers in any
+order, and a unit this layer needs that another layer has already is an
+error rather than a second copy (two copies of a library in one session would
+be two libraries to dyld). For each unit in the layer this copies
 
   * its .so into --so-dir,
   * its .dyn_hi tree into <--hi-dir>/<unit id>,
@@ -33,6 +38,7 @@ parser.add_argument("--db", required=True)
 parser.add_argument("--so-dir", required=True)
 parser.add_argument("--hi-dir", required=True)
 parser.add_argument("--present", action="append", default=[])
+parser.add_argument("--taken", action="append", default=[])
 parser.add_argument("--source", action="append", default=[])
 parser.add_argument("--ghc-version", required=True)
 parser.add_argument("--listing", required=True)
@@ -61,6 +67,9 @@ def units(db):
 present = {}
 for db in args.present:
     present.update(units(db))
+taken = {}
+for db in args.taken:
+    taken.update({uid: db for uid in units(db)})
 available, by_name = {}, {}
 for db in args.source:
     found = units(db)
@@ -74,6 +83,11 @@ def visit(uid, needed_by):
     if uid in seen or uid in present:
         return
     seen.add(uid)
+    if uid in taken:
+        sys.exit(
+            f"{uid}, which {needed_by} depends on, is in another layer already ({taken[uid]}):"
+            " move it to the base layer, or put the two layers' packages in one layer"
+        )
     if uid not in available:
         sys.exit(f"{uid}, which {needed_by} depends on, is in none of {', '.join(args.source)}")
     for dep in available[uid][1].get("depends", []):

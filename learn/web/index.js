@@ -3,6 +3,14 @@
 // on Run have it compile the text area's Main to bytecode and run Main.main,
 // which mounts into #app.
 //
+// The further layers that rootfs.json lists (hooks, router, ..., th) are
+// loaded when asked for, by their buttons, by ?layers=name,name (or
+// ?layers=all) on the page's address, or by window.learn.loadLayer(name):
+// the archive is extracted on top of the base one, the layer's CSS and
+// JavaScript are added to the page, and its package DB and packages to the
+// GHC arguments. The playground rereads the package DBs on every run, so a
+// layer loaded after a run is there for the next.
+//
 // browser_wasi_shim comes from the address dyld.mjs imports it from, so that
 // the page and dyld share one copy of it. Vendoring it means rewriting that
 // import in the copy of dyld.mjs the build ships.
@@ -56,7 +64,15 @@ main = runBrowserDOM $ do
 const $ = (id) => document.getElementById(id);
 
 // What the page measured, for toolchain/test-learn.mjs to read.
-const learn = (window.learn = { ready: false, runs: 0, timings: {}, memory: {}, error: null });
+const learn = (window.learn = {
+  ready: false,
+  runs: 0,
+  timings: {},
+  memory: {},
+  layers: {},
+  error: null,
+  loadLayer: (name) => Promise.reject(new Error("the compiler has not loaded yet")),
+});
 let dyld;
 
 const mb = (bytes) => `${(bytes / 1e6).toFixed(1)} MB`;
@@ -83,58 +99,96 @@ function status(text) {
   $("status").textContent = text;
 }
 
+// An archive as the manifest lists it: its parts, fetched in order and
+// joined (an archive larger than a file served may be is split), with the
+// bytes so far against the total, for a progress line. The first manifest had
+// only `archive`.
+async function fetchArchive(entry, progress) {
+  const parts = entry.parts ?? [{ path: entry.archive, size: entry.compressedSize ?? 0 }];
+  const total = entry.compressedSize ?? parts.reduce((sum, part) => sum + part.size, 0);
+  const chunks = [];
+  let received = 0;
+  for (const part of parts) {
+    const response = await fetch(part.path);
+    if (!response.ok) throw new Error(`${part.path}: ${response.status}`);
+    const reader = response.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      received += value.byteLength;
+      progress?.(received, total);
+    }
+  }
+  const bytes = new Uint8Array(received);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
+// bsdtar -x reads the archive from stdin and extracts it into the directory
+// it is given as its working directory: the root, each layer's on top of the
+// base one's.
+async function extract(bsdtar, rootfs, bytes, what) {
+  const wasi = new WASI(
+    ["bsdtar.wasm", "-x"],
+    [],
+    [
+      new OpenFile(new File(bytes, { readonly: true })),
+      ConsoleStdout.lineBuffered((msg) => console.info(`bsdtar: ${msg}`)),
+      ConsoleStdout.lineBuffered((msg) => console.warn(`bsdtar: ${msg}`)),
+      rootfs,
+    ],
+    { debug: false },
+  );
+  const instance = await WebAssembly.instantiate(bsdtar, { wasi_snapshot_preview1: wasi.wasiImport });
+  const code = wasi.start(instance);
+  if (code !== 0) throw new Error(`bsdtar exited with ${code} on ${what}`);
+}
+
+// A layer's CSS and JavaScript: a <link> or a <script>, resolved once it has
+// loaded, so that the first run finds its globals.
+function addAsset(asset) {
+  return new Promise((resolve, reject) => {
+    const element =
+      asset.kind === "stylesheet"
+        ? Object.assign(document.createElement("link"), { rel: "stylesheet", href: asset.path })
+        : Object.assign(document.createElement("script"), { src: asset.path });
+    element.addEventListener("load", resolve);
+    element.addEventListener("error", () => reject(new Error(`${asset.path} did not load`)));
+    document.head.append(element);
+  });
+}
+
 async function load() {
   $("source").value = defaultSource;
+  $("ghcArgs").value = defaultArgs;
 
   // RTS options, for trying others: ?rts=-c+-H64m
-  const rts = (new URLSearchParams(location.search).get("rts") ?? "-c").split(/\s+/).filter(Boolean);
+  const query = new URLSearchParams(location.search);
+  const rts = (query.get("rts") ?? "-c").split(/\s+/).filter(Boolean);
 
   const config = await (await fetch("./rootfs.json")).json();
-  // Each layer has a package DB of its own, for GHC to read beside the
-  // global one.
-  $("ghcArgs").value = [defaultArgs, ...config.layers.map((layer) => `-package-db ${layer.packageDb}`)].join(" ");
+  const base = config.rootfs ?? { archive: "rootfs.tar.zst" };
   const rootfs = new PreopenDirectory("/", []);
 
-  status("Downloading the compiler…");
+  status(`Downloading the compiler${base.compressedSize ? ` (${mb(base.compressedSize)})` : ""}…`);
   let start = performance.now();
-  const download = async (path) => {
-    const response = await fetch(path);
-    if (!response.ok) throw new Error(`${path}: ${response.status}`);
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    record(`fetch ${path}`, performance.now() - start, mb(bytes.byteLength));
-    return bytes;
-  };
-  const [bsdtar, ...archives] = await Promise.all([
+  const [bsdtar, bytes] = await Promise.all([
     WebAssembly.compileStreaming(fetch("./bsdtar.wasm")),
-    download("rootfs.tar.zst"),
-    ...config.layers.map((layer) => download(layer.archive)),
+    fetchArchive(base, (received, total) =>
+      status(`Downloading the compiler: ${mb(received)}${total ? ` of ${mb(total)}` : ""}…`),
+    ),
   ]);
-  record("fetch", performance.now() - start);
+  record(`fetch ${base.archive}`, performance.now() - start, mb(bytes.byteLength));
 
-  // bsdtar -x reads the archive from stdin and extracts it into the
-  // directory it is given as its working directory: the root, each layer's on
-  // top of the base one's.
   status("Unpacking…");
-  const paths = ["rootfs.tar.zst", ...config.layers.map((layer) => layer.archive)];
-  for (const [i, bytes] of archives.entries()) {
-    start = performance.now();
-    const wasi = new WASI(
-      ["bsdtar.wasm", "-x"],
-      [],
-      [
-        new OpenFile(new File(bytes, { readonly: true })),
-        ConsoleStdout.lineBuffered((msg) => console.info(`bsdtar: ${msg}`)),
-        ConsoleStdout.lineBuffered((msg) => console.warn(`bsdtar: ${msg}`)),
-        rootfs,
-      ],
-      { debug: false },
-    );
-    const instance = await WebAssembly.instantiate(bsdtar, { wasi_snapshot_preview1: wasi.wasiImport });
-    const code = wasi.start(instance);
-    if (code !== 0) throw new Error(`bsdtar exited with ${code} on ${paths[i]}`);
-    record(`extract ${paths[i]}`, performance.now() - start);
-  }
-  archives.length = 0;
+  start = performance.now();
+  await extract(bsdtar, rootfs, bytes, base.archive);
+  record(`extract ${base.archive}`, performance.now() - start);
 
   status("Loading the compiler…");
   start = performance.now();
@@ -156,29 +210,106 @@ async function load() {
   const run = await dyld.exportFuncs.playground(config.libdir);
   record("dyld load", performance.now() - start, measureMemory("loaded"));
 
-  $("run").addEventListener("click", async () => {
-    $("run").disabled = true;
-    $("stdout").textContent = "";
-    $("stderr").textContent = "";
-    const n = learn.runs + 1;
-    status(`Compiling and running (run ${n})…`);
-    const start = performance.now();
-    try {
-      await run($("ghcArgs").value, $("source").value);
-      record(`run ${n}`, performance.now() - start, measureMemory(`run ${n}`));
-      status(`Ran (run ${n}).`);
-    } catch (error) {
-      record(`run ${n} (failed)`, performance.now() - start);
-      status(`Run ${n} failed: ${error}`);
-      console.warn(`learn: run ${n} failed:`, error);
-    } finally {
-      learn.runs = n;
-      $("run").disabled = false;
+  // One thing at a time: a run, or a layer being loaded.
+  let busy = Promise.resolve();
+  const exclusive = (task) => {
+    const next = busy.then(async () => {
+      $("run").disabled = true;
+      try {
+        return await task();
+      } finally {
+        $("run").disabled = false;
+      }
+    });
+    busy = next.catch(() => {});
+    return next;
+  };
+
+  const loading = new Map();
+  const loadLayer = (name) => {
+    const layer = config.layers.find((l) => l.name === name);
+    if (!layer) return Promise.reject(new Error(`no layer ${name} in rootfs.json`));
+    if (!loading.has(name)) {
+      const button = $(`layer-${name}`);
+      const load = exclusive(async () => {
+          if (button) button.disabled = true;
+          const start = performance.now();
+          const size = layer.compressedSize ? ` (${mb(layer.compressedSize)})` : "";
+          status(`Downloading the ${name} layer${size}…`);
+          const bytes = await fetchArchive(layer, (received, total) =>
+            status(`Downloading the ${name} layer: ${mb(received)}${total ? ` of ${mb(total)}` : ""}…`),
+          );
+          const fetched = performance.now() - start;
+          status(`Unpacking the ${name} layer…`);
+          await extract(bsdtar, rootfs, bytes, layer.archive);
+          await Promise.all((layer.assets ?? []).map(addAsset));
+          const ms = performance.now() - start;
+          learn.layers[name] = { ms: Math.round(ms), fetchMs: Math.round(fetched), bytes: bytes.byteLength };
+          record(`layer ${name}`, ms, `${mb(bytes.byteLength)}, fetched in ${Math.round(fetched)} ms`);
+          // Its package DB, and its packages, for the next run.
+          const packages = (layer.packages ?? []).map((p) => `-package ${p}`);
+          $("ghcArgs").value = [$("ghcArgs").value, `-package-db ${layer.packageDb}`, ...packages].join(" ");
+          if (button) button.textContent = `${name} ✓`;
+          status(`Loaded the ${name} layer.`);
+        });
+      // A load that fails (a dropped connection, a 503) is forgotten, so the
+      // next call fetches again; one under way or done is shared.
+      loading.set(
+        name,
+        load.catch((error) => {
+          loading.delete(name);
+          if (button) button.disabled = false;
+          status(`Could not load the ${name} layer: ${error.message}`);
+          throw error;
+        }),
+      );
     }
-  });
+    return loading.get(name);
+  };
+  learn.loadLayer = loadLayer;
+
+  const failedLayer = (name) => (error) => {
+    status(`Could not load the ${name} layer: ${error}`);
+    console.warn(`learn: layer ${name} failed:`, error);
+  };
+  for (const layer of config.layers) {
+    const button = document.createElement("button");
+    button.id = `layer-${layer.name}`;
+    button.textContent = layer.compressedSize ? `${layer.name} (${mb(layer.compressedSize)})` : layer.name;
+    button.title = (layer.packages ?? []).join(", ");
+    button.addEventListener("click", () => loadLayer(layer.name).catch(failedLayer(layer.name)));
+    $("layers").append(button);
+  }
+
+  $("run").addEventListener("click", () =>
+    exclusive(async () => {
+      $("stdout").textContent = "";
+      $("stderr").textContent = "";
+      const n = learn.runs + 1;
+      status(`Compiling and running (run ${n})…`);
+      const start = performance.now();
+      try {
+        await run($("ghcArgs").value, $("source").value);
+        record(`run ${n}`, performance.now() - start, measureMemory(`run ${n}`));
+        status(`Ran (run ${n}).`);
+      } catch (error) {
+        record(`run ${n} (failed)`, performance.now() - start);
+        status(`Run ${n} failed: ${error}`);
+        console.warn(`learn: run ${n} failed:`, error);
+      } finally {
+        learn.runs = n;
+      }
+    }),
+  );
   $("run").disabled = false;
   learn.ready = true;
   status(`Ready (${config.ghc}).`);
+
+  const wanted = query.get("layers");
+  if (wanted) {
+    const names = wanted === "all" ? config.layers.map((l) => l.name) : wanted.split(",").filter(Boolean);
+    for (const name of names) await loadLayer(name).catch(failedLayer(name));
+  }
 }
 
 load().catch((error) => {
