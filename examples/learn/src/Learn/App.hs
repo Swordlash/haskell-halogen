@@ -56,6 +56,9 @@ data State = State
   , loadedLayers :: [Text]
   , loadingLayers :: Bool
   , runs :: Int
+  , visit :: Int
+  -- ^ Counts the lessons entered: a compile started in one visit must not
+  -- report into a later one, even of the same lesson, whose editor is new.
   -- ^ How many compiles have started, shown on the outcome as @data-run@
   -- so that a test can tell a new outcome from the last one.
   -- ^ A layer load is under way; the lesson's layers are checked again
@@ -118,6 +121,7 @@ component =
           , loadedLayers = []
           , loadingLayers = False
           , runs = 0
+          , visit = 0
           , edited = False
           , run = NotRun
           , mounted = False
@@ -149,10 +153,12 @@ component =
       Followed f -> do
         router <- gets (.router)
         Router.follow router f
-      Progressed p -> modify $ \s -> case p of
-        Ready mb -> s {compiler = Loaded mb}
-        LoadFailed message -> s {compiler = Broken message}
-        _ -> s {compiler = Loading p}
+      Progressed p -> do
+        modify $ \s -> case p of
+          Ready mb -> s {compiler = Loaded mb}
+          LoadFailed message -> s {compiler = Broken message}
+          _ -> s {compiler = Loading p}
+        syncEditor
       LoadCompiler -> loadCompiler
       FromEditor (Changed text) -> withLesson $ \lesson -> do
         -- What is kept is the reader's own code: none, once it is the
@@ -174,10 +180,10 @@ component =
             liftIO $
               Browser.compile
                 CompileRequest {lesson = source, main = wrapper lesson, args = lesson.args, layers = lesson.layers}
-          -- The reader may have gone on to another lesson meanwhile, whose
-          -- editor this is not.
-          now <- gets (.route)
-          when (now == st.route) $ case compiled of
+          -- The reader may have left meanwhile, even for this same lesson
+          -- again: that visit's editor is another one, and its run its own.
+          now <- gets (.visit)
+          when (now == st.visit) $ case compiled of
             Left message -> modify $ \s -> s {run = Unrun message}
             Right result -> do
               let diagnostics = parseDiagnostics result.stderr
@@ -209,7 +215,7 @@ component =
         events <- liftIO HS.create
         subscription <- H.subscribe (FromEditor <$> events.emitter)
         editor <- H.liftEffect $ liftIO $ Browser.createEditor host text (readOnly st) (HS.notify events.listener)
-        modify $ \s -> s {editor = Just (editor, subscription), edited = text /= lesson.start}
+        modify $ \s -> s {editor = Just (editor, subscription), edited = text /= lesson.start, visit = s.visit + 1}
 
     leaveLesson = do
       st <- get
@@ -239,7 +245,7 @@ component =
               -- The reader may have gone to a lesson with other layers
               -- while it loaded.
               loadLayers
-              gets (.editor) >>= traverse_ \(editor, _) -> H.liftEffect (liftIO (Browser.setEditorReadOnly editor False))
+              syncEditor
               -- After a Retry, the sizes may not have been read before.
               gets (.sizes) >>= \case
                 Nothing -> readSizes
@@ -267,7 +273,16 @@ component =
           Left message -> modify $ \s -> s {compiler = Broken message}
           Right () -> do
             modify $ \s -> s {loadedLayers = ordNub (s.loadedLayers <> wanted)}
+            syncEditor
             loadLayers
+
+    -- Whether the editor takes input follows the compiler: on a narrow
+    -- screen it is read-only until the compiler has loaded, and an editor
+    -- made while a layer was loading (the compiler reads as loading then)
+    -- is unlocked once that is over.
+    syncEditor = do
+      st <- get
+      for_ st.editor $ \(editor, _) -> H.liftEffect (liftIO (Browser.setEditorReadOnly editor (readOnly st)))
 
     render :: State -> H.ComponentHTML Action Empty m
     render st =
