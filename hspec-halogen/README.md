@@ -184,8 +184,9 @@ it "…" $ runPage $ do
   …
 ```
 
-`runPage` gives the test a container at the end of the body. When the test
-ends, pass or fail, it unmounts everything mounted there.
+`runPage` gives the test a container at the end of the body (or of the
+element `runBrowserTestsIn` was given). When the test ends, pass or fail, it
+unmounts everything mounted there.
 
 `runPage` is to `PageM` what `runST` is to `ST`. The `s` in `Mounted s …` and
 `Element s` keeps what a test mounted and found from being used outside it.
@@ -232,6 +233,78 @@ other `IO`, there is `unsafeIOToPageM`, unsafe in the same way as
 
 Every action returns once the component has reacted, so a synchronous
 `handleAction` has rendered by then.
+
+### Without the runner
+
+A suite can also run in a page with no Playwright behind it: one opened by
+hand, or one that compiles and runs a suite itself, as the haskell-halogen
+tutorial does with the GHC it runs in the page. There the page performs the
+actions itself, with synthetic events (`jsbits/page.js`, its in-page mode):
+
+- `click`: `pointerdown`, `mousedown`, the focus a press gives (unless
+  `mousedown`'s default was prevented: to the element or the focusable one
+  around it, or, pressing plain text, away from whatever had it),
+  `pointerup`, `mouseup`, then the
+  element's `click()`, which dispatches `click` with its default action (a
+  checkbox toggles, a link is followed, a form's button submits it).
+- `typeText`: the element focused, then for each character `keydown`,
+  `keypress`, `beforeinput`, the field edited, `input` and `keyup`, after
+  what the field holds (an element edited in place, `contenteditable`, is
+  edited at its end with the browser's own editing commands). A number
+  field keeps the text typed so far apart from its value, as a browser
+  does, so `-42` arrives whole although its value is empty after the `-`.
+  `clear` selects everything and deletes it, with `beforeinput` and
+  `input`; as Playwright's, it fails at once on an element that is not a
+  text field or edited in place, and waits for a read-only one to become
+  editable.
+- `press`: the modifiers' and the key's `keydown` and `keyup` on the focused
+  element, and when `keydown`'s default is not prevented (when it is,
+  nothing more, not even the `Space` that would press a button), the
+  commonest of what the browser would do: a character typed into a text field,
+  `Backspace` and `Delete` (a whole character as the reader sees it, a
+  grapheme cluster such as an emoji, never half of one), `Enter` on a
+  button or a link (a click), in a text input of a form (HTML's implicit
+  submission: the form's first submit button is clicked, so its handlers
+  run, and nothing happens when it is disabled; a form with no submit
+  button is submitted only when it has a single text-like field) and in a
+  text area, `Space` on a button or a checkbox, and `Tab` and `Shift+Tab`
+  moving the focus in a browser's order (positive `tabindex` first, by it,
+  then the rest in document order, past disabled, hidden and
+  `tabindex="-1"` elements). Key names are Playwright's, `Space`, `KeyA`
+  and `Digit1` included. Any other key, and a printable one on an element
+  that is not a field, only sends its events: the arrow keys do not move
+  the caret or change a `select`'s choice, which is not supported.
+- `dragTo`: pointer events from one element to the other, then HTML5 drag
+  and drop's, sharing one `DataTransfer`.
+
+What a page's handlers decide is honoured as a browser honours it: a
+`keydown` whose default is prevented sends nothing more (no `keypress`,
+no edit, no activation on the `keyup`); a prevented `keypress` keeps the
+character out and Enter from acting; a prevented `beforeinput` leaves the
+field as it was. So is what the field says of itself: a `readOnly` input or
+text area takes the key events (and the focus and the selection) but is not
+edited, and `maxlength` caps what is inserted, not what is deleted, in
+UTF-16 code units as Chromium counts it, leaving out a whole character
+that does not fit (an emoji goes into no field with room for one unit).
+
+Each waits up to five seconds for its element to be in the page, visible and
+enabled, as Playwright does, and fails the test if it is not, with
+Playwright's "Timeout 5000ms exceeded" in the message (a `dragTo` waits so
+for both elements). Visible is Playwright's sense: an element with a box,
+not `display: none` or `visibility: hidden` itself or by what holds it;
+opacity is not looked at. A disabled element is not enabled, and cannot be
+focused for `press` either. It does not
+check that nothing covers the element. The events are untrusted
+(`isTrusted` is false), which Halogen's handlers do not look at, and what
+else the browser does by itself (a caret moved with the arrow keys, text
+selected with the mouse, the focus a label gives) does not happen. So a
+suite that passes here passes under the runner, as a rule, but not
+necessarily the other way round: the runner is the one to trust.
+
+`runBrowserTestsIn element spec` runs a suite with every test's page inside
+`element` rather than at the end of the body, for a page that has other
+things on it; the report is printed as ever, and there is no runner to tell
+how it went.
 
 ### Reading and checking
 

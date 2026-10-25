@@ -20,9 +20,11 @@ import Test.Counter qualified
 import Test.Digits qualified
 import Test.Dispatch qualified
 import Test.Drag qualified
+import Test.Editing qualified
 import Test.Family qualified
 import Test.Hspec.Halogen (describe, runBrowserTests)
 import Test.Hydrate qualified
+import Test.InPage qualified
 import Test.IndexedDB qualified
 import Test.Promised qualified
 import Test.Reconcile qualified
@@ -44,9 +46,11 @@ main = runBrowserTests $ do
   describe "Reconciliation" (Test.Reconcile.spec BrowserDOM)
   describe "Dispatch" (Test.Dispatch.spec BrowserDOM)
   describe "Drag" (Test.Drag.spec BrowserDOM)
+  describe "Editing" (Test.Editing.spec BrowserDOM)
   describe "Hydration" (Test.Hydrate.spec BrowserDOM)
   describe "IndexedDB" (Test.IndexedDB.spec BrowserDOM)
   describe "Promised" (Test.Promised.spec BrowserDOM)
+  describe "Without the runner" (Test.InPage.spec BrowserDOM)
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
   -- These need the browser's DOM ('MonadBrowserDOM'), which 'BrowserDOM'
   -- has only in a browser.

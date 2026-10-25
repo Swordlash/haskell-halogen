@@ -94,6 +94,7 @@ test-suite hspec-halogen-test
                       Example.Digits
                       Example.Dispatch
                       Example.Drag
+                      Example.Editing
                       Example.Family
                       Example.Islands
                       Example.Loader
@@ -109,9 +110,11 @@ test-suite hspec-halogen-test
                       Test.Digits
                       Test.Dispatch
                       Test.Drag
+                      Test.Editing
                       Test.Family
                       Test.Hydrate
                       Test.IndexedDB
+                      Test.InPage
                       Test.Islands
                       Test.LastRun
                       Test.Promised
@@ -131,6 +134,7 @@ test-suite hspec-halogen-test
         protolude,
         text,
         containers,
+        hspec,
         row-types,
         unliftio,
         haskell-halogen-core,
@@ -138,12 +142,14 @@ test-suite hspec-halogen-test
         haskell-halogen-router,
         hspec-halogen
 
-    -- The Busy example's click, the Islands example's wait and the
-    -- Promised example's work are JavaScript of the suite's own
-    -- (test/jsbits), declared with browserJS as a package's is.
+    -- The Busy example's click, the Islands example's wait, the
+    -- Promised example's work and the in-page tests' hiding of the runner
+    -- are JavaScript of the suite's own (test/jsbits), declared with
+    -- browserJS as a package's is.
     if arch(javascript)
         js-sources: test/jsbits/busy.js
                     test/jsbits/dispatch.js
+                    test/jsbits/inpage.js
                     test/jsbits/islands.js
                     test/jsbits/promised.js
                     test/jsbits/window.js

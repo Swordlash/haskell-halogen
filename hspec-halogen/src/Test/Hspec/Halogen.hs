@@ -50,6 +50,7 @@
 module Test.Hspec.Halogen
   ( -- * Running a suite
     runBrowserTests
+  , runBrowserTestsIn
 
     -- * Describing tests
   , Spec
@@ -125,6 +126,7 @@ module Test.Hspec.Halogen
 where
 
 import Control.Monad.Fail qualified as Fail
+import Data.Coerce (coerce)
 import Data.IORef (IORef, atomicModifyIORef', atomicWriteIORef, modifyIORef', newIORef, readIORef)
 import Data.Text qualified as T
 import Data.Unique (Unique, newUnique)
@@ -158,20 +160,42 @@ import Web.DOM.Internal.Types qualified as DOM
 -- Without a page -- natively, or a JavaScript-backend suite run as the Node
 -- script it also is -- it says so and returns without running anything.
 runBrowserTests :: Spec -> IO ()
-runBrowserTests spec =
+runBrowserTests = runSuite Nothing
+
+-- | 'runBrowserTests', with every test's page in this element rather than at
+-- the end of the body: for a page that has more on it than the suite, such
+-- as the haskell-halogen tutorial's, which compiles a suite in the page and
+-- runs it where the reader can watch it. The element is as the suite found
+-- it once the suite is over, as a page takes down what it mounted.
+--
+-- It does not need the runner: without it, as in the tutorial, the page's
+-- actions are synthetic events (see 'click'), and the report is only
+-- printed, there being no runner to tell how it went.
+runBrowserTestsIn :: DOM.HTMLElement -> Spec -> IO ()
+runBrowserTestsIn = runSuite . Just . (coerce :: DOM.HTMLElement -> DOM.Element)
+
+runSuite :: Maybe DOM.Element -> Spec -> IO ()
+runSuite parent spec =
   Page.inBrowser >>= \case
     False -> putText "hspec-halogen: skipped, this suite runs in a browser (run it with hspec-halogen test)"
     True -> do
       hSetBuffering stdout LineBuffering
       Page.removeLeftovers
       args <- Page.runnerArgs
+      let run = maybe identity (withArgs . map toS) args $ hspecWithResult defaultConfig spec
+          -- The tests' pages go where this suite was told, while it runs.
+          inParent = bracket_ (atomicWriteIORef pagesIn parent) (atomicWriteIORef pagesIn Nothing)
       -- The runner is told how it went even if the suite itself throws;
       -- otherwise it would wait for a report until it timed out.
-      summary <-
-        (maybe identity (withArgs . map toS) args $ hspecWithResult defaultConfig spec)
-          `onException` (hFlush stdout >> Page.reportDone (-1))
+      summary <- inParent run `onException` (hFlush stdout >> Page.reportDone (-1))
       hFlush stdout
       Page.reportDone (summaryFailures summary)
+
+-- | Where the suite running now puts its pages: in this element, or, when
+-- 'Nothing', at the end of the body.
+pagesIn :: IORef (Maybe DOM.Element)
+pagesIn = unsafePerformIO (newIORef Nothing)
+{-# NOINLINE pagesIn #-}
 
 --------------------------------------------------------------------------------
 -- Pages
@@ -195,7 +219,8 @@ data PageEnv = PageEnv
   }
 
 -- | Run a test in a page of its own, and tear down everything mounted on it
--- when the test ends, pass or fail.
+-- when the test ends, pass or fail. The page is a container at the end of the
+-- body, or of the element 'runBrowserTestsIn' was given.
 --
 -- The @forall s@ keeps what the test finds and mounts inside it, as @runST@
 -- keeps an @STRef@. Only one page is open at a time -- the browser has one
@@ -213,7 +238,7 @@ runPage (PageM test) = do
       atomicWriteIORef pageHolder (Just me)
       runReaderT test env
   where
-    open = PageEnv <$> Page.createContainer <*> newIORef []
+    open = PageEnv <$> (maybe Page.createContainer Page.createRootIn =<< readIORef pagesIn) <*> newIORef []
     close env = do
       atomicWriteIORef pageHolder Nothing
       pending <- atomicModifyIORef' env.teardowns ([],)
@@ -363,6 +388,16 @@ findAllIn (Element element) selector = unsafeIOToPageM $ map Element <$> Page.qu
 
 -- | Click an element as a user would: Playwright waits until it is visible,
 -- stable, enabled and not covered, then clicks its centre.
+--
+-- Without the runner (a page with no Playwright behind it, such as the
+-- tutorial's, see 'runBrowserTestsIn') this and the other actions are done
+-- by the page itself, with synthetic events: the pointer and mouse events of
+-- a click and the focus it gives, a key's @keydown@, @keypress@, @input@ and
+-- @keyup@, after waiting up to five seconds for the element to be in the
+-- page, visible and enabled. The events are untrusted (@isTrusted@ is
+-- false), whether something covers the element is not checked, and of what
+-- the browser does by itself only the commonest is reproduced (see the
+-- README).
 click :: Element s -> PageM s ()
 click = viaRunner "click" ""
 

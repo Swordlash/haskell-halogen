@@ -133,10 +133,13 @@ BASE_LAYER="haskell-halogen-jsbits haskell-halogen-core"
 # its package and what that needs beyond the base layer: hooks, router, net
 # and pixi only themselves; material also clock and extra; th also
 # ghc-lib-parser (as big as GHC's own library) and the parsers it uses, which
-# is why it is a layer of its own that only a lesson about quasi-quotes loads.
+# is why it is a layer of its own that only a lesson about quasi-quotes loads;
+# hspec (hspec-halogen, the test harness, which runs a suite in the page with
+# synthetic events where it has no Playwright) also hspec, hspec-core, HUnit,
+# ansi-terminal and the rest of hspec's closure that the base layer lacks.
 # sound and tauri are not here: a lesson has no sound to play nor a Tauri to
 # talk to.
-DEFAULT_LAYERS="hooks=haskell-halogen-hooks router=haskell-halogen-router net=haskell-halogen-net material=haskell-halogen-material pixi=haskell-halogen-pixi th=haskell-halogen-th"
+DEFAULT_LAYERS="hooks=haskell-halogen-hooks router=haskell-halogen-router net=haskell-halogen-net material=haskell-halogen-material pixi=haskell-halogen-pixi th=haskell-halogen-th hspec=hspec-halogen"
 layers=${LEARN_LAYERS-$DEFAULT_LAYERS}
 # Boot packages that neither GHC (the closure of ghc, ghci, ghc-boot,
 # template-haskell, hpc and ghc-heap) nor any package above depends on, so no
