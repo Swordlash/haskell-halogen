@@ -1,7 +1,6 @@
 module Halogen
   ( HalogenSocket (..)
   , component
-  , (&)
   , module Halogen.Data.Slot
   , module Halogen.Component
   , module Halogen.HTML

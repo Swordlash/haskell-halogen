@@ -11,8 +11,8 @@
   handled by a `HalogenM` program, not by an action the component has to
   have a constructor for: `H.onInitialize (handleAction Initialize)` keeps
   the old shape where it is wanted. `H.componentSpec initialState render`
-  is the same with the handlers added by `&` (which `Halogen` now
-  re-exports) and `mkComponent` at the end. `mkComponent`, `ComponentSpec`,
+  is the same with the handlers added by `Data.Function`'s `&` and
+  `mkComponent` at the end. `mkComponent`, `ComponentSpec`,
   `mkEval`, `defaultEval` and `EvalSpec` stay as they were, for an `eval`
   written as one function. The tutorial, the examples and the packages'
   own components use the new form. A module that imports `Halogen`
