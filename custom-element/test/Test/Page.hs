@@ -9,6 +9,7 @@ module Test.Page
   , setProperty
   , propertyJSON
   , call
+  , setThenCall
   , hasMethod
   , move
   , remove
@@ -45,6 +46,7 @@ $( browserJS
      , ("js_set_property", "halogen_ce_test_set_property", Unsafe, [t|JSText -> JSText -> JSText -> IO ()|])
      , ("js_get_property", "halogen_ce_test_get_property", Unsafe, [t|JSText -> JSText -> IO JSText|])
      , ("js_call", "halogen_ce_test_call", Unsafe, [t|JSText -> JSText -> JSText -> IO Promise|])
+     , ("js_set_then_call", "halogen_ce_test_set_then_call", Unsafe, [t|JSText -> JSText -> JSText -> JSText -> IO Promise|])
      , ("js_has_method", "halogen_ce_test_has_method", Unsafe, [t|JSText -> JSText -> IO Bool|])
      , ("js_move", "halogen_ce_test_move", Unsafe, [t|JSText -> JSText -> IO ()|])
      , ("js_remove", "halogen_ce_test_remove", Unsafe, [t|JSText -> IO ()|])
@@ -75,6 +77,13 @@ propertyJSON element name = fromJSText <$> js_get_property (toJSText element) (t
 call :: Text -> Text -> [Value] -> IO (Either JSError Text)
 call element name args = do
   promise <- js_call (toJSText element) (toJSText name) (toJSText (json args))
+  fmap jsValText <$> await promise
+
+-- | Set an attribute and call a method of no arguments in the same
+-- JavaScript task, as a page's script would, and wait for the answer.
+setThenCall :: Text -> Text -> Text -> Text -> IO (Either JSError Text)
+setThenCall element attribute value name = do
+  promise <- js_set_then_call (toJSText element) (toJSText attribute) (toJSText value) (toJSText name)
   fmap jsValText <$> await promise
 
 hasMethod :: Text -> Text -> IO Bool

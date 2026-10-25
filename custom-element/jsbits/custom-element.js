@@ -113,6 +113,16 @@ function halogen_custom_element_call(entry, element, name, args) {
       resolve(null);
       return;
     }
+    // An attribute a later definition observes is watched with a
+    // MutationObserver, whose records are delivered in a microtask: a page
+    // that sets one and calls a method in the same task would have the
+    // method answered with the old input. Taking the records now, before
+    // the call, delivers the change first, and the observer's own callback
+    // then finds nothing left to deliver.
+    const state = halogen_custom_element_state(element);
+    if (state.observer && state.observer.takeRecords().length > 0 && entry.connected.has(element)) {
+      entry.hooks.change(element);
+    }
     const json = args.length === 0 ? "[]" : JSON.stringify(args.length === 1 ? args[0] : args);
     entry.hooks.method({ element, name, args: json ?? "null", resolve, reject });
   });

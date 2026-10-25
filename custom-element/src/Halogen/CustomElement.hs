@@ -102,7 +102,7 @@ where
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar, withMVar)
 import Control.Exception (SomeException, displayException, mask, onException, throwIO, try)
 import Control.Monad (unless, void, when, (>=>))
-import Control.Monad.IO.Class (liftIO)
+import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.State.Class (put)
 import Data.Aeson (FromJSON, ToJSON, Value (..), eitherDecodeStrictText, encode, toJSON)
 import Data.Aeson.Types (parseJSON, parseMaybe)
@@ -123,7 +123,6 @@ import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties (IProp)
 import Halogen.JSBits (Callback, JSText, JSVal, Safety (..), browserJS, freeCallback, fromJSText, mkSyncCallback, toJSText)
 import Halogen.JSBits.Promise (JSError (..))
-import Halogen.Subscription qualified as HS
 import Halogen.VDom.DOM.Monad (MonadBrowserDOM)
 import Halogen.VDom.Driver (runUI)
 import System.IO.Unsafe (unsafePerformIO)
@@ -308,8 +307,12 @@ define name definition component = withRunInIO $ \run -> do
           atomicModifyIORef' instances (IntMap.empty,) >>= traverse_ disposeInstance
           traverse_ freeCallback callbacks
   atomicModifyIORef' registry (\r -> (Map.insert name (token, disposeAll) r, ()))
+  -- An element already on the page that fails to mount (its component's
+  -- initialState threw, say) fails the definition: the elements mounted
+  -- before it, the callbacks and the name's hooks go with it, so that a
+  -- caller who got no registration has nothing left behind.
   connected <- js_length defined
-  for_ [0 .. connected - 1] (js_index defined >=> mountElement)
+  for_ [0 .. connected - 1] (js_index defined >=> mountElement) `onException` disposeAll
   pure Registration {dispose = liftIO disposeAll}
 
 -- | The names defined in this program, each with the token of its current
@@ -379,11 +382,14 @@ data Wrapped query input a
 type Inner query output = ("element" .== H.Slot query output ())
 
 -- | The parent each element mounts: its state is the input, which it
--- renders the component with, and what the component raises it raises in
--- turn. So a new input is a render of the parent, and the component hears
--- it as @Receive@, as it would under any parent.
-wrapper :: forall query input output m. (Monad m) => H.Component query input output m -> H.Component (Wrapped query input) input output m
-wrapper inner = H.component pure render [H.onAction H.raise, H.onQuery answer]
+-- renders the component with, and what the component raises it dispatches
+-- on the element at once, in the action that hears it. So a new input is a
+-- render of the parent, and the component hears it as @Receive@, as it
+-- would under any parent; and an output is an event by the time the raise
+-- returns, one raised in the component's @Initialize@ included, which a
+-- subscription made after 'runUI' returned would have missed.
+wrapper :: forall query input output m. (MonadIO m) => (output -> IO ()) -> H.Component query input output m -> H.Component (Wrapped query input) input output m
+wrapper dispatch inner = H.component pure render [H.onAction (H.liftEffect . liftIO . dispatch), H.onQuery answer]
   where
     render :: input -> H.ComponentHTML output (Inner query output) m
     render current = HH.slot "element" () inner current id
@@ -405,15 +411,14 @@ mountOn
 mountOn run definition component element = do
   container <- js_mount_point element
   props <- readProps element
-  socket@H.HalogenSocket {query = ask} <- run (runUI (wrapper component) (definition.input props) (HTMLElement container))
   let raised o = for_ (definition.output o) $ \(event, detail) ->
         js_dispatch element (toJSText event) (toJSText (encodeText detail))
-  subscription <- run (HS.subscribe socket.messages (liftIO . raised)) `onException` run socket.dispose
+  socket@H.HalogenSocket {query = ask} <- run (runUI (wrapper raised component) (definition.input props) (HTMLElement container))
   pure
     Live
       { setInput = \new -> void (run (ask (SetInput new ())))
       , send = run . ask . Forward
-      , end = run (HS.unsubscribe subscription >> socket.dispose)
+      , end = run socket.dispose
       }
 
 -- | Dispose of an element's tree, once: whoever takes the lock after this

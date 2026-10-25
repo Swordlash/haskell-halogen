@@ -12,17 +12,20 @@ import Test.Page
 
 spec :: forall m -> (MonadBrowserTest m, MonadBrowserDOM m) => Spec
 spec m = do
-  it "dispatches what the component raises as a CustomEvent, which bubbles to the document" $ runPage $ do
+  -- The counter raises 0 from its initializer: an output raised while the
+  -- element mounts is an event too, for a page listening before it inserts
+  -- the element.
+  it "dispatches what the component raises as a CustomEvent, which bubbles to the document, from its initializer on" $ runPage $ do
     finalized <- unsafeIOToPageM (newIORef 0)
     registration <- defineElement m "x-ce-raises" Counter.definition (Counter.counter finalized)
-    page <- htmlContainer "<x-ce-raises id=\"raises\"></x-ce-raises>"
     unsafeIOToPageM (listen "count")
+    page <- htmlContainer "<x-ce-raises id=\"raises\"></x-ce-raises>"
     button <- findIn page "button.increment"
     click button
     click button
     eventually $
       unsafeIOToPageM (heard "count")
-        `shouldReturn` [Heard {detail = toJSON n, bubbles = True, composed = True, target = "raises"} | n <- [1, 2 :: Int]]
+        `shouldReturn` [Heard {detail = toJSON n, bubbles = True, composed = True, target = "raises"} | n <- [0, 1, 2 :: Int]]
     undefine registration
 
   it "runs the component's finalizer when the element is removed" $ runPage $ do

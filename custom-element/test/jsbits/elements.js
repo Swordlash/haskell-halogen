@@ -28,6 +28,15 @@ function halogen_ce_test_call(id, name, argsJson) {
   return element[name](...JSON.parse(argsJson)).then((result) => JSON.stringify(result) ?? "undefined");
 }
 
+// Set an attribute and call a method in the same task, with no await in
+// between: what a page's script does when it configures an element and asks
+// it something at once.
+function halogen_ce_test_set_then_call(id, attribute, value, name) {
+  const element = halogen_ce_test_element(id);
+  element.setAttribute(attribute, value);
+  return element[name]().then((result) => JSON.stringify(result) ?? "undefined");
+}
+
 function halogen_ce_test_has_method(id, name) {
   return typeof halogen_ce_test_element(id)[name] === "function";
 }

@@ -2,12 +2,15 @@
 -- promise resolves with the answer as JSON.
 module Test.Methods (spec) where
 
+import Control.Applicative ((<|>))
 import Data.Aeson (toJSON)
 import Data.IORef (newIORef)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Example.Counter qualified as Counter
-import Halogen.CustomElement (JSError (..))
+import Halogen.CustomElement (Definition (..), JSError (..))
+import Halogen.CustomElement qualified as CE
 import Halogen.VDom.DOM.Monad (MonadBrowserDOM)
 import Test.Hspec.Halogen
 import Test.Page
@@ -40,6 +43,21 @@ spec m = do
     unsafeIOToPageM (call "tell" "reset" []) `shouldReturn` Right "null"
     findIn page ".count" >>= (`shouldHaveText` "0")
     undefine registration
+
+  -- An attribute the first definition did not observe is watched with a
+  -- MutationObserver, which delivers later than attributeChangedCallback;
+  -- a method called in the same task must still see the change.
+  it "answers a method with an attribute set in the same task, for a name a later definition observes" $ runPage $ do
+    finalized <- unsafeIOToPageM (newIORef 0)
+    first <- defineElement m "x-ce-same-task" Counter.definition (Counter.counter finalized)
+    page <- htmlContainer "<x-ce-same-task id=\"same-task\" label=\"Apples\"></x-ce-same-task>"
+    findIn page ".label" >>= (`shouldHaveText` "Apples")
+    let wider = Counter.definition {input = \props -> fromMaybe "none" (CE.attr "title-label" props <|> CE.attr "label" props), observed = ["label", "title-label"]}
+    second <- defineElement m "x-ce-same-task" wider (Counter.counter finalized)
+    unsafeIOToPageM (setThenCall "same-task" "title-label" "Pears" "currentLabel") `shouldReturn` Right "\"Pears\""
+    findIn page ".label" >>= (`shouldHaveText` "Pears")
+    undefine first
+    undefine second
 
   it "rejects arguments that do not decode" $ runPage $ do
     finalized <- unsafeIOToPageM (newIORef 0)

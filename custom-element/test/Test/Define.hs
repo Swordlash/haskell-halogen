@@ -3,8 +3,9 @@
 -- what the page sets on the element as its input.
 module Test.Define (spec) where
 
-import Control.Exception (try)
-import Data.IORef (newIORef)
+import Control.Exception (SomeException, try)
+import Data.IORef (newIORef, readIORef)
+import Data.List (isInfixOf)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Example.Counter qualified as Counter
@@ -75,6 +76,23 @@ spec m = do
     unsafeIOToPageM (shadowClick "shadow" "button.increment")
     eventually (unsafeIOToPageM (shadowText "shadow") `shouldReturn` "Apples+1")
     undefine registration
+
+  it "leaves nothing behind when an element already on the page fails to mount" $ runPage $ do
+    finalized <- unsafeIOToPageM (newIORef 0)
+    page <- htmlContainer "<x-ce-fragile id=\"sound\" label=\"sound\"></x-ce-fragile><x-ce-fragile id=\"broken\" label=\"boom\"></x-ce-fragile>"
+    outcome <- unsafeIOToPageM (try (runTest (CE.define "x-ce-fragile" Counter.definition (Counter.counter finalized) :: m (CE.Registration m))))
+    case outcome of
+      Left (failure :: SomeException) -> show failure `shouldSatisfy` isInfixOf "boom"
+      Right _ -> expectationFailure "defined x-ce-fragile although one of its elements failed to mount"
+    -- The element mounted before the failure was finalized, and the name
+    -- is inert: a new element renders nothing and answers no method.
+    settle
+    unsafeIOToPageM (readIORef finalized) `shouldReturn` 1
+    length <$> findAllIn page ".count" `shouldReturn` 0
+    later <- htmlContainer "<x-ce-fragile id=\"inert-fragile\" label=\"later\"></x-ce-fragile>"
+    settle
+    length <$> findAllIn later ".count" `shouldReturn` 0
+    unsafeIOToPageM (call "inert-fragile" "count" []) `shouldReturn` Right "null"
 
   it "throws for a name without a hyphen, as the browser would" $ runPage $ do
     finalized <- unsafeIOToPageM (newIORef 0)

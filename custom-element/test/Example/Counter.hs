@@ -1,8 +1,10 @@
 -- | A counter with a label, as a custom element: the label is its input,
 -- from the element's @label@ property or attribute; it raises every new
--- count, which the element dispatches as a @count@ event; and its queries
--- are the element's methods. It bumps the reference it is given when it is
--- finalized, at once ('H.liftEffect'), so that a test can tell.
+-- count, the first (0) from its initializer, which the element dispatches
+-- as a @count@ event; and its queries are the element's methods. It bumps
+-- the reference it is given when it is finalized, at once ('H.liftEffect'),
+-- so that a test can tell. The label @boom@ makes its initialState throw,
+-- for the test of a definition that fails to mount an element.
 module Example.Counter
   ( counter
   , Query (..)
@@ -12,6 +14,7 @@ module Example.Counter
 where
 
 import Control.Applicative ((<|>))
+import Control.Exception (throwIO)
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.State.Class (gets, modify, put)
 import Data.Aeson (toJSON)
@@ -29,6 +32,7 @@ import Halogen.HTML.Properties qualified as HP
 
 data Query a
   = GetCount (Int -> a)
+  | GetLabel (Text -> a)
   | Reset a
   | Add Int a
   | -- | A request the counter does not answer.
@@ -41,9 +45,10 @@ data Action = Increment
 counter :: forall m. (MonadIO m) => IORef Int -> H.Component Query Text Int m
 counter finalized =
   H.component
-    (\label -> pure State {label, count = 0})
+    (\label -> if label == "boom" then liftIO (throwIO (userError "boom")) else pure State {label, count = 0})
     render
-    [ H.onAction handleAction
+    [ H.onInitialize (H.raise 0)
+    , H.onAction handleAction
     , H.onQuery handleQuery
     , H.onReceive (\label -> modify (\st -> st {label}))
     , H.onFinalize (H.liftEffect (liftIO (atomicModifyIORef' finalized (\n -> (n + 1, ())))))
@@ -65,6 +70,7 @@ counter finalized =
     handleQuery :: Query a -> H.HalogenM State Action Empty Int m (Maybe a)
     handleQuery = \case
       GetCount reply -> Just . reply <$> gets (.count)
+      GetLabel reply -> Just . reply <$> gets (.label)
       Reset next -> Just next <$ modify (\st -> st {count = 0})
       Add n next -> Just next <$ modify (\st -> st {count = st.count + n})
       Refuse _ -> pure Nothing
@@ -79,6 +85,7 @@ definition =
     , output = \n -> Just ("count", toJSON n)
     , methods =
         [ CE.method "count" (\() -> GetCount)
+        , CE.method "currentLabel" (\() -> GetLabel)
         , CE.tellMethod "reset" (\() -> Reset)
         , CE.tellMethod "add" Add
         , CE.method "refuse" (\() -> Refuse)
