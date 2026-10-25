@@ -13,7 +13,6 @@ import Control.Monad.UUID
 import DOM.HTML.Indexed
 import Data.UUID.Types as UUID
 import Halogen qualified as H hiding (Initialize)
-import Halogen.Component
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
@@ -60,22 +59,18 @@ data CheckboxQuery a
 
 checkbox :: (MonadMaterial m, MonadUUID m) => H.Component CheckboxQuery CheckboxSpec CheckboxChange m
 checkbox =
-  H.mkComponent $
-    H.ComponentSpec
-      { initialState = \CheckboxSpec {..} -> do
-          ref <- H.newRefLabel "checkbox"
-          id <- generateV4
-          pure CheckboxState {mdcFormField = Nothing, ..}
-      , render
-      , eval =
-          H.mkEval $
-            H.defaultEval
-              { H.handleAction = handleAction
-              , H.handleQuery = handleQuery
-              , H.initialize = Just Initialize
-              , H.finalize = Just Finalize
-              }
-      }
+  H.component
+    ( \CheckboxSpec {..} -> do
+        ref <- H.newRefLabel "checkbox"
+        id <- generateV4
+        pure CheckboxState {mdcFormField = Nothing, ..}
+    )
+    render
+    [ H.onAction handleAction
+    , H.onQuery handleQuery
+    , H.onInitialize (handleAction Initialize)
+    , H.onFinalize (handleAction Finalize)
+    ]
   where
     render CheckboxState {..} =
       HH.div [HP.class_ $ HH.ClassName "mdc-touch-target-wrapper"] $

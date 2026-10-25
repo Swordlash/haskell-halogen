@@ -66,12 +66,10 @@ data Action = Initialize | Start | Tick | Counted Int
 -- last "counter" event it heard.
 desk :: forall q o m. (MonadIO m) => H.Component q () o m
 desk =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \() -> pure State {result = "idle", ticks = 0, counter = 0}
-      , render
-      , eval = H.mkEval H.defaultEval {H.handleAction = handleAction, H.initialize = Just Initialize}
-      }
+  H.component
+    (\() -> pure State {result = "idle", ticks = 0, counter = 0})
+    render
+    [H.onAction handleAction, H.onInitialize (handleAction Initialize)]
   where
     render :: State -> H.ComponentHTML Action Empty m
     render st =

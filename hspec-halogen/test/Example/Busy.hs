@@ -112,12 +112,10 @@ type Slots = ("clicker" .== H.Slot (Const Void) Void Int)
 
 component :: forall q o m. (MonadIO m) => H.Component q (Router.Router Route) o m
 component =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \router -> pure State {router, clicking = Nothing, handled = [], filler = 0, preempted = "pending"}
-      , render
-      , eval = H.mkEval H.defaultEval {H.handleAction = handleAction}
-      }
+  H.component
+    (\router -> pure State {router, clicking = Nothing, handled = [], filler = 0, preempted = "pending"})
+    render
+    [H.onAction handleAction]
   where
     render :: State -> H.ComponentHTML Action Slots m
     render st =
@@ -186,10 +184,9 @@ component =
 -- | Clicks the link of the number it is given, as it is created.
 clicker :: forall q o m. (MonadIO m) => H.Component q Int o m
 clicker =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \n -> liftIO (js_click_link n)
-      , render = \outcome ->
-          HH.span [HP.class_ (HH.ClassName "busy-outcome")] [HH.text (fromMaybe "missing" (atMay ["followed", "prevented", "stopped"] outcome))]
-      , eval = H.mkEval H.defaultEval
-      }
+  H.component
+    (\n -> liftIO (js_click_link n))
+    ( \outcome ->
+        HH.span [HP.class_ (HH.ClassName "busy-outcome")] [HH.text (fromMaybe "missing" (atMay ["followed", "prevented", "stopped"] outcome))]
+    )
+    []

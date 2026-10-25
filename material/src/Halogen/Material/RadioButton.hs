@@ -12,7 +12,6 @@ import Control.Monad.UUID
 import DOM.HTML.Indexed
 import Data.UUID.Types as UUID
 import Halogen qualified as H hiding (Initialize)
-import Halogen.Component
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
@@ -57,15 +56,14 @@ data RadioClicked = RadioClicked Text
 
 radio :: (MonadMaterial m, MonadUUID m) => H.Component q RadioButtonSpec RadioClicked m
 radio =
-  H.mkComponent $
-    H.ComponentSpec
-      { initialState = \RadioButtonSpec {..} -> do
-          ref <- H.newRefLabel "radio"
-          id <- generateV4
-          pure $ RadioButtonState {mdcFormField = Nothing, ..}
-      , render
-      , eval = H.mkEval $ H.defaultEval {H.handleAction = handleAction, H.initialize = Just Initialize, H.finalize = Just Finalize}
-      }
+  H.component
+    ( \RadioButtonSpec {..} -> do
+        ref <- H.newRefLabel "radio"
+        id <- generateV4
+        pure $ RadioButtonState {mdcFormField = Nothing, ..}
+    )
+    render
+    [H.onAction handleAction, H.onInitialize (handleAction Initialize), H.onFinalize (handleAction Finalize)]
   where
     render RadioButtonState {..} =
       HH.div

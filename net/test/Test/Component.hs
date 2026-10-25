@@ -66,12 +66,10 @@ data Action = Start | Load | Abort | Tick
 -- @fetch@ in @lift@.
 loader :: forall q o m. (MonadIO m) => H.Component q Text o m
 loader =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \address -> pure State {address, pending = Nothing, result = "idle", ticks = 0}
-      , render
-      , eval = H.mkEval H.defaultEval {H.handleAction = handleAction}
-      }
+  H.component
+    (\address -> pure State {address, pending = Nothing, result = "idle", ticks = 0})
+    render
+    [H.onAction handleAction]
   where
     render :: State -> H.ComponentHTML Action Empty m
     render st =

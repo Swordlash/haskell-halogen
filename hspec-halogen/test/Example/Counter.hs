@@ -15,12 +15,7 @@ data Action = Increment
 
 component :: forall i m. (Monad m) => H.Component Query i Int m
 component =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = const (pure 0)
-      , render
-      , eval = H.mkEval H.defaultEval {H.handleAction = handleAction, H.handleQuery = handleQuery}
-      }
+  H.component (const (pure 0)) render [H.onAction handleAction, H.onQuery handleQuery]
   where
     render :: Int -> H.ComponentHTML Action Empty m
     render count =

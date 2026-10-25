@@ -56,14 +56,13 @@ data Action = Fire | Inner Event | Outer
 
 component :: forall q i o m. (MonadIO m, MonadUUID m) => H.Component q i o m
 component =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> do
-          target <- H.newRefLabel "target"
-          pure State {target, handled = False, outer = False, trail = [], result = Nothing}
-      , render
-      , eval = H.mkEval H.defaultEval {H.handleAction = handleAction}
-      }
+  H.component
+    ( \_ -> do
+        target <- H.newRefLabel "target"
+        pure State {target, handled = False, outer = False, trail = [], result = Nothing}
+    )
+    render
+    [H.onAction handleAction]
   where
     render :: State -> H.ComponentHTML Action Empty m
     render st =
@@ -134,15 +133,14 @@ data SubscribedAction = Listen | Poke | ClickBox | Heard Event | BoxHeard Event
 -- checkbox's click, whose default (checking the box) the handler prevents.
 subscribed :: forall q i o m. (MonadBrowserDOM m, MonadUnliftIO m, MonadUUID m) => H.Component q i o m
 subscribed =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> do
-          element <- H.newRefLabel "subscribed-element"
-          box <- H.newRefLabel "subscribed-box"
-          pure Subscribed {element, box, heard = False, boxHeard = False, steps = [], poked = Nothing, clicked = Nothing}
-      , render
-      , eval = H.mkEval H.defaultEval {H.handleAction = handleAction, H.initialize = Just Listen}
-      }
+  H.component
+    ( \_ -> do
+        element <- H.newRefLabel "subscribed-element"
+        box <- H.newRefLabel "subscribed-box"
+        pure Subscribed {element, box, heard = False, boxHeard = False, steps = [], poked = Nothing, clicked = Nothing}
+    )
+    render
+    [H.onAction handleAction, H.onInitialize (handleAction Listen)]
   where
     render :: Subscribed -> H.ComponentHTML SubscribedAction Empty m
     render st =

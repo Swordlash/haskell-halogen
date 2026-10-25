@@ -98,20 +98,14 @@ data ChildAction = Start | Stop
 
 child :: Counts -> H.Component H.VoidF () Void IO
 child counts =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> pure ()
-      , render = \_ -> HH.text "" :: H.ComponentHTML ChildAction Empty IO
-      , eval =
-          H.mkEval
-            H.defaultEval
-              { initialize = Just Start
-              , finalize = Just Stop
-              , handleAction = \case
-                  Start -> H.liftEffect $ modifyIORef' counts.started (+ 1)
-                  Stop -> H.liftEffect $ modifyIORef' counts.stopped (+ 1)
-              }
-      }
+  H.component
+    (\_ -> pure ())
+    (\_ -> HH.text "" :: H.ComponentHTML ChildAction Empty IO)
+    [H.onAction handleAction, H.onInitialize (handleAction Start), H.onFinalize (handleAction Stop)]
+  where
+    handleAction = \case
+      Start -> H.liftEffect $ modifyIORef' counts.started (+ 1)
+      Stop -> H.liftEffect $ modifyIORef' counts.stopped (+ 1)
 
 type Slots = "child" .== H.Slot H.VoidF Void Int
 
@@ -135,12 +129,10 @@ park gates n = unsafePerformIO $ do
 -- | One child per number up to the state.
 parent :: Counts -> Gates -> H.Component Query () Void IO
 parent counts gates =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> pure (0 :: Int)
-      , render = \n -> HH.div_ [HH.slot_ "child" k (child counts) () | k <- [0 .. n]] :: H.ComponentHTML Void Slots IO
-      , eval = H.mkEval H.defaultEval {handleQuery = answer}
-      }
+  H.component
+    (\_ -> pure (0 :: Int))
+    (\n -> HH.div_ [HH.slot_ "child" k (child counts) () | k <- [0 .. n]] :: H.ComponentHTML Void Slots IO)
+    [H.onQuery answer]
   where
     answer :: Query a -> H.HalogenM Int Void Slots Void IO (Maybe a)
     answer = \case
@@ -181,12 +173,7 @@ data ForkQuery a = HoldThenFork (MVar ()) (MVar ()) (IORef Bool) a
 
 forker :: H.Component ForkQuery () Void IO
 forker =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> pure ()
-      , render = \_ -> HH.text "" :: H.ComponentHTML Void Empty IO
-      , eval = H.mkEval H.defaultEval {handleQuery = answer}
-      }
+  H.component (\_ -> pure ()) (\_ -> HH.text "" :: H.ComponentHTML Void Empty IO) [H.onQuery answer]
   where
     answer :: ForkQuery a -> H.HalogenM () Void Empty Void IO (Maybe a)
     answer (HoldThenFork holding go survived a) = do
@@ -221,12 +208,10 @@ data SetQuery a = Set Int a
 
 counter :: H.Component SetQuery () Void IO
 counter =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> pure (0 :: Int)
-      , render = \n -> HH.text (if n == 0 then "zero" else if n == 1 then "one" else "two") :: H.ComponentHTML Void Empty IO
-      , eval = H.mkEval H.defaultEval {handleQuery = \(Set n a) -> put n >> pure (Just a)}
-      }
+  H.component
+    (\_ -> pure (0 :: Int))
+    (\n -> HH.text (if n == 0 then "zero" else if n == 1 then "one" else "two") :: H.ComponentHTML Void Empty IO)
+    [H.onQuery (\(Set n a) -> put n >> pure (Just a))]
 
 renderAfterFailure :: IO ()
 renderAfterFailure = do

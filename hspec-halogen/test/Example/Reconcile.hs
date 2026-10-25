@@ -30,12 +30,10 @@ type Slots = ("counter" .== H.Slot Counter.Query Int ())
 
 component :: forall q i o m. (Monad m) => H.Component q i o m
 component =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = const (pure State {renders = 0, items = 1, label = "first", disabled = False, bold = False, titled = False})
-      , render
-      , eval = H.mkEval H.defaultEval {H.handleAction = handleAction}
-      }
+  H.component
+    (const (pure State {renders = 0, items = 1, label = "first", disabled = False, bold = False, titled = False}))
+    render
+    [H.onAction handleAction]
   where
     cls :: forall r a. (HasType "class" Text r) => Text -> HP.IProp r a
     cls = HP.class_ . HH.ClassName
@@ -91,15 +89,14 @@ data ReplacingAction = Rekey | Retag | RelabelRef | Mark
 -- holds none, or when the spare label still holds one.
 replacing :: forall q i o m. (MonadUUID m, MonadBrowserDOM m) => H.Component q i o m
 replacing =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> do
-          field <- H.newRefLabel "field"
-          spare <- H.newRefLabel "spare"
-          pure Replacing {field, spare, generation = 0, retagged = False, lost = False, stale = False}
-      , render
-      , eval = H.mkEval H.defaultEval {H.handleAction = handleAction}
-      }
+  H.component
+    ( \_ -> do
+        field <- H.newRefLabel "field"
+        spare <- H.newRefLabel "spare"
+        pure Replacing {field, spare, generation = 0, retagged = False, lost = False, stale = False}
+    )
+    render
+    [H.onAction handleAction]
   where
     cls :: forall r a. (HasType "class" Text r) => Text -> HP.IProp r a
     cls = HP.class_ . HH.ClassName

@@ -19,12 +19,7 @@ data Action = Initialize
 
 component :: forall q o m. (MonadIO m) => H.Component q Input o m
 component =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = pure . Loading
-      , render
-      , eval = H.mkEval H.defaultEval {H.handleAction = handleAction, H.initialize = Just Initialize}
-      }
+  H.component (pure . Loading) render [H.onAction handleAction, H.onInitialize (handleAction Initialize)]
   where
     render :: State -> H.ComponentHTML Action Empty m
     render = \case

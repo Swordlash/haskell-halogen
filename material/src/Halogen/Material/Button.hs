@@ -12,7 +12,6 @@ import Clay (Css)
 import Control.Monad.UUID (MonadUUID)
 import Data.Text qualified as T
 import Halogen qualified as H hiding (Initialize)
-import Halogen.Component
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
@@ -63,14 +62,13 @@ button
   :: (MonadMaterial m, MonadUUID m)
   => H.Component q ButtonSpec ButtonClicked m
 button =
-  H.mkComponent $
-    H.ComponentSpec
-      { initialState = \ButtonSpec {..} -> do
-          ref <- H.newRefLabel "button"
-          pure ButtonState {mdcRipple = Nothing, ..}
-      , render
-      , eval = H.mkEval $ H.defaultEval {handleAction, initialize = Just Initialize, finalize = Just Finalize}
-      }
+  H.component
+    ( \ButtonSpec {..} -> do
+        ref <- H.newRefLabel "button"
+        pure ButtonState {mdcRipple = Nothing, ..}
+    )
+    render
+    [H.onAction handleAction, H.onInitialize (handleAction Initialize), H.onFinalize (handleAction Finalize)]
   where
     render ButtonState {..} =
       HH.div [HP.class_ (HH.ClassName "mdc-touch-target-wrapper")]

@@ -22,12 +22,7 @@ newtype Action = Edit Text
 
 component :: forall q i m. (Monad m) => H.Component q i Text m
 component =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = const (pure (State ""))
-      , render
-      , eval = H.mkEval H.defaultEval {H.handleAction = handleAction}
-      }
+  H.component (const (pure (State ""))) render [H.onAction handleAction]
   where
     render :: State -> H.ComponentHTML Action Empty m
     render model = HH.input [HP.class_ (HH.ClassName "digits"), HP.value model.digits, HE.onValueInput Edit]

@@ -15,7 +15,8 @@ import Data.IORef
 import Data.Kind (Type)
 import Data.Row (Empty, Row)
 import Data.Void (Void)
-import Halogen as H hiding (query)
+import Halogen as H hiding (component, query)
+import Halogen qualified as H (component)
 import Halogen.HTML qualified as HH
 import Halogen.IO.Driver qualified as AD
 import Prelude
@@ -45,12 +46,7 @@ data Query a
 -- query can kill or join it.
 component :: IORef [String] -> H.Component Query () Void IO
 component ran =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> pure Nothing
-      , render = \_ -> HH.text "fork"
-      , eval = H.mkEval H.defaultEval {handleQuery}
-      }
+  H.component (\_ -> pure Nothing) (\_ -> HH.text "fork") [H.onQuery handleQuery]
   where
     handleQuery :: forall a. Query a -> H.HalogenM (Maybe ForkId) () Empty Void IO (Maybe a)
     handleQuery = \case

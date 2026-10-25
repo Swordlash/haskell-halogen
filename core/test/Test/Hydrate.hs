@@ -48,12 +48,7 @@ type Html = H.ComponentHTML () Slots MemDOM
 
 child :: H.Component H.VoidF () Void MemDOM
 child =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> pure ()
-      , render = \_ -> HH.em_ [HH.text "the child"] :: H.ComponentHTML () Empty MemDOM
-      , eval = H.mkEval H.defaultEval
-      }
+  H.component (\_ -> pure ()) (\_ -> HH.em_ [HH.text "the child"] :: H.ComponentHTML () Empty MemDOM) []
 
 data Count = Increment
 
@@ -61,58 +56,49 @@ data Count = Increment
 -- memoized part and a child in a slot.
 counter :: H.Component H.VoidF () Void MemDOM
 counter =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> pure (0 :: Int)
-      , render = \n ->
-          HH.div
-            [HP.class_ (HH.ClassName "counter")]
-            [ HH.button [HE.onClick (const Increment)] [HH.text "+"]
-            , HH.p_ [HH.text "count ", HH.text (T.pack (show n))]
-            , HH.keyed (ElemName "ul") [] [(k, HH.li_ [HH.text k]) | k <- ["a", "b"]]
-            , HH.lazy (\label -> HH.span_ [HH.text label]) "memoized"
-            , HH.slot_ "child" () child ()
-            ]
-            :: H.ComponentHTML Count Slots MemDOM
-      , eval = H.mkEval H.defaultEval {H.handleAction = \Increment -> modify (+ 1)}
-      }
+  H.component
+    (\_ -> pure (0 :: Int))
+    ( \n ->
+        HH.div
+          [HP.class_ (HH.ClassName "counter")]
+          [ HH.button [HE.onClick (const Increment)] [HH.text "+"]
+          , HH.p_ [HH.text "count ", HH.text (T.pack (show n))]
+          , HH.keyed (ElemName "ul") [] [(k, HH.li_ [HH.text k]) | k <- ["a", "b"]]
+          , HH.lazy (\label -> HH.span_ [HH.text label]) "memoized"
+          , HH.slot_ "child" () child ()
+          ]
+          :: H.ComponentHTML Count Slots MemDOM
+    )
+    [H.onAction (\Increment -> modify (+ 1))]
 
 data Reorder = Reverse
 
 -- | A keyed list that a click turns round.
 reorderable :: H.Component H.VoidF () Void MemDOM
 reorderable =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> pure ["a", "b", "c"]
-      , render = \keys ->
-          HH.div_
-            [ HH.button [HE.onClick (const Reverse)] [HH.text "reverse"]
-            , HH.keyed (ElemName "ul") [] [(k, HH.li_ [HH.text k]) | k <- keys]
-            ]
-            :: H.ComponentHTML Reorder Empty MemDOM
-      , eval = H.mkEval H.defaultEval {H.handleAction = \Reverse -> modify (reverse :: [Text] -> [Text])}
-      }
+  H.component
+    (\_ -> pure ["a", "b", "c"])
+    ( \keys ->
+        HH.div_
+          [ HH.button [HE.onClick (const Reverse)] [HH.text "reverse"]
+          , HH.keyed (ElemName "ul") [] [(k, HH.li_ [HH.text k]) | k <- keys]
+          ]
+          :: H.ComponentHTML Reorder Empty MemDOM
+    )
+    [H.onAction (\Reverse -> modify (reverse :: [Text] -> [Text]))]
 
 -- | A component that renders this and nothing else.
 static :: Html -> H.Component H.VoidF () Void MemDOM
 static html =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> pure ()
-      , render = \_ -> html
-      , eval = H.mkEval H.defaultEval
-      }
+  H.component (\_ -> pure ()) (\_ -> html) []
 
 -- | One that renders one text, then another once it has initialized.
 initializing :: H.Component H.VoidF () Void MemDOM
 initializing =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> pure "initial"
-      , render = \txt -> HH.p_ [HH.text txt] :: H.ComponentHTML () Empty MemDOM
-      , eval = H.mkEval H.defaultEval {H.handleAction = \() -> put "initialized", H.initialize = Just ()}
-      }
+  H.component
+    (\_ -> pure "initial")
+    (\txt -> HH.p_ [HH.text txt] :: H.ComponentHTML () Empty MemDOM)
+    [H.onInitialize (put "initialized")]
 
 -- | A container holding what the component rendered there, as a page that
 -- arrived with it would: the component is disposed of and its tree put back

@@ -18,12 +18,7 @@ data Action = Rerender
 
 component :: forall q i o m. (Monad m) => H.Component q i o m
 component =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = const (pure (0 :: Int))
-      , render
-      , eval = H.mkEval H.defaultEval {H.handleAction = \Rerender -> modify (+ 1)}
-      }
+  H.component (const (pure (0 :: Int))) render [H.onAction (\Rerender -> modify (+ 1))]
   where
     render :: Int -> H.ComponentHTML Action Empty m
     render renders =

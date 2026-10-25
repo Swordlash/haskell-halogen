@@ -69,36 +69,35 @@ data Query a
 -- 'patched', which read that tree, are what run it there.
 field :: forall m. (MonadUUID m) => H.Component Query Bool Void m
 field =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \refd -> do
-          label <- H.newRefLabel "field"
-          spare <- H.newRefLabel "spare"
-          pure Field {label, spare, key = 0, bold = False, shown = True, refd}
-      , render = \model ->
-          HH.withKeys_
-            HH.div_
-            ( [("before", HH.span_ [])]
-                <> [ ("field-" <> T.pack (show model.key), (if model.bold then HH.b else HH.i) [HP.ref model.label | model.refd] [])
-                   | model.shown
-                   ]
-                <> [("after", HH.span_ [])]
-            )
+  H.component
+    ( \refd -> do
+        label <- H.newRefLabel "field"
+        spare <- H.newRefLabel "spare"
+        pure Field {label, spare, key = 0, bold = False, shown = True, refd}
+    )
+    ( \model ->
+        HH.withKeys_
+          HH.div_
+          ( [("before", HH.span_ [])]
+              <> [ ("field-" <> T.pack (show model.key), (if model.bold then HH.b else HH.i) [HP.ref model.label | model.refd] [])
+                 | model.shown
+                 ]
+              <> [("after", HH.span_ [])]
+          )
           :: H.ComponentHTML () Empty m
-      , eval =
-          H.mkEval
-            H.defaultEval
-              { H.handleQuery = \case
-                  Rekey a -> modify (\s -> s {key = s.key + 1} :: Field) >> pure (Just a)
-                  Retag a -> modify (\s -> s {bold = not s.bold} :: Field) >> pure (Just a)
-                  Hide a -> modify (\s -> s {shown = False} :: Field) >> pure (Just a)
-                  Relabel a -> modify (\s -> s {label = s.spare, spare = s.label} :: Field) >> pure (Just a)
-                  Unref a -> modify (\s -> s {refd = False} :: Field) >> pure (Just a)
-                  Reref a -> modify (\s -> s {refd = True} :: Field) >> pure (Just a)
-                  Held reply -> Just . reply <$> (H.getRef =<< gets (.label))
-                  HeldSpare reply -> Just . reply <$> (H.getRef =<< gets (.spare))
-              }
-      }
+    )
+    [ H.onQuery
+        ( \case
+            Rekey a -> modify (\s -> s {key = s.key + 1} :: Field) >> pure (Just a)
+            Retag a -> modify (\s -> s {bold = not s.bold} :: Field) >> pure (Just a)
+            Hide a -> modify (\s -> s {shown = False} :: Field) >> pure (Just a)
+            Relabel a -> modify (\s -> s {label = s.spare, spare = s.label} :: Field) >> pure (Just a)
+            Unref a -> modify (\s -> s {refd = False} :: Field) >> pure (Just a)
+            Reref a -> modify (\s -> s {refd = True} :: Field) >> pure (Just a)
+            Held reply -> Just . reply <$> (H.getRef =<< gets (.label))
+            HeldSpare reply -> Just . reply <$> (H.getRef =<< gets (.spare))
+        )
+    ]
 
 -- | Mount 'field', run the step, and check that the ref holds the element
 -- in the page afterwards, whose tag is the one given.

@@ -30,12 +30,10 @@ notes = "notes"
 
 component :: forall q o m. (MonadIndexedDB m) => H.Component q Input o m
 component =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \input -> pure State {input, kept = Nothing}
-      , render
-      , eval = H.mkEval H.defaultEval {H.handleAction = handleAction, H.initialize = Just Initialize}
-      }
+  H.component
+    (\input -> pure State {input, kept = Nothing})
+    render
+    [H.onAction handleAction, H.onInitialize (handleAction Initialize)]
   where
     render :: State -> H.ComponentHTML Action Empty m
     render current =

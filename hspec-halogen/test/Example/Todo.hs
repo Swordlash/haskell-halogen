@@ -40,12 +40,10 @@ newtype Query a = GetTitles ([Text] -> a)
 
 component :: forall i o m. (MonadIO m) => H.Component Query i o m
 component =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = const (pure State {items = [], draft = "", nextKey = 0})
-      , render
-      , eval = H.mkEval H.defaultEval {H.handleAction = handleAction, H.handleQuery = handleQuery}
-      }
+  H.component
+    (const (pure State {items = [], draft = "", nextKey = 0}))
+    render
+    [H.onAction handleAction, H.onQuery handleQuery]
   where
     cls :: forall r a. (HasType "class" Text r) => Text -> HP.IProp r a
     cls = HP.class_ . HH.ClassName

@@ -37,21 +37,17 @@ data ChildState = ChildState
 
 child :: forall m. (MonadIO m, MonadUUID m) => H.Component ChildQuery (Text, IORef [Text]) ChildOutput m
 child =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \(name, journal) -> do
-          ref <- H.newRefLabel "child"
-          pure ChildState {name, journal, ref, found = False}
-      , render
-      , eval =
-          H.mkEval
-            H.defaultEval
-              { H.handleAction = handleAction
-              , H.handleQuery = handleQuery
-              , H.initialize = Just Initialize
-              , H.finalize = Just Finalize
-              }
-      }
+  H.component
+    ( \(name, journal) -> do
+        ref <- H.newRefLabel "child"
+        pure ChildState {name, journal, ref, found = False}
+    )
+    render
+    [ H.onAction handleAction
+    , H.onQuery handleQuery
+    , H.onInitialize (handleAction Initialize)
+    , H.onFinalize (handleAction Finalize)
+    ]
   where
     render :: ChildState -> H.ComponentHTML ChildAction Empty m
     render model =
@@ -98,12 +94,10 @@ data State = State
 -- | The journal is where the children's finalisers write.
 component :: forall m. (MonadUnliftIO m, MonadUUID m) => H.Component Query (IORef [Text]) Output m
 component =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \journal -> pure State {children = [], added = 0, journal}
-      , render
-      , eval = H.mkEval H.defaultEval {H.handleAction = handleAction, H.handleQuery = handleQuery}
-      }
+  H.component
+    (\journal -> pure State {children = [], added = 0, journal})
+    render
+    [H.onAction handleAction, H.onQuery handleQuery]
   where
     render :: State -> H.ComponentHTML Action Slots m
     render model =

@@ -18,12 +18,7 @@ import Test.Hspec.Halogen
 -- | Renders this, and nothing else.
 static :: forall m. (Monad m) => H.ComponentHTML () Empty m -> H.Component H.VoidF () Void m
 static html =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> pure ()
-      , render = \_ -> html
-      , eval = H.mkEval H.defaultEval
-      }
+  H.component (\_ -> pure ()) (\_ -> html) []
 
 data Count = Increment
 
@@ -31,57 +26,49 @@ data Count = Increment
 -- the count, and an emphasis after them once it has been clicked.
 counter :: forall m. (Monad m) => H.Component H.VoidF () Void m
 counter =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> pure (0 :: Int)
-      , render = \n ->
-          HH.div_
-            [ HH.p_ ([HH.text "count ", HH.text (show n)] <> [HH.em_ [HH.text "!"] | n > 0])
-            , HH.button [HE.onClick (const Increment)] [HH.text "+"]
-            ]
-      , eval = H.mkEval H.defaultEval {H.handleAction = \Increment -> modify (+ 1)}
-      }
+  H.component
+    (\_ -> pure (0 :: Int))
+    ( \n ->
+        HH.div_
+          [ HH.p_ ([HH.text "count ", HH.text (show n)] <> [HH.em_ [HH.text "!"] | n > 0])
+          , HH.button [HE.onClick (const Increment)] [HH.text "+"]
+          ]
+    )
+    [H.onAction (\Increment -> modify (+ 1))]
 
 newtype Edit = Edited Text
 
 -- | A text field and what it holds.
 field :: forall m. (Monad m) => H.Component H.VoidF () Void m
 field =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> pure "prerendered"
-      , render = \txt ->
-          HH.div_
-            [ HH.input [HP.value txt, HE.onValueInput Edited]
-            , HH.span [HP.class_ (HH.ClassName "echo")] [HH.text txt]
-            ]
-      , eval = H.mkEval H.defaultEval {H.handleAction = \(Edited txt) -> put txt}
-      }
+  H.component
+    (\_ -> pure "prerendered")
+    ( \txt ->
+        HH.div_
+          [ HH.input [HP.value txt, HE.onValueInput Edited]
+          , HH.span [HP.class_ (HH.ClassName "echo")] [HH.text txt]
+          ]
+    )
+    [H.onAction (\(Edited txt) -> put txt)]
 
 type Slots = ("child" .== H.Slot H.VoidF Void ())
 
 -- | A child component in a slot, between two elements of its parent.
 parent :: forall m. (Monad m) => H.Component H.VoidF () Void m
 parent =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> pure ()
-      , render = \_ ->
-          HH.div_ [HH.h2_ [HH.text "parent"], HH.slot_ "child" () (static (HH.em_ [HH.text "child"])) (), HH.p_ [HH.text "after"]]
-            :: H.ComponentHTML () Slots m
-      , eval = H.mkEval H.defaultEval
-      }
+  H.component
+    (\_ -> pure ())
+    ( \_ ->
+        HH.div_ [HH.h2_ [HH.text "parent"], HH.slot_ "child" () (static (HH.em_ [HH.text "child"])) (), HH.p_ [HH.text "after"]]
+          :: H.ComponentHTML () Slots m
+    )
+    []
 
 -- | Starts from what the page embedded for it, as a component does that
 -- picks up where the server left off, and from nothing on a page without.
 resuming :: forall m. (MonadBrowserDOM m) => Text -> H.Component H.VoidF () Void m
 resuming ident =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> fromMaybe "nothing embedded" <$> readEmbedded ident
-      , render = \txt -> HH.p_ [HH.text txt]
-      , eval = H.mkEval H.defaultEval
-      }
+  H.component (\_ -> fromMaybe "nothing embedded" <$> readEmbedded ident) (\txt -> HH.p_ [HH.text txt]) []
 
 spec :: forall m -> (MonadBrowserTest m) => Spec
 spec m = do

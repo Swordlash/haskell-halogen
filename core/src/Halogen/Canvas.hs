@@ -48,21 +48,17 @@ component
   => Renderer scene event m
   -> H.Component H.VoidF scene event m
 component renderer =
-  H.mkComponent
-    $ H.ComponentSpec
-      { initialState = \scene -> do
-          canvasRef <- H.newRefLabel "canvas"
-          pure CanvasState {scene, mounted = Nothing, canvasRef}
-      , render
-      , eval =
-          H.mkEval
-            $ H.defaultEval
-              { H.handleAction = handleAction
-              , H.initialize = Just Mount
-              , H.finalize = Just Unmount
-              , H.receive = Just . Receive
-              }
-      }
+  H.component
+    ( \scene -> do
+        canvasRef <- H.newRefLabel "canvas"
+        pure CanvasState {scene, mounted = Nothing, canvasRef}
+    )
+    render
+    [ H.onAction handleAction
+    , H.onInitialize (handleAction Mount)
+    , H.onFinalize (handleAction Unmount)
+    , H.onReceive (handleAction . Receive)
+    ]
   where
     render :: CanvasState scene m -> H.ComponentHTML (Action scene event) Empty m
     render CanvasState {canvasRef} =

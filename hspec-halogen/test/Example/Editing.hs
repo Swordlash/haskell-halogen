@@ -48,12 +48,7 @@ data Action = Pressed | Clicked | Edited | Typed Text | Smiled Text | SubmittedL
 
 component :: forall q i o m. (Monad m) => H.Component q i o m
 component =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = const (pure (State 0 0 "" "" 0 0 0 ""))
-      , render
-      , eval = H.mkEval H.defaultEval {H.handleAction = handleAction}
-      }
+  H.component (const (pure (State 0 0 "" "" 0 0 0 ""))) render [H.onAction handleAction]
   where
     render :: State -> H.ComponentHTML Action Empty m
     render model =

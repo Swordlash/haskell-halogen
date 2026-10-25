@@ -59,13 +59,12 @@ data Action
 
 component :: forall o m. (MonadBrowserDOM m, MonadUnliftIO m) => H.Component Query (IORef Int) o m
 component =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \delivered ->
-          pure State {delivered, keys = [], sizes = [], visibilities = [], connections = [], frames = [], ticks = 0, subscriptions = []}
-      , render
-      , eval = H.mkEval H.defaultEval {H.handleAction = handleAction, H.handleQuery = handleQuery, H.initialize = Just Initialize}
-      }
+  H.component
+    ( \delivered ->
+        pure State {delivered, keys = [], sizes = [], visibilities = [], connections = [], frames = [], ticks = 0, subscriptions = []}
+    )
+    render
+    [H.onAction handleAction, H.onQuery handleQuery, H.onInitialize (handleAction Initialize)]
   where
     render :: State -> H.ComponentHTML Action Empty m
     render st =

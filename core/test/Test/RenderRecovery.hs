@@ -41,17 +41,16 @@ data Query a = Set Text Bool a
 -- when asked to.
 flaky :: H.Component Query () Void MemDOM
 flaky =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> pure ("a", False)
-      , render = \(cls, bad) ->
-          HH.div_
-            [ HH.span [HP.class_ (HH.ClassName cls), HP.attr (AttrName "data-tone") cls] []
-            , HH.text (if bad then throw (ErrorCall "no text") else "ok")
-            ]
+  H.component
+    (\_ -> pure ("a", False))
+    ( \(cls, bad) ->
+        HH.div_
+          [ HH.span [HP.class_ (HH.ClassName cls), HP.attr (AttrName "data-tone") cls] []
+          , HH.text (if bad then throw (ErrorCall "no text") else "ok")
+          ]
           :: H.ComponentHTML () Empty MemDOM
-      , eval = H.mkEval H.defaultEval {H.handleQuery = \(Set cls bad a) -> put (cls, bad) >> pure (Just a)}
-      }
+    )
+    [H.onQuery (\(Set cls bad a) -> put (cls, bad) >> pure (Just a))]
 
 recovers :: IO ()
 recovers = do
@@ -87,15 +86,14 @@ data Shape a = Shape Text Text Bool a
 -- when asked to.
 shaped :: H.Component Shape Text Void MemDOM
 shaped =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \label -> pure ("div", label, False)
-      , render = \(tag, label, bad) ->
-          (if tag == "section" then HH.section_ else HH.div_)
-            [HH.text (if bad then throw (ErrorCall "no text") else label)]
+  H.component
+    (\label -> pure ("div", label, False))
+    ( \(tag, label, bad) ->
+        (if tag == "section" then HH.section_ else HH.div_)
+          [HH.text (if bad then throw (ErrorCall "no text") else label)]
           :: H.ComponentHTML () Empty MemDOM
-      , eval = H.mkEval H.defaultEval {H.handleQuery = \(Shape tag label bad a) -> put (tag, label, bad) >> pure (Just a)}
-      }
+    )
+    [H.onQuery (\(Shape tag label bad a) -> put (tag, label, bad) >> pure (Just a))]
 
 -- | Mount 'shaped' between two siblings, and run the steps: each changes
 -- the shape, and says whether it fails.
@@ -136,20 +134,18 @@ data RowQuery a
 -- | 'shaped' components in a keyed row, in the order it is told.
 row :: H.Component RowQuery () Void MemDOM
 row =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> pure ["B", "A"]
-      , render = \order ->
-          HH.keyed (ElemName "p") [] [(k, HH.slot_ "cell" k shaped k) | k <- order]
+  H.component
+    (\_ -> pure ["B", "A"])
+    ( \order ->
+        HH.keyed (ElemName "p") [] [(k, HH.slot_ "cell" k shaped k) | k <- order]
           :: H.ComponentHTML () ("cell" .== H.Slot Shape Void Text) MemDOM
-      , eval =
-          H.mkEval
-            H.defaultEval
-              { H.handleQuery = \case
-                  Order order a -> put order >> pure (Just a)
-                  Poke k tag label bad a -> H.query "cell" k (Shape tag label bad ()) >> pure (Just a)
-              }
-      }
+    )
+    [ H.onQuery
+        ( \case
+            Order order a -> put order >> pure (Just a)
+            Poke k tag label bad a -> H.query "cell" k (Shape tag label bad ()) >> pure (Just a)
+        )
+    ]
 
 -- | Mount 'row', run the steps (each says whether it fails), and hand back
 -- the markup and how many nodes the row holds, empty ones included.

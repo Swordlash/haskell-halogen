@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+* The worked examples in `test/Example` build their components with
+  core's `H.component initialState render [H.onAction handleAction, ...]`
+  instead of `H.mkComponent` over a spec made with `H.mkEval` and
+  `H.defaultEval`, so they show the shorter way to write a component.
+
 * A suite runs in a page with no runner behind it too: the harness's
   actions, which the runner performs with Playwright, are then performed
   by the page itself with synthetic events (page.js's in-page mode,
