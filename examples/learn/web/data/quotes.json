@@ -1,0 +1,12 @@
+[
+  { "quote": "Well-typed programs cannot go wrong.", "author": "Robin Milner" },
+  { "quote": "Simplicity is prerequisite for reliability.", "author": "Edsger W. Dijkstra" },
+  { "quote": "Premature optimization is the root of all evil.", "author": "Donald Knuth" },
+  { "quote": "Programs must be written for people to read, and only incidentally for machines to execute.", "author": "Harold Abelson and Gerald Jay Sussman" },
+  { "quote": "Make it work, make it right, make it fast.", "author": "Kent Beck" },
+  { "quote": "Talk is cheap. Show me the code.", "author": "Linus Torvalds" },
+  { "quote": "The purpose of computing is insight, not numbers.", "author": "Richard Hamming" },
+  { "quote": "Beware of bugs in the above code; I have only proved it correct, not tried it.", "author": "Donald Knuth" },
+  { "quote": "A language that doesn't affect the way you think about programming is not worth knowing.", "author": "Alan Perlis" },
+  { "quote": "Testing shows the presence, not the absence of bugs.", "author": "Edsger W. Dijkstra" }
+]
