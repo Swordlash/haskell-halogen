@@ -1,8 +1,8 @@
 """Register a layer of packages in the playground's rootfs (learn/).
 
     python3 -I toolchain/learn-inject.py --db DB --so-dir DIR --hi-dir DIR \\
-      --present DB... [--taken DB...] --source DB... --ghc-version V \\
-      --listing FILE ROOT...
+      --present DB... [--taken DB...] [--trimmed UNIT...] --source DB... \\
+      --ghc-version V --listing FILE ROOT...
 
 Called by toolchain/build-learn-rootfs.sh. A layer is the closure of the
 ROOT packages (package names, looked up in the --source DBs, the project's
@@ -11,7 +11,10 @@ which the base layer is in. A --taken DB is another layer's: a layer stands
 on the base layer alone, so that a page can load any set of layers in any
 order, and a unit this layer needs that another layer has already is an
 error rather than a second copy (two copies of a library in one session would
-be two libraries to dyld). For each unit in the layer this copies
+be two libraries to dyld). A --trimmed unit is a boot package the script
+deleted from the rootfs (its BOOT_TRIM): one the layer needs is an error
+that says so, as it is in no DB any more. For each unit in the layer this
+copies
 
   * its .so into --so-dir,
   * its .dyn_hi tree into <--hi-dir>/<unit id>,
@@ -39,6 +42,7 @@ parser.add_argument("--so-dir", required=True)
 parser.add_argument("--hi-dir", required=True)
 parser.add_argument("--present", action="append", default=[])
 parser.add_argument("--taken", action="append", default=[])
+parser.add_argument("--trimmed", action="append", default=[])
 parser.add_argument("--source", action="append", default=[])
 parser.add_argument("--ghc-version", required=True)
 parser.add_argument("--listing", required=True)
@@ -87,6 +91,11 @@ def visit(uid, needed_by):
         sys.exit(
             f"{uid}, which {needed_by} depends on, is in another layer already ({taken[uid]}):"
             " move it to the base layer, or put the two layers' packages in one layer"
+        )
+    if uid in args.trimmed:
+        sys.exit(
+            f"{uid}, which {needed_by} depends on, is a boot package that build-learn-rootfs.sh trims"
+            " (BOOT_TRIM): take it out of BOOT_TRIM"
         )
     if uid not in available:
         sys.exit(f"{uid}, which {needed_by} depends on, is in none of {', '.join(args.source)}")

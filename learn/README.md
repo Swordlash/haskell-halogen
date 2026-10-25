@@ -16,29 +16,36 @@ What is here:
 - `web/index.html`, `web/index.js`: a minimal page (a text area, the GHC
   arguments, a button per layer, Run, stdout and stderr, `#app`, and the
   timings it measured). Plain modules, no bundler, no editor.
-- `../toolchain/build-learn-rootfs.sh` (`npm run build-learn`): builds
+- `../toolchain/build-learn-rootfs.sh` (`npm run build-rootfs`): builds
   everything the page loads into `dist-newstyle/wasm/learn/`.
 - `../toolchain/learn-inject.py`: registers a layer of packages in the
-  rootfs; the script calls it.
-- `../toolchain/test-learn.mjs` (`npm run test-learn`): drives the page in
-  headless Chromium, with a program for every layer, and prints what it
-  measured.
+  rootfs; the script calls it. `../toolchain/learn-rootfs-key.py`: what the
+  script's `--key` prints, for CI's cache.
+- `../toolchain/test-playground.mjs` (`npm run test-playground`): drives the
+  page in headless Chromium, with a program for every layer, and prints what
+  it measured.
+
+The tutorial, [`examples/learn`](../examples/learn/README.md), runs on the
+same rootfs: its build copies this directory, but for the page, to
+`rootfs/` beside the app, and that is what GitHub Pages deploys. This page
+stays a local tool, for trying the compiler with nothing around it.
 
 ## Build and run
 
 ```sh
-npm run build-learn               # dist-newstyle/wasm/learn/, zstd -19 (two and a half minutes on 4 cores)
-ZSTD_CLEVEL=3 npm run build-learn # the same in 20 seconds, 18 MB larger
-LEARN_REPORT=1 npm run build-learn # also each part's compressed size (five minutes)
-npm run test-learn                # headless Chromium, prints timings and memory
-LEARN_ONLY=th npm run test-learn  # the base runs and only the layers named
+npm run build-rootfs                # dist-newstyle/wasm/learn/, zstd -19 (two and a half minutes on 4 cores)
+ZSTD_CLEVEL=3 npm run build-rootfs  # the same in 20 seconds, 18 MB larger
+LEARN_REPORT=1 npm run build-rootfs # also each part's compressed size (five minutes)
+npm run test-playground             # headless Chromium, prints timings and memory
+LEARN_ONLY=th npm run test-playground  # the base runs and only the layers named
 python3 -m http.server -d dist-newstyle/wasm/learn 8000   # or any static server
+sh toolchain/build-learn-rootfs.sh --key   # the hash CI caches the output under (below)
 ```
 
 The script builds `haskell-halogen-jsbits`, `haskell-halogen-core` and every
 layer's packages for wasm first, as `toolchain/build-wasm.sh` builds the
 examples (a no-op when they are built); extra arguments go to cabal
-(`npm run build-learn -- -j2`). It needs the pinned wasm toolchain on the
+(`npm run build-rootfs -- -j2`). It needs the pinned wasm toolchain on the
 PATH (or `~/.ghc-wasm/env`), `python3`, `zstd`, GNU `tar` and `split`, `curl`
 (once, for `bsdtar.wasm`), and `npm ci`'s esbuild and sass (for the material
 layer's assets). The output is under `dist-newstyle/`, which `.gitignore`
@@ -49,6 +56,24 @@ The page needs nothing but a static server: no COOP/COEP headers,
 checks this). Its one request off the site is browser_wasi_shim from esm.sh
 (below), and the layers' external dependencies (PixiJS, a font) when they are
 used.
+
+Packing is reproducible: GNU tar packs the members sorted by name, with
+every time set to the epoch and no owner, so packing the same built
+libraries again gives the same bytes and the manifest the same `version`
+(two builds here were byte for byte the same; zstd with several threads
+gives the same bytes for the same level whatever the number of threads).
+Compiling a library again need not give the same bytes, as GHC's output is
+not deterministic by default: after a rebuild of `haskell-halogen-core`
+every archive but `th`'s changed, and so did the version. That is why CI
+does not rebuild the rootfs for nothing: it caches the output directory under
+`build-learn-rootfs.sh --key`, which plans the wasm build and prints a hash
+of everything the output is made from: the compiler (its id and ABI hash),
+every unit of the plan in the closure of the packages packed (one from the
+store or GHC by its id, which hashes its own inputs; one of ours by its
+flags and its package directory's files), the wasi-sysroot's libraries, the
+files the script reads (itself, `learn/`, material's stylesheet and bundle
+script, `package-lock.json`) and its settings. A hit restores the
+directory and the build is skipped.
 
 `?rts=` on the page's address sets the RTS options (default `-c`), for trying
 others: `?rts=-c+-H64m`. The test passes `LEARN_QUERY='rts=-c -H64m'` on.
@@ -100,8 +125,14 @@ their `.so` and interfaces deleted (`BOOT_TRIM` in the script): `Cabal` and
 `Cabal-syntax` (the first to go), `haddock-api`, `haddock-library`, `xhtml`,
 `haskeline`, `ghc-toolchain`, `ghc-compact`, `integer-gmp` and `ghc-bignum`
 (the last two are compatibility shims over `ghc-internal`). `ghc-pkg
-unregister` refuses one that a package left depends on, and `ghc-pkg check`
-runs on the result. `ghc-platform` cannot go: `ghc-boot` depends on it.
+unregister` refuses one that a boot package left depends on, and `ghc-pkg
+check` runs on the result. That holds for boot packages only: the trimming
+runs before the base layer and the layers are injected, so ghc-pkg never
+sees their packages' dependencies on a trimmed one. For those,
+`learn-inject.py` is told the trimmed units (`--trimmed`) and stops the
+build on a dependency on one, naming it and `BOOT_TRIM`; the list is chosen
+by hand, from what the base layer and the layers depend on today.
+`ghc-platform` cannot go: `ghc-boot` depends on it.
 `parsec` and `text` are not in GHC's closure either, but the base layer
 needs them.
 
@@ -155,7 +186,7 @@ The layers (`DEFAULT_LAYERS` in the script; `LEARN_LAYERS='name=pkg,pkg
 `zstd -19`; load time is the page's, from asking for the layer to its files
 extracted and its assets loaded; first run is the first program using it,
 which loads its libraries into dyld and compiles. Three runs of
-`npm run test-learn`:
+`npm run test-playground`:
 
 | Layer | Packages | Units | Uncompressed | zstd -19 | Assets on the page | Load | First run |
 | --- | --- | ---: | ---: | ---: | --- | ---: | ---: |
@@ -236,11 +267,15 @@ the base archive in four parts and `th`'s in two, and the test passed.
 Everything a page needs to know is in `rootfs.json`, so a page holds no GHC
 version, path or size. Paths without a leading `/` are relative to the
 manifest (the site); paths with one are in the page's file system. Sizes are
-in bytes.
+in bytes. This is the one description of it: the tutorial's
+`examples/learn/js/playground.js` and this page's `web/index.js` read it.
 
 ```json
 {
   "ghc": "ghc-9.14.1.20260731",
+  "version": "3f9a0c1d2e4b5a67",
+  "size": 364664105,
+  "compressedSize": 52044047,
   "libdir": "/tmp/hslib/lib",
   "searchDirs": ["/tmp/clib", "/tmp/hslib/lib/wasm32-wasi-ghc-9.14.1.20260731-a678"],
   "mainSoPath": "/tmp/libplayground.so",
@@ -277,6 +312,8 @@ in bytes.
 | Field | What |
 | --- | --- |
 | `ghc` | the compiler the rootfs was built with (the page shows it) |
+| `version` | the first 16 hex digits of a SHA-256 of every part of every archive (each with its path), in the order of the manifest: it changes whenever any archive's content does, and since packing is reproducible, only then (a recompiled library may change it, above). A page that keeps the archives (the tutorial, in the Cache API) keeps them under it. (The first manifests had none; a page then asks the server for each part's `ETag`.) |
+| `size`, `compressedSize` | the base archive's, the same as `rootfs.size` and `rootfs.compressedSize` (below), for a page that reads only the top level |
 | `libdir` | GHC's libdir in the page's file system: `playground`'s argument |
 | `searchDirs` | where dyld looks for a `.so` by name: dyld's `searchDirs` |
 | `mainSoPath` | the library dyld loads first: dyld's `mainSoPath` |
@@ -303,9 +340,9 @@ a layer does not load while a program compiles.
 ## Measurements
 
 Measured here: a 4-core cloud VM, headless Chromium (Playwright's 1243
-build), the page served from localhost by `test-learn.mjs`, the release build
+build), the page served from localhost by `test-playground.mjs`, the release build
 (`zstd -19`, dyld patched as below). Times are three runs of
-`npm run test-learn` on a clean build.
+`npm run test-playground` on a clean build.
 
 ### Sizes
 
@@ -422,16 +459,20 @@ layer):
   archive is 21.9 MB, both under the 100 MB GitHub allows a file. Should an
   archive grow past `LEARN_PART_MB` (95 MB), the build splits it into parts
   and the page joins them (above), so the limit cannot be hit unnoticed.
-- **Site size**: the playground is 76.5 MB beside the gallery (54.6 MB
-  without the `th` layer), far from the 1 GB limit.
+- **What is deployed**: the tutorial (`examples/learn`), whose build copies
+  this directory, but for `index.html` and `index.js`, to `rootfs/` beside
+  the app; this page is not deployed.
+- **Site size**: 76 MB, the rootfs 73 MB of it (51 MB without the `th`
+  layer), far from the 1 GB limit.
 - **Bandwidth per cold load**: the page, `bsdtar.wasm`, the manifest and
   `rootfs.tar.zst` are 53.4 MB; a lesson with any of the small layers adds
   at most 1.2 MB (all five and material's assets), and the `th` lesson
   21.9 MB more, 76.5 MB in all. Pages has a soft limit of 100 GB a month:
   about 1,870 cold loads a month without `th`, about 1,300 if every reader
   also loaded `th`. Its responses are cacheable (10 minutes, then revalidated
-  with an ETag), so a returning reader does not download them again, and the
-  page could keep the archives in the Cache API across visits. Not counted:
+  with an ETag), and the tutorial keeps the archives in the Cache API under
+  the manifest's `version`, so a returning reader downloads them again only
+  when a deploy has changed them. Not counted:
   PixiJS (0.8 MB) and the icon font, which come from their CDNs.
 - **Headers**: none needed (no COOP/COEP), and whatever type Pages serves
   `.zst` or a `.00` part with, the page reads it as bytes.
@@ -470,8 +511,9 @@ It does not show:
 - Anything but Chromium on a fast desktop. Firefox and Safari are untested
   here (GHC's own playground is tested on all three, and dyld works around a
   WebKit `table.grow` bug), and so are phones.
-- The editor, error markers, persistence, or a lesson naming its layers (the
-  mechanism is there: `?layers=`, or `learn.loadLayer`).
+- The editor, error markers, persistence, or a lesson naming its layers:
+  those are the tutorial's ([`examples/learn`](../examples/learn/README.md)),
+  on this rootfs; this page only has `?layers=` and `learn.loadLayer`.
 - `sound` and `tauri` have no layer: a lesson has no sound backend to drive
   in a test, nor a Tauri to talk to. Each would be a line in
   `DEFAULT_LAYERS`.
@@ -484,8 +526,9 @@ It does not show:
   "read-only" fallback (prerendered results) rather than a live compiler, and
   the `th` lesson is the one most likely to fail on a small machine.
 - **Download**: 52 MB before the first compile (22 MB more for `th`), and
-  Pages' bandwidth limit above. Keeping the archives in the Cache API would
-  help returning readers.
+  Pages' bandwidth limit above. The tutorial keeps the archives in the Cache
+  API, so a returning reader downloads them again only after a deploy that
+  changed them.
 - **Slow machines**: the numbers above are a fast VM. Extracting and loading
   are single-threaded JavaScript and wasm instantiation; on a slow laptop or a
   phone expect several times as long. A progress display matters (the

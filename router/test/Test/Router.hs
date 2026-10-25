@@ -1,7 +1,8 @@
 {-# LANGUAGE CPP #-}
 
 -- | The router over the in-memory address it keeps natively. In a browser
--- it is the browser's address, which the examples gallery's test drives.
+-- it is the browser's address, which the tutorial's test
+-- (toolchain/test-learn.mjs) drives.
 module Test.Router (spec) where
 
 import Protolude hiding (Handler, optional)

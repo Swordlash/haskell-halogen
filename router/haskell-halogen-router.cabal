@@ -98,8 +98,8 @@ test-suite Halogen-router-test
                       text
 
     -- The router itself is tested over the in-memory address it keeps
-    -- natively; in a browser it is the browser's, which the examples
-    -- gallery's test drives.
+    -- natively; in a browser it is the browser's, which the tutorial's test
+    -- (toolchain/test-learn.mjs) drives.
     if !arch(wasm32) && !arch(javascript)
       build-depends:  base >= 4.20,
                       haskell-halogen-core

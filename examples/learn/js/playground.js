@@ -42,12 +42,15 @@ let outputSink = null;
 let queue = Promise.resolve();
 let loadedBytes = 0;
 
-// rootfs.json, with what the page adds to it: each archive's absolute
-// address, its size, and the version the cache is keyed by. The size and the
-// version are the manifest's when it has them (`size` on the base and on each
-// layer, `version` at the top: see examples/learn/README.md); otherwise they
-// come from a HEAD request, as the Content-Length and the ETag or
-// Last-Modified the server sends, which change whenever the file does.
+// rootfs.json (learn/README.md describes it), with what the page adds to
+// each archive: its address (the name its parts join to, which the cache
+// keeps it under), the addresses of its parts, what it downloads, and the
+// version it is cached under. The manifest's own fields are used when it has
+// them: `version` at the top, a hash of every archive, and each archive's
+// `parts` and `compressedSize`. A manifest without them (an older build, or
+// one written by hand) gets them from a HEAD request per part instead: its
+// Content-Length, and the ETag or Last-Modified the server sends, which change
+// whenever the file does.
 export function manifest(root) {
   const base = new URL(root, document.baseURI).href;
   if (!manifests.has(base)) {
@@ -55,23 +58,31 @@ export function manifest(root) {
       const response = await fetch(new URL("rootfs.json", base));
       if (!response.ok) throw new Error(`rootfs.json: ${response.status} ${response.statusText}`);
       const json = await response.json();
-      const describe = async (name, path, size) => {
-        const url = new URL(path, base).href;
+      const describe = async (name, entry) => {
+        const parts = (entry.parts ?? [{ path: entry.archive }]).map((part) => ({
+          url: new URL(part.path, base).href,
+          size: part.size ?? null,
+        }));
+        const sum = (sizes) => (sizes.every((size) => size != null) ? sizes.reduce((a, b) => a + b, 0) : null);
+        let size = entry.compressedSize ?? sum(parts.map((part) => part.size));
         let version = json.version ?? null;
         if (size == null || version == null) {
           try {
-            const head = await fetch(url, { method: "HEAD" });
-            size ??= Number(head.headers.get("content-length")) || null;
-            version ??= head.headers.get("etag") ?? head.headers.get("last-modified");
+            const heads = await Promise.all(parts.map((part) => fetch(part.url, { method: "HEAD" })));
+            size ??= sum(heads.map((head) => Number(head.headers.get("content-length")) || null));
+            const tags = heads.map((head) => head.headers.get("etag") ?? head.headers.get("last-modified"));
+            version ??= tags.every(Boolean) ? tags.join(" ") : null;
           } catch {
             // The download says what is wrong, if anything is.
           }
         }
-        return { name, url, size: size ?? null, version: version ?? null };
+        return { name, url: new URL(entry.archive, base).href, parts, size, version, versioned: json.version != null, base };
       };
+      // The first manifests had the base archive's name at the top, if at all.
+      const rootfs = json.rootfs ?? { archive: json.archive ?? "rootfs.tar.zst", compressedSize: json.compressedSize };
       const [archive, ...layers] = await Promise.all([
-        describe("base", json.archive ?? "rootfs.tar.zst", json.size),
-        ...json.layers.map((layer) => describe(layer.name, layer.archive, layer.size)),
+        describe("base", rootfs),
+        ...json.layers.map((layer) => describe(layer.name, layer)),
       ]);
       return {
         ...json,
@@ -87,7 +98,8 @@ export function manifest(root) {
   return manifests.get(base);
 }
 
-// The manifest as the page shows it: the GHC version and each archive's size.
+// The manifest as the page shows it: the GHC version and what each archive
+// downloads.
 export async function describe(root) {
   const m = await manifest(root);
   return {
@@ -132,11 +144,14 @@ async function openCache() {
 }
 
 // An archive's bytes: from the cache when it holds this version, else from
-// the network, with its progress, and then into the cache in place of any
-// other version of it.
+// the network, its parts one after the other and joined, with its progress,
+// and then into the cache in place of any other version of it. When the
+// version is the manifest's, which is one for every archive, whatever the
+// cache holds of the same rootfs under another version goes too, archives no
+// longer in the manifest included.
 async function fetchArchive(archive) {
   const cache = archive.version ? await openCache() : null;
-  const key = `${archive.url}?v=${encodeURIComponent(archive.version)}`;
+  const key = new URL(`${archive.url}?v=${encodeURIComponent(archive.version)}`).href;
   if (cache) {
     const hit = await cache.match(key).catch(() => undefined);
     if (hit) {
@@ -145,21 +160,24 @@ async function fetchArchive(archive) {
       return { bytes, cached: true };
     }
   }
-  const response = await fetch(archive.url);
-  if (!response.ok) throw new Error(`${archive.url}: ${response.status} ${response.statusText}`);
-  let total = Number(response.headers.get("content-length")) || archive.size;
+  let total = archive.size;
   const chunks = [];
   let loaded = 0;
-  const reader = response.body.getReader();
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    loaded += value.byteLength;
-    // A server that compresses on the fly sends the compressed length, and
-    // the body arrives uncompressed: then the total says nothing.
-    if (total != null && loaded > total) total = null;
-    downloaded(archive.name, loaded, total);
+  for (const part of archive.parts) {
+    const response = await fetch(part.url);
+    if (!response.ok) throw new Error(`${part.url}: ${response.status} ${response.statusText}`);
+    if (archive.size == null && archive.parts.length === 1) total = Number(response.headers.get("content-length")) || null;
+    const reader = response.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      loaded += value.byteLength;
+      // A server that compresses on the fly sends the compressed length, and
+      // the body arrives uncompressed: then the total says nothing.
+      if (total != null && loaded > total) total = null;
+      downloaded(archive.name, loaded, total);
+    }
   }
   const bytes = new Uint8Array(loaded);
   let at = 0;
@@ -170,8 +188,12 @@ async function fetchArchive(archive) {
   if (cache) {
     try {
       await cache.put(key, new Response(bytes, { headers: { "content-type": "application/octet-stream" } }));
+      const version = `?v=${encodeURIComponent(archive.version)}`;
       for (const request of await cache.keys()) {
-        if (request.url.startsWith(`${archive.url}?v=`) && request.url !== new URL(key).href) await cache.delete(request);
+        if (request.url === key) continue;
+        const sameArchive = request.url.startsWith(`${archive.url}?v=`);
+        const otherVersion = archive.versioned && request.url.startsWith(archive.base) && !request.url.endsWith(version);
+        if (sameArchive || otherVersion) await cache.delete(request);
       }
     } catch (error) {
       // A full quota: the next visit downloads again.
@@ -179,6 +201,27 @@ async function fetchArchive(archive) {
     }
   }
   return { bytes, cached: false };
+}
+
+// What a layer's packages need on the page besides their libraries (the
+// manifest's `assets`: material's material.js, which its bindings call, and
+// material.css), added before any compile can use the layer, and waited for.
+function addAssets(m, layer) {
+  return Promise.all(
+    (layer.assets ?? []).map(
+      (asset) =>
+        new Promise((resolve, reject) => {
+          const href = new URL(asset.path, m.base).href;
+          const element =
+            asset.kind === "stylesheet"
+              ? Object.assign(document.createElement("link"), { rel: "stylesheet", href })
+              : Object.assign(document.createElement("script"), { src: href });
+          element.addEventListener("load", resolve);
+          element.addEventListener("error", () => reject(new Error(`${href} did not load`)));
+          document.head.append(element);
+        }),
+    ),
+  );
 }
 
 // bsdtar -x reads the archive from stdin and extracts it into the directory
@@ -241,6 +284,7 @@ async function boot(root, wanted) {
   await nextFrame();
   await extract(shim, bsdtar, rootfs, base.bytes, m.archive.url);
   for (const [i, layer] of layers.entries()) await extract(shim, bsdtar, rootfs, extra[i].bytes, layer.url);
+  await Promise.all(layers.map((layer) => addAssets(m, layer)));
   lap("extract");
   loadedBytes += [base, ...extra].reduce((n, archive) => n + archive.bytes.byteLength, 0);
   downloads.clear();
@@ -292,6 +336,7 @@ export async function ensureLayers(names) {
       (async () => {
         const { bytes } = await fetchArchive(layer);
         await extract(c.shim, c.bsdtar, c.rootfs, bytes, layer.url);
+        await addAssets(c.manifest, layer);
         loadedBytes += bytes.byteLength;
         downloads.delete(layer.name);
       })().catch((error) => {

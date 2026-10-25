@@ -1,593 +1,459 @@
-// Drive the in-browser playground (learn/) in headless Chromium: GHC loads in
-// the page, compiles the default program (a Halogen counter), and the counter
-// it mounts counts; a second Run replaces it, and so does a third of an edited
-// program. Then, for each layer the build has (rootfs.json), the page loads
-// it and runs a program that uses it, which loads its libraries and calls
-// their JavaScript: a hooks counter, a router link, a fetch from this server,
-// a Material button with its CSS, a Pixi scene on a canvas, and an hh quote
-// from haskell-halogen-th.
+// Drive the tutorial (examples/learn) in headless Chromium, compiler and all.
 //
-//   npm run test-learn                      # after: npm run build-learn
-//   node toolchain/test-learn.mjs [dir]     # default dist-newstyle/wasm/learn
-//   LEARN_ONLY=router,net npm run test-learn   # only those layers
+//   npm run test-learn                         # after: sh toolchain/build-wasm.sh learn
+//   node toolchain/test-learn.mjs [dir]        # default dist-newstyle/wasm/public/learn
 //
-// It prints what the page measured (fetch, extract, loading the compiler, each
-// layer, each run) and how much memory the page's renderer process used at its
-// peak, and fails on any error in the page. The page imports browser_wasi_shim
-// from esm.sh, and the pixi layer PixiJS from jsDelivr, so this needs the
-// network; if jsDelivr cannot be reached, the pixi run is skipped and says so.
+// It builds nothing. It serves the built tree as Pages serves what it
+// deploys: the app, its pages, and the compiler's rootfs in rootfs/ inside
+// it, where examples/learn/bundle.sh copied it, under HALOGEN_BASE_PATH
+// (default /), the base path the pages were built for. CI runs it on the tree
+// it deploys, built for the site's base path. LEARN_ROOTFS_DIR, when set,
+// serves that rootfs directory at rootfs/ in place of the tree's own (for a
+// tree built before the rootfs was, or another rootfs).
+//
+// What it checks: each lesson's page arrives with its text already in it;
+// the program adopts that page; the compiler loads (the timings are
+// printed), with the manifest's version and sizes and so without a HEAD
+// request; the first two lessons compile and run as their text says, and a
+// type error is reported at its line with the last result still showing;
+// every lesson in examples/learn/lessons compiles its Solution.hs without a
+// diagnostic and shows something (one line per lesson, which is how a new
+// lesson is checked); the routes survive back and forward, the reader's code
+// a reload, and the compiler a second visit, from the Cache API; on a narrow
+// screen nothing large is downloaded until asked; a compiler that fails to
+// load can be retried, and loads from a manifest without a version or sizes
+// too (asking the server for them); and nothing is logged as an error.
 import assert from "node:assert/strict";
-import { readFile, readdir } from "node:fs/promises";
+import { lstat, readFile, readdir, stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
 import { chromium } from "playwright";
 
-const root = resolve(process.argv[2] ?? "dist-newstyle/wasm/learn");
-// Loading takes seconds and the first run tens of them on a fast machine; be
-// generous, for slow CI runners.
-const timeout = Number(process.env.LEARN_TIMEOUT ?? 300) * 1000;
-// The page's query, for trying other RTS options: LEARN_QUERY='rts=-c -H64m'.
-const query = process.env.LEARN_QUERY ? `?${new URLSearchParams(process.env.LEARN_QUERY)}` : "";
+const root = resolve(process.argv[2] ?? "dist-newstyle/wasm/public/learn");
+const rootfs = resolve(process.env.LEARN_ROOTFS_DIR ?? join(root, "rootfs"));
+const lessonsDir = resolve("examples/learn/lessons");
+const inner = (process.env.HALOGEN_BASE_PATH ?? "/").replace(/^\/+|\/+$/g, "");
+const base = inner ? `/${inner}/` : "/";
 
-const only = process.env.LEARN_ONLY?.split(",").filter(Boolean);
+// The manifest the page will read, for what it says the page needs.
+const manifest = await readFile(join(rootfs, "rootfs.json"), "utf8")
+  .then(JSON.parse)
+  .catch((error) => {
+    console.error(`FAIL no rootfs at ${rootfs} (${error.message}): build it (npm run build-rootfs), then the app (sh toolchain/build-wasm.sh learn), or set LEARN_ROOTFS_DIR`);
+    process.exit(1);
+  });
+assert.ok(manifest.version, "rootfs.json has a version");
+if (!process.env.LEARN_ROOTFS_DIR) {
+  // What Pages is given is the files themselves: a link would be followed
+  // by the upload or not, and either way is not what this tests.
+  assert.ok((await lstat(rootfs)).isDirectory(), `${rootfs} is a directory, not a link`);
+}
+console.log(`    rootfs ${rootfs === join(root, "rootfs") ? "in the tree" : `from ${rootfs}`}, version ${manifest.version}`);
+// A request for an archive or a part of one.
+const archive = /\.tar\.zst(\.\d\d)?$/;
+
+// The lessons, as the app reads them: the directory's name and the header's
+// title, and the code.
+const lessons = [];
+for (const slug of (await readdir(lessonsDir)).sort()) {
+  const dir = join(lessonsDir, slug);
+  if (!(await stat(dir)).isDirectory()) continue;
+  const markdown = await readFile(join(dir, "lesson.md"), "utf8");
+  const title = markdown.match(/^title:\s*(.+)$/m)?.[1].trim();
+  lessons.push({
+    slug,
+    number: Number(slug.slice(0, 2)),
+    title,
+    solution: await readFile(join(dir, "Solution.hs"), "utf8"),
+  });
+}
+assert.ok(lessons.length >= 2, "at least the two first lessons");
 
 const types = {
-  ".css": "text/css",
   ".html": "text/html",
   ".js": "text/javascript",
   ".mjs": "text/javascript",
+  ".css": "text/css",
   ".json": "application/json",
   ".wasm": "application/wasm",
 };
 
-// A static server, as Pages is, and nothing else: no COOP/COEP headers, so
-// the page is not cross-origin isolated and has no SharedArrayBuffer.
-// It also answers learn-test/hello.txt, which the net layer's program
-// fetches.
-const hello = "Hello from the test server.";
+// A static server, as Pages is: a directory's address serves its
+// index.html, rootfs/ is the rootfs directory (the tree's own, unless
+// LEARN_ROOTFS_DIR says otherwise), and a HEAD gets the length and the
+// modification time a GET would.
+const requests = [];
 const server = createServer(async (request, response) => {
   const path = decodeURIComponent(new URL(request.url, "http://x").pathname);
-  if (path === "/learn-test/hello.txt") {
-    response.writeHead(200, { "content-type": "text/plain" }).end(hello);
+  requests.push(`${request.method} ${path}`);
+  if (!path.startsWith(base)) {
+    response.writeHead(404).end();
     return;
   }
-  const file = join(root, normalize(path.endsWith("/") ? `${path}index.html` : path));
+  const relative = path.slice(base.length);
+  const file = relative.startsWith("rootfs/")
+    ? join(rootfs, normalize(relative.slice("rootfs/".length)))
+    : join(root, normalize(relative === "" || relative.endsWith("/") ? `${relative}index.html` : relative));
   try {
+    const info = await stat(file);
+    const headers = {
+      "content-type": types[extname(file)] ?? "application/octet-stream",
+      "content-length": info.size,
+      "last-modified": info.mtime.toUTCString(),
+    };
+    if (request.method === "HEAD") {
+      response.writeHead(200, headers).end();
+      return;
+    }
     const body = await readFile(file);
-    response.writeHead(200, { "content-type": types[extname(file)] ?? "application/octet-stream" });
+    response.writeHead(200, headers);
     response.end(body);
   } catch {
     response.writeHead(404).end();
   }
 });
 await new Promise((ready) => server.listen(0, "127.0.0.1", ready));
-const url = `http://127.0.0.1:${server.address().port}/`;
+const url = `http://127.0.0.1:${server.address().port}${base}`;
 
-// Launched as a server so that its process, and so its renderers', can be
-// found in /proc for their peak memory.
-const browserServer = await chromium.launchServer();
-const browser = await chromium.connect(browserServer.wsEndpoint());
+const browser = await chromium.launch();
 const errors = [];
-const layerTimes = [];
 let failed = false;
-
-// The resident memory (VmRSS) and its peak (VmHWM) of each of the browser's
-// renderer processes, on Linux.
-async function rendererMemory() {
-  const parents = new Map();
-  const peaks = [];
-  try {
-    for (const pid of await readdir("/proc")) {
-      if (!/^\d+$/.test(pid)) continue;
-      try {
-        const status = await readFile(`/proc/${pid}/status`, "utf8");
-        const cmdline = await readFile(`/proc/${pid}/cmdline`, "utf8");
-        parents.set(pid, { ppid: status.match(/^PPid:\s+(\d+)/m)?.[1], status, cmdline });
-      } catch {
-        // gone already
-      }
-    }
-  } catch {
-    return null;
-  }
-  const descends = (pid) => {
-    for (let p = pid; p; p = parents.get(p)?.ppid) if (p === String(browserServer.process().pid)) return true;
-    return false;
-  };
-  for (const [pid, { status, cmdline }] of parents) {
-    if (descends(pid) && cmdline.includes("--type=renderer")) {
-      const kB = (field) => Number(status.match(new RegExp(`^${field}:\\s+(\\d+) kB`, "m"))?.[1] ?? 0) * 1024;
-      peaks.push({ rss: kB("VmRSS"), peak: kB("VmHWM") });
-    }
-  }
-  return peaks;
-}
-
-// The program for each layer, and what shows that it worked: something
-// that loads the layer's libraries and calls into their JavaScript. Each
-// replaces the last run's tree, as the counter does.
-const mainOf = (component) => String.raw`
-main :: IO ()
-main = runBrowserDOM $ do
-  HA.endPreviousRun
-  app <- maybe (error "the page has no #app") pure =<< HA.selectElement (QuerySelector "#app")
-  socket <- runUI ${component} () app
-  HA.keepForNextRun socket.dispose
-`;
-
-const mounting = String.raw`import Halogen.IO.Util qualified as HA
-import Halogen.VDom.DOM.Monad (BrowserDOM, runBrowserDOM)
-import Halogen.VDom.Driver (runUI)
-import Web.DOM.ParentNode (QuerySelector (..))`;
-
-const appText = (page, text) => page.locator("#app", { hasText: text }).waitFor({ timeout: 10000 });
-
-const layerRuns = {
-  // A counter written with haskell-halogen-hooks.
-  hooks: {
-    what: "a hooks counter from the hooks layer, which counts",
-    source:
-      String.raw`{-# LANGUAGE OverloadedRecordDot #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE QualifiedDo #-}
-
-module Main (main) where
-
-import Data.Row (Empty)
-import Data.Text qualified as T
-import Halogen qualified as H
-import Halogen.HTML qualified as HH
-import Halogen.HTML.Events qualified as HE
-import Halogen.Hooks qualified as Hooks
-${mounting}
-
-counter :: H.Component q () o BrowserDOM
-counter = Hooks.component @Empty $ \_ -> Hooks.do
-  (n, nId) <- Hooks.useState (0 :: Int)
-  Hooks.pure $
-    HH.button [HE.onClick (const (Hooks.modify_ nId (+ 1)))] [HH.text ("Hooked " <> T.pack (show n) <> " times")]
-` + mainOf("counter"),
-    async verify(page) {
-      await page.locator("#app button", { hasText: "Hooked 0 times" }).waitFor({ timeout: 10000 });
-      await page.locator("#app button").click();
-      await page.locator("#app button", { hasText: "Hooked 1 times" }).waitFor({ timeout: 10000 });
-    },
-  },
-
-  // A hash router: where the page is, and a link that goes elsewhere.
-  router: {
-    what: "a router link from the router layer, followed in the page",
-    source:
-      String.raw`{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedLabels #-}
-{-# LANGUAGE OverloadedRecordDot #-}
-{-# LANGUAGE OverloadedStrings #-}
-
-module Main (main) where
-
-import Control.Monad.State (put)
-import Data.Row ((.+), (.==))
-import Data.Text qualified as T
-import GHC.Generics (Generic)
-import Halogen qualified as H
-import Halogen.HTML qualified as HH
-import Halogen.Router qualified as Router
-import Halogen.Router.Duplex (RouteDuplex', noArgs, path, root)
-import Halogen.Router.Duplex.Generic qualified as Duplex
-${mounting}
-
-data Route = Home | About
-  deriving (Eq, Show, Generic)
-
-route :: RouteDuplex' Route
-route = root $ Duplex.sum $ #Home .== noArgs .+ #About .== path "about" noArgs
-
-data Action = Start | Go (Router.Follow Route)
-
-page :: Router.Router Route -> H.Component q () o BrowserDOM
-page router =
-  H.mkComponent
-    H.ComponentSpec
-      { H.initialState = \_ -> pure Home
-      , H.render = \r ->
-          HH.div_
-            [ HH.p_ [HH.text ("route: " <> T.pack (show r))]
-            , Router.link router Go About [] [HH.text "About"]
-            ]
-      , H.eval =
-          H.mkEval
-            H.defaultEval
-              { H.handleAction = \case
-                  Start -> put =<< Router.current router
-                  Go follow -> do
-                    Router.follow router follow
-                    put =<< Router.current router
-              , H.initialize = Just Start
-              }
-      }
-
-main :: IO ()
-main = runBrowserDOM $ do
-  HA.endPreviousRun
-  router <- Router.newHashRouter Home route
-  app <- maybe (error "the page has no #app") pure =<< HA.selectElement (QuerySelector "#app")
-  socket <- runUI (page router) () app
-  HA.keepForNextRun (socket.dispose >> Router.stop router)
-`,
-    async verify(page) {
-      await appText(page, "route: Home");
-      await page.locator("#app a", { hasText: "About" }).click();
-      await appText(page, "route: About");
-      const where = await page.evaluate(() => ({ hash: location.hash, path: location.pathname }));
-      if (where.hash !== "#/about" || where.path !== "/") throw new Error(`the link went to ${JSON.stringify(where)}`);
-    },
-  },
-
-  // A fetch of a file this server serves.
-  net: {
-    what: "a fetch from the net layer, its text shown",
-    source:
-      String.raw`{-# LANGUAGE OverloadedRecordDot #-}
-{-# LANGUAGE OverloadedStrings #-}
-
-module Main (main) where
-
-import Control.Monad.State (put)
-import Data.Text (Text)
-import Halogen qualified as H
-import Halogen.HTML qualified as HH
-import Halogen.Net.Fetch qualified as Fetch
-${mounting}
-
-data Action = Load
-
-fetched :: H.Component q () o BrowserDOM
-fetched =
-  H.mkComponent
-    H.ComponentSpec
-      { H.initialState = \_ -> pure ("waiting" :: Text)
-      , H.render = \t -> HH.p_ [HH.text ("fetched: " <> t)]
-      , H.eval =
-          H.mkEval
-            H.defaultEval
-              { H.handleAction = \Load -> do
-                  result <- Fetch.fetch (Fetch.request Fetch.GET "learn-test/hello.txt")
-                  body <- either (pure . Left) Fetch.text result
-                  put (either (\e -> "failed: " <> e.name <> ": " <> e.message) id body)
-              , H.initialize = Just Load
-              }
-      }
-` + mainOf("fetched"),
-    async verify(page) {
-      await appText(page, `fetched: ${hello}`);
-    },
-  },
-
-  // A Material button, whose ripple is material.js's and whose look is
-  // material.css's.
-  material: {
-    what: "a Material button from the material layer, with its CSS and JavaScript, clicked",
-    source:
-      String.raw`{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE OverloadedRecordDot #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RequiredTypeArguments #-}
-{-# LANGUAGE TypeOperators #-}
-
-module Main (main) where
-
-import Control.Monad.State (modify)
-import Data.Row (type (.==))
-import Data.Text qualified as T
-import Halogen qualified as H
-import Halogen.HTML qualified as HH
-import Halogen.Material.Button qualified as Button
-${mounting}
-
-type Slots = "button" .== H.Slot H.VoidF Button.ButtonClicked ()
-
-data Action = Clicked
-
-clicks :: H.Component q () o BrowserDOM
-clicks =
-  H.mkComponent
-    H.ComponentSpec
-      { H.initialState = \_ -> pure (0 :: Int)
-      , H.render = render
-      , H.eval = H.mkEval H.defaultEval {H.handleAction = \Clicked -> modify (+ 1)}
-      }
-  where
-    render :: Int -> H.ComponentHTML Action Slots BrowserDOM
-    render n =
-      HH.div_
-        [ HH.slot "button" () Button.button Button.emptyButtonSpec {Button.label = "Material", Button.style = Just Button.Raised} (const Clicked)
-        , HH.p_ [HH.text ("material clicks: " <> T.pack (show n))]
-        ]
-` + mainOf("clicks"),
-    async verify(page) {
-      const button = page.locator("#app button.mdc-button");
-      await button.waitFor({ timeout: 10000 });
-      // MDCRipple, from material.js, marks the button it took.
-      await page.locator("#app button.mdc-ripple-upgraded").waitFor({ timeout: 10000 });
-      const background = await button.evaluate((b) => getComputedStyle(b).backgroundColor);
-      if (background !== "rgb(98, 0, 238)") throw new Error(`the button's background is ${background}: no material.css?`);
-      await button.click();
-      await appText(page, "material clicks: 1");
-    },
-  },
-
-  // A rectangle on a Pixi canvas, tapped.
-  pixi: {
-    what: "a Pixi scene from the pixi layer, on a canvas, tapped",
-    async skip(page) {
-      const { layers } = await (await fetch(`${url}rootfs.json`)).json();
-      const cdn = layers.find((l) => l.name === "pixi")?.external?.[0]?.url;
-      if (!cdn) return null;
-      // Probed from a page of its own: a fetch that fails logs a console
-      // error, which the test page counts as an error of the page.
-      const probe = await page.context().browser().newPage();
-      const reachable = await probe.evaluate(
-        (cdn) =>
-          fetch(cdn).then(
-            (r) => r.ok,
-            () => false,
-          ),
-        cdn,
-      );
-      await probe.close();
-      return reachable ? null : `${cdn} cannot be reached from the browser, and the pixi layer loads PixiJS from there`;
-    },
-    source:
-      String.raw`{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE OverloadedRecordDot #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RequiredTypeArguments #-}
-{-# LANGUAGE TypeOperators #-}
-
-module Main (main) where
-
-import Clay qualified as C
-import Control.Monad.State (modify)
-import Data.Row (type (.==))
-import Data.Text qualified as T
-import Halogen qualified as H
-import Halogen.Canvas.Elements qualified as CE
-import Halogen.Canvas.Pixi qualified as Pixi
-import Halogen.Canvas.Properties qualified as CP
-import Halogen.HTML qualified as HH
-import Halogen.HTML.Properties qualified as HP
-${mounting}
-
-type Slots = "canvas" .== H.Slot H.VoidF (Pixi.CanvasEvent ()) ()
-
-newtype Action = Canvas (Pixi.CanvasEvent ())
-
-scene :: Pixi.View ()
-scene =
-  Pixi.view
-    Pixi.defaultCamera
-    Pixi.defaultInteraction
-    [CE.rectangle (Pixi.Point 0 0) (Pixi.Point 400 400) (Just (Pixi.FillStyle 0x0ea5e9 1)) Nothing [CP.onClick (const (Just ()))]]
-
-taps :: H.Component q () o BrowserDOM
-taps =
-  H.mkComponent
-    H.ComponentSpec
-      { H.initialState = \_ -> pure (0 :: Int)
-      , H.render = render
-      , H.eval = H.mkEval H.defaultEval {H.handleAction = handle}
-      }
-  where
-    render :: Int -> H.ComponentHTML Action Slots BrowserDOM
-    render n =
-      HH.div_
-        [ HH.div
-            [HP.style (C.position C.relative >> C.width (C.px 300) >> C.height (C.px 200))]
-            [HH.slot "canvas" () Pixi.component scene Canvas]
-        , HH.p_ [HH.text ("pixi taps: " <> T.pack (show n))]
-        ]
-    handle (Canvas (Pixi.Fired ())) = modify (+ 1)
-    handle (Canvas _) = pure ()
-` + mainOf("taps"),
-    async verify(page) {
-      const canvas = page.locator("#app canvas");
-      await canvas.waitFor({ timeout: 10000 });
-      // PixiJS arrives from the CDN and initialises asynchronously; until it
-      // has, a tap goes nowhere. Tap until one is counted, below the scene's
-      // origin (the canvas's centre) and inside the rectangle wherever its
-      // corner is.
-      const deadline = Date.now() + 60000;
-      for (;;) {
-        const box = await canvas.boundingBox();
-        if (box && box.width > 0) await page.mouse.click(box.x + box.width / 2 + 40, box.y + box.height / 2 + 40);
-        try {
-          await page.locator("#app", { hasText: /pixi taps: [1-9]/ }).waitFor({ timeout: 1000 });
-          break;
-        } catch (error) {
-          if (Date.now() > deadline) throw new Error(`no tap reached the Pixi scene (${error.message})`);
-        }
-      }
-    },
-  },
-
-  // An hh quote, which runs haskell-halogen-th's quasi-quoter (and so
-  // ghc-lib-parser, for the Haskell in it) in the page's interpreter.
-  th: {
-    what: "an hh quote from the th layer, with Haskell inside",
-    source:
-      String.raw`{-# LANGUAGE OverloadedRecordDot #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE QuasiQuotes #-}
-
-module Main (main) where
-
-import Data.Text qualified as T
-import Halogen qualified as H
-import Halogen.TH (hh)
-${mounting}
-
-quoted :: H.Component q () o BrowserDOM
-quoted =
-  H.mkComponent
-    H.ComponentSpec
-      { H.initialState = \_ -> pure (6 :: Int)
-      , -- Whitespace on the quote's one line would be a text beside the
-        -- element (JSX's rule), and hh takes one element: hence the lines.
-        H.render = \n ->
-          [hh|
-            <p class="quoted">hello from hh, {{ T.pack (show (n * 7)) }}</p>
-          |]
-      , H.eval = H.mkEval H.defaultEval
-      }
-` + mainOf("quoted"),
-    async verify(page) {
-      await page.locator("#app p.quoted", { hasText: "hello from hh, 42" }).waitFor({ timeout: 10000 });
-    },
-  },
-};
-
-const mb = (bytes) => `${(bytes / 1e6).toFixed(0)} MB`;
+const seconds = (ms) => `${(ms / 1000).toFixed(1)} s`;
 
 try {
-  const page = await browser.newPage();
-  page.on("pageerror", (error) => errors.push(error.message));
+  // Every lesson's page holds its text before any script runs.
+  for (const lesson of lessons) {
+    const response = await fetch(`${url}${lesson.slug}/`);
+    assert.equal(response.status, 200, `${lesson.slug}: status`);
+    const html = await response.text();
+    assert.ok(html.includes(`<h1>${lesson.number}. ${escapeHtml(lesson.title)}</h1>`), `${lesson.slug}: its heading in the page`);
+    assert.ok(html.includes(`<base href="${base}">`), `${lesson.slug}: the base path`);
+    assert.ok(html.includes('id="learn-result"'), `${lesson.slug}: the result's element`);
+  }
+  const home = await (await fetch(url)).text();
+  for (const lesson of lessons) assert.ok(home.includes(`href="${base}${lesson.slug}/"`), `the introduction links ${lesson.slug}`);
+  console.log(`ok  every page is prerendered (${lessons.length} lessons and the introduction)`);
+
+  const context = await browser.newContext({ viewport: { width: 1400, height: 900 } });
+  const page = await context.newPage();
+  watch(page);
+  page.on("dialog", (dialog) => dialog.accept());
+  const ready = [];
   page.on("console", (message) => {
-    if (message.type() === "error") errors.push(message.text());
-    if (message.text().startsWith("learn:")) console.log(`    ${message.text()}`);
+    const text = message.text();
+    if (text.startsWith("learn: compiler ready")) ready.push(text);
   });
-  const noErrors = (step) => assert.deepEqual(errors, [], `errors in the page ${step}`);
 
-  // The page's JS heap, as DevTools counts it (performance.memory, which the
-  // page reports, is rounded and lags), after a collection: what the page
-  // keeps. The extracted archive's files are on it.
-  const devtools = await page.context().newCDPSession(page);
-  await devtools.send("Performance.enable");
-  const heaps = {};
-  const rendererAt = {};
-  const measureHeap = async (when) => {
-    const renderers = await rendererMemory();
-    if (renderers?.length) rendererAt[when] = renderers;
-    await devtools.send("HeapProfiler.collectGarbage");
-    const { metrics } = await devtools.send("Performance.getMetrics");
-    heaps[when] = metrics.find((m) => m.name === "JSHeapUsedSize")?.value;
+  // The lesson shows before app.wasm, and the program adopts the page.
+  let release;
+  const held = new Promise((resolve) => (release = resolve));
+  await page.route(/app\.wasm$/, async (route) => {
+    await held;
+    await route.continue();
+  });
+  const t0 = Date.now();
+  await page.goto(`${url}01-hello/`, { waitUntil: "domcontentloaded" });
+  await page.locator("article h1", { hasText: lessons[0].title }).waitFor({ timeout: 5000 });
+  await page.evaluate(() => {
+    document.querySelector("article").dataset.prerendered = "1";
+    window.learnNoReload = 1;
+  });
+  console.log("ok  lesson 1 shows before app.wasm has loaded");
+  release();
+  await page.locator(".learn-editor .cm-editor").waitFor({ timeout: 30000 });
+  // The route stays: taking it away while the page's other requests are
+  // under way (the compiler's) can leave them stalled.
+  assert.equal(await page.locator('article[data-prerendered="1"]').count(), 1, "the prerendered text is adopted");
+  console.log(`ok  hydrated, the editor is up (${seconds(Date.now() - t0)} after navigation)`);
+
+  // The compiler loads by itself on a wide screen; each step it shows is
+  // printed with when it showed.
+  await untilReady(page, t0);
+  const loaded = Date.now() - t0;
+  console.log(`ok  compiler ready ${seconds(loaded)} after navigation: ${await page.locator(".learn-status").textContent()}`);
+  if (ready.length) console.log(`    ${ready[0]}`);
+  // The manifest has the version and the sizes, so the page asks the server
+  // for neither.
+  const heads = requests.filter((r) => r.startsWith("HEAD "));
+  assert.deepEqual(heads, [], "no HEAD request with a manifest that has a version and sizes");
+  console.log(`ok  the manifest's version (${manifest.version}) and sizes are used: no HEAD request`);
+  // A layer with assets (material's script and stylesheet) has them on the
+  // page once it has loaded, whether or not a lesson uses it yet.
+  const withAssets = manifest.layers.find((layer) => layer.assets?.length);
+  if (withAssets) {
+    await page.evaluate((name) => globalThis.halogenLearn.playground.ensureLayers([name]), withAssets.name);
+    for (const asset of withAssets.assets) {
+      const selector = asset.kind === "stylesheet" ? `link[rel=stylesheet][href$="/${asset.path}"]` : `script[src$="/${asset.path}"]`;
+      assert.equal(await page.locator(selector).count(), 1, `${asset.path} is on the page`);
+    }
+    console.log(`ok  the ${withAssets.name} layer's assets are on the page once it has loaded`);
+  }
+
+  // A compile is over once the outcome is a new one (its data-run counts
+  // the compiles started) and Compile is enabled again: the click's action
+  // may run a moment after the click, so the button alone could still show
+  // the last compile's state.
+  const compiled = async () => {
+    const before = await page.locator(".learn-outcome").getAttribute("data-run");
+    await page.locator("button.learn-compile:not([disabled])").click();
+    await page.locator(`.learn-outcome:not([data-run="${before}"])`).waitFor({ timeout: 120000 });
+    await page.locator("button.learn-compile:not([disabled])").waitFor({ timeout: 120000 });
+  };
+  const compile = async (what) => {
+    const start = Date.now();
+    await compiled();
+    const outcome = await page.locator(".learn-outcome").textContent();
+    console.log(`    compile ${what}: ${seconds(Date.now() - start)} (${outcome})`);
+    return outcome;
   };
 
-  await page.goto(url + query);
-  await page.waitForFunction(() => window.learn?.ready || window.learn?.error, null, { timeout });
-  assert.equal(await page.evaluate(() => window.learn.error), null, "the page failed to load the compiler");
-  noErrors("while loading");
-  assert.equal(
-    await page.evaluate(() => crossOriginIsolated || typeof SharedArrayBuffer !== "undefined"),
-    false,
-    "the page is not cross-origin isolated",
+  // Lesson 1: the start renders Hello; the solution adds a paragraph.
+  assert.match(await compile("lesson 1, Start.hs"), /^Compiled and ran/);
+  await page.locator("#learn-result p", { hasText: /^Hello$/ }).waitFor({ timeout: 5000 });
+  console.log("ok  lesson 1's start shows Hello");
+  await page.locator("button.learn-solution").click();
+  assert.match(await compile("lesson 1, Solution.hs"), /^Compiled and ran/);
+  await page.locator("#learn-result p", { hasText: "My name is Ada." }).waitFor({ timeout: 5000 });
+  assert.equal(await page.locator("#learn-result p", { hasText: /^Hello$/ }).count(), 1, "the last run's tree is replaced, not added to");
+  console.log("ok  lesson 1's solution shows its paragraph");
+
+  // Lesson 2, by its Next link: the address changes, the page does not
+  // reload, and the counter counts.
+  await page.locator("header a.learn-next").click();
+  await page.waitForURL(`${url}02-counter/`);
+  await page.locator("article h1", { hasText: lessons[1].title }).waitFor({ timeout: 5000 });
+  assert.equal(await page.evaluate(() => window.learnNoReload), 1, "Next does not reload the page");
+  assert.equal(await page.locator("#learn-result").innerHTML(), "", "a new lesson starts with an empty result");
+  await page.locator(".learn-editor .cm-editor").waitFor({ timeout: 5000 });
+  await page.locator("button.learn-solution").click();
+  assert.match(await compile("lesson 2, Solution.hs"), /^Compiled and ran/);
+  const plus = page.locator("#learn-result button", { hasText: /^\+$/ });
+  await plus.click();
+  await plus.click();
+  await page.locator("#learn-result p", { hasText: "Count: 2" }).waitFor({ timeout: 5000 });
+  console.log("ok  lesson 2 via Next: the counter counts to 2");
+
+  // A type error: reported at its line, marked in the editor, and the last
+  // result stays on the page.
+  // A number where HH.text wants text: there is no Num Text.
+  const broken = lessons[1].solution.replace('HH.text ("Count: " <> T.pack (show count))', "HH.text 42");
+  assert.notEqual(broken, lessons[1].solution, "lesson 2's solution renders the count with T.pack");
+  const line = broken.split("\n").findIndex((l) => l.includes("HH.text 42")) + 1;
+  await setEditor(page, broken);
+  assert.match(await compile("a type error"), /did not compile/);
+  const diagnostic = page.locator(".learn-diagnostics li.learn-error").first();
+  await diagnostic.waitFor({ timeout: 5000 });
+  const where = await diagnostic.locator(".learn-location").textContent();
+  assert.ok(where.startsWith(`Lesson.hs:${line}:`), `the diagnostic is at line ${line}: ${where}`);
+  await page.locator(".cm-lintRange-error").first().waitFor({ timeout: 5000 });
+  await page.locator("#learn-result p", { hasText: "Count: 2" }).waitFor({ timeout: 1000 });
+  await diagnostic.locator("button.learn-location").click();
+  assert.match(await page.locator(".cm-activeLine").textContent(), /HH\.text 42/, "clicking the diagnostic moves the cursor to its line");
+  console.log(`ok  a type error is reported at ${where.trim()}, and the counter is still there`);
+
+  // Leaving a lesson while its layer is still downloading: the lesson the
+  // reader arrives at gets its own layer once that download ends, and
+  // Compile is enabled there (it stayed disabled once). Both lessons are
+  // reached inside the app, so the compiler is not started over.
+  if (lessons.some((l) => l.slug === "06-router") && lessons.some((l) => l.slug === "07-net")) {
+    let releaseLayer;
+    const layerHeld = new Promise((resolve) => (releaseLayer = resolve));
+    let held = 0;
+    const router = /layers\/router[^/]*\.tar\.zst/;
+    await page.route(router, async (route) => {
+      if (held++ === 0) await layerHeld;
+      await route.continue();
+    });
+    await page.locator("header a.learn-brand").click();
+    await page.locator(".learn-home ol a", { hasText: lessons.find((l) => l.slug === "06-router").title }).click();
+    await page.waitForURL(`${url}06-router/`);
+    await page.locator(".learn-compiler", { hasText: /libraries/ }).waitFor({ timeout: 20000 });
+    await page.locator("a.learn-next").first().click();
+    await page.waitForURL(`${url}07-net/`);
+    releaseLayer();
+    await page.locator("button.learn-compile:not([disabled])").waitFor({ timeout: 120000 });
+    await page.unroute(router);
+    console.log("ok  a lesson entered while another's layer downloads gets its own layer, and Compile");
+  }
+
+  // Every lesson: its start compiles (warnings allowed, since an exercise
+  // may leave something unused), and its solution compiles with no
+  // diagnostic at all and shows something.
+  const runLesson = async (button) => {
+    await page.locator(button).click();
+    const start = Date.now();
+    await compiled();
+    return {
+      ms: Date.now() - start,
+      outcome: await page.locator(".learn-outcome").textContent(),
+      errors: await page.locator(".learn-diagnostics li.learn-error").allTextContents(),
+      diagnostics: await page.locator(".learn-diagnostics li").allTextContents(),
+      shown: (await page.locator("#learn-result").innerHTML()).length > 0,
+    };
+  };
+  for (const lesson of lessons) {
+    await page.locator("header a.learn-brand").click();
+    await page.locator(".learn-home ol a", { hasText: lesson.title }).click();
+    await page.waitForURL(`${url}${lesson.slug}/`);
+    await page.locator("article h1", { hasText: lesson.title }).waitFor({ timeout: 5000 });
+    await page.locator(".learn-editor .cm-editor").waitFor({ timeout: 5000 });
+    // The lesson's layers may be loading still.
+    await page.locator("button.learn-compile:not([disabled])").waitFor({ timeout: 120000 });
+    const start = await runLesson("button.learn-reset");
+    const solution = await runLesson("button.learn-solution");
+    const startOk = /^Compiled and ran/.test(start.outcome) && start.errors.length === 0;
+    const solutionOk = /^Compiled and ran/.test(solution.outcome) && solution.diagnostics.length === 0 && solution.shown;
+    const problems = [
+      startOk ? "" : `; Start.hs: ${start.outcome} ${start.errors.join(" | ")}`,
+      solutionOk ? "" : `; Solution.hs: ${solution.outcome} ${solution.diagnostics.join(" | ")}${solution.shown ? "" : " (nothing shown)"}`,
+    ].join("");
+    console.log(`${startOk && solutionOk ? "ok " : "FAIL"} ${lesson.slug}: Start.hs ${seconds(start.ms)}, Solution.hs ${seconds(solution.ms)}${problems}`);
+    if (!startOk || !solutionOk) failed = true;
+  }
+  assert.ok(!failed, "every lesson's solution compiles and shows something");
+  assert.equal(await page.evaluate(() => window.learnNoReload), 1, "following the lessons' links never reloads");
+
+  // Back and forward.
+  const last = lessons[lessons.length - 1];
+  await page.goBack();
+  await page.waitForURL(url);
+  await page.locator(".learn-home h1").waitFor({ timeout: 5000 });
+  await page.goForward();
+  await page.waitForURL(`${url}${last.slug}/`);
+  await page.locator("article h1", { hasText: last.title }).waitFor({ timeout: 5000 });
+  console.log("ok  back and forward");
+
+  // The reader's code survives a reload, and the compiler comes from the
+  // cache the second time.
+  // A second visit, in a page of its own, as after closing the tab.
+  await page.close();
+  const again = await context.newPage();
+  watch(again);
+  const revisit = Date.now();
+  const fetched = requests.length;
+  await again.goto(`${url}02-counter/`);
+  await again.locator(".learn-editor .cm-editor").waitFor({ timeout: 30000 });
+  assert.ok((await again.locator(".learn-editor .cm-content").textContent()).includes("modify (subtract 1)"), "the reader's code on a second visit");
+  await untilReady(again, revisit);
+  assert.ok(!requests.slice(fetched).some((r) => r.startsWith("GET ") && archive.test(r)), "the archives come from the cache");
+  console.log(`ok  the reader's code is kept for the next visit; the compiler was ready again ${seconds(Date.now() - revisit)} after it, from the cache`);
+  await again.locator("button.learn-reset").click();
+  await again.waitForFunction(() => !document.querySelector(".learn-editor .cm-content")?.textContent.includes("subtract"));
+  assert.equal(await again.evaluate(() => localStorage.getItem("learn:02-counter")), null, "Reset forgets the reader's code");
+  console.log("ok  Reset brings back Start.hs and forgets the saved code");
+  await context.close();
+
+  // A narrow screen downloads nothing large until asked.
+  const phone = await browser.newContext({ viewport: { width: 400, height: 800 } });
+  const small = await phone.newPage();
+  watch(small);
+  const before = requests.length;
+  await small.goto(`${url}01-hello/`);
+  await small.locator("button.learn-load").waitFor({ timeout: 30000 });
+  await small.waitForTimeout(1000);
+  // Not even a HEAD: the manifest has the archive's size, which the page shows.
+  assert.ok(!requests.slice(before).some((r) => archive.test(r)), "no archive downloaded, or asked about, on a narrow screen");
+  assert.equal(await small.locator('.cm-content[contenteditable="false"]').count(), 1, "the code is read-only there");
+  console.log("ok  on a narrow screen the compiler waits to be asked, and the code is read-only");
+  const asked = Date.now();
+  await small.locator("button.learn-load").click();
+  await untilReady(small, asked);
+  await small.locator('.cm-content[contenteditable="true"]').waitFor({ timeout: 5000 });
+  console.log("ok  loading it anyway makes the code editable");
+  await phone.close();
+
+  // A compiler that does not load says why, and Retry tries again. The
+  // second time, the manifest is one without a version or sizes (as an older
+  // build's), and the page asks the server for them instead.
+  const flaky = await browser.newContext({ viewport: { width: 1400, height: 900 } });
+  const retried = await flaky.newPage();
+  watch(retried, /rootfs\.json|503/);
+  let refused = 0;
+  const bare = structuredClone(manifest);
+  for (const entry of [bare, bare.rootfs, ...bare.layers]) {
+    for (const field of ["version", "size", "compressedSize"]) delete entry[field];
+    // An archive in one part is the file itself, as in the first manifests,
+    // which had no parts.
+    if (entry.parts?.length === 1 && entry.parts[0].path === entry.archive) delete entry.parts;
+    for (const part of entry.parts ?? []) delete part.size;
+  }
+  await retried.route(/rootfs\/rootfs\.json$/, (route) =>
+    refused++ === 0
+      ? route.fulfill({ status: 503, body: "" })
+      : route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(bare) }),
   );
-  console.log("ok  the compiler loaded, without cross-origin isolation");
-  await measureHeap("loaded");
+  await retried.goto(`${url}01-hello/`);
+  await retried.locator("button.learn-retry").waitFor({ timeout: 30000 });
+  assert.match(await retried.locator(".learn-compiler .learn-error").textContent(), /rootfs\.json: 503/, "the reason is shown");
+  const retry = Date.now();
+  const beforeRetry = requests.length;
+  await retried.locator("button.learn-retry").click();
+  await untilReady(retried, retry);
+  assert.ok(
+    requests.slice(beforeRetry).some((r) => r === `HEAD ${base}rootfs/${manifest.rootfs.parts[0].path}`),
+    "without a version in the manifest, the page asks the server for the archive's",
+  );
+  console.log("ok  a compiler that fails to load says why, and Retry loads it, from a manifest without a version or sizes");
+  await flaky.close();
 
-  const run = async (n) => {
-    await page.locator("#run:enabled").click();
-    await page.waitForFunction((n) => window.learn.runs >= n, n, { timeout });
-    const { timings, stderr } = await page.evaluate(() => ({
-      timings: window.learn.timings,
-      stderr: document.getElementById("stderr").textContent,
-    }));
-    assert.ok(`run ${n}` in timings, `run ${n} failed: ${await page.locator("#status").textContent()}\n${stderr}`);
-    assert.equal(stderr, "", `run ${n}: GHC wrote to stderr`);
-    noErrors(`in run ${n}`);
-    await measureHeap(`run ${n}`);
-  };
-  const counter = page.locator("#app button");
-
-  await run(1);
-  await page.locator("#app button", { hasText: "Clicked 0 times" }).waitFor({ timeout: 10000 });
-  console.log("ok  run 1 compiled the counter and mounted it");
-
-  await counter.click();
-  await counter.click();
-  await page.locator("#app button", { hasText: "Clicked 2 times" }).waitFor({ timeout: 10000 });
-  console.log("ok  the interpreted counter counts clicks");
-
-  // A second Run ends the first run's tree (Halogen.IO.Util.endPreviousRun)
-  // before it mounts its own, so there is one counter, a new one, at 0.
-  await counter.evaluate((button) => (button.dataset.first = "1"));
-  await run(2);
-  await page.locator("#app button", { hasText: "Clicked 0 times" }).waitFor({ timeout: 10000 });
-  assert.equal(await counter.count(), 1, "one counter after the second run");
-  assert.equal(await page.locator("#app button[data-first]").count(), 0, "the first run's counter is gone");
-  await counter.click();
-  await page.locator("#app button", { hasText: "Clicked 1 times" }).waitFor({ timeout: 10000 });
-  console.log("ok  run 2 replaced the counter with a new one, which counts");
-
-  // Run 2 compiled the same source again, which GHC finds unchanged; an edit
-  // is what a reader does, and has Main compiled anew.
-  await page.locator("#source").evaluate((area) => (area.value = area.value.replace('"Clicked "', '"Pressed "')));
-  await run(3);
-  await page.locator("#app button", { hasText: "Pressed 0 times" }).waitFor({ timeout: 10000 });
-  assert.equal(await counter.count(), 1, "one counter after the third run");
-  console.log("ok  run 3 compiled the edited program and replaced the counter");
-
-  // The layers, each in an archive and a package DB of its own, which the
-  // page extracts on top of the base one when asked to and passes to GHC.
-  const { layers } = await (await fetch(`${url}rootfs.json`)).json();
-  let n = 3;
-  for (const layer of layers) {
-    if (only && !only.includes(layer.name)) continue;
-    const check = layerRuns[layer.name];
-    const skip = check?.skip && (await check.skip(page));
-    if (skip) {
-      console.log(`skip the ${layer.name} layer: ${skip}`);
-      continue;
-    }
-    await page.locator(`#layer-${layer.name}:enabled`).click();
-    await page.waitForFunction((name) => window.learn.layers[name], layer.name, { timeout });
-    noErrors(`while loading the ${layer.name} layer`);
-    const loaded = await page.evaluate((name) => window.learn.layers[name], layer.name);
-    if (!check) {
-      console.log(`??  no program for the ${layer.name} layer: only loaded it`);
-      layerTimes.push({ name: layer.name, load: loaded.ms, run: null });
-      continue;
-    }
-    await page.locator("#source").fill(check.source);
-    n += 1;
-    await run(n);
-    await check.verify(page);
-    noErrors(`in the ${layer.name} layer's run`);
-    const runMs = await page.evaluate((n) => window.learn.timings[`run ${n}`], n);
-    layerTimes.push({ name: layer.name, load: loaded.ms, run: runMs });
-    console.log(`ok  run ${n}: ${check.what}`);
-  }
-
-  noErrors("at the end");
+  assert.deepEqual(errors, [], "errors in the page");
   console.log("ok  no errors in the page");
-
-  const { timings, memory } = await page.evaluate(() => window.learn);
-  if (layerTimes.length) {
-    console.log("\nLayers (ms; loading is fetching, extracting and adding assets; the first run loads its libraries):");
-    for (const { name, load, run } of layerTimes)
-      console.log(`  ${name.padEnd(10)} load ${String(load).padStart(6)}  first run ${String(run ?? "-").padStart(6)}`);
-    const total = layerTimes.reduce((sum, t) => sum + t.load, 0);
-    console.log(`  ${"all".padEnd(10)} load ${String(total).padStart(6)}`);
-  }
-  console.log("\nTimings (ms, as the page measured them):");
-  for (const [name, ms] of Object.entries(timings)) console.log(`  ${name.padEnd(28)} ${String(ms).padStart(7)}`);
-  console.log("Memory:");
-  for (const [when, { wasm }] of Object.entries(memory)) {
-    const heap = heaps[when] === undefined ? "?" : mb(heaps[when]);
-    console.log(`  after ${when.padEnd(22)} JS heap ${heap}, wasm memory ${wasm === null ? "?" : mb(wasm)}`);
-  }
-  for (const [when, renderers] of Object.entries(rendererAt)) {
-    const shown = renderers.map(({ rss, peak }) => `${mb(rss)} (peak ${mb(peak)})`).join(", ");
-    console.log(`  renderer RSS ${when.padEnd(16)} ${shown}`);
-  }
 } catch (error) {
   failed = true;
   console.error(`FAIL ${error.message}`);
   if (errors.length) console.error("page errors:", errors);
 } finally {
   await browser.close();
-  await browserServer.close();
   server.close();
 }
 
 process.exit(failed ? 1 : 0);
+
+// Collect the page's errors, but those matching `expected`.
+function watch(page, expected) {
+  // LEARN_DEBUG=1 prints everything the page logs.
+  if (process.env.LEARN_DEBUG) {
+    page.on("console", (message) => console.log(`    [${message.type()}] ${message.text().slice(0, 300)}`));
+    page.on("request", (request) => console.log(`    > ${request.method()} ${request.url()}`));
+    page.on("requestfinished", (request) => console.log(`    < ${request.url()}`));
+    page.on("requestfailed", (request) => console.log(`    ! ${request.url()} ${request.failure()?.errorText}`));
+  }
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error" && !(expected && expected.test(message.text()))) errors.push(message.text());
+  });
+}
+
+// Wait for the compiler, printing each phase the page shows as it changes.
+async function untilReady(page, since) {
+  let last = "";
+  for (const deadline = Date.now() + 300000; ; await page.waitForTimeout(100)) {
+    const status = await page.evaluate(() =>
+      [document.querySelector(".learn-status")?.textContent, document.querySelector(".learn-compiler p")?.textContent]
+        .filter(Boolean)
+        .join(": "),
+    );
+    const phase = status.replace(/[\d.]+ of /, "… of ").replace(/: Downloading GHC: [\d.]+/, ": Downloading GHC");
+    if (phase !== last) {
+      console.log(`    ${seconds(Date.now() - since)}  ${status}`);
+      last = phase;
+    }
+    if (status.includes("in your browser")) return;
+    assert.ok(Date.now() < deadline, `the compiler loads (last: ${status})`);
+  }
+}
+
+function escapeHtml(text) {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// Replace the editor's text as the reader would paste it.
+async function setEditor(page, text) {
+  await page.locator(".learn-editor .cm-content").click();
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.insertText(text);
+  await page.waitForFunction(
+    (expected) => document.querySelector(".learn-editor .cm-content").innerText.replace(/​/g, "").trim().length >= expected.trim().length - 5,
+    text,
+  );
+}

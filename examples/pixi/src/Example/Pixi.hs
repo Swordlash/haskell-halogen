@@ -185,8 +185,8 @@ parent =
   where
     render :: State -> H.ComponentHTML Action Slots BrowserDOM
     -- Absolute rather than fixed, so the scene fills whatever positioned box it
-    -- is mounted in: the whole viewport on its own page, the area under the
-    -- navigation in the examples gallery. The canvas follows its parent's size.
+    -- is mounted in, whether that is the whole viewport, as on its own page, or
+    -- a box in a page of other things. The canvas follows its parent's size.
     render state =
       HH.div
         [ HP.style $ do

@@ -15,11 +15,11 @@ emitters, the current window's events), `material`
 effects: a player over an abstract backend, and a browser backend), `hspec-halogen`
 (an hspec harness that tests components in a real browser), `th` (`haskell-halogen-th`: the `hh`
 and `clay` quasi-quoters, HTML and CSS with Haskell inside, parsed by ghc-lib-parser), and
-`examples/*` (one browser app each, plus `examples/all`, the gallery that mounts the others and is what
-Pages deploys), and `examples/learn`, the tutorial: lessons as routes, each with its text, an editor and
-the result of compiling the reader's code in the page. `learn/` is no package: it is GHC itself running in
-a page, compiling and mounting a component the reader wrote (the playground the tutorial runs on; its
-`README.md` has the measurements). `hooks`, `router`, `net` (for `Halogen.Subscription`), `material`, `pixi`, `hspec-halogen` and `th` depend only on `core`; `tauri` on `core` (for `Halogen.Subscription`'s emitters) and `jsbits`; `sound` depends on none of them, only on `jsbits`. Everything builds from the root
+`examples/*` (one browser app each), among them `examples/learn`, the tutorial and what GitHub Pages
+deploys: lessons as routes, each with its text, an editor and the result of compiling the reader's code
+in the page. `learn/` is no package: it is GHC itself running in a page, compiling and mounting a
+component the reader wrote (the compiler the tutorial runs on, the rootfs, and a bare page for trying it;
+its `README.md` has the rootfs, its manifest and the measurements). `hooks`, `router`, `net` (for `Halogen.Subscription`), `material`, `pixi`, `hspec-halogen` and `th` depend only on `core`; `tauri` on `core` (for `Halogen.Subscription`'s emitters) and `jsbits`; `sound` depends on none of them, only on `jsbits`. Everything builds from the root
 `cabal.project`, so a `core` change is type-checked against every dependent and example.
 
 Every package is compiled for three targets: native GHC, the GHC JavaScript backend, and GHC
@@ -36,11 +36,10 @@ npm run test-ghcjs              # toolchain/test-ghcjs.sh — JS backend
 npm run test-wasm               # toolchain/test-wasm.sh — wasm backend
 npm run test                    # toolchain/run-tests.sh — all three in sequence
 npm run serve-wasm -- <example> # build one example to wasm and serve it on :8080
-npm run build-wasm-all          # every example, wasm-opt'd; Pages deploys only public/all
-npm run test-gallery            # the built `all` gallery in headless Chromium (Playwright)
-npm run build-learn             # learn/'s page and the rootfs GHC runs on, into dist-newstyle/wasm/learn
-npm run test-learn              # that page in headless Chromium: compile, mount and click a counter
-npm run test-learn-app          # the tutorial (after build-wasm.sh learn) with that rootfs, every lesson compiled
+npm run build-rootfs            # the compiler the tutorial runs (GHC, our libraries) and learn/'s page, into dist-newstyle/wasm/learn
+npm run build-wasm-all          # every example, wasm-opt'd (the rootfs first if missing); Pages deploys only public/learn
+npm run test-learn              # the built tutorial, rootfs inside, in headless Chromium: every lesson compiled in the page
+npm run test-playground         # learn/'s page on the rootfs in headless Chromium: a program for every layer
 npm run build-js                # JS backend: build all, bundle the material example into dist/
 npm run dev -- <example>        # an example in browser GHCi, reloaded and rerun on save
 npm run dev-test -- <package>   # a package's browser test suite in browser GHCi, rerun on save
@@ -126,11 +125,15 @@ and wired into `test/Test.hs`.
   actions return a `Promise` and await it, and the test does not run on while the page still acts.
   And a JS→Haskell callback is not run on the spot: the glue schedules the RTS scheduler loop as a
   task (`scheduler.postTask` in Chromium), which is why every harness action ends with `settle`.
-- `toolchain/test-gallery.mjs` tests the deployed artefact rather than a component: it serves the built
-  `dist-newstyle/wasm/public/all` and checks that each route mounts its example and unmounts the
-  previous one, through clicks, back, forward and a reload. It runs in CI and gates the Pages deploy;
-  both install Chromium with
-  `npx playwright install --with-deps --only-shell chromium`; Pixi needs network for its CDN.
+- `toolchain/test-learn.mjs` tests the deployed artefact rather than a component: it serves the built
+  `dist-newstyle/wasm/public/learn`, the rootfs in its `rootfs/`, under `HALOGEN_BASE_PATH` as Pages
+  serves it, and checks every lesson's prerendered page, the hydration, the compiler loading in the
+  page, every lesson's `Start.hs` and `Solution.hs` compiling there, back and forward, the Cache API
+  and a narrow screen (`LEARN_ROOTFS_DIR` serves another rootfs in place of the tree's).
+  `toolchain/test-playground.mjs` drives `learn/`'s page on the rootfs, with a program for every
+  layer. Both run in CI and `test-learn` gates the Pages deploy; the workflows install Chromium with
+  `npx playwright install --with-deps --only-shell chromium`, and the pages need the network
+  (browser_wasi_shim from esm.sh, PixiJS from jsDelivr).
 
 ## Architecture
 
@@ -234,8 +237,8 @@ instead of declaring a `Safe` import and forcing its result with `evaluate`.
 `lessons/NN-slug/` (`lesson.md` with a `key: value` header, `Start.hs`, `Solution.hs`, an optional
 `Main.hs`), listed in `lessons/index.txt` and embedded by Template Haskell (`Learn.Lessons`; the text is
 a Markdown subset read at compile time, `Learn.Markdown`). Its compiler is `learn/`'s playground: the
-page loads the rootfs from `rootfs/` under its base (a deploy copies `npm run build-learn`'s output
-there), keeps the archives in the Cache API under the manifest's `version`, and starts
+page loads the rootfs from `rootfs/` under its base (its `bundle.sh` copies `npm run build-rootfs`'s
+output there), keeps the archives in the Cache API under the manifest's `version`, and starts
 `libplayground.so` with GHC's `dyld.mjs` (`examples/learn/js/playground.js`). A compile writes the
 reader's module to `/tmp/Lesson.hs` from JavaScript and hands the wrapper to the playground's `Run` as
 `Main` with `-i/tmp`, so `learn/Playground.hs` is unchanged; the wrapper mounts `Lesson.component` into
@@ -243,6 +246,17 @@ reader's module to `/tmp/Lesson.hs` from JavaScript and hands the wrapper to the
 ends that tree (a compile of `main = endPreviousRun`) before taking the element away. The app and the
 compiled program are two runtimes on one page. GHC's stderr is parsed into diagnostics
 (`Learn.Diagnostics`) for the list under the CodeMirror editor and its lint markers.
+
+The deploy is that tree and nothing else: `build-deploy.yml` builds the rootfs (`build-learn-rootfs.sh`,
+restored instead from a cache keyed by its `--key`, a hash of the plan's units in the closure of the
+packages it packs, our sources, the compiler and the script's inputs), runs `build-wasm-all.sh` with
+`HALOGEN_BASE_PATH` from `configure-pages` (`/haskell-halogen`), so every route's page and the
+rootfs' address are under the project site's path, gates on `npm run test-learn` and uploads
+`dist-newstyle/wasm/public/learn`. `build.yml`'s wasm job does the same on every push and pull request (with
+the repository's name as the base path), and `npm run test-playground` too. The rootfs has its own
+copies of our libraries, built in the same run: rebuild it (`npm run build-rootfs`) locally after
+changing one, as `build-wasm-all.sh` uses one already there. `rootfs.json` is described once, in
+`learn/README.md`.
 
 ### Hooks
 
@@ -294,22 +308,19 @@ storage, …) is built only from public hooks.
   `halogen-example-<name>-prerender` (`buildable: False` on the browser backends) is built with the
   host GHC and run by `build-wasm.sh` as `<exe> examples/<name>/web/index.html <output dir>`, to write
   the page with the component already rendered into `#app` by `Halogen.Static` (see `vanilla`, and
-  `all`, which writes a page per route under `HALOGEN_BASE_PATH`); `Main.hs` then mounts with
+  `learn`, which writes a page per route under `HALOGEN_BASE_PATH`); `Main.hs` then mounts with
   `hydrateUI`, which adopts that HTML.
   For `npm run dev` (`toolchain/dev.sh`, browser GHCi), the executable needs the `interactive`
   flag every example has, which compiles the example's own modules into it and drops the reactor
   options, and its `main` starts with `HA.endPreviousRun` and passes `socket.dispose` (the
-  gallery also `Router.stop router`) to `HA.keepForNextRun` (`Halogen.IO.Util`), which end the
+  tutorial also `Router.stop router`) to `HA.keepForNextRun` (`Halogen.IO.Util`), which end the
   last `:main`'s tree; the
   dev page is derived from `web/index.html` by replacing its `index.js` module script with GHCi's
   `../main.js`, so keep that script tag.
 - A tutorial lesson is a directory of `examples/learn/lessons/` and a line in its `index.txt`;
   `examples/learn/README.md` says what goes in it (the header, the Markdown subset, the `Lesson`
   module's contract and the default wrapper, the packages a lesson can use), and
-  `npm run test-learn-app` compiles every lesson's `Start.hs` and `Solution.hs` in the browser.
+  `npm run test-learn` compiles every lesson's `Start.hs` and `Solution.hs` in the browser.
 - Each example's component lives in a library module (`src/Example/<Name>.hs`); `Main.hs` only starts
-  it. `examples/all/Gallery.hs` mounts those components by route (a path, through
-  `haskell-halogen-router`), so a new example appears on the deployed site only once it is added
-  there and to `Gallery.Shell`'s `Route`. `Gallery` is compiled for JS and wasm only, because
-  `BrowserDOM` has no DOM instances on native; `Gallery.Shell`, the page around the examples, also
-  compiles natively, for the prerender.
+  it. Pages deploys only the tutorial, so an example reaches readers through a lesson in
+  `examples/learn`; see its README. On its own an example is served with `npm run serve-wasm`.
