@@ -1,0 +1,5 @@
+# The lessons, in order: one directory of this one per line. The build reads
+# only the directories listed here, and fails for one that is not (see
+# examples/learn/README.md).
+01-hello
+02-counter

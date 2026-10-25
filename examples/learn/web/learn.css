@@ -1,0 +1,376 @@
+/* The tutorial's page (Learn.App): a header, then the lesson's text, its
+   code and the result side by side, each scrolling on its own; under 900
+   pixels, one column the page scrolls through. */
+
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --fg: #1c1c1e;
+  --muted: #62626a;
+  --panel: #f5f5f6;
+  --border: #d8d8dc;
+  --accent: #3b5bdb;
+  --error: #b42318;
+  --warning: #9a6700;
+  --active-line: rgba(59, 91, 219, 0.06);
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #131316;
+    --fg: #e6e6e9;
+    --muted: #a0a0a8;
+    --panel: #1c1c21;
+    --border: #36363e;
+    --accent: #8ea4ff;
+    --error: #ff9b8f;
+    --warning: #f0c060;
+    --active-line: rgba(142, 164, 255, 0.08);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+a {
+  color: var(--accent);
+}
+
+code,
+pre {
+  font-family: var(--mono);
+  font-size: 0.9em;
+}
+
+:not(pre) > code {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 0.25em;
+}
+
+pre {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  line-height: 1.45;
+}
+
+button {
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 4px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--fg);
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button.learn-compile:not(:disabled),
+button.learn-load,
+button.learn-retry {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+}
+
+/* The header. */
+
+.learn {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.learn-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.learn-brand {
+  font-weight: 600;
+  color: inherit;
+  text-decoration: none;
+}
+
+.learn-pager {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+
+.learn-position,
+.learn-status,
+.learn-note,
+.learn-file {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.learn-status {
+  margin-left: auto;
+}
+
+.learn-disabled {
+  color: var(--muted);
+  opacity: 0.6;
+}
+
+/* The introduction. */
+
+.learn-home {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 20px 48px;
+}
+
+.learn-lessons li {
+  margin-bottom: 6px;
+}
+
+/* A lesson: three columns. */
+
+.learn-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.learn-lesson {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 0.9fr);
+  min-height: 0;
+}
+
+.learn-lesson > * {
+  padding: 16px 20px;
+  overflow: auto;
+}
+
+.learn-text {
+  max-width: 70ch;
+}
+
+.learn-text h1 {
+  font-size: 1.5rem;
+  margin-top: 0.2em;
+}
+
+.learn-text h2 {
+  font-size: 1.15rem;
+}
+
+.learn-text h3 {
+  font-size: 1rem;
+}
+
+.learn-text blockquote {
+  margin: 1em 0;
+  padding-left: 14px;
+  border-left: 3px solid var(--border);
+  color: var(--muted);
+}
+
+.learn-pager-bottom {
+  margin: 2em 0 1em;
+  justify-content: space-between;
+}
+
+.learn-code,
+.learn-result-column {
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.learn-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.learn-editor {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.learn-editor:empty {
+  display: none;
+}
+
+.learn-editor .cm-editor {
+  min-height: 320px;
+  max-height: 70vh;
+}
+
+.learn-fallback {
+  margin: 0;
+  white-space: pre;
+}
+
+.learn-diagnostics {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.learn-diagnostics li {
+  border-left: 3px solid var(--error);
+  padding-left: 10px;
+}
+
+.learn-diagnostics li.learn-warning {
+  border-left-color: var(--warning);
+}
+
+.learn-diagnostics pre {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  font-size: 0.8rem;
+}
+
+button.learn-location {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  text-decoration: underline;
+}
+
+span.learn-location {
+  font-family: var(--mono);
+  font-size: 0.85rem;
+}
+
+.learn-error {
+  color: var(--error);
+}
+
+/* The result. */
+
+.learn-compiler p {
+  margin: 0 0 8px;
+}
+
+.learn-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.learn-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s;
+}
+
+.learn-bar-busy .learn-bar-fill {
+  animation: learn-busy 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes learn-busy {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(330%);
+  }
+}
+
+.learn-outcome {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.learn-result {
+  min-height: 3em;
+  padding: 12px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+}
+
+.learn-result:empty {
+  display: none;
+}
+
+.learn-stdout,
+.learn-stderr pre {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 0.8rem;
+}
+
+.learn-stderr summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+/* One column. */
+
+@media (max-width: 900px) {
+  .learn-lesson {
+    display: block;
+  }
+
+  .learn-lesson > * {
+    overflow: visible;
+    max-width: none;
+  }
+
+  .learn-code,
+  .learn-result-column {
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .learn-status {
+    margin-left: 0;
+  }
+}
+
+@media (min-width: 901px) {
+  .learn {
+    height: 100vh;
+  }
+
+  .learn-main {
+    overflow: hidden;
+  }
+}

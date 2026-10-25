@@ -1,0 +1,151 @@
+cabal-version:      3.0
+name:               halogen-example-learn
+version:            0.1.0.0
+synopsis:           A haskell-halogen tutorial whose code compiles in the browser
+license:            Apache-2.0
+author:             Mateusz Goślinowski
+maintainer:         mateusz.goslinowski@gmail.com
+category:           Web
+
+-- The lessons are read at compile time (Learn.Lessons), and so is the
+-- bindings' JavaScript (Learn.Browser); listing them here also makes cabal
+-- rebuild the package when one changes. A new lesson is added to
+-- lessons/index.txt, which is what makes cabal notice it.
+extra-source-files:
+    jsbits/*.js
+    lessons/index.txt
+    lessons/*/*.md
+    lessons/*/*.hs
+
+flag interactive
+  description: Build the example for browser GHCi (toolchain/dev.sh)
+  default:     False
+  manual:      True
+
+common shared
+  default-language: GHC2021
+  ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture -Wredundant-constraints -Wunused-packages
+
+  default-extensions:
+      BlockArguments
+      DataKinds
+      DerivingStrategies
+      DuplicateRecordFields
+      ExplicitNamespaces
+      LambdaCase
+      NamedFieldPuns
+      NoFieldSelectors
+      NoImplicitPrelude
+      OverloadedRecordDot
+      OverloadedStrings
+      RequiredTypeArguments
+      StrictData
+      TypeOperators
+
+library
+  import:           shared
+  hs-source-dirs:   src
+  build-depends:
+      aeson,
+      base,
+      bytestring,
+      directory,
+      filepath,
+      protolude,
+      row-types,
+      template-haskell,
+      text,
+      unliftio,
+      haskell-halogen-core,
+      haskell-halogen-jsbits,
+      haskell-halogen-router
+  exposed-modules:
+      Learn.App
+      Learn.Browser
+      Learn.Diagnostics
+      Learn.Lesson
+      Learn.Lessons
+      Learn.Lessons.Embed
+      Learn.Markdown
+      Learn.Route
+      Learn.View
+
+  if arch(javascript)
+    js-sources: jsbits/learn.js
+
+executable halogen-example-learn
+  import:           shared
+  main-is:          Main.hs
+  hs-source-dirs:   .
+  build-depends:    protolude
+
+  -- The tutorial only runs in a browser: on a host GHC, Main says so.
+  if arch(wasm32) || arch(javascript)
+    build-depends:
+        haskell-halogen-core,
+        haskell-halogen-router
+
+    -- Browser GHCi (toolchain/dev.sh) reloads only the modules of the target
+    -- it loaded, so there the tutorial's modules are compiled into the
+    -- executable rather than taken from the library, where edits would go
+    -- unnoticed.
+    if flag(interactive)
+      hs-source-dirs: src
+      other-modules:
+          Learn.App
+          Learn.Browser
+          Learn.Diagnostics
+          Learn.Lesson
+          Learn.Lessons
+          Learn.Lessons.Embed
+          Learn.Markdown
+          Learn.Route
+          Learn.View
+      build-depends:
+          aeson,
+          base,
+          bytestring,
+          directory,
+          filepath,
+          row-types,
+          template-haskell,
+          text,
+          unliftio,
+          haskell-halogen-jsbits
+    else
+      build-depends: halogen-example-learn
+
+  -- The wasm program is a reactor, which the page starts through its
+  -- hs_start export. GHCi loads the program's modules and runs main itself,
+  -- so the interactive build is an ordinary program, and Main leaves the
+  -- export out when INTERACTIVE is defined.
+  if arch(wasm32) && !flag(interactive)
+    ghc-options:
+      -no-hs-main
+      -optl-mexec-model=reactor
+      "-optl-Wl,--export=hs_start"
+
+  if flag(interactive)
+    cpp-options: -DINTERACTIVE
+
+-- Every route's page, with the tutorial already rendered into it, written
+-- natively at build time (toolchain/build-wasm.sh runs it). Only a host GHC
+-- renders to HTML, so there is nothing to build on the browser backends.
+executable halogen-example-learn-prerender
+  import:           shared
+  main-is:          Prerender.hs
+  hs-source-dirs:   .
+
+  if arch(wasm32) || arch(javascript)
+    buildable: False
+  else
+    build-depends:
+        base,
+        bytestring,
+        directory,
+        filepath,
+        protolude,
+        text,
+        haskell-halogen-core,
+        haskell-halogen-router,
+        halogen-example-learn
