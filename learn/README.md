@@ -180,8 +180,8 @@ its own. A library two layers both need belongs in the base layer:
 `learn-inject.py` is given the other layers' DBs (`--taken`) and stops the
 build if a layer's closure reaches a unit another layer already carries, as
 two copies of one library in a session would be two libraries to dyld. Today
-no two layers share anything: hooks, router, net, elements and pixi need
-only themselves beyond the base layer, material also `clock` and `extra`, th its
+no two layers share anything: hooks, router, net, elements, pixi and store
+need only themselves beyond the base layer, material also `clock` and `extra`, th its
 parsers, hspec hspec's own closure (`hspec`, `hspec-core`, `HUnit`,
 `ansi-terminal` and the rest; `QuickCheck` and its generators are in the
 base layer already), none of it a boot package the script trims.
@@ -203,14 +203,15 @@ which loads its libraries into dyld and compiles. Three runs of
 | `pixi` | `haskell-halogen-pixi` | 1 | 0.97 MB | 0.15 MB | none; PixiJS 8.20.1 from jsDelivr (0.8 MB), which the library imports itself | 27–31 ms | 1.4–1.6 s |
 | `th` | `haskell-halogen-th` (+ `ghc-lib-parser`, `megaparsec`, `parser-combinators`, `tagsoup`, `css-syntax`, `case-insensitive`) | 7 | 194.7 MB | 21.4 MB | none | 2.1–3.9 s | 8.0–12.0 s |
 | `hspec` | `hspec-halogen` (+ `hspec`, `hspec-core`, `hspec-expectations`, `hspec-discover`, `HUnit`, `quickcheck-io`, `ansi-terminal`, `ansi-terminal-types`, `colour`, `call-stack`, `haskell-lexer`) | 12 | 12.6 MB | 1.34 MB | none | 98–100 ms | 3.6–4.1 s |
-| **all eight** | | 27 | 213.7 MB | 24.2 MB | 0.33 MB | 1.8–2.1 s | |
-| all but `th` | | 20 | 19.0 MB | 2.31 MB | 0.33 MB | 0.27–0.28 s | |
+| `store` | `haskell-halogen-store` | 1 | 0.49 MB | 0.07 MB | none | 23–25 ms | 0.9–1.7 s |
+| **all nine** | | 28 | 214.2 MB | 24.3 MB | 0.33 MB | 2.0–2.3 s | |
+| all but `th` | | 21 | 19.5 MB | 2.38 MB | 0.33 MB | 0.30–0.31 s | |
 
 (The `hspec` row is from three later runs, on a machine other builds were
-sharing; `th` loaded in 1.6–1.8 s in them. The `elements` row and the two
-totals are from three runs later again, of a rootfs in which `th`'s archive
-was 21.9 MB and `material`'s 2.61 MB uncompressed, and `th` loaded in
-1.5–1.8 s.)
+sharing; `th` loaded in 1.6–1.8 s in them. The `elements` row is from three runs later again, of a rootfs in which
+`th`'s archive was 21.9 MB and `material`'s 2.61 MB uncompressed, and `th`
+loaded in 1.5–1.8 s; the `store` row and the two totals from three runs of
+the same rootfs with `store` added, in which `th` loaded in 1.7–2.0 s.)
 `hspec`'s archive is small enough that the harness is a layer like any
 other, with `hspec` itself rather than `hspec-core` alone: `hspec-core` is
 4.1 MB of its 10.9 MB of `.so`, `haskell-lexer` 3.0 MB and `colour` 1.4 MB,
@@ -237,7 +238,9 @@ quasi-quoter runs ghc-lib-parser in the page's interpreter; hspec, an
 `hspec-halogen` spec of two tests, a click and a `typeText`, run with
 `runBrowserTestsIn` in `#app`, where with no runner in the page the harness
 acts with synthetic events, and hspec's report (`2 examples, 0 failures`)
-is the program's stdout, with `#app` empty afterwards. All pass, with no
+is the program's stdout, with `#app` empty afterwards; store, a tree
+in `StoreT` run with `runStoreT`, whose button's `updateStore` a component
+`connect`ed to the store shows. All pass, with no
 console errors. If the CDN cannot be reached from the browser, the pixi run
 is skipped and says why (it was reachable here, through the proxy).
 
@@ -525,7 +528,9 @@ It proves:
   element whose class's callbacks call into the interpreted program's
   component), material (with its
   CSS and JavaScript on the page), pixi (PixiJS from its CDN), th, whose
-  quasi-quoter runs ghc-lib-parser inside the page's GHC, and hspec: an
+  quasi-quoter runs ghc-lib-parser inside the page's GHC, store (a tree run
+  through `runStoreT`, whose interpreted components share one store), and
+  hspec: an
   `hspec-halogen` suite, hspec's runner included, runs in the interpreter
   as it does in a linked test program, with no `getArgs`, terminal or
   configuration file in its way, and prints its report to stdout. Its

@@ -6,6 +6,7 @@ packages:
   material
   hooks
   router
+  store
   net
   custom-element
   tauri
