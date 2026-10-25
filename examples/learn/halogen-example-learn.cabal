@@ -8,14 +8,16 @@ maintainer:         mateusz.goslinowski@gmail.com
 category:           Web
 
 -- The lessons are read at compile time (Learn.Lessons), and so is the
--- bindings' JavaScript (Learn.Browser); listing them here also makes cabal
--- rebuild the package when one changes. A new lesson is added to
--- lessons/index.txt, which is what makes cabal notice it.
+-- bindings' JavaScript (Learn.Browser); listing them here is what makes
+-- cabal rebuild the package when one changes (a glob's directory part must
+-- be **: a * there matches nothing). A new lesson is added to
+-- lessons/index.txt, which is what makes cabal notice it: a new file that
+-- matches a glob does not.
 extra-source-files:
     jsbits/*.js
     lessons/index.txt
-    lessons/*/*.md
-    lessons/*/*.hs
+    lessons/**/*.md
+    lessons/**/*.hs
 
 flag interactive
   description: Build the example for browser GHCi (toolchain/dev.sh)

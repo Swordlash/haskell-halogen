@@ -67,8 +67,9 @@ address (`/03-components/`) and the key the reader's code is kept under in
 the browser. Lessons are numbered from 01 with no gaps, and **listed in
 `lessons/index.txt`**, one directory per line in order: the build reads only
 what the index lists (and fails for a lesson directory it leaves out),
-because a new file is something neither GHC nor cabal notices, while an
-edited index is. The files are embedded into the app at compile time
+because a new file is something cabal does not notice even when it matches
+the package's `extra-source-files`, while an edited index is; an edited
+lesson file it does notice. The files are embedded into the app at compile time
 (`Learn.Lessons`); a lesson that cannot be read fails the build with what is
 wrong with it.
 
@@ -162,7 +163,8 @@ session keeps `haskell-halogen-core` loaded, so the reference that
 component and keeps how to end it. Write a `Main.hs` of your own when the
 lesson needs something else around its component: an input, the component's
 output messages printed with `putStrLn` (the page shows what the program
-writes to stdout), two components, a router. It is the module `Main`, imports
+writes to stdout while the compile runs, so a `Finalize` of the previous run
+shows and a click handler's output does not), two components, a router. It is the module `Main`, imports
 `Lesson`, and must do the same three things: `HA.endPreviousRun` first, mount
 into `#learn-result`, and `HA.keepForNextRun` with whatever ends what it
 started. (The page ends the last run itself when the reader leaves a lesson,
