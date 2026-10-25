@@ -15,6 +15,7 @@ module Test.Hspec.Halogen.Internal.Page
   , reportDone
   , removeLeftovers
   , createContainer
+  , createRootIn
   , createContainerIn
   , setInnerHTML
   , removeElement
@@ -49,6 +50,7 @@ $( browserJS
      , ("js_remove_leftovers", "halogen_test_remove_leftovers", Unsafe, [t|IO ()|])
      , ("js_test_done", "halogen_test_test_done", Unsafe, [t|Int -> IO ()|])
      , ("js_create_container", "halogen_test_create_container", Unsafe, [t|IO JSVal|])
+     , ("js_create_root_in", "halogen_test_create_root_in", Unsafe, [t|JSVal -> IO JSVal|])
      , ("js_create_container_in", "halogen_test_create_container_in", Unsafe, [t|JSVal -> IO JSVal|])
      , ("js_set_inner_html", "halogen_test_set_inner_html", Unsafe, [t|Element -> JSText -> IO ()|])
      , ("js_remove", "halogen_test_remove", Unsafe, [t|JSVal -> IO ()|])
@@ -94,9 +96,14 @@ reportDone = js_test_done
 removeLeftovers :: IO ()
 removeLeftovers = js_remove_leftovers
 
--- | A fresh container at the end of the body.
+-- | A fresh container for a page at the end of the body.
 createContainer :: IO Element
 createContainer = Element <$> js_create_container
+
+-- | A fresh container for a page at the end of another element, marked as
+-- the body's are, for 'removeLeftovers'.
+createRootIn :: Element -> IO Element
+createRootIn (Element parent) = Element <$> js_create_root_in parent
 
 -- | A fresh container at the end of another.
 createContainerIn :: Element -> IO Element
@@ -119,17 +126,20 @@ querySelectorAll :: Element -> Text -> IO [Element]
 querySelectorAll scope selector = map Element . elements <$> js_query_selector_all scope (toJSText selector)
 
 -- | Have the runner click, type into or clear an element, and wait until it
--- has. Without the runner's bridge the page falls back to synthetic events:
--- close enough for most components, though focus and key events differ from a
--- user's.
+-- has. Without the runner's bridge the page does it itself, with synthetic
+-- events (page.js's in-page mode): what the page's listeners see is much the
+-- same, but the events are untrusted, and only the browser's own reactions
+-- page.js reproduces happen.
 act :: Text -> Element -> Text -> IO ()
 act action element argument = awaitJS $ js_act (toJSText action) element (toJSText argument)
 
--- | Have the runner drag one element onto another, and wait until it has.
+-- | Have the runner drag one element onto another, and wait until it has
+-- (without the runner, with synthetic pointer and drag events).
 drag :: Element -> Element -> IO ()
 drag source target = awaitJS $ js_drag source target
 
--- | Have the runner press a key on the focused element, and wait until it has.
+-- | Have the runner press a key on the focused element, and wait until it has
+-- (without the runner, with synthetic keyboard events).
 pressKey :: Text -> IO ()
 pressKey key = awaitJS $ js_press (toJSText key)
 

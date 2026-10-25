@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+* A suite runs in a page with no runner behind it too: the harness's
+  actions, which the runner performs with Playwright, are then performed by
+  the page itself with synthetic events (page.js's in-page mode, described
+  in the README under "Without the runner"). A click is the pointer and
+  mouse events a user's would send, the focus a press gives and the click
+  itself; `typeText` sends each character's key events and edits the field
+  with `beforeinput` and `input`; `press` sends the key's events and does
+  the commonest of what the browser would (a character typed, `Backspace`,
+  `Enter` on a button or in a form, `Tab` moving the focus); and each waits
+  for its element to be visible and enabled, as Playwright does. Before, a
+  page without the runner had a bare `click()`, a value set at once and a
+  key's `keydown` and `keyup`. The haskell-halogen tutorial runs its testing
+  lesson's spec this way, in the GHC it runs in the page.
+
+* `runBrowserTestsIn element spec` runs a suite with every test's page
+  inside `element` rather than at the end of the body, for a page that has
+  more on it than the suite (the tutorial's result pane). `runBrowserTests`
+  is unchanged.
+
 * The package's own suite has a `Window` example: a component that
   subscribes to haskell-halogen-core's `Halogen.Query.Event.Window`
   emitters, and tests that it hears a key pressed on the page, the window

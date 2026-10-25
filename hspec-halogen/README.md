@@ -184,8 +184,9 @@ it "…" $ runPage $ do
   …
 ```
 
-`runPage` gives the test a container at the end of the body. When the test
-ends, pass or fail, it unmounts everything mounted there.
+`runPage` gives the test a container at the end of the body (or of the
+element `runBrowserTestsIn` was given). When the test ends, pass or fail, it
+unmounts everything mounted there.
 
 `runPage` is to `PageM` what `runST` is to `ST`. The `s` in `Mounted s …` and
 `Element s` keeps what a test mounted and found from being used outside it.
@@ -232,6 +233,45 @@ other `IO`, there is `unsafeIOToPageM`, unsafe in the same way as
 
 Every action returns once the component has reacted, so a synchronous
 `handleAction` has rendered by then.
+
+### Without the runner
+
+A suite can also run in a page with no Playwright behind it: one opened by
+hand, or one that compiles and runs a suite itself, as the haskell-halogen
+tutorial does with the GHC it runs in the page. There the page performs the
+actions itself, with synthetic events (`jsbits/page.js`, its in-page mode):
+
+- `click`: `pointerdown`, `mousedown`, the focus a press gives (unless
+  `mousedown`'s default was prevented), `pointerup`, `mouseup`, then the
+  element's `click()`, which dispatches `click` with its default action (a
+  checkbox toggles, a link is followed, a form's button submits it).
+- `typeText`: the element focused, then for each character `keydown`,
+  `keypress`, `beforeinput`, the field edited, `input` and `keyup`, after
+  what the field holds. `clear` selects everything and deletes it, with
+  `beforeinput` and `input`.
+- `press`: the modifiers' and the key's `keydown` and `keyup` on the focused
+  element, and when `keydown`'s default is not prevented, the commonest of
+  what the browser would do: a character typed into a text field,
+  `Backspace` and `Delete`, `Enter` on a button or a link (a click), in a
+  text input of a form (it is submitted) and in a text area, `Space` on a
+  button or a checkbox, and `Tab` and `Shift+Tab` moving the focus in
+  document order. Any other key only sends its events.
+- `dragTo`: pointer events from one element to the other, then HTML5 drag
+  and drop's, sharing one `DataTransfer`.
+
+Each waits up to five seconds for its element to be in the page, visible and
+enabled, as Playwright does, and fails the test if it is not; it does not
+check that nothing covers the element. The events are untrusted
+(`isTrusted` is false), which Halogen's handlers do not look at, and what
+else the browser does by itself (a caret moved with the arrow keys, text
+selected with the mouse, the focus a label gives) does not happen. So a
+suite that passes here passes under the runner, as a rule, but not
+necessarily the other way round: the runner is the one to trust.
+
+`runBrowserTestsIn element spec` runs a suite with every test's page inside
+`element` rather than at the end of the body, for a page that has other
+things on it; the report is printed as ever, and there is no runner to tell
+how it went.
 
 ### Reading and checking
 

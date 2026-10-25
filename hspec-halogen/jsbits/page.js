@@ -15,7 +15,13 @@ function halogen_test_test_done(failures) {
 }
 
 function halogen_test_create_container() {
-  return document.body.appendChild(Object.assign(document.createElement('div'), {className: 'halogen-test-root'}));
+  return halogen_test_create_root_in(document.body);
+}
+
+// A page's container inside an element the suite was told to run in
+// (runBrowserTestsIn), which the page has for something else besides.
+function halogen_test_create_root_in(parent) {
+  return parent.appendChild(Object.assign(document.createElement('div'), {className: 'halogen-test-root'}));
 }
 
 function halogen_test_create_container_in(parent) {
@@ -43,6 +49,15 @@ function halogen_test_query_selector_all(scope, selector) {
 // could not perform) is handled here as well as returned, so that one whose
 // wait was cut short is not reported as unhandled, which the runner counts as
 // an error in the page; whoever awaits the promise still gets it.
+//
+// Under the runner (globalThis.__halogenTest, which runner.mjs and open.mjs
+// install) Playwright performs them as trusted input. A page without it, one
+// opened by hand or one with no Playwright behind it at all (the tutorial,
+// which runs a suite in the GHC it has in the page), gets the in-page mode
+// below instead: the same actions as synthetic events, dispatched by the
+// page itself. They are untrusted (isTrusted is false), and only what the
+// page's own listeners see is reproduced, not what the browser does by
+// itself: see the README's "Without the runner".
 function halogen_test_quiet(promise) {
   promise.catch(() => {});
   return promise;
@@ -61,50 +76,32 @@ function halogen_test_press(key) {
 }
 
 async function halogen_test_act_now(action, element, text) {
+  const bridge = globalThis.__halogenTest;
+  if (!bridge?.act) {
+    await halogen_test_synthetic_act(action, element, text);
+    return;
+  }
   const target = 'halogen-test-' + (globalThis.__halogenTestTargets = (globalThis.__halogenTestTargets ?? 0) + 1);
   element.setAttribute('data-halogen-test-target', target);
   try {
-    const bridge = globalThis.__halogenTest;
-    if (bridge) {
-      await bridge.act(action, '[data-halogen-test-target="' + target + '"]', text);
-    } else if (action === 'click') {
-      element.click();
-    } else {
-      element.focus();
-      element.value = action === 'type' ? element.value + text : '';
-      element.dispatchEvent(new Event('input', {bubbles: true}));
-    }
+    await bridge.act(action, '[data-halogen-test-target="' + target + '"]', text);
   } finally {
     element.removeAttribute('data-halogen-test-target');
   }
 }
 
 async function halogen_test_drag_now(source, target) {
+  const bridge = globalThis.__halogenTest;
+  if (!bridge?.drag) {
+    await halogen_test_synthetic_drag(source, target);
+    return;
+  }
   const counter = () => 'halogen-test-' + (globalThis.__halogenTestTargets = (globalThis.__halogenTestTargets ?? 0) + 1);
   const [from, to] = [counter(), counter()];
   source.setAttribute('data-halogen-test-target', from);
   target.setAttribute('data-halogen-test-target', to);
   try {
-    const bridge = globalThis.__halogenTest;
-    if (bridge?.drag) {
-      await bridge.drag('[data-halogen-test-target="' + from + '"]', '[data-halogen-test-target="' + to + '"]');
-    } else {
-      // Pointer events for a drag the page follows itself, then HTML5 drag
-      // and drop's, sharing one DataTransfer as a browser's would.
-      const centre = (element) => {
-        const box = element.getBoundingClientRect();
-        return {clientX: box.left + box.width / 2, clientY: box.top + box.height / 2, bubbles: true, cancelable: true, isPrimary: true, pointerId: 1, button: 0};
-      };
-      source.dispatchEvent(new PointerEvent('pointerdown', {...centre(source), buttons: 1}));
-      target.dispatchEvent(new PointerEvent('pointermove', {...centre(target), buttons: 1}));
-      target.dispatchEvent(new PointerEvent('pointerup', centre(target)));
-      const dataTransfer = new DataTransfer();
-      source.dispatchEvent(new DragEvent('dragstart', {...centre(source), dataTransfer}));
-      target.dispatchEvent(new DragEvent('dragenter', {...centre(target), dataTransfer}));
-      target.dispatchEvent(new DragEvent('dragover', {...centre(target), dataTransfer}));
-      target.dispatchEvent(new DragEvent('drop', {...centre(target), dataTransfer}));
-      source.dispatchEvent(new DragEvent('dragend', {...centre(target), dataTransfer}));
-    }
+    await bridge.drag('[data-halogen-test-target="' + from + '"]', '[data-halogen-test-target="' + to + '"]');
   } finally {
     source.removeAttribute('data-halogen-test-target');
     target.removeAttribute('data-halogen-test-target');
@@ -113,14 +110,231 @@ async function halogen_test_drag_now(source, target) {
 
 async function halogen_test_press_now(key) {
   const bridge = globalThis.__halogenTest;
-  if (bridge) {
+  if (bridge?.press) {
     await bridge.press(key);
   } else {
-    const target = document.activeElement ?? document.body;
-    for (const type of ['keydown', 'keyup']) {
-      target.dispatchEvent(new KeyboardEvent(type, {key, bubbles: true}));
+    await halogen_test_synthetic_press(key);
+  }
+}
+
+// The in-page mode. Each action first waits for a task of its own, so that
+// its events are dispatched as a user's arrive, from the page's event loop
+// with no Haskell under them on the stack, and not from inside the foreign
+// call that asked for it.
+function halogen_test_next_task() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+// Playwright's actionability checks, as far as a page can make them: the
+// element is in the document, takes up space and is not disabled, or becomes
+// so within five seconds (the runner's timeout for an action), else the
+// action fails as it would under the runner. Whether something covers it is
+// not checked.
+async function halogen_test_actionable(element, what) {
+  const deadline = Date.now() + 5000;
+  for (;;) {
+    const problem = !element.isConnected
+      ? 'is not in the page'
+      : !element.checkVisibility()
+        ? 'is not visible'
+        : element.matches(':disabled')
+          ? 'is disabled'
+          : null;
+    if (!problem) return;
+    if (Date.now() > deadline) {
+      throw Object.assign(new Error(what + ': the element ' + problem + ' after 5 s: ' + element.outerHTML.slice(0, 200)), {name: 'TimeoutError'});
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
+function halogen_test_mouse_at(element) {
+  const box = element.getBoundingClientRect();
+  return {bubbles: true, cancelable: true, composed: true, view: window, button: 0, clientX: box.left + box.width / 2, clientY: box.top + box.height / 2};
+}
+
+const halogen_test_pointer = {isPrimary: true, pointerId: 1, pointerType: 'mouse'};
+
+// What a press of the mouse focuses: the element, or the nearest focusable
+// one around it, as a browser's would.
+function halogen_test_focus_target(element) {
+  return element.closest('a[href], button, input, select, textarea, summary, [tabindex], [contenteditable=""], [contenteditable="true"]');
+}
+
+// A mouse click: the pointer and mouse events a user's would send, the focus
+// a press gives (unless mousedown's default was prevented), then click(),
+// which dispatches the click with its default action (a checkbox toggles, a
+// link is followed, a form's button submits it).
+async function halogen_test_synthetic_click(element) {
+  const at = halogen_test_mouse_at(element);
+  element.dispatchEvent(new PointerEvent('pointerdown', {...at, ...halogen_test_pointer, buttons: 1}));
+  if (element.dispatchEvent(new MouseEvent('mousedown', {...at, buttons: 1}))) {
+    halogen_test_focus_target(element)?.focus();
+  }
+  element.dispatchEvent(new PointerEvent('pointerup', {...at, ...halogen_test_pointer}));
+  element.dispatchEvent(new MouseEvent('mouseup', at));
+  element.click();
+}
+
+// Whether an element holds text that typing edits.
+function halogen_test_is_text_field(element) {
+  return element instanceof HTMLTextAreaElement ||
+    (element instanceof HTMLInputElement && !['button', 'checkbox', 'color', 'file', 'hidden', 'image', 'radio', 'range', 'reset', 'submit'].includes(element.type));
+}
+
+// Edit a text field as typing would, with the beforeinput and input events
+// it sends: replace the selection (from start to end, the caret when they
+// are one) with text. An input type with no selection (email, number) is
+// edited at its end.
+function halogen_test_edit(element, text, inputType, start, end) {
+  const data = inputType === 'insertText' ? text : null;
+  const init = {inputType, data, bubbles: true, composed: true};
+  if (!element.dispatchEvent(new InputEvent('beforeinput', {...init, cancelable: true}))) return;
+  if (element.isContentEditable) {
+    document.execCommand(inputType === 'insertText' ? 'insertText' : inputType === 'deleteContentForward' ? 'forwardDelete' : 'delete', false, text);
+    return;
+  }
+  const value = element.value;
+  const [from, to] = start == null ? [value.length, value.length] : [start, end];
+  element.value = value.slice(0, from) + text + value.slice(to);
+  try {
+    element.setSelectionRange(from + text.length, from + text.length);
+  } catch {
+    // No selection in this type of input.
+  }
+  element.dispatchEvent(new InputEvent('input', init));
+}
+
+function halogen_test_selection(element) {
+  try {
+    return element.selectionStart == null ? [null, null] : [element.selectionStart, element.selectionEnd];
+  } catch {
+    return [null, null];
+  }
+}
+
+// One key's keydown, keypress and keyup, with the modifiers held, and what
+// pressing it does when keydown's default is not prevented: a character goes
+// into a text field, Backspace and Delete take one out, Enter clicks a button
+// or a link, submits the form of a text input and starts a line in a text
+// area, Space clicks a button or a checkbox, and Tab moves the focus.
+async function halogen_test_key(key, modifiers) {
+  const target = document.activeElement ?? document.body;
+  const init = {key, bubbles: true, cancelable: true, composed: true, view: window, ...modifiers};
+  const character = [...key].length === 1;
+  const chord = modifiers.ctrlKey || modifiers.altKey || modifiers.metaKey;
+  if (target.dispatchEvent(new KeyboardEvent('keydown', init))) {
+    const typing = halogen_test_is_text_field(target) || target.isContentEditable;
+    const [start, end] = typing ? halogen_test_selection(target) : [null, null];
+    if ((character || key === 'Enter') && !chord) {
+      target.dispatchEvent(new KeyboardEvent('keypress', {...init, charCode: character ? key.codePointAt(0) : 13}));
+    }
+    if (character && !chord && typing) {
+      halogen_test_edit(target, key, 'insertText', start, end);
+    } else if ((key === 'Backspace' || key === 'Delete') && typing) {
+      const forward = key === 'Delete';
+      const [from, to] = start == null ? [target.value.length - (forward ? 0 : 1), target.value.length] : start === end ? (forward ? [start, end + 1] : [Math.max(0, start - 1), end]) : [start, end];
+      halogen_test_edit(target, '', forward ? 'deleteContentForward' : 'deleteContentBackward', Math.max(0, from), to);
+    } else if (key === 'Enter' && target instanceof HTMLTextAreaElement) {
+      halogen_test_edit(target, '\n', 'insertLineBreak', start, end);
+    } else if (key === 'Enter' && (target instanceof HTMLButtonElement || target instanceof HTMLAnchorElement || (target instanceof HTMLInputElement && ['button', 'submit', 'reset'].includes(target.type)))) {
+      target.click();
+    } else if (key === 'Enter' && target instanceof HTMLInputElement && target.form) {
+      target.form.requestSubmit();
+    } else if (key === 'Tab') {
+      halogen_test_tab(target, modifiers.shiftKey);
     }
   }
+  const up = document.activeElement ?? document.body;
+  if (up.dispatchEvent(new KeyboardEvent('keyup', init)) && key === ' ' && up === target &&
+      (target instanceof HTMLButtonElement || (target instanceof HTMLInputElement && ['button', 'checkbox', 'radio', 'submit', 'reset'].includes(target.type)))) {
+    target.click();
+  }
+}
+
+// Move the focus to the next (or previous) element Tab reaches, in document
+// order; a positive tabindex is not given its own order.
+function halogen_test_tab(from, backwards) {
+  const reachable = Array.from(document.querySelectorAll('a[href], button, input, select, textarea, summary, [tabindex], [contenteditable=""], [contenteditable="true"]'))
+    .filter((element) => element.tabIndex >= 0 && !element.matches(':disabled') && element.checkVisibility());
+  const at = reachable.indexOf(from);
+  const next = backwards ? (at <= 0 ? reachable.length - 1 : at - 1) : at + 1;
+  reachable[next % reachable.length]?.focus();
+}
+
+const halogen_test_modifier_flags = {Shift: 'shiftKey', Control: 'ctrlKey', Alt: 'altKey', Meta: 'metaKey'};
+
+// A key or a chord in Playwright's terms: Enter, a, Shift+Tab,
+// ControlOrMeta+a. The modifiers' own keydown and keyup are sent around it.
+async function halogen_test_synthetic_press(chord) {
+  await halogen_test_next_task();
+  const parts = chord.split('+');
+  // "Shift++" is Shift and the plus key.
+  if (parts.length > 1 && parts[parts.length - 1] === '') parts.splice(-2, 2, '+');
+  const key = parts.pop();
+  const names = parts.map((name) => (name === 'ControlOrMeta' ? (/Mac/.test(navigator.platform) ? 'Meta' : 'Control') : name));
+  const modifiers = {};
+  const target = () => document.activeElement ?? document.body;
+  for (const name of names) {
+    modifiers[halogen_test_modifier_flags[name]] = true;
+    target().dispatchEvent(new KeyboardEvent('keydown', {key: name, bubbles: true, cancelable: true, composed: true, ...modifiers}));
+  }
+  await halogen_test_key(key, modifiers);
+  for (const name of names.reverse()) {
+    delete modifiers[halogen_test_modifier_flags[name]];
+    target().dispatchEvent(new KeyboardEvent('keyup', {key: name, bubbles: true, cancelable: true, composed: true, ...modifiers}));
+  }
+}
+
+async function halogen_test_synthetic_act(action, element, text) {
+  await halogen_test_next_task();
+  if (action === 'click') {
+    await halogen_test_actionable(element, 'click');
+    await halogen_test_synthetic_click(element);
+  } else if (action === 'type') {
+    // As Playwright's pressSequentially: focus the element, then a key at a
+    // time, after what it holds.
+    await halogen_test_actionable(element, 'type');
+    element.focus();
+    if (halogen_test_is_text_field(element)) {
+      try {
+        element.setSelectionRange(element.value.length, element.value.length);
+      } catch {
+        // No selection in this type of input: it is edited at its end.
+      }
+    }
+    for (const character of text) await halogen_test_key(character, {});
+  } else if (action === 'clear') {
+    // As Playwright's clear: focus, select everything, delete it.
+    await halogen_test_actionable(element, 'clear');
+    element.focus();
+    if (halogen_test_is_text_field(element)) {
+      halogen_test_edit(element, '', 'deleteContentBackward', 0, element.value.length);
+    } else if (element.isContentEditable) {
+      document.execCommand('selectAll');
+      halogen_test_edit(element, '', 'deleteContentBackward', null, null);
+    }
+  } else {
+    throw new Error('unknown action ' + action);
+  }
+}
+
+// Pointer events for a drag the page follows itself, then HTML5 drag and
+// drop's, sharing one DataTransfer as a browser's would.
+async function halogen_test_synthetic_drag(source, target) {
+  await halogen_test_next_task();
+  await halogen_test_actionable(source, 'drag');
+  const from = halogen_test_mouse_at(source);
+  const to = halogen_test_mouse_at(target);
+  source.dispatchEvent(new PointerEvent('pointerdown', {...from, ...halogen_test_pointer, buttons: 1}));
+  target.dispatchEvent(new PointerEvent('pointermove', {...to, ...halogen_test_pointer, buttons: 1}));
+  target.dispatchEvent(new PointerEvent('pointerup', {...to, ...halogen_test_pointer}));
+  const dataTransfer = new DataTransfer();
+  source.dispatchEvent(new DragEvent('dragstart', {...from, dataTransfer}));
+  target.dispatchEvent(new DragEvent('dragenter', {...to, dataTransfer}));
+  target.dispatchEvent(new DragEvent('dragover', {...to, dataTransfer}));
+  target.dispatchEvent(new DragEvent('drop', {...to, dataTransfer}));
+  source.dispatchEvent(new DragEvent('dragend', {...to, dataTransfer}));
 }
 
 async function halogen_test_settle() {
