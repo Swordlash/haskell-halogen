@@ -20,13 +20,9 @@ data Action = Named Text | Increment
 
 component :: forall q o m. (MonadIO m) => H.Component q () o m
 component =
-  H.mkComponent
-    H.ComponentSpec
-      { H.initialState = \_ -> pure State {name = "", count = 0}
-      , H.render = render
-      , H.eval = H.mkEval H.defaultEval {H.handleAction = handleAction}
-      }
+  H.component initialState render [H.onAction handleAction]
   where
+    initialState _ = pure State {name = "", count = 0}
     render st =
       HH.div_
         [ HH.input [HP.class_ (HH.ClassName "name"), HP.placeholder "Your name", HE.onValueInput Named]

@@ -18,7 +18,7 @@ When it is clicked, the counter calls `H.raise Clicked`. Halogen gives `Clicked`
 
 ## Down: queries
 
-The parent sends the child a value of the child's `Query` type, which the child answers in `H.handleQuery`. A constructor whose last field is the `a`, as in `Reset a`, is a tell: the parent sends it with `H.tell "counter" () Reset`, label and index first, and gets nothing back. The child's `handleQuery` returns `Just next`, the `a` it was given, to say it has handled it.
+The parent sends the child a value of the child's `Query` type, which the child answers in its `handleQuery`, handed to Halogen with `H.onQuery handleQuery` in its list of handlers, beside `H.onAction handleAction`. A constructor whose last field is the `a`, as in `Reset a`, is a tell: the parent sends it with `H.tell "counter" () Reset`, label and index first, and gets nothing back. The child's `handleQuery` returns `Just next`, the `a` it was given, to say it has handled it.
 
 A constructor whose last field is a function to `a`, as in `GetCount (Int -> a)`, is a request: the child calls the function with its answer, and the parent asks with `H.request "counter" () GetCount`, which gives a `Maybe Int`, `Nothing` if that slot is empty (so the answer shows as `Just 2`).
 

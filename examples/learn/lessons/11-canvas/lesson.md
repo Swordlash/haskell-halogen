@@ -19,5 +19,5 @@ PixiJS is not in the layer: the library imports it from a CDN the first time a c
 Make the ball glide to the pad instead of jumping:
 
 1. a click sets only `target`;
-2. an `Initialize` action, named in `H.initialize`, subscribes to the screen's frames, as lesson 5 subscribed to a clock: `void (H.subscribe (Frame <$ Window.animationFrame))`, with `Halogen.Query.Event.Window qualified as Window`;
+2. a program `startFrames`, given to `H.onInitialize` in the list of handlers, subscribes to the screen's frames, as lesson 5 subscribed to a clock: `void (H.subscribe (Frame <$ Window.animationFrame))`, with `Halogen.Query.Event.Window qualified as Window`;
 3. each `Frame` moves `x` six pixels towards `target`, and stops there. Read the state with `get`, and `put` a new one only `when (st.x /= st.target)`: a frame that changes nothing then renders nothing.

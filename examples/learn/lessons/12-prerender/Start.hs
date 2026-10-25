@@ -15,13 +15,9 @@ data Action = Increment
 -- the program around this module mounts it with hydrateUI rather than runUI.
 component :: forall q o m. (MonadIO m) => H.Component q () o m
 component =
-  H.mkComponent
-    H.ComponentSpec
-      { H.initialState = \_ -> pure (0 :: Int)
-      , H.render = render
-      , H.eval = H.mkEval H.defaultEval {H.handleAction = handleAction}
-      }
+  H.component initialState render [H.onAction handleAction]
   where
+    initialState _ = pure (0 :: Int)
     render count =
       HH.div_
         [ HH.p_ [HH.text "Count: ", HH.text (T.pack (show count))]

@@ -1,6 +1,6 @@
 title: Hello, Halogen
 
-A Halogen application is made of components. A component is a value of type `H.Component`, built by `H.mkComponent` from three things: `H.initialState`, the state it starts with; `H.render`, which turns that state into HTML; and `H.eval`, which says what it does when something happens. This first component has nothing to do, so its state is `()` and its `H.eval` is `H.mkEval H.defaultEval`, which does nothing at all.
+A Halogen application is made of components. A component is a value of type `H.Component`, built by `H.component` from three things: `initialState`, the state it starts with; `render`, which turns that state into HTML; and a list of handlers, which say what it does when something happens. This first component has nothing to do, so its state is `()` and its list of handlers is empty, `[]`: it does nothing at all. (`initialState` is given the component's input, here `()`, which it ignores with `_`, and `pure` hands back the state.)
 
 ## Rendering
 

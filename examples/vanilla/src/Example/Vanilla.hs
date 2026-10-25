@@ -10,7 +10,7 @@ import DOM.HTML.Indexed qualified as I
 import Data.Functor.Coyoneda
 import Data.NT
 import Data.Row
-import Halogen as H
+import Halogen as H hiding (component)
 import Halogen.Component.Debounced
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Events as HE

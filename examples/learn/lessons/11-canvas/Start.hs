@@ -43,13 +43,9 @@ scene st =
 
 component :: forall q o m. (MonadUnliftIO m, MonadUUID m) => H.Component q () o m
 component =
-  H.mkComponent
-    H.ComponentSpec
-      { H.initialState = \_ -> pure State {x = padX 1, target = padX 1}
-      , H.render = render
-      , H.eval = H.mkEval H.defaultEval {H.handleAction = handleAction}
-      }
+  H.component initialState render [H.onAction handleAction]
   where
+    initialState _ = pure State {x = padX 1, target = padX 1}
     render :: State -> H.ComponentHTML Action Slots m
     render st =
       HH.div_

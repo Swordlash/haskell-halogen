@@ -28,20 +28,16 @@ route =
 
 data State = State {router :: Router.Router Route, current :: Route}
 
-data Action = Initialize | Arrived Route | Go (Router.Follow Route)
+data Action = Arrived Route | Go (Router.Follow Route)
 
 -- The program around this module makes the router, with
 -- Router.newHashRouter Home route, hands it to the component as its input,
 -- and calls Router.stop on it before the next compile runs.
 component :: forall q o m. (MonadIO m) => H.Component q (Router.Router Route) o m
 component =
-  H.mkComponent
-    H.ComponentSpec
-      { H.initialState = \router -> State router <$> Router.current router
-      , H.render = render
-      , H.eval = H.mkEval H.defaultEval {H.handleAction = handleAction, H.initialize = Just Initialize}
-      }
+  H.component initialState render [H.onInitialize watchRoutes, H.onAction handleAction]
   where
+    initialState router = State router <$> Router.current router
     render st =
       HH.div_
         [ HH.nav_
@@ -57,11 +53,11 @@ component =
         ]
       where
         link r label = Router.link st.router Go r [] [HH.text label]
+    watchRoutes = do
+      router <- gets (.router)
+      _ <- H.subscribe (Arrived <$> Router.changes router)
+      pure ()
     handleAction action = case action of
-      Initialize -> do
-        router <- gets (.router)
-        _ <- H.subscribe (Arrived <$> Router.changes router)
-        pure ()
       Arrived r -> modify (\st -> st {current = r})
       Go follow -> do
         router <- gets (.router)

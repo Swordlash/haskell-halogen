@@ -15,19 +15,15 @@ import Halogen.JSBits (inBrowser)
 
 data State = State {count :: Int, ready :: Bool}
 
-data Action = Initialize | Increment
+data Action = Increment
 
 -- A build renders this natively, in MemDOM, with renderToHtml component ();
 -- the program around this module mounts it with hydrateUI rather than runUI.
 component :: forall q o m. (MonadIO m) => H.Component q () o m
 component =
-  H.mkComponent
-    H.ComponentSpec
-      { H.initialState = \_ -> pure State {count = 0, ready = False}
-      , H.render = render
-      , H.eval = H.mkEval H.defaultEval {H.handleAction = handleAction, H.initialize = Just Initialize}
-      }
+  H.component initialState render [H.onInitialize getReady, H.onAction handleAction]
   where
+    initialState _ = pure State {count = 0, ready = False}
     render st =
       HH.div_
         [ HH.p_ [HH.text "Count: ", HH.text (T.pack (show st.count))]
@@ -35,5 +31,5 @@ component =
         ]
     -- Natively, renderToHtml runs this before it takes the HTML: without
     -- inBrowser, the page would be written with a button that is ready.
-    handleAction Initialize = when inBrowser (modify (\st -> st {ready = True}))
+    getReady = when inBrowser (modify (\st -> st {ready = True}))
     handleAction Increment = modify (\st -> st {count = st.count + 1})

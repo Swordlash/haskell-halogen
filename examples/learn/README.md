@@ -176,9 +176,12 @@ component :: forall q o m. (MonadIO m) => H.Component q () o m
 or anything that can be used at that type with `m` the browser's own monad,
 `BrowserDOM` (`H.Component q () o BrowserDOM` itself, for a hooks component,
 say): the wrapper mounts it with no input, whatever its queries and outputs.
-The language is GHC2021; anything else (`OverloadedStrings` for `HH.text
-"..."`, `QualifiedDo` for hooks) is a `LANGUAGE` pragma in the file, as it
-would be in a project of the reader's own.
+A lesson builds it as lesson 1 teaches, `H.component initialState render
+[...]`, and the later lessons say what it does in that list of handlers
+(`H.onAction`, `H.onQuery`, `H.onInitialize`, `H.onFinalize`). The language
+is GHC2021; anything else (`OverloadedStrings` for `HH.text "..."`,
+`QualifiedDo` for hooks) is a `LANGUAGE` pragma in the file, as it would be
+in a project of the reader's own.
 
 The default wrapper (`Learn.Lesson.defaultMain`) is
 
@@ -198,9 +201,9 @@ component and keeps how to end it. Write a `Main.hs` of your own when the
 lesson needs something else around its component: an input, the component's
 output messages printed with `putStrLn` (the page shows what the program
 writes to stdout while the compile runs, a line at a time, as the playground
-makes stdout line-buffered and flushes it when a run ends: so the previous
-run's `Finalize`, which the next compile's `HA.endPreviousRun` runs,
-shows under the editor, and a click handler's output does not), two
+makes stdout line-buffered and flushes it when a run ends: so what the previous
+run's `H.onFinalize` prints, which the next compile's `HA.endPreviousRun`
+runs, shows under the editor, and a click handler's output does not), two
 components, a router. It is the module `Main`, imports
 `Lesson`, and must do the same three things: `HA.endPreviousRun` first, mount
 into `#learn-result`, and `HA.keepForNextRun` with whatever ends what it

@@ -2,7 +2,7 @@ title: Hooks
 layers: hooks
 args: -package haskell-halogen-hooks
 
-`haskell-halogen-hooks` writes a component as one function from its input to its HTML. What it needs on the way, state or an effect, it asks for where it needs it, rather than in separate fields of a spec. This is lesson 2's counter, written that way.
+`haskell-halogen-hooks` writes a component as one function from its input to its HTML. What it needs on the way, state or an effect, it asks for where it needs it, rather than in an initial state, a render and a list of handlers kept apart. This is lesson 2's counter, written that way.
 
 ## A component made of hooks
 

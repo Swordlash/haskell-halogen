@@ -13,13 +13,9 @@ data Action = Increment | Decrement
 
 component :: forall q o m. (MonadIO m) => H.Component q () o m
 component =
-  H.mkComponent
-    H.ComponentSpec
-      { H.initialState = \_ -> pure (0 :: Int)
-      , H.render = render
-      , H.eval = H.mkEval H.defaultEval
-      }
+  H.component initialState render []
   where
+    initialState _ = pure (0 :: Int)
     render count =
       HH.div_
         -- Neither button has an HE.onClick yet, so clicking them does
