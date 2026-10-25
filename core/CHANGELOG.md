@@ -19,6 +19,14 @@
   unqualified and names something of its own `component` must now hide
   the new one.
 
+- A component moved to another monad with `H.hoist` (every component of a
+  tree hoisted from an application's `ReaderT`, say, or from
+  `haskell-halogen-store`'s `StoreT`) no longer renders again after a
+  `get`, a `gets` or any other state operation that leaves the state as it
+  was. The hoisted program handed the state back as a new, unevaluated
+  value, which the driver could not tell from a changed one; it is now
+  handed back as the value it was.
+
 - A subscription's action now runs nested in the synchronous effect that
   dispatched its event, as an element's own handler's does: a component
   that subscribes to a DOM listener (`Halogen.Query.Event.eventListener`,

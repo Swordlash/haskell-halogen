@@ -291,7 +291,12 @@ mapHalogen lens fa fo nat (HalogenM alg) = HalogenM (hoistF go alg)
   where
     go :: forall x. HalogenF state action slots output m x -> HalogenF state' action' slots output' m' x
     go = \case
-      State f -> State (\s' -> let (s, g) = lens s' in map g (f s))
+      -- The new state is evaluated before it is handed back: `g s1` left
+      -- as it is would be a thunk, a new pointer even when `g` is the
+      -- identity, and the driver's `unsafeRefEq` would then take every
+      -- `get` of a hoisted component (every component of a tree that
+      -- 'hoist' moved to another monad) for a change, and render again.
+      State f -> State (\s' -> let (s, g) = lens s' in case f s of (a, s1) -> let s2 = g s1 in s2 `seq` (a, s2))
       Subscribe fes k -> Subscribe (map fa . fes) k
       Unsubscribe sid a -> Unsubscribe sid a
       Lift q -> Lift (runNT nat q)
