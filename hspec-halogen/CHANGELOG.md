@@ -10,7 +10,9 @@
   itself; `typeText` sends each character's key events and edits the field
   with `beforeinput` and `input`; `press` sends the key's events and does
   the commonest of what the browser would (a character typed, `Backspace`,
-  `Enter` on a button or in a form, `Tab` moving the focus, and nothing
+  `Enter` on a button or in a form, which clicks the form's first submit
+  button as a browser's implicit submission does, `Tab` moving the focus,
+  `Backspace` and `Delete` by whole grapheme clusters, and nothing
   when `keydown`'s default is prevented); a prevented `keypress` or
   `beforeinput` keeps the edit out, a read-only field is not edited and
   `maxlength` caps what is typed; typing into a `contenteditable` element

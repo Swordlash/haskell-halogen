@@ -64,6 +64,29 @@ spec m = do
     typeText field "abc"
     getProperty field "value" `shouldReturn` ""
 
+  it "takes an emoji back out whole with Backspace" $ runPage $ do
+    ui <- mount m Editing.component ()
+    field <- find ui "input.emoji"
+    typeText field "a😀"
+    find ui ".smiled" >>= (`shouldHaveText` "a😀")
+    press "Backspace"
+    getProperty field "value" `shouldReturn` "a"
+    find ui ".smiled" >>= (`shouldHaveText` "a")
+
+  it "does not submit a form by Enter when its submit button is disabled" $ runPage $ do
+    ui <- mount m Editing.component ()
+    find ui "input.locked-field" >>= (`typeText` "x")
+    press "Enter"
+    settle
+    find ui ".locked-submits" >>= (`shouldHaveText` "0")
+
+  it "submits a form by Enter through its submit button" $ runPage $ do
+    ui <- mount m Editing.component ()
+    find ui "input.order-field" >>= (`typeText` "tea")
+    press "Enter"
+    find ui ".order-clicks" >>= (`shouldHaveText` "1")
+    find ui ".order-submits" >>= (`shouldHaveText` "1")
+
   it "types no more than a field's maxlength" $ runPage $ do
     ui <- mount m Editing.component ()
     field <- find ui "input.short"

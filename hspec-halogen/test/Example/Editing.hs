@@ -8,10 +8,15 @@
 -- prefixes (@-@, @1.@) that are not numbers yet. And the fields a browser
 -- edits less than it is asked to: a read-only one, one whose keypress
 -- handler turns the character @x@ down, one whose @beforeinput@ handler
--- turns every edit down, and one with a @maxlength@ of 3.
+-- turns every edit down, and one with a @maxlength@ of 3. A field the text
+-- typed into is shown from, for characters longer than one UTF-16 code unit
+-- (an emoji), which Backspace must take out whole. And two forms Enter
+-- submits from a text field, as HTML's implicit submission has it, by
+-- activating the form's first submit button: one whose button is disabled,
+-- so that Enter does nothing, and one whose button counts its clicks.
 module Example.Editing (component) where
 
-import DOM.HTML.Indexed (InputType (..))
+import DOM.HTML.Indexed (ButtonType (..), InputType (..))
 import Data.Row (Empty)
 import Data.Text qualified as T
 import Halogen qualified as H
@@ -22,15 +27,23 @@ import Protolude hiding (State)
 import Web.Event.Event (EventType (..))
 import Web.UIEvent.KeyboardEvent qualified as KE
 
-data State = State {clicks :: Int, edits :: Int, number :: Text}
+data State = State
+  { clicks :: Int
+  , edits :: Int
+  , number :: Text
+  , smiled :: Text
+  , lockedSubmits :: Int
+  , orderClicks :: Int
+  , orderSubmits :: Int
+  }
 
-data Action = Pressed | Clicked | Edited | Typed Text
+data Action = Pressed | Clicked | Edited | Typed Text | Smiled Text | SubmittedLocked | ClickedOrder | SubmittedOrder
 
 component :: forall q i o m. (Monad m) => H.Component q i o m
 component =
   H.mkComponent
     H.ComponentSpec
-      { initialState = const (pure (State 0 0 ""))
+      { initialState = const (pure (State 0 0 "" "" 0 0 0))
       , render
       , eval = H.mkEval H.defaultEval {H.handleAction = handleAction}
       }
@@ -56,6 +69,22 @@ component =
             ]
         , HH.input [HP.class_ (HH.ClassName "refuses"), HE.preventingDefault (HE.handler (EventType "beforeinput") (const Pressed))]
         , HH.input [HP.class_ (HH.ClassName "short"), HP.maxLength 3]
+        , HH.input [HP.class_ (HH.ClassName "emoji"), HE.onValueInput Smiled]
+        , HH.span [HP.class_ (HH.ClassName "smiled")] [HH.text model.smiled]
+        , HH.form
+            [HP.class_ (HH.ClassName "locked"), HE.preventingDefault (HE.onSubmit (const SubmittedLocked))]
+            [ HH.input [HP.class_ (HH.ClassName "locked-field")]
+            , HH.button [HP.type_ ButtonSubmit, HP.disabled True] [HH.text "locked"]
+            ]
+        , HH.span [HP.class_ (HH.ClassName "locked-submits")] [HH.text (show model.lockedSubmits)]
+        , HH.form
+            [HP.class_ (HH.ClassName "order"), HE.preventingDefault (HE.onSubmit (const SubmittedOrder))]
+            [ HH.input [HP.class_ (HH.ClassName "order-field")]
+            , HH.input [HP.class_ (HH.ClassName "order-note")]
+            , HH.button [HP.type_ ButtonSubmit, HE.onClick (const ClickedOrder)] [HH.text "order"]
+            ]
+        , HH.span [HP.class_ (HH.ClassName "order-clicks")] [HH.text (show model.orderClicks)]
+        , HH.span [HP.class_ (HH.ClassName "order-submits")] [HH.text (show model.orderSubmits)]
         ]
 
     handleAction :: Action -> H.HalogenM State Action Empty o m ()
@@ -64,3 +93,7 @@ component =
       Clicked -> modify $ \s -> s {clicks = s.clicks + 1}
       Edited -> modify $ \s -> s {edits = s.edits + 1}
       Typed t -> modify $ \s -> s {number = T.strip t}
+      Smiled t -> modify $ \s -> s {smiled = t}
+      SubmittedLocked -> modify $ \s -> s {lockedSubmits = s.lockedSubmits + 1}
+      ClickedOrder -> modify $ \s -> s {orderClicks = s.orderClicks + 1}
+      SubmittedOrder -> modify $ \s -> s {orderSubmits = s.orderSubmits + 1}

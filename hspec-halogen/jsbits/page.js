@@ -290,16 +290,21 @@ async function halogen_test_key(key, modifiers) {
       if (target.isContentEditable) {
         halogen_test_edit(target, '', inputType, null, null);
       } else {
-        const length = halogen_test_text(target).length;
-        const [from, to] = start == null ? [length - (forward ? 0 : 1), length] : start === end ? (forward ? [start, end + 1] : [Math.max(0, start - 1), end]) : [start, end];
-        halogen_test_edit(target, '', inputType, Math.max(0, from), to);
+        const text = halogen_test_text(target);
+        const length = text.length;
+        const [from, to] = start == null
+          ? (forward ? [length, length] : [halogen_test_grapheme_before(text, length), length])
+          : start === end
+            ? (forward ? [start, halogen_test_grapheme_after(text, end)] : [halogen_test_grapheme_before(text, start), end])
+            : [start, end];
+        halogen_test_edit(target, '', inputType, from, to);
       }
     } else if (key === 'Enter' && target instanceof HTMLTextAreaElement) {
       halogen_test_edit(target, '\n', 'insertLineBreak', start, end);
     } else if (key === 'Enter' && (target instanceof HTMLButtonElement || target instanceof HTMLAnchorElement || (target instanceof HTMLInputElement && ['button', 'submit', 'reset'].includes(target.type)))) {
       target.click();
     } else if (key === 'Enter' && target instanceof HTMLInputElement && target.form) {
-      target.form.requestSubmit();
+      halogen_test_implicit_submit(target);
     } else if (key === 'Tab') {
       halogen_test_tab(target, modifiers.shiftKey);
     }
@@ -309,6 +314,55 @@ async function halogen_test_key(key, modifiers) {
       (target instanceof HTMLButtonElement || (target instanceof HTMLInputElement && ['button', 'checkbox', 'radio', 'submit', 'reset'].includes(target.type)))) {
     target.click();
   }
+}
+
+// Where Backspace and Delete stop in a field's text: a whole character as
+// the reader sees it (a grapheme cluster, such as an emoji, which is two
+// UTF-16 code units or more), never half of one. Without Intl.Segmenter,
+// by code point, which at least never leaves half a surrogate pair. (The
+// text kept for a number field is ASCII, where the two agree.)
+function halogen_test_graphemes(text) {
+  if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+    return Array.from(new Intl.Segmenter(undefined, {granularity: 'grapheme'}).segment(text), (s) => s.index).concat(text.length);
+  }
+  const boundaries = [0];
+  for (let i = 0; i < text.length; ) {
+    i += text.codePointAt(i) > 0xffff ? 2 : 1;
+    boundaries.push(i);
+  }
+  return boundaries;
+}
+
+function halogen_test_grapheme_before(text, at) {
+  return halogen_test_graphemes(text).filter((b) => b < at).pop() ?? 0;
+}
+
+function halogen_test_grapheme_after(text, at) {
+  return halogen_test_graphemes(text).find((b) => b > at) ?? text.length;
+}
+
+// The input types Enter submits a form from, and of which a form with no
+// submit button may have one only for Enter to submit it (HTML's fields
+// that block implicit submission).
+const halogen_test_blocking = ['text', 'search', 'url', 'tel', 'email', 'password', 'date', 'month', 'week', 'time', 'datetime-local', 'number'];
+
+// Enter in a form's field, as HTML's implicit submission has it: the form's
+// default button, its first submit button in tree order, is activated, so
+// its click handlers run and may prevent the submission, and nothing
+// happens if it is disabled. A form with no submit button is submitted
+// only when it has a single field that blocks implicit submission.
+function halogen_test_implicit_submit(input) {
+  const form = input.form;
+  if (!halogen_test_blocking.includes(input.type)) return;
+  // form.elements leaves out image buttons, so the document is searched.
+  const button = Array.from(document.querySelectorAll('button, input[type=submit], input[type=image]'))
+    .find((element) => element.form === form && (element.type === 'submit' || element.type === 'image'));
+  if (button) {
+    if (!button.matches(':disabled')) button.click();
+    return;
+  }
+  const fields = Array.from(form.elements).filter((element) => element instanceof HTMLInputElement && halogen_test_blocking.includes(element.type));
+  if (fields.length === 1) form.requestSubmit();
 }
 
 // Move the focus to the next (or previous) element Tab reaches, in document

@@ -257,8 +257,13 @@ actions itself, with synthetic events (`jsbits/page.js`, its in-page mode):
   element, and when `keydown`'s default is not prevented (when it is,
   nothing more, not even the `Space` that would press a button), the
   commonest of what the browser would do: a character typed into a text field,
-  `Backspace` and `Delete`, `Enter` on a button or a link (a click), in a
-  text input of a form (it is submitted) and in a text area, `Space` on a
+  `Backspace` and `Delete` (a whole character as the reader sees it, a
+  grapheme cluster such as an emoji, never half of one), `Enter` on a
+  button or a link (a click), in a text input of a form (HTML's implicit
+  submission: the form's first submit button is clicked, so its handlers
+  run, and nothing happens when it is disabled; a form with no submit
+  button is submitted only when it has a single text-like field) and in a
+  text area, `Space` on a
   button or a checkbox, and `Tab` and `Shift+Tab` moving the focus in
   document order. Any other key only sends its events.
 - `dragTo`: pointer events from one element to the other, then HTML5 drag
