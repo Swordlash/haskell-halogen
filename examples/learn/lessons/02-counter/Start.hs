@@ -22,6 +22,8 @@ component =
   where
     render count =
       HH.div_
+        -- Neither button has an HE.onClick yet, so clicking them does
+        -- nothing: giving them one is the exercise.
         [ HH.button [] [HH.text "-"]
         , HH.button [] [HH.text "+"]
         , HH.p_ [HH.text ("Count: " <> T.pack (show count))]

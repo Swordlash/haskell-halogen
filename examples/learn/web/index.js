@@ -1,4 +1,7 @@
-import { WASI, OpenFile, File, ConsoleStdout } from "https://cdn.jsdelivr.net/npm/@bjorn3/browser_wasi_shim@0.3.0/dist/index.js";
+// The source of the page's index.js, which bundle.sh bundles with the shim
+// from node_modules (the version package-lock.json pins), so that the page
+// loads nothing from a CDN; it is not served as it is.
+import { WASI, OpenFile, File, ConsoleStdout } from "@bjorn3/browser_wasi_shim";
 import ghcWasmImports from "./ghc_wasm_jsffi.js";
 // The compiler and the editor, which the program's bindings call
 // (examples/learn/js/learn.js, bundled by bundle.sh).

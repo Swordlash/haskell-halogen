@@ -27,7 +27,8 @@
 // large is downloaded until asked; a compiler that fails to load can be
 // retried, and loads from a manifest without a version or sizes too (asking
 // the server for them); a layer that fails to load is its lessons' failure
-// alone, and can be retried; and nothing is logged as an error.
+// alone, and can be retried; nothing is logged as an error; and nothing is
+// loaded from another site but what a layer loads itself.
 import assert from "node:assert/strict";
 import { lstat, readFile, readdir, stat } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -56,6 +57,22 @@ if (!process.env.LEARN_ROOTFS_DIR) {
 console.log(`    rootfs ${rootfs === join(root, "rootfs") ? "in the tree" : `from ${rootfs}`}, version ${manifest.version}`);
 // A request for an archive or a part of one.
 const archive = /\.tar\.zst(\.\d\d)?$/;
+
+// What a page may load from another site: what a layer says it loads itself
+// (its `external` entries in rootfs.json, which learn/README.md lists), and
+// nothing else, so that neither the app nor the compiler depends on a CDN.
+// A layer's external is allowed only on the lessons that use that layer
+// (PixiJS, when lesson 11's canvas mounts), but for one named by a layer's
+// stylesheet (the Material Icons font, named by material.css): the
+// stylesheet stays on the page once the layer has loaded, whichever lesson
+// loaded it, and the browser fetches the font when it first needs it.
+const external = new Map();
+for (const layer of manifest.layers) {
+  const anywhere = (layer.assets ?? []).some((asset) => asset.kind === "stylesheet");
+  for (const { url } of layer.external ?? []) external.set(url, { layer: layer.name, anywhere });
+}
+const offSite = [];
+const externalSeen = new Set();
 
 // The lessons, as the app reads them: the directory's name and the header's
 // title, and the code.
@@ -495,6 +512,8 @@ try {
 
   assert.deepEqual(errors, [], "errors in the page");
   console.log("ok  no errors in the page");
+  assert.ok(offSite.length === 0, `the page loaded from another site than the test server's: ${offSite.join(", ")}`);
+  console.log(`ok  nothing loaded from another site but the layers' external dependencies (${[...externalSeen].join(", ") || "none of them"})`);
 } catch (error) {
   failed = true;
   console.error(`FAIL ${error.message}`);
@@ -516,6 +535,18 @@ function watch(page, expected) {
     page.on("requestfailed", (request) => console.log(`    ! ${request.url()} ${request.failure()?.errorText}`));
   }
   page.on("pageerror", (error) => errors.push(error.message));
+  page.on("request", (request) => {
+    const target = new URL(request.url());
+    if (!/^https?:$/.test(target.protocol) || request.url().startsWith(url)) return;
+    const allowed = external.get(request.url());
+    const where = new URL(page.url()).pathname;
+    const lesson = lessons.find((l) => where.startsWith(`${base}${l.slug}/`));
+    if (allowed && (allowed.anywhere || lesson?.layers.includes(allowed.layer))) {
+      externalSeen.add(request.url());
+      return;
+    }
+    offSite.push(`${request.url()} (from ${where})`);
+  });
   page.on("console", (message) => {
     if (message.type() === "error" && !(expected && expected.test(message.text()))) errors.push(message.text());
   });

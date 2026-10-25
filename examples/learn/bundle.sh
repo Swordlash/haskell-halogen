@@ -3,7 +3,8 @@
 # app.wasm: the compiler's loader and the CodeMirror editor
 # (examples/learn/js/), with CodeMirror's packages from node_modules. The
 # editor's styles come with it, as CodeMirror injects them; the page's own
-# are web/learn.css, copied as it is. Then put the compiler beside it.
+# are web/learn.css, copied as it is. Bundle web/index.js, which starts
+# app.wasm, with its browser_wasi_shim. Then put the compiler beside them.
 #
 #   sh examples/learn/bundle.sh <output-dir>
 #
@@ -31,6 +32,19 @@ mkdir -p "$out_dir"
 npx esbuild examples/learn/js/learn.js \
   --bundle --minify --format=esm --target=es2022 --log-level=warning \
   --outfile="$out_dir/learn.js"
+
+# The page's index.js, which starts app.wasm, with the app's own
+# browser_wasi_shim bundled in from node_modules rather than imported from a
+# CDN, so that the tutorial loads nothing from another site but what a
+# lesson's layer does (learn/README.md). Its siblings in the output stay
+# imports. toolchain/dev.sh removes index.js before running this, as browser
+# GHCi's script takes its place in the page, so there is then none to bundle.
+if [ -f "$out_dir/index.js" ]; then
+  npx esbuild examples/learn/web/index.js \
+    --bundle --minify --format=esm --target=es2022 --log-level=warning \
+    --external:./ghc_wasm_jsffi.js --external:./learn.js \
+    --outfile="$out_dir/index.js" --allow-overwrite
+fi
 
 rm -rf "$out_dir/rootfs"
 if [ -f "$rootfs/rootfs.json" ]; then

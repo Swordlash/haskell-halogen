@@ -11,10 +11,11 @@
 // GHC arguments. The playground rereads the package DBs on every run, so a
 // layer loaded after a run is there for the next.
 //
-// browser_wasi_shim comes from the address dyld.mjs imports it from, so that
-// the page and dyld share one copy of it. Vendoring it means rewriting that
-// import in the copy of dyld.mjs the build ships.
-import { ConsoleStdout, File, OpenFile, PreopenDirectory, WASI } from "https://esm.sh/gh/haskell-wasm/browser_wasi_shim";
+// browser_wasi_shim is the copy beside this page (from learn/vendor/), which
+// the build also points dyld.mjs at, so that the page and dyld share one
+// instance of the module (dyld checks the file system's objects against its
+// own classes).
+import { ConsoleStdout, File, OpenFile, PreopenDirectory, WASI } from "./browser_wasi_shim.js";
 import { DyLDBrowserHost, main } from "./dyld.mjs";
 
 // -Wno-missed-extra-shared-lib: the RTS's package names libdl, which wasi

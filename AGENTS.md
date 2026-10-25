@@ -133,7 +133,8 @@ and wired into `test/Test.hs`.
   `toolchain/test-playground.mjs` drives `learn/`'s page on the rootfs, with a program for every
   layer. Both run in CI and `test-learn` gates the Pages deploy; the workflows install Chromium with
   `npx playwright install --with-deps --only-shell chromium`, and the pages need the network
-  (browser_wasi_shim from esm.sh, PixiJS from jsDelivr).
+  only for PixiJS from jsDelivr and the Material Icons font: the tutorial bundles its
+  browser_wasi_shim, and the compiler's is `learn/vendor/`'s, shipped in the rootfs.
 
 ## Architecture
 

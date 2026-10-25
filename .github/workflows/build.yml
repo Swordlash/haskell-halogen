@@ -413,7 +413,9 @@ jobs:
     # prerendered under the base path, the size-optimised app adopting it, the
     # compiler loading from public/learn/rootfs, every lesson's Start.hs and
     # Solution.hs compiling in the page, back, forward, the Cache API and a
-    # narrow screen. It needs the network: browser_wasi_shim comes from esm.sh.
+    # narrow screen. It needs the network only for what the layers load
+    # themselves (PixiJS from jsDelivr, the Material Icons font), and fails
+    # on a request to any other site.
     - name: Test the tutorial in a browser
       run: npm run test-learn
       env:
