@@ -36,7 +36,7 @@ import Halogen.Subscription qualified as HS
 import Halogen.VDom.DOM.Monad (MonadBrowserDOM, StorageKind (..), readStorageItem, removeStorageItem, writeStorageItem)
 import Learn.Browser (CompileRequest (..), Editor, EditorEvent (..), Progress (..), RunResult (..), Sizes (..))
 import Learn.Browser qualified as Browser
-import Learn.Diagnostics (Diagnostic (..), Severity (..), parseDiagnostics)
+import Learn.Diagnostics (Diagnostic (..), Severity (..), didNotCompile, parseDiagnostics)
 import Learn.Lesson (Lesson (..), wrapper)
 import Learn.Lessons (lessons)
 import Learn.Route (Route (..), lessonOf)
@@ -55,17 +55,20 @@ data State = State
   , sizes :: Maybe Sizes
   , loadedLayers :: [Text]
   , loadingLayers :: Bool
+  -- ^ A layer load is under way; the lesson's layers are checked again
+  -- when it ends, in case the reader has moved to another lesson since.
+  , layerFailure :: Maybe Text
+  -- ^ Why this lesson's layers did not load: the compiler, and the lessons
+  -- that do not need them, are usable all the same.
   , runs :: Int
+  -- ^ How many compiles have started, shown on the outcome as @data-run@
+  -- so that a test can tell a new outcome from the last one.
   , visit :: Int
+  -- ^ Counts the lessons entered: a compile started in one visit must not
+  -- report into a later one, even of the same lesson, whose editor is new.
   , knownMb :: Double
   -- ^ How many megabytes the compiler reported loaded when it was last
   -- ready, for a Retry that finds it already started and gets no new report.
-  -- ^ Counts the lessons entered: a compile started in one visit must not
-  -- report into a later one, even of the same lesson, whose editor is new.
-  -- ^ How many compiles have started, shown on the outcome as @data-run@
-  -- so that a test can tell a new outcome from the last one.
-  -- ^ A layer load is under way; the lesson's layers are checked again
-  -- when it ends, in case the reader has moved to another lesson since.
   , edited :: Bool
   -- ^ The editor's text is not the lesson's @Start.hs@.
   , run :: Run
@@ -123,6 +126,7 @@ component =
           , sizes = Nothing
           , loadedLayers = []
           , loadingLayers = False
+          , layerFailure = Nothing
           , runs = 0
           , visit = 0
           , knownMb = 0
@@ -148,7 +152,7 @@ component =
         current <- gets (.route)
         unless (r == current) $ do
           leaveLesson
-          modify $ \s -> s {route = r, edited = False, run = NotRun, mounted = False}
+          modify $ \s -> s {route = r, edited = False, run = NotRun, mounted = False, layerFailure = Nothing}
           H.liftEffect (liftIO Browser.scrollToTop)
           enterLesson
           gets (.compiler) >>= \case
@@ -194,8 +198,11 @@ component =
           now <- gets (.visit)
           when (now == st.visit) $ case compiled of
             Left message -> modify $ \s -> s {run = Unrun message}
-            Right result -> do
-              let diagnostics = parseDiagnostics result.stderr
+            Right result0 -> do
+              let diagnostics = parseDiagnostics result0.stderr
+                  -- What GHC wrote wins over how the run ended: see
+                  -- 'didNotCompile'.
+                  result = result0 {compiled = result0.compiled && (result0.ok || not (didNotCompile result0.stderr))}
               H.liftEffect $ liftIO $ Browser.showDiagnostics editor (filter ((== "Lesson.hs") . (.file)) diagnostics)
               modify $ \s -> s {run = Ran result diagnostics, mounted = s.mounted || result.compiled}
       Reset -> withEditor $ \lesson editor -> H.liftEffect (liftIO (Browser.setEditorText editor lesson.start))
@@ -244,23 +251,28 @@ component =
         _ -> do
           modify $ \s -> s {compiler = Loading ReadingManifest}
           progress <- liftIO HS.create
-          void $ H.subscribe (Progressed <$> progress.emitter)
+          subscription <- H.subscribe (Progressed <$> progress.emitter)
           root <- liftIO Browser.rootfsAddress
           let wanted = maybe [] (.layers) (lessonOf st.route)
           liftIO (Browser.startCompiler root wanted (HS.notify progress.listener)) >>= \case
-            Left message -> modify $ \s -> s {compiler = Broken message}
+            Left message -> do
+              -- The page tells nothing more through this start's progress:
+              -- a Retry subscribes anew.
+              H.unsubscribe subscription
+              modify $ \s -> s {compiler = Broken message}
             Right () -> do
               -- A Retry after a layer failed finds the compiler started: the
               -- start reports nothing new then, so it reads as loaded here.
               modify $ \s ->
                 s
-                  { loadedLayers = ordNub (s.loadedLayers <> wanted)
-                  , compiler = case s.compiler of
+                  { compiler = case s.compiler of
                       Loading _ -> Loaded s.knownMb
                       other -> other
                   }
-              -- The reader may have gone to a lesson with other layers
-              -- while it loaded.
+              -- The layers wanted were fetched alongside, but may have
+              -- failed: loadLayers asks, and says so for the lesson the
+              -- reader is at now (who may have gone to one with other layers
+              -- while it loaded).
               loadLayers
               syncEditor
               -- After a Retry, the sizes may not have been read before.
@@ -278,16 +290,21 @@ component =
     -- at a time: while one is under way the compiler reads as loading, so
     -- a lesson the reader arrives at meanwhile is not asked for; when the
     -- load ends, the lesson current then is checked again, so its layers
-    -- follow and Compile is enabled there too.
+    -- follow and Compile is enabled there too. A layer that does not load
+    -- is this lesson's failure, not the compiler's.
     loadLayers = do
       st <- get
       let wanted = maybe [] (.layers) (lessonOf st.route)
       unless (st.loadingLayers || all (`elem` st.loadedLayers) wanted) $ do
-        modify $ \s -> s {loadingLayers = True}
+        modify $ \s -> s {loadingLayers = True, layerFailure = Nothing}
         result <- liftIO (Browser.ensureLayers wanted)
         modify $ \s -> s {loadingLayers = False}
+        now <- gets (.route)
         case result of
-          Left message -> modify $ \s -> s {compiler = Broken message}
+          Left message
+            | now == st.route -> modify $ \s -> s {layerFailure = Just message}
+            -- The reader has gone on: the lesson current now gets its own.
+            | otherwise -> loadLayers
           Right () -> do
             modify $ \s -> s {loadedLayers = ordNub (s.loadedLayers <> wanted)}
             syncEditor
@@ -426,6 +443,7 @@ component =
         HH.section
         [HP.class_ (HH.ClassName "learn-result-column")]
         ( [("compiler", compilerPanel st) | not (isLoaded st.compiler)]
+            <> [("layers", layersPanel message) | isLoaded st.compiler, Just message <- [st.layerFailure]]
             <> [ ("outcome", HH.p [HP.class_ (HH.ClassName "learn-outcome"), HP.attr (H.AttrName "data-run") (show st.runs)] [HH.text (outcome st)])
                , -- Never patched inside: the compiled program's.
                  ("result", HH.div [HP.id "learn-result", HP.class_ (HH.ClassName "learn-result")] [])
@@ -463,12 +481,20 @@ component =
               ]
         )
 
+    layersPanel message =
+      HH.div
+        [HP.class_ (HH.ClassName "learn-compiler")]
+        [ HH.p [HP.class_ (HH.ClassName "learn-error")] [HH.text ("This lesson's libraries did not load: " <> message)]
+        , HH.button [HP.class_ (HH.ClassName "learn-retry-layers"), HE.onClick (const LoadCompiler)] [HH.text "Retry"]
+        ]
+
     progressView = \case
       Downloading loaded total _ ->
         [ HH.p_ [HH.text ("Downloading GHC: " <> megabytes loaded <> maybe " MB" (\t -> " of " <> megabytes t <> " MB") total)]
         , bar (fmap (\t -> fromIntegral loaded / fromIntegral (max 1 t)) total)
         ]
       ReadingManifest -> [HH.p_ [HH.text "Looking for the compiler…"], bar Nothing]
+      ReadingCache -> [HH.p_ [HH.text "Reading GHC from your browser's cache…"], bar Nothing]
       Extracting -> [HH.p_ [HH.text "Extracting…"], bar Nothing]
       Starting -> [HH.p_ [HH.text "Starting GHC…"], bar Nothing]
       LoadingLayers -> [HH.p_ [HH.text "Loading the lesson's libraries…"], bar Nothing]

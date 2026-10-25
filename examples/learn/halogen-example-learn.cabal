@@ -130,6 +130,22 @@ executable halogen-example-learn
   if flag(interactive)
     cpp-options: -DINTERACTIVE
 
+-- The Markdown reader, which runs at compile time and reads the same on
+-- every backend: tested natively only.
+test-suite Halogen-learn-test
+  import:           shared
+  type:             exitcode-stdio-1.0
+  main-is:          Test.hs
+  hs-source-dirs:   test
+
+  if arch(wasm32) || arch(javascript)
+    buildable: False
+  else
+    build-depends:
+        hspec >= 2,
+        protolude,
+        halogen-example-learn
+
 -- Every route's page, with the tutorial already rendered into it, written
 -- natively at build time (toolchain/build-wasm.sh runs it). Only a host GHC
 -- renders to HTML, so there is nothing to build on the browser backends.

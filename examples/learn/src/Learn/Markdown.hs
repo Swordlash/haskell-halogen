@@ -10,16 +10,21 @@
 -- * fenced code blocks, between lines of three backticks, the first of
 --   which may name the language (@haskell@);
 -- * lists, each item a line starting with @- @ or @* @ (unordered) or a
---   number and @. @ (ordered), continued on lines indented under it;
+--   number and @. @ (ordered), continued on lines indented under it; an
+--   ordered list starts at its first item's number, and a blank line
+--   between two items does not end a list. Lists do not nest: an indented
+--   item is an error;
 -- * blockquotes, lines starting with @> @, whose content is read as blocks;
 -- * inline, within any of those: @`code`@, @**bold**@, @*italic*@ or
 --   @_italic_@, @[text](address)@, and a backslash before a character to
---   take it literally.
+--   take it literally. A link's text ends at the first @]@, and its address
+--   at the @)@ that closes its @(@, so an address may hold parentheses that
+--   are balanced (@https:\/\/en.wikipedia.org\/wiki\/Monad_(functional_programming)@).
 --
--- Anything else is a paragraph's text, as written. A construct that is
--- started and not ended (a code block without its closing fence, a link
--- without its address) is an error, which fails the build and names the
--- line, rather than a page that looks wrong.
+-- Line ends may be CRLF. Anything else is a paragraph's text, as written.
+-- A construct that is started and not ended (a code block without its
+-- closing fence, a link without its address) is an error, which fails the
+-- build and names the line, rather than a page that looks wrong.
 module Learn.Markdown
   ( Block (..)
   , Inline (..)
@@ -41,7 +46,8 @@ data Block
     -- code.
     CodeBlock (Maybe Text) Text
   | Bullets [[Inline]]
-  | Numbered [[Inline]]
+  | -- | An ordered list: the number it starts at, and its items.
+    Numbered Int [[Inline]]
   | Quote [Block]
   deriving stock (Eq, Show, Lift)
 
@@ -56,7 +62,7 @@ data Inline
 
 -- | The blocks of a text, or why it cannot be read, with the line (from 1).
 parseMarkdown :: Text -> Either Text [Block]
-parseMarkdown = blocks . zip [1 ..] . T.lines
+parseMarkdown = blocks . zip [1 ..] . map (T.dropWhileEnd (== '\r')) . T.lines
 
 type Line = (Int, Text)
 
@@ -81,7 +87,7 @@ blocks = \case
         inner <- blocks [(m, unquote q) | (m, q) <- quote]
         (Quote inner :) <$> blocks after
     | Just _ <- bullet l -> items Bullets bullet ls
-    | Just _ <- numbered l -> items Numbered numbered ls
+    | Just (start, _) <- numberedFrom l -> items (Numbered start) numbered ls
     | otherwise -> do
         let (para, after) = break (ends . snd) ls
         inlines <- inline n (T.unwords (map (T.strip . snd) para))
@@ -101,19 +107,30 @@ blocks = \case
     unquote l = maybe (T.drop 1 l) identity (T.stripPrefix "> " l)
 
     -- A list: its items, each the marker's line and the indented lines
-    -- under it.
+    -- under it. Blank lines between two items are part of the list.
     items make marker ls = do
-      let (found, after) = collect ls
+      (found, after) <- collect ls
       inlines <- traverse (\(m, item) -> inline m item) found
       (make inlines :) <$> blocks after
       where
         collect = \case
           (m, l) : more
-            | Just firstLine <- marker l ->
+            | Just firstLine <- marker l -> do
                 let (continued, after) = span (indented . snd) more
-                    (others, rest) = collect after
-                 in ((m, T.unwords (firstLine : map (T.strip . snd) continued)) : others, rest)
-          more -> ([], more)
+                    next = dropWhile (T.null . T.strip . snd) after
+                case next of
+                  (k, l') : _
+                    | " " `T.isPrefixOf` l'
+                    , isJust (bullet (T.stripStart l')) || isJust (numbered (T.stripStart l')) ->
+                        Left (at k "lists do not nest: an indented item is not read as a list inside the item above")
+                  _ -> pure ()
+                -- Past the blank lines only if an item of this list comes
+                -- next.
+                (others, rest) <- collect $ case next of
+                  (_, l') : _ | isJust (marker l') -> next
+                  _ -> after
+                pure ((m, T.unwords (firstLine : map (T.strip . snd) continued)) : others, rest)
+          more -> pure ([], more)
         indented l = not (T.null (T.strip l)) && " " `T.isPrefixOf` l && isNothing (marker (T.stripStart l))
 
 heading :: Text -> Maybe (Int, Text)
@@ -126,9 +143,13 @@ bullet :: Text -> Maybe Text
 bullet l = T.strip <$> (T.stripPrefix "- " l <|> T.stripPrefix "* " l)
 
 numbered :: Text -> Maybe Text
-numbered l =
+numbered = fmap snd . numberedFrom
+
+-- | An ordered list's item: its number and its text.
+numberedFrom :: Text -> Maybe (Int, Text)
+numberedFrom l =
   let (digits, rest) = T.span isDigit l
-   in if T.null digits then Nothing else T.strip <$> T.stripPrefix ". " rest
+   in if T.null digits then Nothing else (,) <$> readMaybe (toS digits :: [Char]) <*> (T.strip <$> T.stripPrefix ". " rest)
 
 at :: Int -> Text -> Text
 at n message = "line " <> show n <> ": " <> message
@@ -150,18 +171,31 @@ parseInlines = fmap merge . go False
         (_, "") -> Left ("` is not closed: `" <> T.take 30 rest)
         (code, more) -> (Code code :) <$> go False (T.drop 1 more)
       Just ('*', rest)
-        | Just inner <- T.stripPrefix "*" rest, startsWord inner -> delimited "**" Strong inner
-        | startsWord rest -> delimited "*" Emphasis rest
+        | Just inner <- T.stripPrefix "*" rest, opens '*' inner -> delimited "**" Strong inner
+        | opens '*' rest -> delimited "*" Emphasis rest
       Just ('_', rest)
-        | not afterWord && startsWord rest -> delimited "_" Emphasis rest
-      Just ('[', rest) -> case T.breakOn "](" rest of
-        (_, "") -> plain t
-        (label, more) -> case T.breakOn ")" (T.drop 2 more) of
-          (_, "") -> Left ("a link's address is not closed: [" <> T.take 30 rest)
-          (address, after) -> do
-            inner <- go False label
-            (Link (T.strip address) inner :) <$> go False (T.drop 1 after)
+        | not afterWord && opens '_' rest -> delimited "_" Emphasis rest
+      -- A link's text is up to the first ], with no [ in it (that [ may
+      -- start the link); a ( right after the ] starts its address.
+      Just ('[', rest)
+        | (label, more) <- T.break (`elem` ['[', ']']) rest
+        , Just after <- T.stripPrefix "](" more -> case closing 0 after of
+            Nothing -> Left ("a link's address is not closed: [" <> T.take 30 rest)
+            Just (address, remaining) -> do
+              inner <- go False label
+              (Link (T.strip address) inner :) <$> go False remaining
       Just _ -> plain t
+
+    -- An address, up to the ) that closes the link's (: the parentheses
+    -- inside it must balance.
+    closing :: Int -> Text -> Maybe (Text, Text)
+    closing depth t = case T.uncons t of
+      Nothing -> Nothing
+      Just (')', more)
+        | depth == 0 -> Just ("", more)
+        | otherwise -> first (T.cons ')') <$> closing (depth - 1) more
+      Just ('(', more) -> first (T.cons '(') <$> closing (depth + 1) more
+      Just (c, more) -> first (T.cons c) <$> closing depth more
 
     -- Text up to the next character that may start something.
     plain t =
@@ -170,8 +204,9 @@ parseInlines = fmap merge . go False
        in (Plain txt' :) <$> go (maybe False (isAlphaNum . snd) (T.unsnoc txt')) rest
 
     -- What may open emphasis: a marker followed by something other than a
-    -- space, so that @a * b@ is a product and not emphasis.
-    startsWord rest = maybe False (not . isSpace . fst) (T.uncons rest)
+    -- space, so that @a * b@ is a product and not emphasis, or than the
+    -- marker again, so that @** x@ is text and not an empty emphasis.
+    opens marker rest = maybe False (\(c, _) -> not (isSpace c) && c /= marker) (T.uncons rest)
 
     delimited marker make rest = case T.breakOn marker rest of
       (_, "") -> Left (marker <> " is not closed: " <> marker <> T.take 30 rest)

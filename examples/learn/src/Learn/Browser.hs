@@ -113,6 +113,9 @@ data Progress
   | -- | Bytes so far, of how many if that is known, and every megabyte
     -- loaded with it, before.
     Downloading Int (Maybe Int) Double
+  | -- | Reading an archive from the browser's cache, with nothing coming
+    -- from the network meanwhile.
+    ReadingCache
   | Extracting
   | Starting
   | LoadingLayers
@@ -126,6 +129,7 @@ instance FromJSON Progress where
     o .: "phase" >>= \case
       "manifest" -> pure ReadingManifest
       "download" -> Downloading <$> o .: "loaded" <*> o .:? "total" <*> o .:? "mb" .!= 0
+      "cache" -> pure ReadingCache
       "extract" -> pure Extracting
       "start" -> pure Starting
       "layers" -> pure LoadingLayers
@@ -133,14 +137,21 @@ instance FromJSON Progress where
       "error" -> LoadFailed <$> o .:? "message" .!= "the compiler failed to load"
       other -> fail ("no such phase: " <> other)
 
--- | Download, extract and start the compiler, with these layers, telling
--- @onProgress@ how it goes, then and on every later 'ensureLayers'. Waits
--- until a compile can start, or the loading failed. Once it has succeeded,
--- calling it again only makes sure of the layers.
+-- | Download, extract and start the compiler, and these layers alongside,
+-- telling @onProgress@ how it goes, then and on every later 'ensureLayers'.
+-- Waits until the compiler has started, or failed to. A layer's failure is
+-- not the compiler's: the first 'ensureLayers' that names the layer reports
+-- it, so a compile that needs the layers waits for that.
+--
+-- Once the compiler has started, @onProgress@ is what the page tells of
+-- every later load, for as long as the page lives, so its callback stays;
+-- when it failed, the page has let go of it, and it is freed here.
 startCompiler :: Text -> [Text] -> (Progress -> IO ()) -> IO (Either Text ())
 startCompiler root layers onProgress = do
   callback <- mkCallback $ \value -> either (const pass) onProgress (decode (jsValText value))
-  void <$> (settled =<< await =<< js_start (toJSText root) (encodeText layers) callback)
+  started <- void <$> (settled =<< await =<< js_start (toJSText root) (encodeText layers) callback)
+  when (isLeft started) (freeCallback callback)
+  pure started
 
 -- | Extract the layers named that are not yet, once the compiler has
 -- started.

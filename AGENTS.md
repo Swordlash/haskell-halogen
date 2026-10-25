@@ -236,7 +236,8 @@ instead of declaring a `Safe` import and forcing its result with `evaluate`.
 `examples/learn` is an ordinary example (prerendered per route, hydrated), whose lessons are data:
 `lessons/NN-slug/` (`lesson.md` with a `key: value` header, `Start.hs`, `Solution.hs`, an optional
 `Main.hs`), listed in `lessons/index.txt` and embedded by Template Haskell (`Learn.Lessons`; the text is
-a Markdown subset read at compile time, `Learn.Markdown`). Its compiler is `learn/`'s playground: the
+a Markdown subset read at compile time, `Learn.Markdown`, which `examples/learn/test` tests natively,
+with `Learn.Diagnostics`). Its compiler is `learn/`'s playground: the
 page loads the rootfs from `rootfs/` under its base (its `bundle.sh` copies `npm run build-rootfs`'s
 output there), keeps the archives in the Cache API under the manifest's `version`, and starts
 `libplayground.so` with GHC's `dyld.mjs` (`examples/learn/js/playground.js`). A compile writes the

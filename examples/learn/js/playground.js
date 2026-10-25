@@ -35,7 +35,7 @@ main = endPreviousRun
 `;
 
 const manifests = new Map();
-let compiler = null; // { shim, rootfs, run, manifest, layers: Map<name, Promise> }
+let compiler = null; // { shim, rootfs, run, manifest, layers: Map<name, Promise>, failed: Map<name, Error>, bsdtar }
 let starting = null;
 let progressSink = () => {};
 let outputSink = null;
@@ -149,17 +149,32 @@ async function openCache() {
 // version is the manifest's, which is one for every archive, whatever the
 // cache holds of the same rootfs under another version goes too, archives no
 // longer in the manifest included.
+//
+// Reading the cache is a phase of its own ("cache"), not a download: it is
+// reported when nothing is on its way from the network, whose progress the
+// bar shows otherwise, and the bytes read from it are not counted in that
+// progress. A download that fails takes its progress out of the sum, so that
+// the next one's total is its own.
 async function fetchArchive(archive) {
   const cache = archive.version ? await openCache() : null;
   const key = new URL(`${archive.url}?v=${encodeURIComponent(archive.version)}`).href;
   if (cache) {
     const hit = await cache.match(key).catch(() => undefined);
     if (hit) {
+      if (downloads.size === 0) report({ phase: "cache", mb: totalMb() });
       const bytes = new Uint8Array(await hit.arrayBuffer());
-      downloaded(archive.name, bytes.byteLength, bytes.byteLength);
       return { bytes, cached: true };
     }
   }
+  try {
+    return await download(archive, cache, key);
+  } catch (error) {
+    downloads.delete(archive.name);
+    throw error;
+  }
+}
+
+async function download(archive, cache, key) {
   let total = archive.size;
   const chunks = [];
   let loaded = 0;
@@ -243,11 +258,16 @@ async function extract(shim, bsdtar, rootfs, bytes, name) {
   if (code !== 0) throw new Error(`bsdtar exited with ${code} on ${name}`);
 }
 
-// Download, extract and start the compiler, with the layers named; report
-// what it is doing to onProgress, here and in every later ensureLayers. The
-// promise resolves once a compile can start. Called again while it is under
-// way, or after it has succeeded, it gives the same promise; after it has
-// failed, it starts again.
+// Download, extract and start the compiler, and the layers named alongside;
+// report what it is doing to onProgress, here and in every later
+// ensureLayers. The promise resolves once the compiler has started, and
+// rejects only when the compiler itself did not: a layer that did not load
+// leaves the compiler usable for every lesson that does not need it, and the
+// first ensureLayers that names it rejects with why (the next one tries it
+// again). Called again while it is under way, or after it has succeeded, it
+// gives the same promise; after it has failed, it starts again. A failure
+// lets go of onProgress, so that the caller may free it once the promise has
+// rejected.
 export function start(root, layers, onProgress) {
   if (onProgress) progressSink = onProgress;
   if (!starting) {
@@ -255,10 +275,11 @@ export function start(root, layers, onProgress) {
       starting = null;
       downloads.clear();
       report({ phase: "error", message: String(error?.message ?? error) });
+      progressSink = () => {};
       throw error;
     });
   }
-  return starting.then(() => ensureLayers(layers));
+  return starting;
 }
 
 async function boot(root, wanted) {
@@ -273,20 +294,34 @@ async function boot(root, wanted) {
   const m = await manifest(root);
   const shim = await import(shimUrl);
   const layers = m.layers.filter((layer) => wanted.includes(layer.name));
+  // A layer's failure is kept for ensureLayers to report, not the boot's.
+  const settled = (promise) => promise.then((archive) => ({ archive }), (error) => ({ error }));
   const [bsdtar, base, ...extra] = await Promise.all([
     WebAssembly.compileStreaming(fetch(new URL("bsdtar.wasm", m.base))),
     fetchArchive(m.archive),
-    ...layers.map(fetchArchive),
+    ...layers.map((layer) => settled(fetchArchive(layer))),
   ]);
   lap("fetch");
   const rootfs = new shim.PreopenDirectory("/", []);
   report({ phase: "extract", mb: totalMb() });
   await nextFrame();
   await extract(shim, bsdtar, rootfs, base.bytes, m.archive.url);
-  for (const [i, layer] of layers.entries()) await extract(shim, bsdtar, rootfs, extra[i].bytes, layer.url);
-  await Promise.all(layers.map((layer) => addAssets(m, layer)));
+  loadedBytes += base.bytes.byteLength;
+  const loaded = [];
+  const failed = new Map();
+  for (const [i, layer] of layers.entries()) {
+    try {
+      if (extra[i].error) throw extra[i].error;
+      await extract(shim, bsdtar, rootfs, extra[i].archive.bytes, layer.url);
+      await addAssets(m, layer);
+      loadedBytes += extra[i].archive.bytes.byteLength;
+      loaded.push(layer.name);
+    } catch (error) {
+      console.warn(`learn: the layer ${layer.name} did not load:`, error);
+      failed.set(layer.name, error);
+    }
+  }
   lap("extract");
-  loadedBytes += [base, ...extra].reduce((n, archive) => n + archive.bytes.byteLength, 0);
   downloads.clear();
   report({ phase: "start", mb: totalMb() });
   await nextFrame();
@@ -306,7 +341,7 @@ async function boot(root, wanted) {
   });
   const run = await dyld.exportFuncs.playground(m.libdir);
   lap("start");
-  compiler = { shim, rootfs, run, manifest: m, layers: new Map(layers.map((layer) => [layer.name, Promise.resolve()])), bsdtar };
+  compiler = { shim, rootfs, run, manifest: m, layers: new Map(loaded.map((name) => [name, Promise.resolve()])), failed, bsdtar };
   console.info(`learn: compiler ready (${JSON.stringify(timings)})`);
   report({ phase: "ready", mb: totalMb(), timings });
 }
@@ -323,7 +358,11 @@ function nextFrame() {
 }
 
 // Extract the layers named that are not extracted yet. Resolves when all of
-// them are; reports the download as start does.
+// them are; reports the download as start does. A layer that does not load
+// rejects the promise, with why, and is tried again by the next call that
+// names it (one that failed while the compiler started is reported here
+// first, and tried again after that); the compiler stays ready, and is
+// reported so, for the lessons that do not need it.
 export async function ensureLayers(names) {
   if (!compiler) throw new Error("the compiler has not started");
   const c = compiler;
@@ -331,9 +370,12 @@ export async function ensureLayers(names) {
   for (const name of missing) {
     const layer = c.manifest.layers.find((l) => l.name === name);
     if (!layer) throw new Error(`no layer named ${name} in rootfs.json`);
+    const failure = c.failed.get(name);
+    c.failed.delete(name);
     c.layers.set(
       name,
       (async () => {
+        if (failure) throw failure;
         const { bytes } = await fetchArchive(layer);
         await extract(c.shim, c.bsdtar, c.rootfs, bytes, layer.url);
         await addAssets(c.manifest, layer);
@@ -348,11 +390,9 @@ export async function ensureLayers(names) {
   if (missing.length) report({ phase: "layers" });
   try {
     await Promise.all(names.map((name) => c.layers.get(name)));
-  } catch (error) {
-    report({ phase: "error", message: String(error?.message ?? error) });
-    throw error;
+  } finally {
+    if (missing.length) report({ phase: "ready", mb: totalMb() });
   }
-  if (missing.length) report({ phase: "ready", mb: totalMb() });
 }
 
 function writeFile(path, text) {

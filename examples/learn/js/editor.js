@@ -1,6 +1,14 @@
 // The code editor: CodeMirror 6 with its legacy Haskell mode, line numbers,
 // GHC's diagnostics as lint markers, Ctrl/Cmd+Enter to compile and Tab for
-// two spaces. The Halogen app owns the element the editor lives in (it renders
+// two spaces.
+//
+// Tab is the editor's, so it does not move the focus on, as it does
+// everywhere else: CodeMirror's own way out is kept (its tab-focus mode, see
+// https://codemirror.net/examples/tab/), and said in the editor's
+// description for a screen reader: Escape, then Tab or Shift+Tab within two
+// seconds, moves the focus out of the editor, and Ctrl+M (Shift+Alt+M on a
+// Mac, defaultKeymap's toggleTabFocusMode) makes Tab move it until pressed
+// again. The Halogen app owns the element the editor lives in (it renders
 // it empty and never patches inside it) and talks to the editor only through
 // these functions; the editor tells the app what happens through one callback,
 // with a JSON string: {"type":"change","text":...} or {"type":"compile"}.
@@ -77,7 +85,10 @@ export function create(parent, text, readOnly, onEvent) {
         EditorView.updateListener.of((update) => {
           if (update.docChanged) send({ type: "change", text: update.state.doc.toString() });
         }),
-        EditorView.contentAttributes.of({ "aria-label": "Lesson.hs" }),
+        EditorView.contentAttributes.of({
+          "aria-label": "Lesson.hs",
+          "aria-description": "Tab indents. Press Escape, then Tab, to leave the editor.",
+        }),
       ],
     }),
   });
