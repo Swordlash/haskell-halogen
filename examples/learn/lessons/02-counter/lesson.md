@@ -11,6 +11,6 @@ Halogen then renders again by itself: `render` is never called by your code.
 
 ## Exercise
 
-The buttons in your code do nothing yet. Give each one an `HE.onClick` with its action. Then write `handleAction`, which answers `Increment` with `modify (+ 1)` and `Decrement` with `modify (subtract 1)`, and hand it to Halogen: `H.mkEval H.defaultEval {H.handleAction = handleAction}`.
+The buttons in your code do nothing yet: compile it as it is and clicking them leaves the count at `0`, since nothing turns a click into an action. Give each one an `HE.onClick` with its action. Then write `handleAction`, which answers `Increment` with `modify (+ 1)` and `Decrement` with `modify (subtract 1)`, and hand it to Halogen: `H.mkEval H.defaultEval {H.handleAction = handleAction}`.
 
 Compile, and click: the count follows. Compiling again starts it over from `0`, since each compile mounts a new component with a new state.
