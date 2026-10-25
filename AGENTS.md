@@ -16,8 +16,10 @@ effects: a player over an abstract backend, and a browser backend), `hspec-halog
 (an hspec harness that tests components in a real browser), `th` (`haskell-halogen-th`: the `hh`
 and `clay` quasi-quoters, HTML and CSS with Haskell inside, parsed by ghc-lib-parser), and
 `examples/*` (one browser app each, plus `examples/all`, the gallery that mounts the others and is what
-Pages deploys). `learn/` is no package: it is GHC itself running in a page, compiling and mounting a
-component the reader wrote (the proof for an in-browser tutorial; its `README.md` has the measurements). `hooks`, `router`, `net` (for `Halogen.Subscription`), `material`, `pixi`, `hspec-halogen` and `th` depend only on `core`; `tauri` on `core` (for `Halogen.Subscription`'s emitters) and `jsbits`; `sound` depends on none of them, only on `jsbits`. Everything builds from the root
+Pages deploys), and `examples/learn`, the tutorial: lessons as routes, each with its text, an editor and
+the result of compiling the reader's code in the page. `learn/` is no package: it is GHC itself running in
+a page, compiling and mounting a component the reader wrote (the playground the tutorial runs on; its
+`README.md` has the measurements). `hooks`, `router`, `net` (for `Halogen.Subscription`), `material`, `pixi`, `hspec-halogen` and `th` depend only on `core`; `tauri` on `core` (for `Halogen.Subscription`'s emitters) and `jsbits`; `sound` depends on none of them, only on `jsbits`. Everything builds from the root
 `cabal.project`, so a `core` change is type-checked against every dependent and example.
 
 Every package is compiled for three targets: native GHC, the GHC JavaScript backend, and GHC
@@ -38,6 +40,7 @@ npm run build-wasm-all          # every example, wasm-opt'd; Pages deploys only 
 npm run test-gallery            # the built `all` gallery in headless Chromium (Playwright)
 npm run build-learn             # learn/'s page and the rootfs GHC runs on, into dist-newstyle/wasm/learn
 npm run test-learn              # that page in headless Chromium: compile, mount and click a counter
+npm run test-learn-app          # the tutorial (after build-wasm.sh learn) with that rootfs, every lesson compiled
 npm run build-js                # JS backend: build all, bundle the material example into dist/
 npm run dev -- <example>        # an example in browser GHCi, reloaded and rerun on save
 npm run dev-test -- <package>   # a package's browser test suite in browser GHCi, rerun on save
@@ -225,6 +228,22 @@ A binding that starts asynchronous work returns a `Promise` (`Halogen.JSBits.Pro
 from an `Unsafe` import, and the program `await`s it, which gives a rejection back as a value,
 instead of declaring a `Safe` import and forcing its result with `evaluate`.
 
+### The tutorial compiles in the browser
+
+`examples/learn` is an ordinary example (prerendered per route, hydrated), whose lessons are data:
+`lessons/NN-slug/` (`lesson.md` with a `key: value` header, `Start.hs`, `Solution.hs`, an optional
+`Main.hs`), listed in `lessons/index.txt` and embedded by Template Haskell (`Learn.Lessons`; the text is
+a Markdown subset read at compile time, `Learn.Markdown`). Its compiler is `learn/`'s playground: the
+page loads the rootfs from `rootfs/` under its base (a deploy copies `npm run build-learn`'s output
+there), keeps the archives in the Cache API under the manifest's `version`, and starts
+`libplayground.so` with GHC's `dyld.mjs` (`examples/learn/js/playground.js`). A compile writes the
+reader's module to `/tmp/Lesson.hs` from JavaScript and hands the wrapper to the playground's `Run` as
+`Main` with `-i/tmp`, so `learn/Playground.hs` is unchanged; the wrapper mounts `Lesson.component` into
+`#learn-result`, which the app renders once per lesson (keyed) and never patches inside, and the page
+ends that tree (a compile of `main = endPreviousRun`) before taking the element away. The app and the
+compiled program are two runtimes on one page. GHC's stderr is parsed into diagnostics
+(`Learn.Diagnostics`) for the list under the CodeMirror editor and its lint markers.
+
 ### Hooks
 
 A hook program is an indexed monad (`Hooks.do` is `QualifiedDo`) indexed by a type-level list of the
@@ -284,6 +303,10 @@ storage, …) is built only from public hooks.
   last `:main`'s tree; the
   dev page is derived from `web/index.html` by replacing its `index.js` module script with GHCi's
   `../main.js`, so keep that script tag.
+- A tutorial lesson is a directory of `examples/learn/lessons/` and a line in its `index.txt`;
+  `examples/learn/README.md` says what goes in it (the header, the Markdown subset, the `Lesson`
+  module's contract and the default wrapper, the packages a lesson can use), and
+  `npm run test-learn-app` compiles every lesson's `Start.hs` and `Solution.hs` in the browser.
 - Each example's component lives in a library module (`src/Example/<Name>.hs`); `Main.hs` only starts
   it. `examples/all/Gallery.hs` mounts those components by route (a path, through
   `haskell-halogen-router`), so a new example appears on the deployed site only once it is added

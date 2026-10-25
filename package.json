@@ -13,6 +13,12 @@
   },
   "devDependencies": {
     "@bjorn3/browser_wasi_shim": "^0.3.0",
+    "@codemirror/commands": "6.11.1",
+    "@codemirror/language": "6.13.1",
+    "@codemirror/legacy-modes": "6.5.5",
+    "@codemirror/lint": "6.9.7",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.15",
     "esbuild": "^0.28.2",
     "http-server": "^14.1.1",
     "playwright": "^1.63.0",
@@ -38,6 +44,7 @@
     "test-gallery": "node toolchain/test-gallery.mjs",
     "build-learn": "sh toolchain/build-learn-rootfs.sh",
     "test-learn": "node toolchain/test-learn.mjs",
+    "test-learn-app": "node toolchain/test-learn-app.mjs",
     "clean": "rm -rf dist-newstyle/wasm/public dist-newstyle/ghcjs"
   }
 }
