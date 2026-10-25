@@ -1,7 +1,10 @@
 module Test.Editing (spec) where
 
+import Data.Text qualified as T
 import Example.Editing qualified as Editing
+import Halogen.JSBits.Promise (JSError (..))
 import Protolude hiding (find)
+import Test.Hspec (shouldThrow)
 import Test.Hspec.Halogen
 
 spec :: forall m -> (MonadBrowserTest m) => Spec
@@ -86,6 +89,44 @@ spec m = do
     press "Enter"
     find ui ".order-clicks" >>= (`shouldHaveText` "1")
     find ui ".order-submits" >>= (`shouldHaveText` "1")
+
+  it "does not put half of an emoji into a field it does not fit" $ runPage $ do
+    ui <- mount m Editing.component ()
+    field <- find ui "input.single"
+    typeText field "😀"
+    getProperty field "value" `shouldReturn` ""
+
+  -- Five seconds, the runner's timeout for an action, before it fails.
+  it "does not click a button hidden by visibility, and fails as the runner does" $
+    runPage (mount m Editing.component () >>= (`find` "button.invisible") >>= click)
+      `shouldThrow` \(JSError _ message) -> "Timeout 5000ms exceeded" `T.isInfixOf` message
+
+  -- Five seconds too: a read-only field never becomes editable.
+  it "does not clear a read-only field, and fails as the runner does" $
+    runPage (mount m Editing.component () >>= (`find` "input.readonly") >>= clear)
+      `shouldThrow` \(JSError _ message) -> "Timeout 5000ms exceeded" `T.isInfixOf` message
+
+  it "tabs in tabindex order, past tabindex -1" $ runPage $ do
+    ui <- mount m Editing.component ()
+    find ui "button.tab-first" >>= focus
+    find ui ".focused" >>= (`shouldHaveText` "first")
+    press "Tab"
+    find ui ".focused" >>= (`shouldHaveText` "second")
+    press "Shift+Tab"
+    find ui ".focused" >>= (`shouldHaveText` "first")
+
+  it "takes the focus away by a click on what cannot have it" $ runPage $ do
+    ui <- mount m Editing.component ()
+    find ui "button.tab-first" >>= focus
+    find ui ".focused" >>= (`shouldHaveText` "first")
+    find ui ".focused" >>= click
+    find ui ".focused" >>= (`shouldHaveText` "none")
+
+  it "presses a button with the key Playwright calls Space" $ runPage $ do
+    ui <- mount m Editing.component ()
+    find ui "button.tab-first" >>= focus
+    press "Space"
+    find ui ".focused" >>= (`shouldHaveText` "pressed first")
 
   it "types no more than a field's maxlength" $ runPage $ do
     ui <- mount m Editing.component ()

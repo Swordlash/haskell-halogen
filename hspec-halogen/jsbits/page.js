@@ -125,24 +125,35 @@ function halogen_test_next_task() {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+// Whether an element is visible as Playwright has it: it has a box, and
+// neither it nor what holds it is display: none, content-visibility: hidden
+// or visibility: hidden. Opacity is not looked at: Playwright counts an
+// element of opacity 0 as visible.
+function halogen_test_visible(element) {
+  return element.checkVisibility({visibilityProperty: true});
+}
+
 // Playwright's actionability checks, as far as a page can make them: the
-// element is in the document, takes up space and is not disabled, or becomes
-// so within five seconds (the runner's timeout for an action), else the
-// action fails as it would under the runner. Whether something covers it is
-// not checked.
-async function halogen_test_actionable(element, what) {
+// element is in the document, visible and not disabled, and for an action
+// that edits it (editable), not read-only, or becomes so within five seconds
+// (the runner's timeout for an action), else the action fails as it would
+// under the runner, with Playwright's words for it. Whether something
+// covers it is not checked.
+async function halogen_test_actionable(element, what, editable) {
   const deadline = Date.now() + 5000;
   for (;;) {
     const problem = !element.isConnected
       ? 'is not in the page'
-      : !element.checkVisibility()
+      : !halogen_test_visible(element)
         ? 'is not visible'
         : element.matches(':disabled')
           ? 'is disabled'
-          : null;
+          : editable && !element.isContentEditable && element.readOnly
+            ? 'is not editable'
+            : null;
     if (!problem) return;
     if (Date.now() > deadline) {
-      throw Object.assign(new Error(what + ': the element ' + problem + ' after 5 s: ' + element.outerHTML.slice(0, 200)), {name: 'TimeoutError'});
+      throw Object.assign(new Error(what + ': Timeout 5000ms exceeded: the element ' + problem + ': ' + element.outerHTML.slice(0, 200)), {name: 'TimeoutError'});
     }
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
@@ -162,14 +173,18 @@ function halogen_test_focus_target(element) {
 }
 
 // A mouse click: the pointer and mouse events a user's would send, the focus
-// a press gives (unless mousedown's default was prevented), then click(),
+// a press gives (unless mousedown's default was prevented: to the element or
+// the focusable one around it, or away from whatever had it when there is
+// none, as a press on plain text takes the focus away), then click(),
 // which dispatches the click with its default action (a checkbox toggles, a
 // link is followed, a form's button submits it).
 async function halogen_test_synthetic_click(element) {
   const at = halogen_test_mouse_at(element);
   element.dispatchEvent(new PointerEvent('pointerdown', {...at, ...halogen_test_pointer, buttons: 1}));
   if (element.dispatchEvent(new MouseEvent('mousedown', {...at, buttons: 1}))) {
-    halogen_test_focus_target(element)?.focus();
+    const focusable = halogen_test_focus_target(element);
+    if (focusable) focusable.focus();
+    else document.activeElement?.blur?.();
   }
   element.dispatchEvent(new PointerEvent('pointerup', {...at, ...halogen_test_pointer}));
   element.dispatchEvent(new MouseEvent('mouseup', at));
@@ -221,9 +236,12 @@ function halogen_test_edit(element, text, inputType, start, end) {
   const value = element.isContentEditable ? '' : halogen_test_text(element);
   const [from, to] = start == null ? [value.length, value.length] : [start, end];
   if (text !== '' && !element.isContentEditable && element.maxLength >= 0) {
+    // maxlength counts UTF-16 code units, but what does not fit is left
+    // out a whole character at a time, as Chromium does: an emoji (two
+    // units) does not go into a field with room for one, not even half.
     const room = Math.max(0, element.maxLength - (value.length - (to - from)));
-    if (room === 0) return;
-    text = text.slice(0, room);
+    text = text.slice(0, halogen_test_graphemes(text).filter((b) => b <= room).pop() ?? 0);
+    if (text === '') return;
   }
   const data = inputType === 'insertText' ? text : null;
   const init = {inputType, data, bubbles: true, composed: true};
@@ -365,11 +383,17 @@ function halogen_test_implicit_submit(input) {
   if (fields.length === 1) form.requestSubmit();
 }
 
-// Move the focus to the next (or previous) element Tab reaches, in document
-// order; a positive tabindex is not given its own order.
+// Move the focus to the next (or previous) element Tab reaches, in the
+// order a browser goes in: the elements with a positive tabindex first, by
+// it (in document order for the same one), then those with tabindex 0 or
+// none, in document order. Disabled, hidden and tabindex="-1" elements are
+// left out.
 function halogen_test_tab(from, backwards) {
   const reachable = Array.from(document.querySelectorAll('a[href], button, input, select, textarea, summary, [tabindex], [contenteditable=""], [contenteditable="true"]'))
-    .filter((element) => element.tabIndex >= 0 && !element.matches(':disabled') && element.checkVisibility());
+    .filter((element) => element.tabIndex >= 0 && !element.matches(':disabled') && halogen_test_visible(element))
+    .map((element, order) => ({element, order}))
+    .sort((a, b) => (a.element.tabIndex || Infinity) - (b.element.tabIndex || Infinity) || a.order - b.order)
+    .map(({element}) => element);
   const at = reachable.indexOf(from);
   const next = backwards ? (at <= 0 ? reachable.length - 1 : at - 1) : at + 1;
   reachable[next % reachable.length]?.focus();
@@ -384,7 +408,16 @@ async function halogen_test_synthetic_press(chord) {
   const parts = chord.split('+');
   // "Shift++" is Shift and the plus key.
   if (parts.length > 1 && parts[parts.length - 1] === '') parts.splice(-2, 2, '+');
-  const key = parts.pop();
+  // Playwright's names for keys by their code: Space, KeyA, Digit1.
+  const named = parts.pop();
+  const shifted = parts.includes('Shift');
+  const key = named === 'Space'
+    ? ' '
+    : /^Key[A-Z]$/.test(named)
+      ? (shifted ? named[3] : named[3].toLowerCase())
+      : /^Digit[0-9]$/.test(named)
+        ? named[5]
+        : named;
   const names = parts.map((name) => (name === 'ControlOrMeta' ? (/Mac/.test(navigator.platform) ? 'Meta' : 'Control') : name));
   const modifiers = {};
   const target = () => document.activeElement ?? document.body;
@@ -429,8 +462,12 @@ async function halogen_test_synthetic_act(action, element, text) {
     }
     for (const character of text) await halogen_test_key(character, {});
   } else if (action === 'clear') {
-    // As Playwright's clear: focus, select everything, delete it.
-    await halogen_test_actionable(element, 'clear');
+    // As Playwright's clear: only a text field or an element edited in
+    // place, once it is editable; then focus, select everything, delete it.
+    if (!halogen_test_is_text_field(element) && !element.isContentEditable) {
+      throw new Error('clear: the element is not an <input>, <textarea> or [contenteditable] element: ' + element.outerHTML.slice(0, 200));
+    }
+    await halogen_test_actionable(element, 'clear', true);
     element.focus();
     if (halogen_test_is_text_field(element)) {
       halogen_test_raw.delete(element);
@@ -449,6 +486,7 @@ async function halogen_test_synthetic_act(action, element, text) {
 async function halogen_test_synthetic_drag(source, target) {
   await halogen_test_next_task();
   await halogen_test_actionable(source, 'drag');
+  await halogen_test_actionable(target, 'drag');
   const from = halogen_test_mouse_at(source);
   const to = halogen_test_mouse_at(target);
   source.dispatchEvent(new PointerEvent('pointerdown', {...from, ...halogen_test_pointer, buttons: 1}));

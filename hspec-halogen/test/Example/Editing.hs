@@ -13,7 +13,13 @@
 -- (an emoji), which Backspace must take out whole. And two forms Enter
 -- submits from a text field, as HTML's implicit submission has it, by
 -- activating the form's first submit button: one whose button is disabled,
--- so that Enter does nothing, and one whose button counts its clicks.
+-- so that Enter does nothing, and one whose button counts its clicks. A
+-- field with a @maxlength@ of 1, which an emoji (two UTF-16 code units)
+-- does not fit. A button hidden with @visibility: hidden@, which no click
+-- should reach. And three buttons in an order of their own for Tab: the
+-- second in the page has tabindex 1, the first tabindex 2, and the one
+-- between them tabindex -1, which Tab passes over; each says when it has
+-- the focus, the first also when it loses it and when it is pressed.
 module Example.Editing (component) where
 
 import DOM.HTML.Indexed (ButtonType (..), InputType (..))
@@ -35,15 +41,16 @@ data State = State
   , lockedSubmits :: Int
   , orderClicks :: Int
   , orderSubmits :: Int
+  , focused :: Text
   }
 
-data Action = Pressed | Clicked | Edited | Typed Text | Smiled Text | SubmittedLocked | ClickedOrder | SubmittedOrder
+data Action = Pressed | Clicked | Edited | Typed Text | Smiled Text | SubmittedLocked | ClickedOrder | SubmittedOrder | Focused Text
 
 component :: forall q i o m. (Monad m) => H.Component q i o m
 component =
   H.mkComponent
     H.ComponentSpec
-      { initialState = const (pure (State 0 0 "" "" 0 0 0))
+      { initialState = const (pure (State 0 0 "" "" 0 0 0 ""))
       , render
       , eval = H.mkEval H.defaultEval {H.handleAction = handleAction}
       }
@@ -85,6 +92,12 @@ component =
             ]
         , HH.span [HP.class_ (HH.ClassName "order-clicks")] [HH.text (show model.orderClicks)]
         , HH.span [HP.class_ (HH.ClassName "order-submits")] [HH.text (show model.orderSubmits)]
+        , HH.input [HP.class_ (HH.ClassName "single"), HP.maxLength 1]
+        , HH.button [HP.class_ (HH.ClassName "invisible"), HP.attr (H.AttrName "style") "visibility: hidden", HE.onClick (const Clicked)] [HH.text "invisible"]
+        , HH.button [HP.class_ (HH.ClassName "tab-second"), HP.tabIndex 2, HE.onFocus (const (Focused "second"))] [HH.text "second"]
+        , HH.button [HP.class_ (HH.ClassName "tab-skipped"), HP.tabIndex (-1), HE.onFocus (const (Focused "skipped"))] [HH.text "skipped"]
+        , HH.button [HP.class_ (HH.ClassName "tab-first"), HP.tabIndex 1, HE.onFocus (const (Focused "first")), HE.onBlur (const (Focused "none")), HE.onClick (const (Focused "pressed first"))] [HH.text "first"]
+        , HH.span [HP.class_ (HH.ClassName "focused")] [HH.text model.focused]
         ]
 
     handleAction :: Action -> H.HalogenM State Action Empty o m ()
@@ -97,3 +110,4 @@ component =
       SubmittedLocked -> modify $ \s -> s {lockedSubmits = s.lockedSubmits + 1}
       ClickedOrder -> modify $ \s -> s {orderClicks = s.orderClicks + 1}
       SubmittedOrder -> modify $ \s -> s {orderSubmits = s.orderSubmits + 1}
+      Focused which -> modify $ \s -> s {focused = which}
