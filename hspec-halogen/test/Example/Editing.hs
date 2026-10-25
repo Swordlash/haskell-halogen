@@ -5,7 +5,10 @@
 -- (@contenteditable@), which the component renders empty and never patches
 -- inside, counting its input events; and a number field, whose value is
 -- shown as typed, where a value such as @-42@ or @1.5@ passes through
--- prefixes (@-@, @1.@) that are not numbers yet.
+-- prefixes (@-@, @1.@) that are not numbers yet. And the fields a browser
+-- edits less than it is asked to: a read-only one, one whose keypress
+-- handler turns the character @x@ down, one whose @beforeinput@ handler
+-- turns every edit down, and one with a @maxlength@ of 3.
 module Example.Editing (component) where
 
 import DOM.HTML.Indexed (InputType (..))
@@ -16,6 +19,8 @@ import Halogen.HTML qualified as HH
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
 import Protolude hiding (State)
+import Web.Event.Event (EventType (..))
+import Web.UIEvent.KeyboardEvent qualified as KE
 
 data State = State {clicks :: Int, edits :: Int, number :: Text}
 
@@ -44,6 +49,13 @@ component =
         , HH.span [HP.class_ (HH.ClassName "edits")] [HH.text (show model.edits)]
         , HH.input [HP.class_ (HH.ClassName "number"), HP.type_ InputNumber, HE.onValueInput Typed]
         , HH.span [HP.class_ (HH.ClassName "typed")] [HH.text model.number]
+        , HH.input [HP.class_ (HH.ClassName "readonly"), HP.readOnly True, HP.value "fixed"]
+        , HH.input
+            [ HP.class_ (HH.ClassName "no-x")
+            , HE.preventingDefault (HE.handler' (EventType "keypress") (HE.keyHandler (\e -> if KE.key e == "x" then Just Pressed else Nothing)))
+            ]
+        , HH.input [HP.class_ (HH.ClassName "refuses"), HE.preventingDefault (HE.handler (EventType "beforeinput") (const Pressed))]
+        , HH.input [HP.class_ (HH.ClassName "short"), HP.maxLength 3]
         ]
 
     handleAction :: Action -> H.HalogenM State Action Empty o m ()

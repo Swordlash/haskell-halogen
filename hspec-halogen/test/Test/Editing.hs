@@ -35,3 +35,37 @@ spec m = do
     typeText field "1.5"
     getProperty field "value" `shouldReturn` "1.5"
     find ui ".typed" >>= (`shouldHaveText` "1.5")
+
+  it "takes a character back out of a number field with Backspace" $ runPage $ do
+    ui <- mount m Editing.component ()
+    field <- find ui "input.number"
+    typeText field "-"
+    press "Backspace"
+    typeText field "4"
+    getProperty field "value" `shouldReturn` "4"
+
+  it "leaves a read-only field's value as it was" $ runPage $ do
+    ui <- mount m Editing.component ()
+    field <- find ui "input.readonly"
+    focus field
+    press "Backspace"
+    press "x"
+    getProperty field "value" `shouldReturn` "fixed"
+
+  it "leaves out a character whose keypress was prevented" $ runPage $ do
+    ui <- mount m Editing.component ()
+    field <- find ui "input.no-x"
+    typeText field "axb"
+    getProperty field "value" `shouldReturn` "ab"
+
+  it "leaves a field as it was when its beforeinput is prevented" $ runPage $ do
+    ui <- mount m Editing.component ()
+    field <- find ui "input.refuses"
+    typeText field "abc"
+    getProperty field "value" `shouldReturn` ""
+
+  it "types no more than a field's maxlength" $ runPage $ do
+    ui <- mount m Editing.component ()
+    field <- find ui "input.short"
+    typeText field "abcdef"
+    getProperty field "value" `shouldReturn` "abc"

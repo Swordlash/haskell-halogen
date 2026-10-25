@@ -264,8 +264,17 @@ actions itself, with synthetic events (`jsbits/page.js`, its in-page mode):
 - `dragTo`: pointer events from one element to the other, then HTML5 drag
   and drop's, sharing one `DataTransfer`.
 
+What a page's handlers decide is honoured as a browser honours it: a
+`keydown` whose default is prevented sends nothing more (no `keypress`,
+no edit, no activation on the `keyup`); a prevented `keypress` keeps the
+character out and Enter from acting; a prevented `beforeinput` leaves the
+field as it was. So is what the field says of itself: a `readOnly` input or
+text area takes the key events (and the focus and the selection) but is not
+edited, and `maxlength` caps what is inserted, not what is deleted.
+
 Each waits up to five seconds for its element to be in the page, visible and
-enabled, as Playwright does, and fails the test if it is not; it does not
+enabled, as Playwright does, and fails the test if it is not (a disabled
+element is not enabled, and cannot be focused for `press` either); it does not
 check that nothing covers the element. The events are untrusted
 (`isTrusted` is false), which Halogen's handlers do not look at, and what
 else the browser does by itself (a caret moved with the arrow keys, text

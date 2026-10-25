@@ -206,10 +206,25 @@ function halogen_test_text(element) {
 // Edit a text field as typing would, with the beforeinput and input events
 // it sends: replace the selection (from start to end, the caret when they
 // are one) with text. An input type with no selection (email, number) is
-// edited at the end of what has been typed into it. A contenteditable
-// element is edited at its selection by the browser's own editing commands,
-// which send its input event; start and end are not used for it.
+// edited at the end of what has been typed into it, unless start and end
+// say where in that text. A contenteditable element is edited at its
+// selection by the browser's own editing commands, which send its input
+// event; start and end are not used for it.
+//
+// As a browser does, it edits nothing in a read-only field (and sends no
+// beforeinput there), inserts no more than the field's maxlength allows
+// (deleting is not limited), and leaves the field as it was when the
+// beforeinput event's default is prevented, which is how a component turns
+// an edit down before it happens.
 function halogen_test_edit(element, text, inputType, start, end) {
+  if (!element.isContentEditable && element.readOnly) return;
+  const value = element.isContentEditable ? '' : halogen_test_text(element);
+  const [from, to] = start == null ? [value.length, value.length] : [start, end];
+  if (text !== '' && !element.isContentEditable && element.maxLength >= 0) {
+    const room = Math.max(0, element.maxLength - (value.length - (to - from)));
+    if (room === 0) return;
+    text = text.slice(0, room);
+  }
   const data = inputType === 'insertText' ? text : null;
   const init = {inputType, data, bubbles: true, composed: true};
   if (!element.dispatchEvent(new InputEvent('beforeinput', {...init, cancelable: true}))) return;
@@ -217,13 +232,13 @@ function halogen_test_edit(element, text, inputType, start, end) {
     document.execCommand(inputType === 'insertText' ? 'insertText' : inputType === 'deleteContentForward' ? 'forwardDelete' : 'delete', false, text);
     return;
   }
-  const value = halogen_test_text(element);
-  const [from, to] = start == null ? [value.length, value.length] : [start, end];
   const edited = value.slice(0, from) + text + value.slice(to);
   // What is not a number yet (-, 1.) leaves a number field's value empty,
   // as it does a user's; assigned, it would also be logged as a warning.
   element.value = element.type !== 'number' || halogen_test_number.test(edited) ? edited : '';
-  if (start == null) {
+  // An input with no selection keeps the text typed into it, deletions
+  // included, whether or not its sanitised value changed.
+  if (halogen_test_selection(element)[0] == null) {
     halogen_test_raw.set(element, {raw: edited, value: element.value});
   }
   try {
@@ -246,7 +261,10 @@ function halogen_test_selection(element) {
 // pressing it does when keydown's default is not prevented: a character goes
 // into a text field, Backspace and Delete take one out, Enter clicks a button
 // or a link, submits the form of a text input and starts a line in a text
-// area, Space clicks a button or a checkbox, and Tab moves the focus.
+// area, Space clicks a button or a checkbox, and Tab moves the focus. A
+// keypress whose default is prevented stops the character and Enter's
+// action, as it does in a browser; a read-only field takes the key's events
+// but is not edited (halogen_test_edit).
 async function halogen_test_key(key, modifiers) {
   const target = document.activeElement ?? document.body;
   const init = {key, bubbles: true, cancelable: true, composed: true, view: window, ...modifiers};
@@ -258,10 +276,13 @@ async function halogen_test_key(key, modifiers) {
   if (pressed) {
     const typing = halogen_test_is_text_field(target) || target.isContentEditable;
     const [start, end] = typing ? halogen_test_selection(target) : [null, null];
-    if ((character || key === 'Enter') && !chord) {
-      target.dispatchEvent(new KeyboardEvent('keypress', {...init, charCode: character ? key.codePointAt(0) : 13}));
-    }
-    if (character && !chord && typing) {
+    // True when no keypress is sent, or its default was not prevented.
+    const typed = (character || key === 'Enter') && !chord
+      ? target.dispatchEvent(new KeyboardEvent('keypress', {...init, charCode: character ? key.codePointAt(0) : 13}))
+      : true;
+    if (!typed) {
+      // Neither the character nor Enter's action.
+    } else if (character && !chord && typing) {
       halogen_test_edit(target, key, 'insertText', start, end);
     } else if ((key === 'Backspace' || key === 'Delete') && typing) {
       const forward = key === 'Delete';
