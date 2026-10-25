@@ -189,8 +189,11 @@ session keeps `haskell-halogen-core` loaded, so the reference that
 component and keeps how to end it. Write a `Main.hs` of your own when the
 lesson needs something else around its component: an input, the component's
 output messages printed with `putStrLn` (the page shows what the program
-writes to stdout while the compile runs, so a `Finalize` of the previous run
-shows and a click handler's output does not), two components, a router. It is the module `Main`, imports
+writes to stdout while the compile runs, a line at a time, as the playground
+makes stdout line-buffered and flushes it when a run ends: so the previous
+run's `Finalize`, which the next compile's `HA.endPreviousRun` runs,
+shows under the editor, and a click handler's output does not), two
+components, a router. It is the module `Main`, imports
 `Lesson`, and must do the same three things: `HA.endPreviousRun` first, mount
 into `#learn-result`, and `HA.keepForNextRun` with whatever ends what it
 started. (The page ends the last run itself when the reader leaves a lesson,

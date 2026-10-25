@@ -12,7 +12,9 @@ What is here:
   exports `playground`, which starts one GHC session (bytecode backend,
   in-memory linking) and hands back the function a Run calls: it writes the
   source to `/tmp/Main.hs`, parses the arguments as GHC flags, loads the
-  module and runs `Main.main` in the in-process interpreter.
+  module and runs `Main.main` in the in-process interpreter. stdout and
+  stderr, which the program shares, are line-buffered and flushed when a run
+  ends, so the page gets what a program writes as it writes it.
 - `web/index.html`, `web/index.js`: a minimal page (a text area, the GHC
   arguments, a button per layer, Run, stdout and stderr, `#app`, and the
   timings it measured). Plain modules, no bundler, no editor.
