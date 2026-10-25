@@ -194,16 +194,16 @@ which loads its libraries into dyld and compiles. Three runs of
 | Layer | Packages | Units | Uncompressed | zstd -19 | Assets on the page | Load | First run |
 | --- | --- | ---: | ---: | ---: | --- | ---: | ---: |
 | `hooks` | `haskell-halogen-hooks` | 1 | 0.81 MB | 0.13 MB | none | 28–33 ms | 1.2–1.3 s |
-| `router` | `haskell-halogen-router` | 1 | 0.84 MB | 0.14 MB | none | 22–23 ms | 2.8–3.5 s |
+| `router` | `haskell-halogen-router` | 1 | 0.88 MB | 0.14 MB | none | 22–23 ms | 2.8–3.5 s |
 | `net` | `haskell-halogen-net` | 1 | 0.68 MB | 0.11 MB | none | 21–29 ms | 0.6–0.8 s |
 | `material` | `haskell-halogen-material` (+ `clock`, `extra`) | 3 | 2.58 MB | 0.36 MB | `material.js` 127 KB, `material.css` 206 KB; the Material Icons font from fonts.gstatic.com | 56–65 ms | 0.7–1.3 s |
 | `pixi` | `haskell-halogen-pixi` | 1 | 0.97 MB | 0.15 MB | none; PixiJS 8.20.1 from jsDelivr (0.8 MB), which the library imports itself | 27–31 ms | 1.4–1.6 s |
-| `th` | `haskell-halogen-th` (+ `ghc-lib-parser`, `megaparsec`, `parser-combinators`, `tagsoup`, `css-syntax`, `case-insensitive`) | 7 | 194.7 MB | 21.9 MB | none | 2.1–3.9 s | 8.0–12.0 s |
-| **all six** | | 14 | 200.6 MB | 22.8 MB | 0.33 MB | 2.3–4.0 s | |
+| `th` | `haskell-halogen-th` (+ `ghc-lib-parser`, `megaparsec`, `parser-combinators`, `tagsoup`, `css-syntax`, `case-insensitive`) | 7 | 194.7 MB | 21.4 MB | none | 2.1–3.9 s | 8.0–12.0 s |
+| **all six** | | 14 | 200.6 MB | 22.3 MB | 0.33 MB | 2.3–4.0 s | |
 | all but `th` | | 7 | 5.9 MB | 0.89 MB | 0.33 MB | 0.17 s | |
 
 Of `th`'s, `ghc-lib-parser` is 158.8 MB of `.so` and 22.0 MB of interfaces:
-it is about as big as `libHSghc`, and its archive (21.9 MB) is 40% of the
+it is about as big as `libHSghc`, and its archive (21.4 MB) is 43% of the
 base one, so it stays a layer of its own that only a lesson about the
 quasi-quoters loads. It is well under the per-file limit, so it is one file.
 
@@ -262,7 +262,7 @@ That a layer has its own DB is the practical way, for two reasons found here:
 into `<archive>.00`, `.01`, ..., and the manifest lists the parts in order;
 the page fetches them one after the other and joins the bytes before
 extracting. Nothing is that large today (the largest file is
-`rootfs.tar.zst`, 52.0 MB); `LEARN_PART_MB=20` was used to check it, with
+`rootfs.tar.zst`, 50.0 MB); `LEARN_PART_MB=20` was used to check it, with
 the base archive in four parts and `th`'s in two, and the test passed.
 
 ### The manifest: `rootfs.json`
@@ -349,28 +349,31 @@ build), the page served from localhost by `test-playground.mjs`, the release bui
 
 ### Sizes
 
-Compressed sizes are each part compressed alone at `zstd -19`
-(`LEARN_REPORT=1`); they add up to the archive's within half a megabyte.
+Compressed sizes are each part compressed alone at `zstd -19`, as
+`LEARN_REPORT=1` measures them, here of the deployed rootfs; they add up to
+51.6 MB, and the archive is 1.6 MB smaller. A local build packed the same
+uncompressed sizes into 52.0 MB, so the archive's size moves by a few percent
+from one build to the next.
 
 | Part | Uncompressed | zstd -19 |
 | --- | ---: | ---: |
 | `libplayground.so` | 0.06 MB | 0.01 MB |
 | `/tmp/clib` (.so) | 6.8 MB | 0.8 MB |
-| boot libraries (.so) | 231.4 MB | 34.1 MB |
+| boot libraries (.so) | 231.4 MB | 34.0 MB |
 | &nbsp;&nbsp;of which `libHSghc` | 169.5 MB | 25.6 MB |
 | boot libraries (.dyn_hi), without `ghc`'s | 21.7 MB | 5.3 MB |
 | base layer (.so, 62 units) | 84.5 MB | 7.2 MB |
 | base layer (.dyn_hi) | 18.8 MB | 4.1 MB |
 | rest of the libdir (settings, package DB) | 1.3 MB | 0.2 MB |
-| **`rootfs.tar.zst`** | **364.7 MB** | **52.0 MB** |
+| **`rootfs.tar.zst`** | **364.7 MB** | **50.0 MB** |
 | the layers but `th` (five archives) | 5.9 MB | 0.9 MB |
-| the `th` layer | 194.7 MB | 21.9 MB |
+| the `th` layer | 194.7 MB | 21.4 MB |
 | material's assets (`material.js`, `material.css`) | 0.33 MB | |
 | `bsdtar.wasm` | | 1.2 MB |
 | `dyld.mjs` + `post-link.mjs` + `prelude.mjs`, `browser_wasi_shim.js`, page, manifest | | 0.16 MB |
 
 At `zstd -3` the base archive is 64.3 MB and `th`'s 27.1 MB. The largest file
-served is `rootfs.tar.zst`, 52.0 MB; the whole output directory is 76.5 MB.
+served is `rootfs.tar.zst`, 50.0 MB; the whole output directory is 74.0 MB.
 
 ### Time
 
@@ -394,7 +397,7 @@ layer takes 2–4 s to fetch and extract its 195 MB, and its first run another
 8–12 s, which is loading its libraries, `ghc-lib-parser`'s 159 MB above
 all, into dyld: run again it takes 0.6 s, and 1.1 s with the quote edited
 (measured once, in a page that loaded only `th`). Over the network the download dominates:
-52 MB is about 17 s at 25 Mbit/s, 4 s at 100 Mbit/s; `th` adds 7 s or 2 s.
+50 MB is about 16 s at 25 Mbit/s, 4 s at 100 Mbit/s; `th` adds 7 s or 2 s.
 
 **dyld patch.** GHC's `dyld.mjs`, as it ships, builds each library's import
 object with `{ ...this.exportFuncs }`: a copy of every function every library
@@ -458,20 +461,20 @@ layer):
 
 ## Pages
 
-- **Per file**: the largest file is `rootfs.tar.zst`, 52.0 MB, and `th`'s
-  archive is 21.9 MB, both under the 100 MB GitHub allows a file. Should an
+- **Per file**: the largest file is `rootfs.tar.zst`, 50.0 MB, and `th`'s
+  archive is 21.4 MB, both under the 100 MB GitHub allows a file. Should an
   archive grow past `LEARN_PART_MB` (95 MB), the build splits it into parts
   and the page joins them (above), so the limit cannot be hit unnoticed.
 - **What is deployed**: the tutorial (`examples/learn`), whose build copies
   this directory, but for `index.html` and `index.js`, to `rootfs/` beside
   the app; this page is not deployed.
-- **Site size**: 76 MB, the rootfs 73 MB of it (51 MB without the `th`
+- **Site size**: 77 MB, the rootfs 74 MB of it (53 MB without the `th`
   layer), far from the 1 GB limit.
 - **Bandwidth per cold load**: the page, `bsdtar.wasm`, the manifest and
-  `rootfs.tar.zst` are 53.4 MB; a lesson with any of the small layers adds
+  `rootfs.tar.zst` are 51.4 MB; a lesson with any of the small layers adds
   at most 1.2 MB (all five and material's assets), and the `th` lesson
-  21.9 MB more, 76.5 MB in all. Pages has a soft limit of 100 GB a month:
-  about 1,870 cold loads a month without `th`, about 1,300 if every reader
+  21.4 MB more, 74.0 MB in all. Pages has a soft limit of 100 GB a month:
+  about 1,950 cold loads a month without `th`, about 1,350 if every reader
   also loaded `th`. Its responses are cacheable (10 minutes, then revalidated
   with an ETag), and the tutorial keeps the archives in the Cache API under
   the manifest's `version`, so a returning reader downloads them again only
@@ -528,7 +531,7 @@ It does not show:
   iOS Safari's limits are tighter still. A mobile reader may need a
   "read-only" fallback (prerendered results) rather than a live compiler, and
   the `th` lesson is the one most likely to fail on a small machine.
-- **Download**: 52 MB before the first compile (22 MB more for `th`), and
+- **Download**: 50 MB before the first compile (21 MB more for `th`), and
   Pages' bandwidth limit above. The tutorial keeps the archives in the Cache
   API, so a returning reader downloads them again only after a deploy that
   changed them.
