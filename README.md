@@ -5,8 +5,10 @@
 A port of [purescript-halogen](https://github.com/purescript-halogen/purescript-halogen/) to GHC
 Haskell, plus the component and rendering libraries built on top of it.
 
-The examples are deployed [here](https://swordlash.github.io/haskell-halogen/), as one single-page
-app written in Halogen itself.
+[The tutorial](https://swordlash.github.io/haskell-halogen/) teaches it in the browser: each lesson
+is a page with its text, an editor and a Compile button, and GHC itself, compiled to WebAssembly,
+compiles your code in the page and mounts the component beside the text, with no server behind it.
+The tutorial is a Halogen app too ([examples/learn](examples/learn/README.md)).
 
 AI usage disclaimer: All code until tag `0.9.0` was hand-written. Any later commits might have used Codex or Claude.
 
@@ -28,7 +30,7 @@ AI usage disclaimer: All code until tag `0.9.0` was hand-written. Any later comm
 | [hspec-halogen/](hspec-halogen/) | `hspec-halogen` | Test components in a real browser with hspec: mount, click, type, check. |
 | [th/](th/) | `haskell-halogen-th` | HTML and CSS as written, with Haskell inside: the `hh` and `clay` quasi-quoters. |
 | [th-plugin/](th-plugin/) | `haskell-halogen-th-plugin` | A GHC plugin that expands the quotes as a module is parsed, so every error, type errors included, is at its place in the file. |
-| [examples/](examples/) | `halogen-example-*` | One runnable browser app per library, and `all`, which mounts them in one page. |
+| [examples/](examples/) | `halogen-example-*` | One runnable browser app per library, and `learn`, the tutorial, whose code compiles in the page. |
 
 `hooks`, `router`, `material`, `pixi`, `hspec-halogen` and `th` depend on `core`, and `tauri`
 on `core` for its emitters; `net` and `sound` are independent of those runtime libraries. WASM backends also use the `jsbits`
@@ -100,24 +102,26 @@ NOTE: use `cabal` version `3.16.1` on this repository.
 With that in place, build and serve any example by name:
 
 ```sh
-npm run serve-wasm -- pixi        # or: vanilla, hooks, material, all
-npm run build-wasm-all            # every example, size-optimised with wasm-opt
-npm run test-gallery              # drive the built `all` in headless Chromium
+npm run serve-wasm -- pixi        # or: vanilla, hooks, material, th
+npm run build-rootfs              # the tutorial's compiler: GHC and our libraries for the page
+npm run build-wasm-all            # every example, size-optimised with wasm-opt, the tutorial with its compiler
+npm run test-learn                # drive the built tutorial in headless Chromium, every lesson compiled
 ```
 
-`all` is what GitHub Pages serves: every other example in one page and one binary, switched by the
-URL's path (`/pixi/`) through `haskell-halogen-router`. The build writes an `index.html` for every
-route, each with the gallery's navigation already rendered into it, so the back button, reloads and
-deep links work on a static host with no 404 fallback; an old `#/pixi` link is redirected to its
-path.
-`test-gallery` needs a Chromium that Playwright can launch (`npx playwright install chromium`).
+The tutorial, `examples/learn`, is what GitHub Pages serves: a page per lesson, switched by the
+URL's path (`/02-counter/`) through `haskell-halogen-router`, with GHC in `rootfs/` beside it. The
+build writes an `index.html` for every route, each with its lesson already rendered into it, so the
+back button, reloads and deep links work on a static host with no 404 fallback.
+[examples/learn/README.md](examples/learn/README.md) says how it is built, tested and deployed, and
+how to write a lesson; [learn/README.md](learn/README.md) how GHC runs in the page.
+`test-learn` needs a Chromium that Playwright can launch (`npx playwright install chromium`).
 
 `serve-wasm` opens <http://127.0.0.1:8080> automatically. Set `PORT` to choose another port, or
 `NO_OPEN=1` to suppress opening the browser (for example in CI).
 
 To work on an example with GHCi rather than a build per change, install
 [ghciwatch](https://mercurytechnologies.github.io/ghciwatch/) and run `npm run dev -- <example>`
-(`vanilla`, `hooks`, `pixi`, `material`, `th` or `all`). It loads the example into wasm browser
+(`vanilla`, `hooks`, `pixi`, `material`, `th` or `learn`). It loads the example into wasm browser
 GHCi, opens its page at <http://127.0.0.1:8080/assets/index.html> (`PORT` changes the port), and
 reloads the example and reruns `main` whenever you save one of its modules; a change to a library,
 a cabal file or the example's `web/` restarts GHCi, which opens a new page. The page is the
@@ -155,22 +159,21 @@ the wasm reactor options and the `hs_start` export, and have `main` start with
 `Halogen.IO.Util.endPreviousRun` and pass how to end what it starts (its socket's `dispose`, and
 `Halogen.Router.stop` for a router) to `keepForNextRun`: GHCi keeps the page between runs of
 `:main`, and these end the last run's component before the next one mounts. `examples/vanilla` has
-both, and `examples/all` a router as well.
+both, and `examples/learn` a router as well.
 
 The page can arrive with the component already in it, before `app.wasm` has loaded. Add a native
 executable `halogen-example-<name>-prerender` (not buildable on the browser backends) that renders
 the component with `Halogen.Static.renderToHtml` and writes `index.html` with the HTML in `#app`:
 `build-wasm.sh` builds it with the host GHC and runs it as `<exe> examples/<name>/web/index.html
-<output dir>`. `examples/vanilla/Prerender.hs` is the smallest one; `examples/all/Prerender.hs`
+<output dir>`. `examples/vanilla/Prerender.hs` is the smallest one; `examples/learn/Prerender.hs`
 writes one page per route, under the base path in `HALOGEN_BASE_PATH` (`/` by default; the Pages
 deploy sets it to the site's). Its `Main.hs` then mounts the component with `hydrateUI` rather than
 `runUI`: the component adopts the prerendered HTML, attaching its listeners, instead of rendering
 over it.
 
-To show it in the deployed gallery as well, put its component in a library module
-(`src/Example/<Name>.hs`, as the existing examples do, with `Main.hs` only starting it), depend on
-that library from `examples/all`, add a constructor to `Route` in `examples/all/Gallery/Shell.hs`
-(its address is `/<slug>/`) and mount it in `examples/all/Gallery.hs`.
+Put its component in a library module (`src/Example/<Name>.hs`, as the existing examples do, with
+`Main.hs` only starting it). GitHub Pages serves only the tutorial, so an example reaches readers
+through a lesson in `examples/learn`; [its README](examples/learn/README.md) says how to write one.
 
 ## Routing
 
@@ -188,7 +191,7 @@ route = root $ sum $ #Home .== noArgs .+ #Post .== path "post" (int segment)
 such as `/project/`, which `pageBase` reads from the page's `<base href>`), `current`, `navigate`,
 `redirect`, a `changes` emitter fed by those and by `popstate`, and `link`/`follow` for links a
 component follows without loading a page. `newHashRouter` routes by fragment instead. Natively the
-address is kept in memory, so `Halogen.Static` can render a page for each route, as the gallery's
+address is kept in memory, so `Halogen.Static` can render a page for each route, as the tutorial's
 prerender does.
 
 ## Fetching

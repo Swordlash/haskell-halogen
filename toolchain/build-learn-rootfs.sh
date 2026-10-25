@@ -3,10 +3,14 @@
 # shared library, with the boot libraries and haskell-halogen-core in an
 # archive the page unpacks into its in-memory file system.
 #
-#   sh toolchain/build-learn-rootfs.sh [output dir] [cabal args...]   # npm run build-learn
+#   sh toolchain/build-learn-rootfs.sh [output dir] [cabal args...]   # npm run build-rootfs
+#   sh toolchain/build-learn-rootfs.sh --key [cabal args...]          # what the build is made from
 #
 # The output directory (default dist-newstyle/wasm/learn) is a static site:
-# serve it as it is (npm run test-learn does, in headless Chromium). It holds
+# serve it as it is (npm run test-playground does, in headless Chromium). The
+# tutorial (examples/learn) is served with it, but for its index.html and
+# index.js, at rootfs/ beside the app (examples/learn/bundle.sh copies it
+# there). It holds
 #
 #   rootfs.tar.zst   everything the compiler reads, extracted to /tmp:
 #                      /tmp/libplayground.so  the GHC API wrapper (learn/Playground.hs)
@@ -18,15 +22,30 @@
 #                    package DB, and layers/<name>/ the files a layer's
 #                    packages need on the page (material's CSS and JavaScript)
 #   rootfs.json      the manifest: what the page hands to dyld and GHC (the
-#                    paths in the archive), and every archive's parts, sizes,
-#                    package DB and assets (see learn/README.md for each field)
+#                    paths in the archive), every archive's parts, sizes,
+#                    package DB and assets, and a version, a hash of the
+#                    archives (see learn/README.md for each field)
 #   dyld.mjs, post-link.mjs, prelude.mjs   GHC's wasm dynamic linker, from the libdir
 #   bsdtar.wasm      libarchive's bsdtar, which the page extracts the archives with
 #   index.html, index.js                   learn/web/
 #
 # An archive larger than LEARN_PART_MB is served as parts (<archive>.00,
 # .01, ...), which the page fetches and joins before extracting, so that no
-# file is over Pages' limit.
+# file is over Pages' limit. Packing is reproducible (the members sorted by
+# name, with no times or owners in them), so that packing the same built
+# libraries again gives the same version, and a reader's cached copy stays
+# valid. Compiling a library again may not give the same bytes (GHC's output
+# is not deterministic by default), which changes the version; CI keeps the
+# output directory in its cache (--key below), so it packs anew only when an
+# input changed.
+#
+# --key prints a hash of everything the output is made from, for CI to key
+# its cache of the output directory by: the wasm compiler, the units of the
+# build plan in the closure of the packages packed (a store unit by its id,
+# which hashes its own inputs; one of ours by its files), the wasi-sysroot's
+# libraries, the files this script and the page read from the repository,
+# and the settings below. It plans the wasm build (cabal build --dry-run),
+# which writes dist-newstyle/wasm/cache/plan.json, and builds nothing.
 #
 # The base layer is haskell-halogen-jsbits, haskell-halogen-core and every
 # library they need that GHC does not ship (BASE_LAYER below), taken from the
@@ -82,7 +101,12 @@ if ! command -v wasm32-wasi-ghc >/dev/null 2>&1; then
 fi
 
 out=dist-newstyle/wasm/learn
+key_only=
 case ${1-} in
+  --key)
+    key_only=1
+    shift
+    ;;
   '' | -*) ;;
   *)
     out=$1
@@ -91,6 +115,15 @@ case ${1-} in
 esac
 level=${ZSTD_CLEVEL:-19}
 part_bytes=$((${LEARN_PART_MB:-95} * 1000000))
+# The output directory is deleted and written afresh, so it must be one this
+# script wrote (it has a rootfs.json, or the .building mark of a build that
+# did not finish), or empty, or not there yet: never, say, learn/ given by
+# mistake.
+if [ -e "$out" ] && [ ! -f "$out/rootfs.json" ] && [ ! -f "$out/.building" ] &&
+  [ -n "$(ls -A "$out" 2>/dev/null || echo file)" ]; then
+  printf '%s is not a rootfs directory (it has no rootfs.json), so it is not deleted to build one there.\n' "$out" >&2
+  exit 1
+fi
 
 # The roots of the base layer; the rest of it is their dependencies' closure.
 BASE_LAYER="haskell-halogen-jsbits haskell-halogen-core"
@@ -108,8 +141,11 @@ layers=${LEARN_LAYERS-$DEFAULT_LAYERS}
 # reader's program can use them either: Cabal is a sixth of the libdir, and
 # the rest are haddock's, GHCi's line editor, the toolchain configurator,
 # compact regions and the two compatibility shims for bignum. ghc-pkg refuses
-# to unregister one that a package left depends on, and ghc-pkg check runs on
-# the result. (ghc-platform looks as unused, but ghc-boot depends on it.)
+# to unregister one that a boot package left depends on, and ghc-pkg check
+# runs on the result; but the trimming comes before the base layer and the
+# layers are injected, so for their packages the check is learn-inject.py's,
+# which stops on a dependency on a trimmed package and names it. (ghc-platform
+# looks as unused, but ghc-boot depends on it.)
 BOOT_TRIM="Cabal Cabal-syntax haddock-api haddock-library xhtml haskeline ghc-toolchain ghc-compact integer-gmp ghc-bignum"
 
 build_dir=dist-newstyle/wasm
@@ -137,18 +173,34 @@ packages=$BASE_LAYER
 for layer in $layers; do
   packages="$packages $(layer_packages "$layer")"
 done
-step "building $packages for wasm"
 rm -f "$build_dir/cache/compiler"
-# shellcheck disable=SC2046
-cabal build \
-  --project-file=cabal-wasm.project \
-  --builddir="$build_dir" \
-  --with-compiler="$wasm_ghc" \
-  --with-hc-pkg="$wasm_ghc_pkg" \
-  --with-hsc2hs="$wasm_hsc2hs" \
-  "$@" $(for p in $packages; do printf '%s:lib:%s ' "$p" "$p"; done)
-
+build() {
+  # shellcheck disable=SC2046
+  cabal build \
+    --project-file=cabal-wasm.project \
+    --builddir="$build_dir" \
+    --with-compiler="$wasm_ghc" \
+    --with-hc-pkg="$wasm_ghc_pkg" \
+    --with-hsc2hs="$wasm_hsc2hs" \
+    "$@" $(for p in $packages; do printf '%s:lib:%s ' "$p" "$p"; done)
+}
 plan=$build_dir/cache/plan.json
+
+if [ -n "$key_only" ]; then
+  build --dry-run "$@" >&2
+  exec python3 -I toolchain/learn-rootfs-key.py \
+    --plan "$plan" --packages "$packages" \
+    --setting "ZSTD_CLEVEL=$level" --setting "LEARN_LAYERS=$layers" \
+    --setting "LEARN_PART_MB=${LEARN_PART_MB-}" --setting "LEARN_GHC_API=${LEARN_GHC_API-}" \
+    --setting "WASM_SO_OPT=${WASM_SO_OPT-}" --setting "BSDTAR_SHA256=$bsdtar_sha256" \
+    "$(dirname "$wasm_cc")/../share/wasi-sysroot/lib/wasm32-wasi" \
+    toolchain/build-learn-rootfs.sh toolchain/learn-inject.py toolchain/learn-rootfs-key.py learn \
+    examples/material/bundle.sh examples/material/style.scss package-lock.json
+fi
+
+step "building $packages for wasm"
+build "$@"
+
 compiler=$(python3 -I -c 'import json, sys; p = json.load(open(sys.argv[1])); print(p["compiler-id"] + "-" + p["compiler-abi"])' "$plan")
 compiler_id=${compiler%-*}
 store_db=$(cabal path --store-dir)/$compiler/package.db
@@ -161,6 +213,7 @@ work=$build_dir/learn-build
 stage=$work/stage
 rm -rf "$work" "$out"
 mkdir -p "$stage/tmp" "$work/obj" "$out"
+: >"$out/.building"
 
 # 2. The compiler: GHC's API in a shared library exporting `playground`.
 step "libplayground.so"
@@ -257,8 +310,10 @@ pkg recache
 pkg check
 
 inject() {
+  # shellcheck disable=SC2046
   python3 -I toolchain/learn-inject.py --ghc-version "${compiler_id#ghc-}" \
-    --source "$store_db" --source "$inplace_db" "$@"
+    --source "$store_db" --source "$inplace_db" \
+    $(for id in $trim_ids; do printf -- '--trimmed %s ' "$id"; done) "$@"
 }
 
 # 5. The base layer, in the global package DB.
@@ -401,7 +456,11 @@ done
 # 9. The archives: the layers', then the base one without them, each split
 # into parts if it is larger than a file served may be.
 step "archives (zstd -$level)"
-pack() { ZSTD_CLEVEL=$level ZSTD_NBTHREADS=0 tar -C "$stage" --zstd -cf "$@"; }
+pack() {
+  ZSTD_CLEVEL=$level ZSTD_NBTHREADS=0 tar -C "$stage" \
+    --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
+    --zstd -cf "$@"
+}
 split_large() {
   if [ "$(size "$1")" -gt "$part_bytes" ]; then
     split -d -a 2 -b "$part_bytes" "$1" "$1."
@@ -424,6 +483,7 @@ split_large "$out/rootfs.tar.zst"
 # The manifest, rootfs.json (learn/README.md describes every field).
 python3 -I - "$out" "$manifest" "$work/base.txt" "$stage/tmp" "$compiler_id" "$(in_rootfs "$searchdir")" "$BASE_LAYER" <<'PY'
 import glob
+import hashlib
 import json
 import os
 import sys
@@ -476,10 +536,31 @@ for line in open(manifest, encoding="utf-8"):
         layer["external"].append({"url": url, "what": what})
 for layer in layers:
     layer.update(archive(f"layers/{layer['name']}.tar.zst"))
+
+
+# The version: a hash of every part of every archive, with its name, so that
+# it changes whenever any archive's content does, and only then (packing is
+# reproducible). A page keeps the archives it downloaded under it.
+def version():
+    h = hashlib.sha256()
+    for entry in [rootfs, *layers]:
+        for part in entry["parts"]:
+            h.update(part["path"].encode() + b"\0")
+            with open(os.path.join(out, part["path"]), "rb") as f:
+                for chunk in iter(lambda: f.read(1 << 20), b""):
+                    h.update(chunk)
+    return h.hexdigest()[:16]
+
+
 # The fields the first page read come first (name, archive, packageDb).
 order = ["name", "archive", "packageDb", "packages", "units", "parts", "size", "compressedSize", "assets", "external"]
 config = {
     "ghc": ghc,
+    "version": version(),
+    # The base archive's, as in rootfs below, for a page that reads only the
+    # top level.
+    "size": rootfs["size"],
+    "compressedSize": rootfs["compressedSize"],
     "libdir": "/tmp/hslib/lib",
     "searchDirs": ["/tmp/clib", searchdir],
     "mainSoPath": "/tmp/libplayground.so",
@@ -497,7 +578,9 @@ part() {
   label=$1
   shift
   line="  $(printf '%-28s' "$label") $(mb "$(size "$@")")"
-  if [ "${LEARN_REPORT-}" = 1 ]; then
+  # With no files (ghc's interfaces, when they are left out) there is nothing
+  # to compress, and cat would read the script's stdin.
+  if [ "${LEARN_REPORT-}" = 1 ] && [ $# -gt 0 ]; then
     line="$line  $(mb "$(cat "$@" | zstd -q "-$level" -T0 -c | wc -c)") compressed"
   fi
   printf '%s\n' "$line"
@@ -533,6 +616,7 @@ def mb(n):
 
 r = config["rootfs"]
 print(f"  {'rootfs.tar.zst':28} {mb(r['compressedSize'])} in {len(r['parts'])} file(s)")
+print(f"  {'version':28} {config['version']}")
 print(f"  {'layer':10} {'units':>5} {'uncompressed':>12} {'compressed':>12} {'files':>5}  assets")
 for layer in config["layers"]:
     assets = ", ".join(a["path"] for a in layer["assets"]) or "-"
@@ -547,5 +631,5 @@ PY
 largest=$(find "$out" -type f -printf '%s %p\n' | sort -n | tail -n 1)
 printf '  largest file served: %s (%s)\n' "${largest#* }" "$(mb "${largest%% *}")"
 
-rm -rf "$work"
-printf '\nBuilt the playground in %s; serve it with any static server, or npm run test-learn.\n' "$out"
+rm -rf "$work" "$out/.building"
+printf '\nBuilt the rootfs and the playground in %s; serve it with any static server, or npm run test-playground.\n' "$out"

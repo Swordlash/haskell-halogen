@@ -353,21 +353,73 @@ jobs:
         cabal install alex happy --constraint='happy <2.2' --ignore-project --with-compiler="$(ghcup whereis ghc "$GHC_VERSION")" --installdir="$CABAL_DIR/bin" --install-method=copy --overwrite-policy=always
         echo "$CABAL_DIR/bin" >> "$GITHUB_PATH"
 
+    # The tutorial's compiler (toolchain/build-learn-rootfs.sh): GHC, its
+    # libraries and ours, as the archives the page downloads and extracts.
+    # It takes some minutes to build (zstd -19) and is the same for the same
+    # inputs, so it is cached under a key of exactly those: --key plans the
+    # wasm build and hashes the compiler, the plan's units in the closure of
+    # the packages it packs (a store unit by its id, one of ours by its
+    # files), the wasi-sysroot's libraries and the files the script reads.
+    # The ghc-wasm-meta pin is in the key as well, for the tools that hash does
+    # not see. Restored and saved in two steps, so that a run whose tests fail
+    # still keeps the rootfs it built. Keep these three steps in step with the
+    # same ones in build-deploy.yml, which shares the cache.
+    - name: Key the tutorial's rootfs
+      id: rootfs-key
+      run: |
+        key=$(sh toolchain/build-learn-rootfs.sh --key)
+        echo "key=${{ runner.os }}-learn-rootfs-$GHC_WASM_META_REV-$key" >> "$GITHUB_OUTPUT"
+
+    - name: Restore the tutorial's rootfs
+      id: rootfs-cache
+      uses: actions/cache/restore@v5
+      with:
+        path: dist-newstyle/wasm/learn
+        key: ${{ steps.rootfs-key.outputs.key }}
+
+    # Builds our libraries for wasm first, which the next step would anyway.
+    # Its peak is a copy of the wasm GHC's libdir (2.8 GB) before it is
+    # trimmed; the output is 76 MB.
+    - name: Build the tutorial's rootfs
+      if: steps.rootfs-cache.outputs.cache-hit != 'true'
+      run: npm run build-rootfs
+
+    - name: Save the tutorial's rootfs
+      if: steps.rootfs-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v5
+      with:
+        path: dist-newstyle/wasm/learn
+        key: ${{ steps.rootfs-key.outputs.key }}
+
+    # public/learn, the tutorial with the rootfs in it, is what Pages deploys
+    # (build-deploy.yml); built here for the base path the site has there, the
+    # repository's name, so that the test below is of the same pages.
     - name: Build every example
       run: npm run build-wasm-all
+      env:
+        HALOGEN_BASE_PATH: /${{ github.event.repository.name }}/
 
     # Before the tests: the suites built with hspec-halogen (hspec-halogen's,
     # material's, net's and tauri's) run in headless Chromium, driven by the
     # hspec-halogen executable, which is a native program, built with the
-    # host GHC installed above.
+    # host GHC installed above; and so do the tutorial's and the playground's.
     - name: Install Chromium
       run: npx playwright install --with-deps --only-shell chromium
 
     - name: Test
       run: npm run test-wasm
 
-    # The gallery Pages deploys, in a real browser: the size-optimised binary
-    # loading, every example mounting and unmounting, and the routing through
-    # back, forward and a reload.
-    - name: Test the examples gallery in a browser
-      run: npm run test-gallery
+    # The tutorial as Pages deploys it, in a real browser: every lesson's page
+    # prerendered under the base path, the size-optimised app adopting it, the
+    # compiler loading from public/learn/rootfs, every lesson's Start.hs and
+    # Solution.hs compiling in the page, back, forward, the Cache API and a
+    # narrow screen. It needs the network: browser_wasi_shim comes from esm.sh.
+    - name: Test the tutorial in a browser
+      run: npm run test-learn
+      env:
+        HALOGEN_BASE_PATH: /${{ github.event.repository.name }}/
+
+    # learn/'s own page, on the same rootfs: GHC in the page with a program
+    # for every layer, and what it measures. PixiJS comes from jsDelivr.
+    - name: Test the playground in a browser
+      run: npm run test-playground

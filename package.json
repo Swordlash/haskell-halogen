@@ -41,10 +41,9 @@
     "format": "sh run_fourmolu.sh",
     "serve": "npm run serve-wasm",
     "test": "sh toolchain/run-tests.sh",
-    "test-gallery": "node toolchain/test-gallery.mjs",
-    "build-learn": "sh toolchain/build-learn-rootfs.sh",
+    "build-rootfs": "sh toolchain/build-learn-rootfs.sh",
     "test-learn": "node toolchain/test-learn.mjs",
-    "test-learn-app": "node toolchain/test-learn-app.mjs",
+    "test-playground": "node toolchain/test-playground.mjs",
     "clean": "rm -rf dist-newstyle/wasm/public dist-newstyle/ghcjs"
   }
 }

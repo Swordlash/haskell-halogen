@@ -8,7 +8,7 @@ const wasi = new WASI([], [], [
   new OpenFile(new File([])),
   ConsoleStdout.lineBuffered((line) => console.log(line)),
   ConsoleStdout.lineBuffered((line) => console.error(line)),
-]);
+], { debug: false });
 const exports = {};
 const { instance } = await WebAssembly.instantiateStreaming(
   fetch(new URL("./app.wasm", import.meta.url)),

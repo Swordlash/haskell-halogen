@@ -9,7 +9,7 @@
 # The example's executable must have an `interactive` flag, as every example's
 # has: it compiles the example's own modules into the executable, which is the
 # target GHCi reloads, and drops the wasm reactor options, which GHCi cannot
-# load. Its main ends the last :main's tree (and the gallery its router)
+# load. Its main ends the last :main's tree (and the tutorial its router)
 # before mounting again, with Halogen.IO.Util's endPreviousRun and
 # keepForNextRun, because the page stays open from one run to the next.
 #
@@ -21,11 +21,13 @@
 # example only once a page has connected; reloading the page ends the session
 # until GHCi is restarted, and every restart opens a new page.
 #
-# examples/all routes by path. The page's <base href> is /assets/, which the
-# gallery's router takes for its base, so its links go to /assets/<example>/;
-# /assets/index.html is no route of its, so it starts at its fallback, the
-# landing page. Following its links works, but there is no page at their
-# addresses to reload (which would end the session anyway).
+# examples/learn, the tutorial, routes by path. The page's <base href> is
+# /assets/, which its router takes for its base, so its links go to
+# /assets/<lesson>/; /assets/index.html is no route of its, so it starts at its
+# fallback, the introduction. Following its links works, but there is no page
+# at their addresses to reload (which would end the session anyway). Its
+# bundle.sh copies the rootfs (npm run build-rootfs) to rootfs/ beside the
+# page, so the compiler loads there as it does when deployed.
 set -eu
 
 cd "$(dirname "$0")/.."
@@ -177,11 +179,11 @@ fi
 
 # The arguments, one a line, that restart GHCi for what in an example's
 # directory goes into the page rather than into GHCi: its web/, and its
-# bundle.sh and the stylesheets that bundles. An example this one depends on
-# needs the same, since examples/all/bundle.sh runs material's, which
-# compiles examples/material/style.scss.
+# bundle.sh and what that bundles: the stylesheets (material's) and js/ (the
+# tutorial's). An example this one depends on needs the same, since its
+# bundle.sh may run the other's.
 example_restart_globs() {
-  printf '%s\n' --restart-glob "$1/web/**" --restart-glob "$1/bundle.sh" --restart-glob "$1/*.scss"
+  printf '%s\n' --restart-glob "$1/web/**" --restart-glob "$1/bundle.sh" --restart-glob "$1/*.scss" --restart-glob "$1/js/**"
 }
 
 set -- --watch "$example_dir"
@@ -193,8 +195,8 @@ for library in core jsbits hooks router net tauri material pixi sound th th-plug
     fi
   done
 done
-# The examples this one depends on as libraries (examples/all mounts every
-# other one) are rebuilt by cabal too, and may bundle into its page.
+# The examples this one depends on as libraries, if any, are rebuilt by
+# cabal too, and may bundle into its page.
 for other in examples/*/; do
   other=${other%/}
   name=${other#examples/}

@@ -10,7 +10,7 @@ beside the text, with no server behind it.
 
 The page is a Halogen application (`src/Learn/App.hs`) with a route per
 lesson, through `haskell-halogen-router`. The build renders every route's page
-natively (`Prerender.hs`, as `examples/all` does), so a lesson's text is on
+natively (`Prerender.hs`, under the site's base path), so a lesson's text is on
 the page before any WebAssembly has arrived; `app.wasm` then adopts that page
 (`hydrateUI`) and starts the compiler in the background. The compiler is the
 rootfs that `toolchain/build-learn-rootfs.sh` builds, which the page looks for
@@ -33,31 +33,56 @@ code are there to read, and a button loads the compiler anyway.
 ## Build, run, test
 
 ```sh
-npm run build-learn                         # the rootfs with every layer, into dist-newstyle/wasm/learn (once; see learn/README.md)
-sh toolchain/build-wasm.sh learn            # the app, prerendered pages and learn.js, into dist-newstyle/wasm/public/learn
-ln -sfn ../../learn dist-newstyle/wasm/public/learn/rootfs # the rootfs where the page looks for it
+npm run build-rootfs                        # the compiler with every layer, into dist-newstyle/wasm/learn (once; see learn/README.md)
+sh toolchain/build-wasm.sh learn            # the app, its pages, learn.js and a copy of the rootfs, into dist-newstyle/wasm/public/learn
 python3 -m http.server -d dist-newstyle/wasm/public/learn 8080
-npm run test-learn-app                      # headless Chromium: the checks below
+npm run test-learn                          # headless Chromium: the checks below
 ```
 
-`npm run test-learn-app` (`toolchain/test-learn-app.mjs`) builds nothing: it
-serves `dist-newstyle/wasm/public/learn` with the rootfs directory
-(`LEARN_ROOTFS_DIR`, default `dist-newstyle/wasm/learn`) at `rootfs/`, and
-checks that every lesson's page arrives with its heading in it, that the page
-is adopted and the compiler loads (printing how long each step took), that the
-first two lessons do what their text says, that a type error is listed at its
-line with the last result still mounted, that **every lesson's `Start.hs`
-compiles and its `Solution.hs` compiles with no diagnostic and shows
-something** (one line per lesson), that back, forward, a second visit (from
-the cache) and Reset work, that a narrow screen downloads nothing large until
-asked, that a failed load can be retried, and that nothing is logged as an
-error. `LEARN_DEBUG=1` prints everything the page logs and requests.
+`bundle.sh` copies the rootfs directory (`LEARN_ROOTFS_DIR`, default
+`dist-newstyle/wasm/learn`, but for `learn/`'s own `index.html` and
+`index.js`) to `rootfs/` in the output, where the page looks for it, so
+`dist-newstyle/wasm/public/learn` is the whole site. Without a rootfs it says
+so and goes on, and the page then says the compiler did not load. Rebuild the
+rootfs (`npm run build-rootfs`) after changing a library a lesson uses: the
+rootfs has its own copies of them, and the app's build does not look at it.
 
-`npm run dev -- learn` runs the app in browser GHCi, as for every example; the
-compiler then needs the rootfs at `dist-newstyle/wasm-dev/examples/learn/rootfs`
-(a symbolic link to `dist-newstyle/wasm/learn`, made after the dev loop has
-started, as it writes that directory afresh each time). Without it the page
-says the compiler did not load, and everything else works.
+**Deploy.** GitHub Pages serves `dist-newstyle/wasm/public/learn` and nothing
+else, at <https://swordlash.github.io/haskell-halogen/>. CI's deploy
+(`.github/workflows/build-deploy.yml`) builds the rootfs (or restores it from
+its cache, keyed by everything it is made from:
+`toolchain/build-learn-rootfs.sh --key`), runs `npm run build-wasm-all` with
+`HALOGEN_BASE_PATH=/haskell-halogen/` (the prerender writes it into every
+page's `<base href>`, and the page finds `rootfs/` under it), runs
+`npm run test-learn` on that tree under the same base path, and uploads it.
+The build workflow does the same on every push and pull request, and runs
+`npm run test-playground` on the rootfs as well. To try the deployed form
+locally:
+
+```sh
+HALOGEN_BASE_PATH=/haskell-halogen/ npm run build-wasm-all
+HALOGEN_BASE_PATH=/haskell-halogen/ npm run test-learn
+```
+
+`npm run test-learn` (`toolchain/test-learn.mjs`) builds nothing: it serves
+`dist-newstyle/wasm/public/learn` as Pages would, the rootfs in it, under
+`HALOGEN_BASE_PATH` (default `/`; it must be the one the pages were built
+for), and checks that every lesson's page arrives with its heading in it,
+that the page is adopted and the compiler loads (printing how long each step
+took) with no `HEAD` request, the manifest giving the version and the sizes,
+that the first two lessons do what their text says, that a type error is
+listed at its line with the last result still mounted, that **every lesson's
+`Start.hs` compiles and its `Solution.hs` compiles with no diagnostic and
+shows something** (one line per lesson), that back, forward, a second visit
+(from the cache) and Reset work, that a narrow screen downloads nothing large
+until asked, that a failed load can be retried and loads from a manifest
+without a version or sizes too, and that nothing is logged as an error.
+`LEARN_ROOTFS_DIR` serves that rootfs directory at `rootfs/` in place of the
+tree's own; `LEARN_DEBUG=1` prints everything the page logs and requests.
+
+`npm run dev -- learn` runs the app in browser GHCi, as for every example;
+`bundle.sh` copies the rootfs beside its page too, so the compiler loads
+there as well.
 
 ## Writing a lesson
 
@@ -80,7 +105,7 @@ wrong with it.
 | `Solution.hs` | The answer, which the Solution button loads. It must compile with no warning and show something: the test checks both. |
 | `Main.hs` | Optional: the program around the lesson's module, in place of the default one below. |
 
-Run `sh toolchain/build-wasm.sh learn` and `npm run test-learn-app` to check a
+Run `sh toolchain/build-wasm.sh learn` and `npm run test-learn` to check a
 lesson: the test compiles every lesson's `Start.hs` and `Solution.hs` in the
 browser.
 
@@ -99,8 +124,9 @@ args: -package haskell-halogen-hooks
 - `layers` (optional): the rootfs layers its code needs beside the base one,
   separated by spaces or commas. The page extracts a layer the first time a
   lesson needs it and passes its package database to GHC (`-package-db`).
-  The rootfs has `hooks` (`haskell-halogen-hooks`) now; more are coming (see
-  `learn/README.md` and `toolchain/build-learn-rootfs.sh`'s `LEARN_LAYERS`).
+  The rootfs has `hooks`, `router`, `net`, `material`, `pixi` and `th`, one
+  per package of the same name (`haskell-halogen-hooks`, ...; see
+  `learn/README.md`, "Layers").
 - `args` (optional): further GHC arguments, separated by spaces, after the
   ones every compile has (`-package haskell-halogen-core
   -Wno-missed-extra-shared-lib -i/tmp`). A layer's package still has to be
@@ -183,26 +209,36 @@ libraries' bindings.
 ## The rootfs, and what a deploy needs
 
 The page loads `rootfs/rootfs.json` relative to its `<base href>` (the
-prerender writes `HALOGEN_BASE_PATH` into it), and from it `rootfs.tar.zst`,
-`layers/<name>.tar.zst`, `bsdtar.wasm` and `dyld.mjs` with the two modules it
-imports. A deploy copies the directory `npm run build-learn` writes (without
-its own `index.html` and `index.js`, which are `learn/`'s test page) to
-`rootfs/` beside the app.
+prerender writes `HALOGEN_BASE_PATH` into it), and from it the base archive's
+parts, a layer's when a lesson names it, `bsdtar.wasm` and `dyld.mjs` with the
+two modules it imports. The manifest is described in
+[`learn/README.md`, "The manifest"](../../learn/README.md#the-manifest-rootfsjson);
+what `js/playground.js` reads of it beyond what dyld and GHC are given:
 
-The archives are kept in the Cache API, under a version: a new rootfs must
-not be taken for the old one. The page reads these optional fields of
-`rootfs.json`, which `build-learn-rootfs.sh` does not write yet:
+- `version`: the archives are kept in the Cache API under it, each by its
+  `archive` name, so a new rootfs is never taken for the old one; once a new
+  version is downloaded, whatever the cache holds under another is deleted.
+- each archive's `parts`, fetched one after the other and joined, and its
+  `compressedSize`, what the introduction and a lesson's heading say it
+  downloads and what the progress bar counts towards.
+- a layer's `assets`, added to the page once each when the layer has been
+  extracted and before it is reported ready: a `kind: "script"` as a
+  `<script src>`, a `kind: "stylesheet"` as a `<link rel=stylesheet>`, their
+  paths relative to `rootfs/`. Only `material` has any (`material.js`, which
+  its components call, and `material.css`, without which they are
+  unstyled).
+- a layer's `external` entries are what its code loads from elsewhere at run
+  time, which the page does not provide and the reader's browser must reach:
+  PixiJS from jsDelivr for `pixi` (when a canvas mounts) and the Material
+  Icons font from fonts.gstatic.com for `material` (named by `material.css`,
+  fetched only when an icon shows). The page reads nothing from them; a
+  lesson using those layers should say it needs the network for them.
 
-- `version` (top level): any string that changes whenever an archive does,
-  such as a hash of the archives. Every archive is cached under it.
-- `size` (top level, for `rootfs.tar.zst`, and on each layer): the archive's
-  size in bytes, which the introduction shows.
-- `archive` (top level): the base archive's path, default `rootfs.tar.zst`.
-
-Without `version` or `size` the page asks the server with a `HEAD` request per
-archive and uses its `ETag` (or `Last-Modified`) as the version and its
-`Content-Length` as the size, which works on GitHub Pages and any ordinary
-static server, at the cost of a request per archive on every visit.
+For a manifest without `version`, `parts` or `compressedSize` (an older
+build's, or one written by hand) the page asks the server with a `HEAD`
+request per part and uses its `ETag` (or `Last-Modified`) as the version and
+its `Content-Length` as the size, which works on GitHub Pages and any
+ordinary static server, at the cost of a request per part on every visit.
 
 ## Notes
 

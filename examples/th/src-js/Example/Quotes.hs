@@ -22,5 +22,5 @@ component =
     page =
       HH.p_
         [ HH.text "The hh and clay quoters need ghc-lib-parser, which the JavaScript backend cannot build; "
-        , HH.text "this example runs on the WebAssembly build of the gallery."
+        , HH.text "this example runs on its WebAssembly build."
         ]

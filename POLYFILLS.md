@@ -82,8 +82,9 @@ These aren't polyfills, but they're workarounds of the same kind.
 the console (`wasi: 0 0`, …): the constructor calls
 `debug.enable(options.debug)`, and `enable` treats `undefined` as `true`.
 
-**Workaround:** `hspec-halogen/js/runner.mjs` passes `{ debug: false }`. The
-examples' `web/index.js` files don't, so the deployed gallery logs those lines.
+**Workaround:** `hspec-halogen/js/runner.mjs` and the tutorial's
+`examples/learn/web/index.js` pass `{ debug: false }`. The other examples'
+`web/index.js` files don't, so their pages log those lines.
 
 **Upstream:** default to off when `options.debug` is absent. First check
 whether 0.4.x still does this; if not, upgrading fixes it. Its `random_get`
