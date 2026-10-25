@@ -14,6 +14,7 @@ import Test.Agreement qualified
 import Test.Counter qualified
 import Test.Digits qualified
 import Test.Drag qualified
+import Test.Editing qualified
 import Test.Hspec (around_)
 import Test.Hspec.Halogen (MonadBrowserTest, Spec, describe)
 import Test.Todo qualified
@@ -32,3 +33,4 @@ spec m = around_ (bracket_ js_hide_runner js_restore_runner) $ do
   describe "Digits" (Test.Digits.spec m)
   describe "Todo" (Test.Todo.spec m)
   describe "Drag" (Test.Drag.spec m)
+  describe "Editing" (Test.Editing.spec m)

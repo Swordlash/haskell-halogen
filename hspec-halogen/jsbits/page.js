@@ -182,10 +182,33 @@ function halogen_test_is_text_field(element) {
     (element instanceof HTMLInputElement && !['button', 'checkbox', 'color', 'file', 'hidden', 'image', 'radio', 'range', 'reset', 'submit'].includes(element.type));
 }
 
+// The text typed so far into an input whose value sanitises what it is
+// given (number, and the others with no selection, such as email), with the
+// value it gave. A browser keeps what the user typed apart from the value:
+// typing -42 into a number field, its value is "" after the -, as the input
+// events say, but the - is still there for the 4 and the 2. Setting the
+// value a prefix at a time would lose it, so the text is kept here, and
+// each keystroke sets the value from it. It holds only while the value is
+// still the one it gave: a render or a script that changed the value since
+// starts the text afresh from it, as do clear and a fresh focus.
+const halogen_test_raw = new WeakMap();
+
+// HTML's valid floating-point number, which a number field's value must be.
+const halogen_test_number = /^-?(\d+(\.\d+)?|\.\d+)([eE][-+]?\d+)?$/;
+
+// The text an edit applies to: the input's value, or for one that
+// sanitises, the text typed into it so far.
+function halogen_test_text(element) {
+  const kept = halogen_test_raw.get(element);
+  return kept && kept.value === element.value ? kept.raw : element.value;
+}
+
 // Edit a text field as typing would, with the beforeinput and input events
 // it sends: replace the selection (from start to end, the caret when they
 // are one) with text. An input type with no selection (email, number) is
-// edited at its end.
+// edited at the end of what has been typed into it. A contenteditable
+// element is edited at its selection by the browser's own editing commands,
+// which send its input event; start and end are not used for it.
 function halogen_test_edit(element, text, inputType, start, end) {
   const data = inputType === 'insertText' ? text : null;
   const init = {inputType, data, bubbles: true, composed: true};
@@ -194,9 +217,15 @@ function halogen_test_edit(element, text, inputType, start, end) {
     document.execCommand(inputType === 'insertText' ? 'insertText' : inputType === 'deleteContentForward' ? 'forwardDelete' : 'delete', false, text);
     return;
   }
-  const value = element.value;
+  const value = halogen_test_text(element);
   const [from, to] = start == null ? [value.length, value.length] : [start, end];
-  element.value = value.slice(0, from) + text + value.slice(to);
+  const edited = value.slice(0, from) + text + value.slice(to);
+  // What is not a number yet (-, 1.) leaves a number field's value empty,
+  // as it does a user's; assigned, it would also be logged as a warning.
+  element.value = element.type !== 'number' || halogen_test_number.test(edited) ? edited : '';
+  if (start == null) {
+    halogen_test_raw.set(element, {raw: edited, value: element.value});
+  }
   try {
     element.setSelectionRange(from + text.length, from + text.length);
   } catch {
@@ -223,7 +252,10 @@ async function halogen_test_key(key, modifiers) {
   const init = {key, bubbles: true, cancelable: true, composed: true, view: window, ...modifiers};
   const character = [...key].length === 1;
   const chord = modifiers.ctrlKey || modifiers.altKey || modifiers.metaKey;
-  if (target.dispatchEvent(new KeyboardEvent('keydown', init))) {
+  // A keydown whose default was prevented does nothing more: no character,
+  // and no activation of a button on the keyup either.
+  const pressed = target.dispatchEvent(new KeyboardEvent('keydown', init));
+  if (pressed) {
     const typing = halogen_test_is_text_field(target) || target.isContentEditable;
     const [start, end] = typing ? halogen_test_selection(target) : [null, null];
     if ((character || key === 'Enter') && !chord) {
@@ -233,8 +265,14 @@ async function halogen_test_key(key, modifiers) {
       halogen_test_edit(target, key, 'insertText', start, end);
     } else if ((key === 'Backspace' || key === 'Delete') && typing) {
       const forward = key === 'Delete';
-      const [from, to] = start == null ? [target.value.length - (forward ? 0 : 1), target.value.length] : start === end ? (forward ? [start, end + 1] : [Math.max(0, start - 1), end]) : [start, end];
-      halogen_test_edit(target, '', forward ? 'deleteContentForward' : 'deleteContentBackward', Math.max(0, from), to);
+      const inputType = forward ? 'deleteContentForward' : 'deleteContentBackward';
+      if (target.isContentEditable) {
+        halogen_test_edit(target, '', inputType, null, null);
+      } else {
+        const length = halogen_test_text(target).length;
+        const [from, to] = start == null ? [length - (forward ? 0 : 1), length] : start === end ? (forward ? [start, end + 1] : [Math.max(0, start - 1), end]) : [start, end];
+        halogen_test_edit(target, '', inputType, Math.max(0, from), to);
+      }
     } else if (key === 'Enter' && target instanceof HTMLTextAreaElement) {
       halogen_test_edit(target, '\n', 'insertLineBreak', start, end);
     } else if (key === 'Enter' && (target instanceof HTMLButtonElement || target instanceof HTMLAnchorElement || (target instanceof HTMLInputElement && ['button', 'submit', 'reset'].includes(target.type)))) {
@@ -246,7 +284,7 @@ async function halogen_test_key(key, modifiers) {
     }
   }
   const up = document.activeElement ?? document.body;
-  if (up.dispatchEvent(new KeyboardEvent('keyup', init)) && key === ' ' && up === target &&
+  if (up.dispatchEvent(new KeyboardEvent('keyup', init)) && pressed && key === ' ' && up === target &&
       (target instanceof HTMLButtonElement || (target instanceof HTMLInputElement && ['button', 'checkbox', 'radio', 'submit', 'reset'].includes(target.type)))) {
     target.click();
   }
@@ -295,6 +333,9 @@ async function halogen_test_synthetic_act(action, element, text) {
     // As Playwright's pressSequentially: focus the element, then a key at a
     // time, after what it holds.
     await halogen_test_actionable(element, 'type');
+    // Focused anew, an input starts from its value, not from what was typed
+    // into it before.
+    if (document.activeElement !== element) halogen_test_raw.delete(element);
     element.focus();
     if (halogen_test_is_text_field(element)) {
       try {
@@ -302,6 +343,14 @@ async function halogen_test_synthetic_act(action, element, text) {
       } catch {
         // No selection in this type of input: it is edited at its end.
       }
+    } else if (element.isContentEditable) {
+      // The caret at the end of what it holds.
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      range.collapse(false);
+      const selection = getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
     }
     for (const character of text) await halogen_test_key(character, {});
   } else if (action === 'clear') {
@@ -309,6 +358,7 @@ async function halogen_test_synthetic_act(action, element, text) {
     await halogen_test_actionable(element, 'clear');
     element.focus();
     if (halogen_test_is_text_field(element)) {
+      halogen_test_raw.delete(element);
       halogen_test_edit(element, '', 'deleteContentBackward', 0, element.value.length);
     } else if (element.isContentEditable) {
       document.execCommand('selectAll');

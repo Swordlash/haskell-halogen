@@ -10,7 +10,10 @@
   itself; `typeText` sends each character's key events and edits the field
   with `beforeinput` and `input`; `press` sends the key's events and does
   the commonest of what the browser would (a character typed, `Backspace`,
-  `Enter` on a button or in a form, `Tab` moving the focus); and each waits
+  `Enter` on a button or in a form, `Tab` moving the focus, and nothing
+  when `keydown`'s default is prevented); typing into a `contenteditable`
+  element or a number field works as a user's (`-42` arrives whole); and
+  each waits
   for its element to be visible and enabled, as Playwright does. Before, a
   page without the runner had a bare `click()`, a value set at once and a
   key's `keydown` and `keyup`. The haskell-halogen tutorial runs its testing

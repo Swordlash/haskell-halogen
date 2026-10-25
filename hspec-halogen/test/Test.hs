@@ -20,6 +20,7 @@ import Test.Counter qualified
 import Test.Digits qualified
 import Test.Dispatch qualified
 import Test.Drag qualified
+import Test.Editing qualified
 import Test.Family qualified
 import Test.Hspec.Halogen (describe, runBrowserTests)
 import Test.Hydrate qualified
@@ -45,6 +46,7 @@ main = runBrowserTests $ do
   describe "Reconciliation" (Test.Reconcile.spec BrowserDOM)
   describe "Dispatch" (Test.Dispatch.spec BrowserDOM)
   describe "Drag" (Test.Drag.spec BrowserDOM)
+  describe "Editing" (Test.Editing.spec BrowserDOM)
   describe "Hydration" (Test.Hydrate.spec BrowserDOM)
   describe "IndexedDB" (Test.IndexedDB.spec BrowserDOM)
   describe "Promised" (Test.Promised.spec BrowserDOM)

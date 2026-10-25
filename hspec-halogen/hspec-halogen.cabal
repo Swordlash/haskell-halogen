@@ -94,6 +94,7 @@ test-suite hspec-halogen-test
                       Example.Digits
                       Example.Dispatch
                       Example.Drag
+                      Example.Editing
                       Example.Family
                       Example.Islands
                       Example.Loader
@@ -109,6 +110,7 @@ test-suite hspec-halogen-test
                       Test.Digits
                       Test.Dispatch
                       Test.Drag
+                      Test.Editing
                       Test.Family
                       Test.Hydrate
                       Test.IndexedDB

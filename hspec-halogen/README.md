@@ -247,11 +247,16 @@ actions itself, with synthetic events (`jsbits/page.js`, its in-page mode):
   checkbox toggles, a link is followed, a form's button submits it).
 - `typeText`: the element focused, then for each character `keydown`,
   `keypress`, `beforeinput`, the field edited, `input` and `keyup`, after
-  what the field holds. `clear` selects everything and deletes it, with
-  `beforeinput` and `input`.
+  what the field holds (an element edited in place, `contenteditable`, is
+  edited at its end with the browser's own editing commands). A number
+  field keeps the text typed so far apart from its value, as a browser
+  does, so `-42` arrives whole although its value is empty after the `-`.
+  `clear` selects everything and deletes it, with `beforeinput` and
+  `input`.
 - `press`: the modifiers' and the key's `keydown` and `keyup` on the focused
-  element, and when `keydown`'s default is not prevented, the commonest of
-  what the browser would do: a character typed into a text field,
+  element, and when `keydown`'s default is not prevented (when it is,
+  nothing more, not even the `Space` that would press a button), the
+  commonest of what the browser would do: a character typed into a text field,
   `Backspace` and `Delete`, `Enter` on a button or a link (a click), in a
   text input of a form (it is submitted) and in a text area, `Space` on a
   button or a checkbox, and `Tab` and `Shift+Tab` moving the focus in
