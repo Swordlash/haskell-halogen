@@ -17,7 +17,6 @@ import Data.Functor qualified as F
 import Data.Row
 import Data.Text qualified as T
 import Halogen qualified as H hiding (Initialize)
-import Halogen.Component
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
@@ -88,22 +87,18 @@ tabsComponent
    . (MonadMaterial m, MonadUUID m)
   => H.Component (TabsQuery slots q) (TabsSpec slots i m) (TabsOutput i) m
 tabsComponent =
-  H.mkComponent $
-    H.ComponentSpec
-      { initialState = \TabsSpec {..} -> do
-          ref <- H.newRefLabel "tab-bar"
-          pure TabsState {mdcTabBar = Nothing, ..}
-      , render
-      , eval =
-          H.mkEval $
-            H.defaultEval
-              { handleAction
-              , handleQuery
-              , initialize = Just Initialize
-              , receive = \TabsSpec {tabs, extraStyle} -> Just $ Receive tabs extraStyle
-              , finalize = Just Finalize
-              }
-      }
+  H.component
+    ( \TabsSpec {..} -> do
+        ref <- H.newRefLabel "tab-bar"
+        pure TabsState {mdcTabBar = Nothing, ..}
+    )
+    render
+    [ H.onAction handleAction
+    , H.onQuery handleQuery
+    , H.onInitialize (handleAction Initialize)
+    , H.onReceive (\TabsSpec {tabs, extraStyle} -> handleAction (Receive tabs extraStyle))
+    , H.onFinalize (handleAction Finalize)
+    ]
   where
     render TabsState {..} =
       HH.div

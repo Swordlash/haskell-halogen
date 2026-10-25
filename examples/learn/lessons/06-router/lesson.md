@@ -16,7 +16,7 @@ A page with several views gives each one an address. `haskell-halogen-router` do
 
 ## The router
 
-The component gets a `Router.Router Route` as its input and keeps it in its state. `H.initialState` asks it where the page is, with `Router.current`. In `Initialize`, `H.subscribe` turns `Router.changes` into an `Arrived` action for every route the page goes to from then on.
+The component gets a `Router.Router Route` as its input and keeps it in its state. `initialState` is given that input, and asks it where the page is, with `Router.current`. Once the component is on the page, `watchRoutes`, its `H.onInitialize`, has `H.subscribe` turn `Router.changes` into an `Arrived` action for every route the page goes to from then on.
 
 `Router.link` makes an `<a>` whose `href` is the route's address, and hands a plain click on it to the component as `Go`. `Router.follow` goes there without loading a page, and `Router.changes` brings the new route back.
 

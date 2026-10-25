@@ -11,7 +11,7 @@ import Data.Functor.Coyoneda (Coyoneda (..), hoistCoyoneda)
 import Data.NT
 import Data.Row
 import HPrelude hiding (State)
-import Halogen as H hiding (ChildQuery, State)
+import Halogen as H hiding (ChildQuery, State, component)
 import Halogen.HTML as HH
 import Halogen.HTML.Properties as HP
 import Halogen.IO.Util (awaitBody)

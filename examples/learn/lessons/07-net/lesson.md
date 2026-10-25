@@ -12,7 +12,7 @@ Until the data arrives there is nothing to show, and it may never arrive. The st
 data State a = Loading | Done a | Failed Text
 ```
 
-`render` shows each one, and `handleAction` moves between them: `put Loading`, then the fetch, then `Done` with the quotes or `Failed` with the reason. `H.initialize` starts the first `Load` when the component is mounted.
+`render` shows each one, and `handleAction` moves between them: `put Loading`, then the fetch, then `Done` with the quotes or `Failed` with the reason. `H.onInitialize (handleAction (Load "data/quotes.json"))` starts the first `Load` when the component is mounted: on arriving, it does what `handleAction` does for that action.
 
 ## Fetching
 

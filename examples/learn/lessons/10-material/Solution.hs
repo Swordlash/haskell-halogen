@@ -29,13 +29,9 @@ data Action = Name Text | Email Text | News Bool | Send
 -- the page, then mounts this with m = BrowserDOM.
 component :: forall q o m. (MonadMaterial m, MonadUUID m) => H.Component q () o m
 component =
-  H.mkComponent
-    H.ComponentSpec
-      { H.initialState = \_ -> pure State {name = "", email = "", news = False, sent = "Nothing sent yet."}
-      , H.render = render
-      , H.eval = H.mkEval H.defaultEval {H.handleAction = handleAction}
-      }
+  H.component initialState render [H.onAction handleAction]
   where
+    initialState _ = pure State {name = "", email = "", news = False, sent = "Nothing sent yet."}
     render :: State -> H.ComponentHTML Action Slots m
     render st =
       HH.div_

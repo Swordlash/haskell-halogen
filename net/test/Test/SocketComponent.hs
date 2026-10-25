@@ -60,18 +60,10 @@ data Action = Initialize | Opened | Received WS.Message | Ended WS.Close | Say |
 -- | A component that opens the double's socket under its name.
 chat :: forall q o m. (MonadIO m) => H.Component q Text o m
 chat =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \name -> pure State {name, socket = Nothing, heard = []}
-      , render
-      , eval =
-          H.mkEval
-            H.defaultEval
-              { H.handleAction = handleAction
-              , H.initialize = Just Initialize
-              , H.finalize = Just Finalize
-              }
-      }
+  H.component
+    (\name -> pure State {name, socket = Nothing, heard = []})
+    render
+    [H.onAction handleAction, H.onInitialize (handleAction Initialize), H.onFinalize (handleAction Finalize)]
   where
     render :: State -> H.ComponentHTML Action Empty m
     render st =

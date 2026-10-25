@@ -96,20 +96,23 @@ data TextFieldAction
 
 textField :: (MonadMaterial m, MonadUUID m) => H.Component TextFieldQuery TextFieldSpec TextFieldOutput m
 textField =
-  H.mkComponent $
-    H.ComponentSpec
-      { initialState = \TextFieldSpec {..} -> do
-          ref <- H.newRefLabel "text-field"
-          labelId <- generateV4
-          helperId <- generateV4
-          pure $
-            TextFieldState
-              { mdcTextField = Nothing
-              , ..
-              }
-      , render
-      , eval = H.mkEval $ H.defaultEval {H.initialize = Just Initialize, H.finalize = Just Finalize, H.handleAction = handleAction, H.handleQuery = handleQuery}
-      }
+  H.component
+    ( \TextFieldSpec {..} -> do
+        ref <- H.newRefLabel "text-field"
+        labelId <- generateV4
+        helperId <- generateV4
+        pure $
+          TextFieldState
+            { mdcTextField = Nothing
+            , ..
+            }
+    )
+    render
+    [ H.onAction handleAction
+    , H.onQuery handleQuery
+    , H.onInitialize (handleAction Initialize)
+    , H.onFinalize (handleAction Finalize)
+    ]
   where
     render TextFieldState {..} = case helperLine of
       NoHelperLine -> tf

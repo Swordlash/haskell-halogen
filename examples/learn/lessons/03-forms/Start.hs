@@ -18,13 +18,9 @@ data Action = SetName Text | SetShout Bool | Submit
 
 component :: forall q o m. (MonadIO m) => H.Component q () o m
 component =
-  H.mkComponent
-    H.ComponentSpec
-      { H.initialState = \_ -> pure State {name = "", shout = False}
-      , H.render = render
-      , H.eval = H.mkEval H.defaultEval {H.handleAction = handleAction}
-      }
+  H.component initialState render [H.onAction handleAction]
   where
+    initialState _ = pure State {name = "", shout = False}
     render state =
       HH.form
         [HE.preventingDefault (HE.onSubmit (\_ -> Submit))]

@@ -193,12 +193,10 @@ data Query a
 
 logging :: IORef [Text] -> IORef [Text] -> IORef (Maybe (ForkId, MVar (), MVar ())) -> HS.Emitter IO Act -> HS.Listener IO Act -> H.Component Query () Void IO
 logging texts logRef ticker acts self =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> pure (0 :: Int)
-      , render = \n -> HH.text (T.pack (show n)) :: H.ComponentHTML Act Empty IO
-      , eval = H.mkEval H.defaultEval {initialize = Just (Note "init"), handleAction, handleQuery}
-      }
+  H.component
+    (\_ -> pure (0 :: Int))
+    (\n -> HH.text (T.pack (show n)) :: H.ComponentHTML Act Empty IO)
+    [H.onAction handleAction, H.onQuery handleQuery, H.onInitialize (handleAction (Note "init"))]
   where
     note t = H.liftEffect (note' t)
     note' t = modifyIORef' logRef (<> [t])
@@ -467,39 +465,31 @@ data PokeAct = Watch | Poke
 
 poked :: IORef [Text] -> HS.Emitter IO () -> H.Component H.VoidF () () IO
 poked logRef pokes =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> pure ()
-      , render = \_ -> HH.text "child" :: H.ComponentHTML PokeAct Empty IO
-      , eval =
-          H.mkEval
-            H.defaultEval
-              { initialize = Just Watch
-              , handleAction = \case
-                  Watch -> void (H.subscribe (Poke <$ pokes))
-                  Poke -> do
-                    -- The parent removes this component before 'raise' returns.
-                    H.raise ()
-                    H.liftEffect (modifyIORef' logRef (<> ["went on"]))
-                    liftIO (modifyIORef' logRef (<> ["waited"]))
-              }
-      }
+  H.component
+    (\_ -> pure ())
+    (\_ -> HH.text "child" :: H.ComponentHTML PokeAct Empty IO)
+    [H.onAction handleAction, H.onInitialize (handleAction Watch)]
+  where
+    handleAction = \case
+      Watch -> void (H.subscribe (Poke <$ pokes))
+      Poke -> do
+        -- The parent removes this component before 'raise' returns.
+        H.raise ()
+        H.liftEffect (modifyIORef' logRef (<> ["went on"]))
+        liftIO (modifyIORef' logRef (<> ["waited"]))
 
 remover :: IORef [Text] -> HS.Emitter IO () -> H.Component Query () Void IO
 remover logRef pokes =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> pure (0 :: Int)
-      , render = \n -> HH.div_ [HH.slot "child" () (poked logRef pokes) () (const ()) | n == 0] :: H.ComponentHTML () ("child" .== H.Slot H.VoidF () ()) IO
-      , eval =
-          H.mkEval
-            H.defaultEval
-              { handleAction = \() -> modify (+ 1)
-              , handleQuery = \case
-                  Current k -> Just . k <$> get
-                  _ -> pure Nothing
-              }
-      }
+  H.component
+    (\_ -> pure (0 :: Int))
+    (\n -> HH.div_ [HH.slot "child" () (poked logRef pokes) () (const ()) | n == 0] :: H.ComponentHTML () ("child" .== H.Slot H.VoidF () ()) IO)
+    [ H.onAction (\() -> modify (+ 1))
+    , H.onQuery
+        ( \case
+            Current k -> Just . k <$> get
+            _ -> pure Nothing
+        )
+    ]
 
 removedWhileRunning :: IO ()
 removedWhileRunning = do
@@ -520,12 +510,10 @@ data ChildAct = Received Int
 
 asker :: MVar () -> H.Component H.VoidF Int (MVar ()) IO
 asker childDone =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = pure
-      , render = \_ -> HH.text "child" :: H.ComponentHTML ChildAct Empty IO
-      , eval = H.mkEval H.defaultEval {receive = Just . Received, handleAction}
-      }
+  H.component
+    pure
+    (\_ -> HH.text "child" :: H.ComponentHTML ChildAct Empty IO)
+    [H.onAction handleAction, H.onReceive (handleAction . Received)]
   where
     handleAction (Received n) = when (n > 0) $ do
       reply <- H.liftEffect newEmptyMVar
@@ -539,17 +527,12 @@ data SetQuery a = Set Int a
 
 askedParent :: MVar () -> H.Component SetQuery () Void IO
 askedParent childDone =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> pure (0 :: Int)
-      , render = \n -> HH.div_ [HH.slot "child" () (asker childDone) n Answer] :: H.ComponentHTML ParentAct ("child" .== H.Slot H.VoidF (MVar ()) ()) IO
-      , eval =
-          H.mkEval
-            H.defaultEval
-              { handleAction = \(Answer reply) -> H.liftEffect (putMVar reply ())
-              , handleQuery = \(Set n a) -> put n >> pure (Just a)
-              }
-      }
+  H.component
+    (\_ -> pure (0 :: Int))
+    (\n -> HH.div_ [HH.slot "child" () (asker childDone) n Answer] :: H.ComponentHTML ParentAct ("child" .== H.Slot H.VoidF (MVar ()) ()) IO)
+    [ H.onAction (\(Answer reply) -> H.liftEffect (putMVar reply ()))
+    , H.onQuery (\(Set n a) -> put n >> pure (Just a))
+    ]
 
 receiveAsksParent :: IO ()
 receiveAsksParent = do
@@ -569,35 +552,23 @@ data Life = Start | Stop
 
 counted :: Counts -> H.Component H.VoidF Int Void IO
 counted counts =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \k -> if k == 3 then throwIO (ErrorCall "no child 3") else pure k
-      , render = \_ -> HH.text "" :: H.ComponentHTML Life Empty IO
-      , eval =
-          H.mkEval
-            H.defaultEval
-              { initialize = Just Start
-              , finalize = Just Stop
-              , handleAction = \case
-                  Start -> H.liftEffect $ modifyIORef' counts.started (+ 1)
-                  Stop -> H.liftEffect $ modifyIORef' counts.stopped (+ 1)
-              }
-      }
+  H.component
+    (\k -> if k == 3 then throwIO (ErrorCall "no child 3") else pure k)
+    (\_ -> HH.text "" :: H.ComponentHTML Life Empty IO)
+    [H.onAction handleAction, H.onInitialize (handleAction Start), H.onFinalize (handleAction Stop)]
+  where
+    handleAction = \case
+      Start -> H.liftEffect $ modifyIORef' counts.started (+ 1)
+      Stop -> H.liftEffect $ modifyIORef' counts.stopped (+ 1)
 
 rows :: Counts -> H.Component SetQuery () Void IO
 rows counts =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> pure (1 :: Int)
-      , render = \n -> HH.div_ [HH.slot_ "row" k (counted counts) k | k <- [0 .. n]] :: H.ComponentHTML () ("row" .== H.Slot H.VoidF Void Int) IO
-      , eval =
-          H.mkEval
-            H.defaultEval
-              { initialize = Just ()
-              , handleAction = \() -> H.liftEffect $ modifyIORef' counts.parentStarted (+ 1)
-              , handleQuery = \(Set n a) -> put n >> pure (Just a)
-              }
-      }
+  H.component
+    (\_ -> pure (1 :: Int))
+    (\n -> HH.div_ [HH.slot_ "row" k (counted counts) k | k <- [0 .. n]] :: H.ComponentHTML () ("row" .== H.Slot H.VoidF Void Int) IO)
+    [ H.onQuery (\(Set n a) -> put n >> pure (Just a))
+    , H.onInitialize (H.liftEffect $ modifyIORef' counts.parentStarted (+ 1))
+    ]
 
 failedPass :: IO ()
 failedPass = do
@@ -619,12 +590,10 @@ failedPass = do
 -- | One row, whose key is the state.
 swapper :: Counts -> H.Component SetQuery () Void IO
 swapper counts =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> pure (0 :: Int)
-      , render = \k -> HH.div_ [HH.slot_ "row" k (counted counts) k] :: H.ComponentHTML () ("row" .== H.Slot H.VoidF Void Int) IO
-      , eval = H.mkEval H.defaultEval {handleQuery = \(Set n a) -> put n >> pure (Just a)}
-      }
+  H.component
+    (\_ -> pure (0 :: Int))
+    (\k -> HH.div_ [HH.slot_ "row" k (counted counts) k] :: H.ComponentHTML () ("row" .== H.Slot H.VoidF Void Int) IO)
+    [H.onQuery (\(Set n a) -> put n >> pure (Just a))]
 
 failedRemoval :: IO ()
 failedRemoval = do
@@ -660,38 +629,27 @@ data InitAct = Init | Fin
 
 initFails :: IORef [Text] -> Bool -> H.Component H.VoidF () Void IO
 initFails logRef bad =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> pure ()
-      , render = \_ -> HH.text "" :: H.ComponentHTML InitAct Empty IO
-      , eval =
-          H.mkEval
-            H.defaultEval
-              { initialize = Just Init
-              , handleAction = \_ -> H.liftEffect $ if bad then throwIO (ErrorCall "init") else modifyIORef' logRef (<> ["good child"])
-              }
-      }
+  H.component
+    (\_ -> pure ())
+    (\_ -> HH.text "" :: H.ComponentHTML InitAct Empty IO)
+    [H.onAction handleAction, H.onInitialize (handleAction Init)]
+  where
+    handleAction _ = H.liftEffect $ if bad then throwIO (ErrorCall "init") else modifyIORef' logRef (<> ["good child"])
 
 initParent :: IORef [Text] -> MVar () -> H.Component H.VoidF () Void IO
 initParent logRef forkKilled =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> pure ()
-      , render = \_ -> HH.div_ [HH.slot_ "c" False (initFails logRef False) (), HH.slot_ "c" True (initFails logRef True) ()] :: H.ComponentHTML InitAct ("c" .== H.Slot H.VoidF Void Bool) IO
-      , eval =
-          H.mkEval
-            H.defaultEval
-              { initialize = Just Init
-              , finalize = Just Fin
-              , handleAction = \case
-                  Init -> H.liftEffect $ modifyIORef' logRef (<> ["parent"])
-                  -- Forks work that outlives the finalizer: it ends with it.
-                  Fin -> do
-                    forkWaits <- H.liftEffect newEmptyMVar
-                    void $ H.fork $ liftIO $ (putMVar forkWaits () >> (newEmptyMVar >>= takeMVar :: IO ())) `onException` putMVar forkKilled ()
-                    liftIO (readMVar forkWaits)
-              }
-      }
+  H.component
+    (\_ -> pure ())
+    (\_ -> HH.div_ [HH.slot_ "c" False (initFails logRef False) (), HH.slot_ "c" True (initFails logRef True) ()] :: H.ComponentHTML InitAct ("c" .== H.Slot H.VoidF Void Bool) IO)
+    [H.onAction handleAction, H.onInitialize (handleAction Init), H.onFinalize (handleAction Fin)]
+  where
+    handleAction = \case
+      Init -> H.liftEffect $ modifyIORef' logRef (<> ["parent"])
+      -- Forks work that outlives the finalizer: it ends with it.
+      Fin -> do
+        forkWaits <- H.liftEffect newEmptyMVar
+        void $ H.fork $ liftIO $ (putMVar forkWaits () >> (newEmptyMVar >>= takeMVar :: IO ())) `onException` putMVar forkKilled ()
+        liftIO (readMVar forkWaits)
 
 lifecycle :: IO ()
 lifecycle = do
@@ -718,12 +676,10 @@ data IslandAct = Load | Poked
 -- each poke to its parent, while it waits too.
 island :: IORef [Text] -> Gate -> HS.Emitter IO () -> H.Component Query () Text IO
 island logRef gate pokes =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> pure (0 :: Int)
-      , render = \_ -> HH.text "island" :: H.ComponentHTML IslandAct Empty IO
-      , eval = H.mkEval H.defaultEval {initialize = Just Load, handleAction, handleQuery}
-      }
+  H.component
+    (\_ -> pure (0 :: Int))
+    (\_ -> HH.text "island" :: H.ComponentHTML IslandAct Empty IO)
+    [H.onAction handleAction, H.onQuery handleQuery, H.onInitialize (handleAction Load)]
   where
     note t = H.liftEffect (modifyIORef' logRef (<> [t]))
     handleAction = \case
@@ -747,14 +703,13 @@ data HostQuery a = Reveal a | Conceal a | AskIsland (Maybe Int -> a)
 -- | The island's parent: it shows the island while its state says so.
 host :: IORef [Text] -> Gate -> HS.Emitter IO () -> Bool -> H.Component HostQuery () Void IO
 host logRef gate pokes shown =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> pure shown
-      , render = \visible ->
-          HH.div_ [HH.slot "island" () (island logRef gate pokes) () Heard | visible]
-            :: H.ComponentHTML HostAct ("island" .== H.Slot Query Text ()) IO
-      , eval = H.mkEval H.defaultEval {initialize = Just HostInit, handleAction, handleQuery}
-      }
+  H.component
+    (\_ -> pure shown)
+    ( \visible ->
+        HH.div_ [HH.slot "island" () (island logRef gate pokes) () Heard | visible]
+          :: H.ComponentHTML HostAct ("island" .== H.Slot Query Text ()) IO
+    )
+    [H.onAction handleAction, H.onQuery handleQuery, H.onInitialize (handleAction HostInit)]
   where
     note t = H.liftEffect (modifyIORef' logRef (<> [t]))
     handleAction = \case

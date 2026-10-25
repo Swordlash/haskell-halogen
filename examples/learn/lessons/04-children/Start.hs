@@ -20,13 +20,10 @@ data CounterAction = Increment
 
 counter :: forall m. (MonadIO m) => H.Component Query () Output m
 counter =
-  H.mkComponent
-    H.ComponentSpec
-      { H.initialState = \_ -> pure (0 :: Int)
-      , H.render = \count -> HH.button [HE.onClick (\_ -> Increment)] [HH.text ("Count: " <> T.pack (show count))]
-      , H.eval = H.mkEval H.defaultEval {H.handleAction = handleAction, H.handleQuery = handleQuery}
-      }
+  H.component initialState render [H.onAction handleAction, H.onQuery handleQuery]
   where
+    initialState _ = pure (0 :: Int)
+    render count = HH.button [HE.onClick (\_ -> Increment)] [HH.text ("Count: " <> T.pack (show count))]
     handleAction Increment = modify (+ 1) >> H.raise Clicked
     handleQuery :: Query a -> H.HalogenM Int CounterAction Empty Output m (Maybe a)
     handleQuery (Reset next) = put 0 >> pure (Just next)
@@ -37,13 +34,9 @@ data Action = HeardClick | ResetCounter
 
 component :: forall q o m. (MonadIO m) => H.Component q () o m
 component =
-  H.mkComponent
-    H.ComponentSpec
-      { H.initialState = \_ -> pure "Nothing heard yet."
-      , H.render = render
-      , H.eval = H.mkEval H.defaultEval {H.handleAction = handleAction}
-      }
+  H.component initialState render [H.onAction handleAction]
   where
+    initialState _ = pure "Nothing heard yet."
     render :: T.Text -> H.ComponentHTML Action Slots m
     render message =
       HH.div_

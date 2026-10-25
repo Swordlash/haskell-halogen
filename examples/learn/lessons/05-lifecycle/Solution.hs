@@ -16,17 +16,13 @@ import Halogen.Query.Event.Window qualified as Window
 
 data State = State {seconds :: Int, message :: Text, tenths :: Int, running :: Maybe H.SubscriptionId}
 
-data Action = Initialize | Tick | Remind | Start | Stop | TenthTick | Finalize
+data Action = Tick | Remind | Start | Stop | TenthTick
 
 component :: forall q o m. (MonadIO m) => H.Component q () o m
 component =
-  H.mkComponent
-    H.ComponentSpec
-      { H.initialState = \_ -> pure State {seconds = 0, message = "", tenths = 0, running = Nothing}
-      , H.render = render
-      , H.eval = H.mkEval H.defaultEval {H.handleAction = handleAction, H.initialize = Just Initialize, H.finalize = Just Finalize}
-      }
+  H.component initialState render [H.onInitialize startClock, H.onAction handleAction, H.onFinalize report]
   where
+    initialState _ = pure State {seconds = 0, message = "", tenths = 0, running = Nothing}
     render state =
       HH.div_
         [ HH.p_ [HH.text ("Mounted " <> T.pack (show state.seconds) <> " seconds ago.")]
@@ -37,8 +33,8 @@ component =
             Nothing -> HH.button [HE.onClick (\_ -> Start)] [HH.text "Start"]
             Just _ -> HH.button [HE.onClick (\_ -> Stop)] [HH.text "Stop"]
         ]
+    startClock = void (H.subscribe (Tick <$ Window.interval 1000))
     handleAction action = case action of
-      Initialize -> void (H.subscribe (Tick <$ Window.interval 1000))
       Tick -> modify (\s -> s {seconds = s.seconds + 1})
       Remind -> do
         modify (\s -> s {message = "Waiting..."})
@@ -53,6 +49,6 @@ component =
         mapM_ H.unsubscribe state.running
         modify (\s -> s {running = Nothing})
       TenthTick -> modify (\s -> s {tenths = s.tenths + 1})
-      Finalize -> do
-        state <- get
-        liftIO (putStrLn ("Finalized after " <> show state.seconds <> " seconds."))
+    report = do
+      state <- get
+      liftIO (putStrLn ("Finalized after " <> show state.seconds <> " seconds."))

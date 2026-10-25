@@ -19,17 +19,10 @@ import Web.DOM.ParentNode (QuerySelector (..))
 -- disposal returns: what a finalizer does in 'liftIO' goes on after it.
 finalizing :: forall m. (MonadIO m) => H.Component H.VoidF (IORef Bool) Void m
 finalizing =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = pure
-      , render = \_ -> HH.p_ [HH.text "the last run"]
-      , eval =
-          H.mkEval
-            H.defaultEval
-              { H.finalize = Just ()
-              , H.handleAction = \() -> get >>= \finalized -> H.liftEffect (liftIO (atomicWriteIORef finalized True))
-              }
-      }
+  H.component
+    pure
+    (\_ -> HH.p_ [HH.text "the last run"])
+    [H.onFinalize (get >>= \finalized -> H.liftEffect (liftIO (atomicWriteIORef finalized True)))]
 
 -- | What a program's @main@ does: end the last run, mount into the page's
 -- @.last-run@ and keep the socket's @dispose@ for the next run.

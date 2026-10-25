@@ -11,12 +11,7 @@ import UnliftIO (MonadUnliftIO)
 
 component :: forall m. (MonadUnliftIO m) => H.Component H.VoidF () () m
 component =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = const (pure ())
-      , render = const page
-      , eval = H.mkEval H.defaultEval
-      }
+  H.component (const (pure ())) (const page) []
   where
     page :: H.ComponentHTML Void Empty m
     page =

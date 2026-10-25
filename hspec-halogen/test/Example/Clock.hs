@@ -15,12 +15,10 @@ data Action = Initialize | Tick
 
 component :: forall q o m. (Monad m) => H.Component q (IORef Int) o m
 component =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \counter -> pure (counter, 0 :: Int)
-      , render
-      , eval = H.mkEval H.defaultEval {H.handleAction = handleAction, H.initialize = Just Initialize}
-      }
+  H.component
+    (\counter -> pure (counter, 0 :: Int))
+    render
+    [H.onAction handleAction, H.onInitialize (handleAction Initialize)]
   where
     render :: (IORef Int, Int) -> H.ComponentHTML Action Empty m
     render (_, ticks) = HH.p [HP.class_ (HH.ClassName "ticks")] [HH.text (show ticks)]

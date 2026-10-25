@@ -30,12 +30,10 @@ data Action
 
 component :: forall m. (MonadUnliftIO m) => H.Component H.VoidF () () m
 component =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = const (pure State {items = [(1, "Read the README"), (2, "Quote some HTML")], draft = "", next = 3, showDone = True, done = []})
-      , render
-      , eval = H.mkEval H.defaultEval {H.handleAction = handleAction}
-      }
+  H.component
+    (const (pure State {items = [(1, "Read the README"), (2, "Quote some HTML")], draft = "", next = 3, showDone = True, done = []}))
+    render
+    [H.onAction handleAction]
   where
     render :: State -> H.ComponentHTML Action Empty m
     render st =

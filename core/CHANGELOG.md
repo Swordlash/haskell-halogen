@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- A component is built from its handlers: `H.component initialState render
+  [H.onAction handleAction, H.onInitialize start]`, with `H.onQuery`,
+  `H.onFinalize` and `H.onReceive` for the rest, in any order. Each
+  handler answers one of the five things a component is asked to do and
+  leaves the others alone, so a component with nothing to handle is
+  `H.component initialState render []`. Arriving, going and new input are
+  handled by a `HalogenM` program, not by an action the component has to
+  have a constructor for: `H.onInitialize (handleAction Initialize)` keeps
+  the old shape where it is wanted. `H.componentSpec initialState render`
+  is the same with the handlers added by `Data.Function`'s `&` and
+  `mkComponent` at the end. `mkComponent`, `ComponentSpec`,
+  `mkEval`, `defaultEval` and `EvalSpec` stay as they were, for an `eval`
+  written as one function. The tutorial, the examples and the packages'
+  own components use the new form. A module that imports `Halogen`
+  unqualified and names something of its own `component` must now hide
+  the new one.
+
 - A subscription's action now runs nested in the synchronous effect that
   dispatched its event, as an element's own handler's does: a component
   that subscribes to a DOM listener (`Halogen.Query.Event.eventListener`,

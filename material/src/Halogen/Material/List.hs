@@ -15,7 +15,6 @@ import Control.Monad.Extra (pureIf)
 import Control.Monad.UUID (MonadUUID)
 import Data.Row (HasType)
 import Halogen qualified as H hiding (Initialize)
-import Halogen.Component
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
@@ -83,14 +82,18 @@ list
    . (MonadMaterial m, MonadUUID m)
   => H.Component (ListQuery slots q) (ListSpec a slots i m) (ListOutput i) m
 list =
-  H.mkComponent $
-    H.ComponentSpec
-      { initialState = \ListSpec {..} -> do
-          ref <- H.newRefLabel "list"
-          pure ListState {mdcList = Nothing, mdcItems = [], ..}
-      , render
-      , eval = H.mkEval $ H.defaultEval {handleAction, handleQuery, initialize = Just Initialize, receive = const $ Just InitRipples, finalize = Just DestroyRipples}
-      }
+  H.component
+    ( \ListSpec {..} -> do
+        ref <- H.newRefLabel "list"
+        pure ListState {mdcList = Nothing, mdcItems = [], ..}
+    )
+    render
+    [ H.onAction handleAction
+    , H.onQuery handleQuery
+    , H.onInitialize (handleAction Initialize)
+    , H.onFinalize (handleAction DestroyRipples)
+    , H.onReceive (const (handleAction InitRipples))
+    ]
   where
     render :: ListState a slots i m -> HH.ComponentHTML (ListAction i) slots m
     render ListState {elemRenderer = ElemRenderer {..}, ..} =

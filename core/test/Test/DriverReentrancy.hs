@@ -95,19 +95,14 @@ data ChildAction = CInit | CFinalize | CReceive Int
 -- instances so the hook can park only the first child's first @Receive@.
 mkChild :: ChildEnv -> Int -> H.Component H.VoidF Int Void IO
 mkChild env cid =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> pure ()
-      , render = renderChildHtml
-      , eval =
-          H.mkEval
-            H.defaultEval
-              { initialize = Just CInit
-              , finalize = Just CFinalize
-              , receive = Just . CReceive
-              , handleAction = handleChild
-              }
-      }
+  H.component
+    (\_ -> pure ())
+    renderChildHtml
+    [ H.onAction handleChild
+    , H.onInitialize (handleChild CInit)
+    , H.onFinalize (handleChild CFinalize)
+    , H.onReceive (handleChild . CReceive)
+    ]
   where
     renderChildHtml :: () -> H.ComponentHTML ChildAction Empty IO
     renderChildHtml _ = HH.text "child"
@@ -126,17 +121,10 @@ parentComponent
   -> HS.Emitter IO ParentAction
   -> H.Component H.VoidF () Void IO
 parentComponent env emitter =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> pure (0 :: Int)
-      , render = renderParent
-      , eval =
-          H.mkEval
-            H.defaultEval
-              { initialize = Just PInit
-              , handleAction = handleParent
-              }
-      }
+  H.component
+    (\_ -> pure (0 :: Int))
+    renderParent
+    [H.onAction handleParent, H.onInitialize (handleParent PInit)]
   where
     renderParent :: Int -> H.ComponentHTML ParentAction PSlots IO
     renderParent tick =

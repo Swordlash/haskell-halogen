@@ -105,12 +105,10 @@ data Action
 
 component :: forall q o m. (MonadBrowserDOM m, MonadUnliftIO m, MonadUUID m) => H.Component q (Router Route) o m
 component =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState
-      , render
-      , eval = H.mkEval H.defaultEval {H.handleAction = handleAction, H.initialize = Just Initialize, H.finalize = Just Finalize}
-      }
+  H.component
+    initialState
+    render
+    [H.onAction handleAction, H.onInitialize (handleAction Initialize), H.onFinalize (handleAction Finalize)]
   where
     initialState router = do
       route <- Router.current router

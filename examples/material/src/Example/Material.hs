@@ -4,7 +4,8 @@ import Clay qualified as C
 import Control.Monad.UUID
 import DOM.HTML.Indexed (InputType (..))
 import Data.Row
-import Halogen as H
+import Halogen (VoidF)
+import Halogen qualified as H
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Properties qualified as HP
 import Halogen.Material.Button qualified as HMB
@@ -41,12 +42,7 @@ data Action
 
 component :: forall q i o m. (MonadMaterial m, MonadUUID m) => H.Component q i o m
 component =
-  H.mkComponent $
-    H.ComponentSpec
-      { initialState = const $ pure "White"
-      , render
-      , eval = H.mkEval H.defaultEval {H.handleAction = handleAction}
-      }
+  H.component (const $ pure "White") render [H.onAction handleAction]
   where
     handleAction :: Action -> H.HalogenM Text Action (Slots m) o m ()
     handleAction = \case

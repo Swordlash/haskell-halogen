@@ -71,14 +71,13 @@ type Slots = ("page" .== H.Slot (Const Void) PageOutput Int)
 
 component :: forall q o m. (MonadIO m) => H.Component q Input o m
 component =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \input -> do
-          route <- Router.current input.router
-          pure State {input, route, heard = []}
-      , render
-      , eval = H.mkEval H.defaultEval {H.handleAction = handleAction, H.initialize = Just Initialize}
-      }
+  H.component
+    ( \input -> do
+        route <- Router.current input.router
+        pure State {input, route, heard = []}
+    )
+    render
+    [H.onAction handleAction, H.onInitialize (handleAction Initialize)]
   where
     render :: State -> H.ComponentHTML Action Slots m
     render st =
@@ -126,12 +125,10 @@ type PageSlots = ("editor" .== H.Slot EditorQuery EditorOutput ())
 
 pageView :: forall q m. (MonadIO m) => H.Component q (Input, Int) PageOutput m
 pageView =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \(input, number) -> pure PageState {input, number, said = [], answer = "not asked"}
-      , render
-      , eval = H.mkEval H.defaultEval {H.handleAction = handleAction}
-      }
+  H.component
+    (\(input, number) -> pure PageState {input, number, said = [], answer = "not asked"})
+    render
+    [H.onAction handleAction]
   where
     render :: PageState -> H.ComponentHTML PageAction PageSlots m
     render st =
@@ -167,12 +164,7 @@ data EditorAction = Shout | AskToLeave
 
 editor :: forall m. (MonadIO m) => H.Component EditorQuery Int EditorOutput m
 editor =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = pure
-      , render
-      , eval = H.mkEval H.defaultEval {H.handleAction = handleAction, H.handleQuery = handleQuery}
-      }
+  H.component pure render [H.onAction handleAction, H.onQuery handleQuery]
   where
     render :: Int -> H.ComponentHTML EditorAction ("island" .== H.Slot (Const Void) Void Int) m
     render waitMs =
@@ -197,13 +189,12 @@ data IslandState = Waiting Int | Loaded
 -- | Waits when it starts, then shows it has loaded.
 island :: forall q o m. (MonadIO m) => H.Component q Int o m
 island =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = pure . Waiting
-      , render = \st ->
-          HH.span [HP.class_ (HH.ClassName "island")] [HH.text (case st of Waiting _ -> "waiting"; Loaded -> "loaded")] :: H.ComponentHTML () Empty m
-      , eval = H.mkEval H.defaultEval {H.handleAction = load, H.initialize = Just ()}
-      }
+  H.component
+    (pure . Waiting)
+    ( \st ->
+        HH.span [HP.class_ (HH.ClassName "island")] [HH.text (case st of Waiting _ -> "waiting"; Loaded -> "loaded")] :: H.ComponentHTML () Empty m
+    )
+    [H.onAction load, H.onInitialize (load ())]
   where
     load :: () -> H.HalogenM IslandState () Empty o m ()
     load () =

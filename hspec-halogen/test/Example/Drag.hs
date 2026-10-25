@@ -28,12 +28,10 @@ pieces = ["a", "b", "c"]
 
 component :: forall o m. (MonadIO m) => H.Component Query Kind o m
 component =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \kind -> pure (State kind Map.empty Nothing)
-      , render
-      , eval = H.mkEval H.defaultEval {H.handleAction = handleAction, H.handleQuery = handleQuery}
-      }
+  H.component
+    (\kind -> pure (State kind Map.empty Nothing))
+    render
+    [H.onAction handleAction, H.onQuery handleQuery]
   where
     render :: State -> H.ComponentHTML Action Empty m
     render st =

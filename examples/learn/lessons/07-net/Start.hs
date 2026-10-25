@@ -24,13 +24,9 @@ data Action = Load Text
 
 component :: forall q o m. (MonadIO m) => H.Component q () o m
 component =
-  H.mkComponent
-    H.ComponentSpec
-      { H.initialState = \_ -> pure Loading
-      , H.render = render
-      , H.eval = H.mkEval H.defaultEval {H.handleAction = handleAction, H.initialize = Just (Load "data/quotes.json")}
-      }
+  H.component initialState render [H.onInitialize (handleAction (Load "data/quotes.json")), H.onAction handleAction]
   where
+    initialState _ = pure Loading
     render state =
       HH.div_
         [ case state of

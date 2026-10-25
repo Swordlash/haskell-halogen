@@ -19,13 +19,9 @@ data Action = Like
 
 component :: forall q o m. (MonadIO m) => H.Component q () o m
 component =
-  H.mkComponent
-    H.ComponentSpec
-      { H.initialState = \_ -> pure State {name = "Ada", likes = 0, items = ["Read the lesson", "Write a quote", "Compile it"]}
-      , H.render = render
-      , H.eval = H.mkEval H.defaultEval {H.handleAction = handleAction}
-      }
+  H.component initialState render [H.onAction handleAction]
   where
+    initialState _ = pure State {name = "Ada", likes = 0, items = ["Read the lesson", "Write a quote", "Compile it"]}
     render st =
       [hh|
         <div class="card">

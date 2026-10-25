@@ -8,13 +8,9 @@ import Halogen.HTML qualified as HH
 
 component :: forall q o m. (MonadIO m) => H.Component q () o m
 component =
-  H.mkComponent
-    H.ComponentSpec
-      { H.initialState = \_ -> pure ()
-      , H.render = render
-      , H.eval = H.mkEval H.defaultEval
-      }
+  H.component initialState render []
   where
+    initialState _ = pure ()
     render () =
       HH.div_
         [ HH.p_ [HH.text "Hello"]

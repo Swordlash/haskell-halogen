@@ -42,12 +42,10 @@ data Action = Start | StartFailing | Collect | Tick
 -- | The component, given how long its work takes, in milliseconds.
 component :: forall q o m. (MonadIO m) => H.Component q Int o m
 component =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \delayMs -> pure State {delayMs, pending = Nothing, result = "idle", ticks = 0}
-      , render
-      , eval = H.mkEval H.defaultEval {H.handleAction = handleAction}
-      }
+  H.component
+    (\delayMs -> pure State {delayMs, pending = Nothing, result = "idle", ticks = 0})
+    render
+    [H.onAction handleAction]
   where
     render :: State -> H.ComponentHTML Action Empty m
     render st =

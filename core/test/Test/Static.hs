@@ -40,45 +40,36 @@ import Test.Utils (assertEqual, assertWith)
 -- the cell it is given.
 initialized :: IORef Text -> H.Component H.VoidF () Void MemDOM
 initialized source =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> pure "before"
-      , render = \st -> HH.p_ [HH.text st] :: H.ComponentHTML () Empty MemDOM
-      , eval = H.mkEval H.defaultEval {H.handleAction = \() -> liftIO (readIORef source) >>= put, H.initialize = Just ()}
-      }
+  H.component
+    (\_ -> pure "before")
+    (\st -> HH.p_ [HH.text st] :: H.ComponentHTML () Empty MemDOM)
+    [H.onInitialize (liftIO (readIORef source) >>= put)]
 
 -- | Loads its text the same way, and once it has, renders it beside a
 -- child that loads its own in turn.
 loading :: IORef Text -> H.Component H.VoidF () Void MemDOM
 loading source =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> pure Nothing
-      , render = \case
-          Nothing -> HH.p_ [HH.text "loading"] :: H.ComponentHTML () ("child" .== H.Slot H.VoidF Void ()) MemDOM
-          Just st -> HH.div_ [HH.p_ [HH.text st], HH.slot_ "child" () (initialized source) ()]
-      , eval = H.mkEval H.defaultEval {H.handleAction = \() -> liftIO (readIORef source) >>= put . Just, H.initialize = Just ()}
-      }
+  H.component
+    (\_ -> pure Nothing)
+    ( \case
+        Nothing -> HH.p_ [HH.text "loading"] :: H.ComponentHTML () ("child" .== H.Slot H.VoidF Void ()) MemDOM
+        Just st -> HH.div_ [HH.p_ [HH.text st], HH.slot_ "child" () (initialized source) ()]
+    )
+    [H.onInitialize (liftIO (readIORef source) >>= put . Just)]
 
 child :: H.Component H.VoidF () Void MemDOM
 child =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> pure ()
-      , render = \_ -> HH.span_ [HH.text "the child"] :: H.ComponentHTML () Empty MemDOM
-      , eval = H.mkEval H.defaultEval
-      }
+  H.component (\_ -> pure ()) (\_ -> HH.span_ [HH.text "the child"] :: H.ComponentHTML () Empty MemDOM) []
 
 parent :: H.Component H.VoidF () Void MemDOM
 parent =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> pure ()
-      , render = \_ ->
-          HH.div [HP.class_ (HH.ClassName "parent")] [HH.slot_ "child" () child ()]
-            :: H.ComponentHTML () ("child" .== H.Slot H.VoidF Void ()) MemDOM
-      , eval = H.mkEval H.defaultEval
-      }
+  H.component
+    (\_ -> pure ())
+    ( \_ ->
+        HH.div [HP.class_ (HH.ClassName "parent")] [HH.slot_ "child" () child ()]
+          :: H.ComponentHTML () ("child" .== H.Slot H.VoidF Void ()) MemDOM
+    )
+    []
 
 data Action = Start | Tick
 
@@ -86,51 +77,38 @@ data Action = Start | Tick
 -- unsubscribed from, and records its own finalizer.
 subscribing :: IORef [Text] -> H.Component H.VoidF () Void MemDOM
 subscribing events =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> pure ()
-      , render = \_ -> HH.text "subscribed" :: H.ComponentHTML Action Empty MemDOM
-      , eval =
-          H.mkEval
-            H.defaultEval
-              { H.handleAction = \case
-                  Start -> do
-                    let emitter = HS.Emitter $ \_ -> pure (HS.Subscription (liftIO (record "unsubscribed")))
-                    void (H.subscribe emitter)
-                  -- At once rather than through liftIO: disposing of a
-                  -- tree runs its finalizers, but does not wait for what
-                  -- they wait for.
-                  Tick -> H.liftEffect (liftIO (record "finalized"))
-              , H.initialize = Just Start
-              , H.finalize = Just Tick
-              }
-      }
+  H.component
+    (\_ -> pure ())
+    (\_ -> HH.text "subscribed" :: H.ComponentHTML Action Empty MemDOM)
+    [H.onAction handleAction, H.onInitialize (handleAction Start), H.onFinalize (handleAction Tick)]
   where
+    handleAction = \case
+      Start -> do
+        let emitter = HS.Emitter $ \_ -> pure (HS.Subscription (liftIO (record "unsubscribed")))
+        void (H.subscribe emitter)
+      -- At once rather than through liftIO: disposing of a
+      -- tree runs its finalizers, but does not wait for what
+      -- they wait for.
+      Tick -> H.liftEffect (liftIO (record "finalized"))
     record e = modifyIORef' events (<> [e])
 
 -- | What 'embed' writes, as a component would build it: a script with an id,
 -- holding the text.
 embedded :: Text -> Text -> H.Component H.VoidF () Void MemDOM
 embedded ident json =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> pure ()
-      , render = \_ ->
-          HH.script [HP.id ident, HP.type_ (MediaType "application/json")] [HH.text json]
-            :: H.ComponentHTML () Empty MemDOM
-      , eval = H.mkEval H.defaultEval
-      }
+  H.component
+    (\_ -> pure ())
+    ( \_ ->
+        HH.script [HP.id ident, HP.type_ (MediaType "application/json")] [HH.text json]
+          :: H.ComponentHTML () Empty MemDOM
+    )
+    []
 
 -- | An application monad over the in-memory one: what it renders comes from
 -- its environment.
 fromConfig :: H.Component H.VoidF () Void (ReaderT Text MemDOM)
 fromConfig =
-  H.mkComponent
-    H.ComponentSpec
-      { initialState = \_ -> ask
-      , render = \st -> HH.p_ [HH.text st] :: H.ComponentHTML () Empty (ReaderT Text MemDOM)
-      , eval = H.mkEval H.defaultEval
-      }
+  H.component (\_ -> ask) (\st -> HH.p_ [HH.text st] :: H.ComponentHTML () Empty (ReaderT Text MemDOM)) []
 
 spec :: Spec
 spec = describe "static rendering" $ do

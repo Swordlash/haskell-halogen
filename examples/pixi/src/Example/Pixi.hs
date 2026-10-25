@@ -176,12 +176,10 @@ hoverProps target hovered =
 
 parent :: H.Component H.VoidF () Void BrowserDOM
 parent =
-  H.mkComponent $
-    H.ComponentSpec
-      { initialState = const $ pure State {camera = Pixi.defaultCamera, hovered = Nothing}
-      , render
-      , eval = H.mkEval $ H.defaultEval {H.handleAction = handleAction}
-      }
+  H.component
+    (const $ pure State {camera = Pixi.defaultCamera, hovered = Nothing})
+    render
+    [H.onAction handleAction]
   where
     render :: State -> H.ComponentHTML Action Slots BrowserDOM
     -- Absolute rather than fixed, so the scene fills whatever positioned box it

@@ -24,7 +24,7 @@ type Slots = "canvas" .== H.Slot H.VoidF (Pixi.CanvasEvent Int) ()
 
 data State = State {x :: Double, target :: Double}
 
-data Action = Initialize | Frame | Canvas (Pixi.CanvasEvent Int)
+data Action = Frame | Canvas (Pixi.CanvasEvent Int)
 
 -- Where pad i is: three pads 100 pixels apart, the middle one at the origin.
 padX :: Int -> Double
@@ -45,13 +45,9 @@ scene st =
 
 component :: forall q o m. (MonadUnliftIO m, MonadUUID m) => H.Component q () o m
 component =
-  H.mkComponent
-    H.ComponentSpec
-      { H.initialState = \_ -> pure State {x = padX 1, target = padX 1}
-      , H.render = render
-      , H.eval = H.mkEval H.defaultEval {H.handleAction = handleAction, H.initialize = Just Initialize}
-      }
+  H.component initialState render [H.onInitialize startFrames, H.onAction handleAction]
   where
+    initialState _ = pure State {x = padX 1, target = padX 1}
     render :: State -> H.ComponentHTML Action Slots m
     render st =
       HH.div_
@@ -60,7 +56,7 @@ component =
             [HH.slot "canvas" () Pixi.component (scene st) Canvas]
         , HH.p_ [HH.text ("The ball is at x = " <> T.pack (show st.x) <> ". Click a pad.")]
         ]
-    handleAction Initialize = void (H.subscribe (Frame <$ Window.animationFrame))
+    startFrames = void (H.subscribe (Frame <$ Window.animationFrame))
     -- Six pixels a frame towards the target; once there, nothing to render.
     handleAction Frame = do
       st <- get
