@@ -57,6 +57,9 @@ data State = State
   , loadingLayers :: Bool
   , runs :: Int
   , visit :: Int
+  , knownMb :: Double
+  -- ^ How many megabytes the compiler reported loaded when it was last
+  -- ready, for a Retry that finds it already started and gets no new report.
   -- ^ Counts the lessons entered: a compile started in one visit must not
   -- report into a later one, even of the same lesson, whose editor is new.
   -- ^ How many compiles have started, shown on the outcome as @data-run@
@@ -122,6 +125,7 @@ component =
           , loadingLayers = False
           , runs = 0
           , visit = 0
+          , knownMb = 0
           , edited = False
           , run = NotRun
           , mounted = False
@@ -155,7 +159,7 @@ component =
         Router.follow router f
       Progressed p -> do
         modify $ \s -> case p of
-          Ready mb -> s {compiler = Loaded mb}
+          Ready mb -> s {compiler = Loaded mb, knownMb = mb}
           LoadFailed message -> s {compiler = Broken message}
           _ -> s {compiler = Loading p}
         syncEditor
@@ -241,7 +245,15 @@ component =
           liftIO (Browser.startCompiler root wanted (HS.notify progress.listener)) >>= \case
             Left message -> modify $ \s -> s {compiler = Broken message}
             Right () -> do
-              modify $ \s -> s {loadedLayers = ordNub (s.loadedLayers <> wanted)}
+              -- A Retry after a layer failed finds the compiler started: the
+              -- start reports nothing new then, so it reads as loaded here.
+              modify $ \s ->
+                s
+                  { loadedLayers = ordNub (s.loadedLayers <> wanted)
+                  , compiler = case s.compiler of
+                      Loading _ -> Loaded s.knownMb
+                      other -> other
+                  }
               -- The reader may have gone to a lesson with other layers
               -- while it loaded.
               loadLayers
