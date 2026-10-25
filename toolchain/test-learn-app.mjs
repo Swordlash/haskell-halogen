@@ -151,10 +151,19 @@ try {
   console.log(`ok  compiler ready ${seconds(loaded)} after navigation: ${await page.locator(".learn-status").textContent()}`);
   if (ready.length) console.log(`    ${ready[0]}`);
 
+  // A compile is over once the outcome is a new one (its data-run counts
+  // the compiles started) and Compile is enabled again: the click's action
+  // may run a moment after the click, so the button alone could still show
+  // the last compile's state.
+  const compiled = async () => {
+    const before = await page.locator(".learn-outcome").getAttribute("data-run");
+    await page.locator("button.learn-compile:not([disabled])").click();
+    await page.locator(`.learn-outcome:not([data-run="${before}"])`).waitFor({ timeout: 120000 });
+    await page.locator("button.learn-compile:not([disabled])").waitFor({ timeout: 120000 });
+  };
   const compile = async (what) => {
     const start = Date.now();
-    await page.locator("button.learn-compile:not([disabled])").click();
-    await page.locator("button.learn-compile:not([disabled])").waitFor({ timeout: 120000 });
+    await compiled();
     const outcome = await page.locator(".learn-outcome").textContent();
     console.log(`    compile ${what}: ${seconds(Date.now() - start)} (${outcome})`);
     return outcome;
@@ -204,14 +213,38 @@ try {
   assert.match(await page.locator(".cm-activeLine").textContent(), /HH\.text 42/, "clicking the diagnostic moves the cursor to its line");
   console.log(`ok  a type error is reported at ${where.trim()}, and the counter is still there`);
 
+  // Leaving a lesson while its layer is still downloading: the lesson the
+  // reader arrives at gets its own layer once that download ends, and
+  // Compile is enabled there (it stayed disabled once). Both lessons are
+  // reached inside the app, so the compiler is not started over.
+  if (lessons.some((l) => l.slug === "06-router") && lessons.some((l) => l.slug === "07-net")) {
+    let releaseLayer;
+    const layerHeld = new Promise((resolve) => (releaseLayer = resolve));
+    let held = 0;
+    const router = /layers\/router[^/]*\.tar\.zst/;
+    await page.route(router, async (route) => {
+      if (held++ === 0) await layerHeld;
+      await route.continue();
+    });
+    await page.locator("header a.learn-brand").click();
+    await page.locator(".learn-home ol a", { hasText: lessons.find((l) => l.slug === "06-router").title }).click();
+    await page.waitForURL(`${url}06-router/`);
+    await page.locator(".learn-compiler", { hasText: /libraries/ }).waitFor({ timeout: 20000 });
+    await page.locator("a.learn-next").first().click();
+    await page.waitForURL(`${url}07-net/`);
+    releaseLayer();
+    await page.locator("button.learn-compile:not([disabled])").waitFor({ timeout: 120000 });
+    await page.unroute(router);
+    console.log("ok  a lesson entered while another's layer downloads gets its own layer, and Compile");
+  }
+
   // Every lesson: its start compiles (warnings allowed, since an exercise
   // may leave something unused), and its solution compiles with no
   // diagnostic at all and shows something.
   const runLesson = async (button) => {
     await page.locator(button).click();
     const start = Date.now();
-    await page.locator("button.learn-compile").click();
-    await page.locator("button.learn-compile:not([disabled])").waitFor({ timeout: 120000 });
+    await compiled();
     return {
       ms: Date.now() - start,
       outcome: await page.locator(".learn-outcome").textContent(),

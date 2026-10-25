@@ -64,8 +64,8 @@ parseDiagnostics = go . T.lines
         | otherwise -> go rest
 
     -- The source GHC quotes: lines of a gutter, with or without a line
-    -- number, then a bar.
-    quoted l = case T.uncons (T.dropWhile isDigit (T.stripStart l)) of
+    -- number (and a space after it), then a bar.
+    quoted l = case T.uncons (T.stripStart (T.dropWhile isDigit (T.stripStart l))) of
       Just ('|', _) -> True
       _ -> False
 

@@ -54,6 +54,12 @@ data State = State
   , compiler :: Compiler
   , sizes :: Maybe Sizes
   , loadedLayers :: [Text]
+  , loadingLayers :: Bool
+  , runs :: Int
+  -- ^ How many compiles have started, shown on the outcome as @data-run@
+  -- so that a test can tell a new outcome from the last one.
+  -- ^ A layer load is under way; the lesson's layers are checked again
+  -- when it ends, in case the reader has moved to another lesson since.
   , edited :: Bool
   -- ^ The editor's text is not the lesson's @Start.hs@.
   , run :: Run
@@ -110,6 +116,8 @@ component =
           , compiler = NotLoaded
           , sizes = Nothing
           , loadedLayers = []
+          , loadingLayers = False
+          , runs = 0
           , edited = False
           , run = NotRun
           , mounted = False
@@ -161,7 +169,7 @@ component =
         st <- get
         when (canCompile st) $ for_ ((,) <$> lessonOf st.route <*> st.editor) $ \(lesson, (editor, _)) -> do
           source <- H.liftEffect (liftIO (Browser.editorText editor))
-          modify $ \s -> s {run = Compiling}
+          modify $ \s -> s {run = Compiling, runs = s.runs + 1}
           compiled <-
             liftIO $
               Browser.compile
@@ -243,14 +251,23 @@ component =
         Right sizes -> modify $ \s -> s {sizes = Just sizes}
         Left _ -> pass
 
-    -- The current lesson's layers, once the compiler has started.
+    -- The current lesson's layers, once the compiler has started. One load
+    -- at a time: while one is under way the compiler reads as loading, so
+    -- a lesson the reader arrives at meanwhile is not asked for; when the
+    -- load ends, the lesson current then is checked again, so its layers
+    -- follow and Compile is enabled there too.
     loadLayers = do
       st <- get
       let wanted = maybe [] (.layers) (lessonOf st.route)
-      unless (all (`elem` st.loadedLayers) wanted) $
-        liftIO (Browser.ensureLayers wanted) >>= \case
+      unless (st.loadingLayers || all (`elem` st.loadedLayers) wanted) $ do
+        modify $ \s -> s {loadingLayers = True}
+        result <- liftIO (Browser.ensureLayers wanted)
+        modify $ \s -> s {loadingLayers = False}
+        case result of
           Left message -> modify $ \s -> s {compiler = Broken message}
-          Right () -> modify $ \s -> s {loadedLayers = ordNub (s.loadedLayers <> wanted)}
+          Right () -> do
+            modify $ \s -> s {loadedLayers = ordNub (s.loadedLayers <> wanted)}
+            loadLayers
 
     render :: State -> H.ComponentHTML Action Empty m
     render st =
@@ -377,7 +394,7 @@ component =
         HH.section
         [HP.class_ (HH.ClassName "learn-result-column")]
         ( [("compiler", compilerPanel st) | not (isLoaded st.compiler)]
-            <> [ ("outcome", HH.p [HP.class_ (HH.ClassName "learn-outcome")] [HH.text (outcome st)])
+            <> [ ("outcome", HH.p [HP.class_ (HH.ClassName "learn-outcome"), HP.attr (H.AttrName "data-run") (show st.runs)] [HH.text (outcome st)])
                , -- Never patched inside: the compiled program's.
                  ("result", HH.div [HP.id "learn-result", HP.class_ (HH.ClassName "learn-result")] [])
                ]

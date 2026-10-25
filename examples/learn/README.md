@@ -33,9 +33,9 @@ code are there to read, and a button loads the compiler anyway.
 ## Build, run, test
 
 ```sh
-npm run build-learn                         # the rootfs, into dist-newstyle/wasm/learn (once; see learn/README.md)
+npm run build-learn                         # the rootfs with every layer, into dist-newstyle/wasm/learn (once; see learn/README.md)
 sh toolchain/build-wasm.sh learn            # the app, prerendered pages and learn.js, into dist-newstyle/wasm/public/learn
-ln -s ../../learn dist-newstyle/wasm/public/learn/rootfs   # the rootfs where the page looks for it
+ln -sfn ../../learn dist-newstyle/wasm/public/learn/rootfs # the rootfs where the page looks for it
 python3 -m http.server -d dist-newstyle/wasm/public/learn 8080
 npm run test-learn-app                      # headless Chromium: the checks below
 ```
