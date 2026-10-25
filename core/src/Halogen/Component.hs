@@ -169,6 +169,94 @@ mkEval args@EvalSpec {handleQuery} = NT $ \case
   Query (Coyoneda req fct) f ->
     map (maybe (f ()) req) . handleQuery $ fct
 
+-- | A spec with the state and the render given and nothing handled yet: it
+-- ignores every action and query, and nothing happens as the component
+-- arrives, goes or is given new input. The handlers are added with
+-- 'onAction', 'onQuery', 'onInitialize', 'onFinalize' and 'onReceive', in a
+-- chain of @&@ ending in 'mkComponent', or as the list 'Halogen.component'
+-- takes, which is the usual way.
+componentSpec
+  :: forall state query action slots input output m
+   . (input -> m state)
+  -> (state -> HTML (ComponentSlot slots m action) action)
+  -> ComponentSpec state query action slots input output m
+componentSpec initialState render = ComponentSpec {initialState, render, eval = mkEval defaultEval}
+
+-- | A change to a spec's handlers, what 'onAction' and the other @on@
+-- functions give. Each answers one of the five things a component is asked
+-- to do and leaves the spec's answers to the other four as they were, so
+-- the order handlers are applied in does not matter, and of two for the
+-- same thing the one applied last wins.
+type Handler state query action slots input output m =
+  ComponentSpec state query action slots input output m -> ComponentSpec state query action slots input output m
+
+-- | The spec's @eval@ with one case answered anew: @f@ is given the old
+-- @eval@ for the cases it leaves alone.
+answering
+  :: forall state query action slots input output m
+   . ( forall a
+        . (HalogenQ query action input ~> HalogenM state action slots output m)
+       -> HalogenQ query action input a
+       -> HalogenM state action slots output m a
+     )
+  -> Handler state query action slots input output m
+answering f spec = ComponentSpec {initialState = spec.initialState, render = spec.render, eval = NT (f spec.eval)}
+
+-- | What the component does with an action: one its HTML raised (an
+-- @HE.onClick@), one it sent itself from a subscription or a fork, or one a
+-- parent's query asked for. Without it, actions are ignored.
+onAction
+  :: forall state query action slots input output m
+   . (action -> HalogenM state action slots output m ())
+  -> Handler state query action slots input output m
+onAction act = answering $ \eval -> \case
+  Action action a -> act action $> a
+  q -> runNT eval q
+
+-- | How the component answers a parent's query: @Nothing@ leaves the query
+-- unanswered (a 'Halogen.Query.request' then gives @Nothing@). Without it,
+-- every query is unanswered.
+onQuery
+  :: forall state query action slots input output m
+   . (forall a. query a -> HalogenM state action slots output m (Maybe a))
+  -> Handler state query action slots input output m
+onQuery answer = answering $ \eval -> \case
+  Query (Coyoneda req fct) f -> maybe (f ()) req <$> answer fct
+  q -> runNT eval q
+
+-- | What the component does once it is on the page, rendered for the first
+-- time (see 'Halogen.Query.HalogenQ.Initialize' for what waiting there
+-- holds up, and what it does not). A component that keeps it as an action
+-- passes @handleAction Initialize@.
+onInitialize
+  :: forall state query action slots input output m
+   . HalogenM state action slots output m ()
+  -> Handler state query action slots input output m
+onInitialize run = answering $ \eval -> \case
+  Initialize a -> run $> a
+  q -> runNT eval q
+
+-- | What the component does as it is taken away: unsubscribing is done for
+-- it, so this is for what else it holds.
+onFinalize
+  :: forall state query action slots input output m
+   . HalogenM state action slots output m ()
+  -> Handler state query action slots input output m
+onFinalize run = answering $ \eval -> \case
+  Finalize a -> run $> a
+  q -> runNT eval q
+
+-- | What the component does when its parent renders it with new input: the
+-- input is not put into the state for it, so a component that follows its
+-- input stores it here. Without it, new input is ignored.
+onReceive
+  :: forall state query action slots input output m
+   . (input -> HalogenM state action slots output m ())
+  -> Handler state query action slots input output m
+onReceive receiveInput = answering $ \eval -> \case
+  Receive i a -> receiveInput i $> a
+  q -> runNT eval q
+
 -- | Changes the ComponentSlot's `m` type.
 hoistSlot
   :: forall slots m m' action
