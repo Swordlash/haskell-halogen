@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RequiredTypeArguments #-}
 
-module Lesson (component) where
+module Lesson (component, spec) where
 
 import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.State (modify)
@@ -11,6 +12,7 @@ import Halogen qualified as H
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
+import Test.Hspec.Halogen
 
 data State = State {name :: Text, count :: Int}
 
@@ -34,3 +36,25 @@ component =
         ]
     handleAction (Named t) = modify (\st -> st {name = t})
     handleAction Increment = modify (\st -> st {count = st.count + 1})
+
+spec :: forall m -> (MonadBrowserTest m) => Spec
+spec m = describe "Lesson.component" $ do
+  it "greets by name" $ runPage $ do
+    ui <- mount m component ()
+    find ui "input.name" >>= (`typeText` "Ada")
+    find ui ".greeting" >>= (`shouldHaveText` "Hello, Ada!")
+
+  it "counts clicks" $ runPage $ do
+    ui <- mount m component ()
+    button <- find ui "button.increment"
+    click button
+    click button
+    find ui ".count" >>= (`shouldHaveText` "2")
+
+  it "greets a new name once the old one is cleared" $ runPage $ do
+    ui <- mount m component ()
+    field <- find ui "input.name"
+    typeText field "Ada"
+    clear field
+    typeText field "Grace"
+    find ui ".greeting" >>= (`shouldHaveText` "Hello, Grace!")

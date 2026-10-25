@@ -250,7 +250,11 @@ reader's module to `/tmp/Lesson.hs` from JavaScript and hands the wrapper to the
 `#learn-result`, which the app renders once per lesson (keyed) and never patches inside, and the page
 ends that tree (a compile of `main = endPreviousRun`) before taking the element away. The app and the
 compiled program are two runtimes on one page. GHC's stderr is parsed into diagnostics
-(`Learn.Diagnostics`) for the list under the CodeMirror editor and its lint markers.
+(`Learn.Diagnostics`) for the list under the CodeMirror editor and its lint markers. Lesson 13's own
+`Main.hs` runs the lesson's `spec` instead of mounting (`hspec-halogen`'s `runBrowserTestsIn`, the
+rootfs' `hspec` layer): with no runner in the page, the harness performs its actions with synthetic
+events (`hspec-halogen/jsbits/page.js`'s in-page mode, which `hspec-halogen-test` also runs its
+examples through), and hspec's report is the program's stdout.
 
 The deploy is that tree and nothing else: `build-deploy.yml` builds the rootfs (`build-learn-rootfs.sh`,
 restored instead from a cache keyed by its `--key`, a hash of the plan's units in the closure of the

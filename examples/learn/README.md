@@ -73,7 +73,9 @@ took) with no `HEAD` request, the manifest giving the version and the sizes,
 that the first two lessons do what their text says, that a type error is
 listed at its line with the last result still mounted, that **every lesson's
 `Start.hs` compiles and its `Solution.hs` compiles with no diagnostic and
-shows something** (one line per lesson), that back, forward, a second visit
+shows something** (one line per lesson; for lesson 13, whose program runs a
+spec, hspec's report under the editor: one failure for `Start.hs`, none for
+`Solution.hs`, and nothing left in the result), that back, forward, a second visit
 (from the cache) and Reset work, that a narrow screen downloads nothing large
 until asked, that a failed load can be retried and loads from a manifest
 without a version or sizes too, and that nothing is logged as an error.
@@ -104,7 +106,7 @@ wrong with it.
 | --- | --- |
 | `lesson.md` | The header, then the text. |
 | `Start.hs` | What the editor opens with, and what Reset goes back to. It must compile. |
-| `Solution.hs` | The answer, which the Solution button loads. It must compile with no warning and show something: the test checks both. |
+| `Solution.hs` | The answer, which the Solution button loads. It must compile with no warning and show something (a component, or what the program prints): the test checks both. |
 | `Main.hs` | Optional: the program around the lesson's module, in place of the default one below. |
 
 Run `sh toolchain/build-wasm.sh learn` and `npm run test-learn` to check a
@@ -127,8 +129,8 @@ args: -package haskell-halogen-hooks
   separated by spaces or commas. The page extracts a layer the first time a
   lesson needs it and passes its package database to GHC (`-package-db`).
   The rootfs has `hooks`, `router`, `net`, `material`, `pixi` and `th`, one
-  per package of the same name (`haskell-halogen-hooks`, ...; see
-  `learn/README.md`, "Layers").
+  per package of the same name (`haskell-halogen-hooks`, ...), and `hspec`,
+  for `hspec-halogen` (see `learn/README.md`, "Layers").
 - `args` (optional): further GHC arguments, separated by spaces, after the
   ones every compile has (`-package haskell-halogen-core
   -Wno-missed-extra-shared-lib -i/tmp`). A layer's package still has to be
@@ -202,7 +204,15 @@ shows under the editor, and a click handler's output does not), two
 components, a router. It is the module `Main`, imports
 `Lesson`, and must do the same three things: `HA.endPreviousRun` first, mount
 into `#learn-result`, and `HA.keepForNextRun` with whatever ends what it
-started. (The page ends the last run itself when the reader leaves a lesson,
+started. A `Main.hs` may also run a spec of the lesson's instead, as lesson
+13's does: `Lesson` exports `spec` beside `component`, and `main` is
+`HA.endPreviousRun` then `runBrowserTestsIn result (spec BrowserDOM)`
+(`hspec-halogen`'s `Test.Hspec.Halogen`), which runs each test in a page of
+its own inside `#learn-result` and prints hspec's report to stdout, which
+the page shows. There is no Playwright in the page, so the harness clicks
+and types with synthetic events of its own (`hspec-halogen/README.md`,
+"Without the runner"). Each test takes down what it mounted, so the run
+leaves `#learn-result` empty and keeps nothing for the next. (The page ends the last run itself when the reader leaves a lesson,
 by compiling a `Main` of its own whose `main` is `HA.endPreviousRun`, so that
 nothing a lesson started goes on against an element that is gone.)
 
@@ -210,7 +220,8 @@ What the code can use: GHC's boot libraries (`base`, `text`, `containers`,
 `mtl`, `transformers`, `bytestring`, `template-haskell` and the rest, but not
 `Cabal`), `haskell-halogen-core`, `haskell-halogen-jsbits` and everything they
 depend on (`aeson`, `vector`, `clay`, `row-types`, `unliftio`, `protolude`,
-...), and the packages of the layers the header names. Template Haskell
+...), and the packages of the layers the header names (the `hspec` layer's
+`hspec-halogen` brings `hspec`, `hspec-core` and `HUnit` with it). Template Haskell
 works. A `foreign import javascript` of the lesson's own does not (GHC would
 need clang in the page, `learn/README.md`): JavaScript is reached through the
 libraries' bindings.

@@ -182,7 +182,9 @@ build if a layer's closure reaches a unit another layer already carries, as
 two copies of one library in a session would be two libraries to dyld. Today
 no two layers share anything: hooks, router, net and pixi need only
 themselves beyond the base layer, material also `clock` and `extra`, th its
-parsers.
+parsers, hspec hspec's own closure (`hspec`, `hspec-core`, `HUnit`,
+`ansi-terminal` and the rest; `QuickCheck` and its generators are in the
+base layer already), none of it a boot package the script trims.
 
 The layers (`DEFAULT_LAYERS` in the script; `LEARN_LAYERS='name=pkg,pkg
 ...'` for others, `LEARN_LAYERS=` for none). Sizes are the archive's at
@@ -199,8 +201,16 @@ which loads its libraries into dyld and compiles. Three runs of
 | `material` | `haskell-halogen-material` (+ `clock`, `extra`) | 3 | 2.58 MB | 0.36 MB | `material.js` 127 KB, `material.css` 206 KB; the Material Icons font from fonts.gstatic.com | 56–65 ms | 0.7–1.3 s |
 | `pixi` | `haskell-halogen-pixi` | 1 | 0.97 MB | 0.15 MB | none; PixiJS 8.20.1 from jsDelivr (0.8 MB), which the library imports itself | 27–31 ms | 1.4–1.6 s |
 | `th` | `haskell-halogen-th` (+ `ghc-lib-parser`, `megaparsec`, `parser-combinators`, `tagsoup`, `css-syntax`, `case-insensitive`) | 7 | 194.7 MB | 21.4 MB | none | 2.1–3.9 s | 8.0–12.0 s |
-| **all six** | | 14 | 200.6 MB | 22.3 MB | 0.33 MB | 2.3–4.0 s | |
-| all but `th` | | 7 | 5.9 MB | 0.89 MB | 0.33 MB | 0.17 s | |
+| `hspec` | `hspec-halogen` (+ `hspec`, `hspec-core`, `hspec-expectations`, `hspec-discover`, `HUnit`, `quickcheck-io`, `ansi-terminal`, `ansi-terminal-types`, `colour`, `call-stack`, `haskell-lexer`) | 12 | 12.6 MB | 1.34 MB | none | 98–100 ms | 3.6–4.1 s |
+| **all seven** | | 26 | 213.2 MB | 23.6 MB | 0.33 MB | 1.9–2.1 s | |
+| all but `th` | | 19 | 18.5 MB | 2.23 MB | 0.33 MB | 0.25–0.27 s | |
+
+(The `hspec` row and the two totals are from three later runs, on a
+machine other builds were sharing; `th` loaded in 1.6–1.8 s in them.)
+`hspec`'s archive is small enough that the harness is a layer like any
+other, with `hspec` itself rather than `hspec-core` alone: `hspec-core` is
+4.1 MB of its 10.9 MB of `.so`, `haskell-lexer` 3.0 MB and `colour` 1.4 MB,
+and `hspec` adds 0.1 MB.
 
 Of `th`'s, `ghc-lib-parser` is 158.8 MB of `.so` and 22.0 MB of interfaces:
 it is about as big as `libHSghc`, and its archive (21.4 MB) is 43% of the
@@ -216,7 +226,11 @@ mounted, its ripple attached by `material.js` (`mdc-ripple-upgraded`), its
 colour from `material.css`, clicked; pixi, a rectangle on a Pixi canvas
 (PixiJS from the CDN), tapped until the tap reaches the scene (Pixi
 initialises asynchronously); th, an `[hh| ... |]` with a `{{ }}` in it, whose
-quasi-quoter runs ghc-lib-parser in the page's interpreter. All pass, with no
+quasi-quoter runs ghc-lib-parser in the page's interpreter; hspec, an
+`hspec-halogen` spec of two tests, a click and a `typeText`, run with
+`runBrowserTestsIn` in `#app`, where with no runner in the page the harness
+acts with synthetic events, and hspec's report (`2 examples, 0 failures`)
+is the program's stdout, with `#app` empty afterwards. All pass, with no
 console errors. If the CDN cannot be reached from the browser, the pixi run
 is skipped and says why (it was reachable here, through the proxy).
 
@@ -366,14 +380,14 @@ from one build to the next.
 | base layer (.dyn_hi) | 18.8 MB | 4.1 MB |
 | rest of the libdir (settings, package DB) | 1.3 MB | 0.2 MB |
 | **`rootfs.tar.zst`** | **364.7 MB** | **50.0 MB** |
-| the layers but `th` (five archives) | 5.9 MB | 0.9 MB |
+| the layers but `th` (six archives) | 18.5 MB | 2.2 MB |
 | the `th` layer | 194.7 MB | 21.4 MB |
 | material's assets (`material.js`, `material.css`) | 0.33 MB | |
 | `bsdtar.wasm` | | 1.2 MB |
 | `dyld.mjs` + `post-link.mjs` + `prelude.mjs`, `browser_wasi_shim.js`, page, manifest | | 0.16 MB |
 
 At `zstd -3` the base archive is 64.3 MB and `th`'s 27.1 MB. The largest file
-served is `rootfs.tar.zst`, 50.0 MB; the whole output directory is 74.0 MB.
+served is `rootfs.tar.zst`, 50.0 MB; the whole output directory is 75.3 MB.
 
 ### Time
 
@@ -468,14 +482,14 @@ layer):
 - **What is deployed**: the tutorial (`examples/learn`), whose build copies
   this directory, but for `index.html` and `index.js`, to `rootfs/` beside
   the app; this page is not deployed.
-- **Site size**: 77 MB, the rootfs 74 MB of it (53 MB without the `th`
+- **Site size**: 78 MB, the rootfs 75 MB of it (54 MB without the `th`
   layer), far from the 1 GB limit.
 - **Bandwidth per cold load**: the page, `bsdtar.wasm`, the manifest and
   `rootfs.tar.zst` are 51.4 MB; a lesson with any of the small layers adds
-  at most 1.2 MB (all five and material's assets), and the `th` lesson
-  21.4 MB more, 74.0 MB in all. Pages has a soft limit of 100 GB a month:
-  about 1,950 cold loads a month without `th`, about 1,350 if every reader
-  also loaded `th`. Its responses are cacheable (10 minutes, then revalidated
+  at most 2.6 MB (all six and material's assets; `hspec`'s is the largest,
+  1.3 MB), and the `th` lesson 21.4 MB more, 75.4 MB in all. Pages has a
+  soft limit of 100 GB a month: about 1,850 cold loads a month without
+  `th`, about 1,330 if every reader also loaded `th`. Its responses are cacheable (10 minutes, then revalidated
   with an ETag), and the tutorial keeps the archives in the Cache API under
   the manifest's `version`, so a returning reader downloads them again only
   when a deploy has changed them. Not counted:
@@ -501,8 +515,13 @@ It proves:
   the reference it keeps survives from one run to the next.
 - Every package of the project a lesson would use works from a layer loaded
   on demand, after runs without it: hooks, router, net, material (with its
-  CSS and JavaScript on the page), pixi (PixiJS from its CDN) and th, whose
-  quasi-quoter runs ghc-lib-parser inside the page's GHC.
+  CSS and JavaScript on the page), pixi (PixiJS from its CDN), th, whose
+  quasi-quoter runs ghc-lib-parser inside the page's GHC, and hspec: an
+  `hspec-halogen` suite, hspec's runner included, runs in the interpreter
+  as it does in a linked test program, with no `getArgs`, terminal or
+  configuration file in its way, and prints its report to stdout. Its
+  clicks and keystrokes are synthetic events rather than Playwright's
+  (`hspec-halogen/README.md`, "Without the runner").
 - Template Haskell splices run in the page (`$(litE ...)`, and `hh`).
 - The boot libraries can be trimmed by 46 MB (11 MB compressed) without
   breaking anything a program here does.

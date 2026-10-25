@@ -19,7 +19,9 @@
 // every lesson in examples/learn/lessons compiles its Solution.hs without a
 // diagnostic and shows something (one line per lesson, which is how a new
 // lesson is checked); an error GHC throws rather than reports is still a
-// failed compile; the routes survive back and forward; lesson 6's hash router
+// failed compile; lesson 13's spec runs in the page, its Start.hs with one
+// failure and its Solution.hs with none, by hspec's report under the editor,
+// and leaves nothing mounted; the routes survive back and forward; lesson 6's hash router
 // keeps the lesson's address under the page's <base href>, Back included;
 // what lesson 5's Finalize prints shows on every compile after the first;
 // Escape then Tab leaves the editor; the reader's code survives a reload, and
@@ -307,18 +309,41 @@ try {
 
   // Every lesson: its start compiles (warnings allowed, since an exercise
   // may leave something unused), and its solution compiles with no
-  // diagnostic at all and shows something.
+  // diagnostic at all and shows something: a component in the result, or
+  // what the program printed, for a lesson whose program runs a spec.
   const runLesson = async (button) => {
     await page.locator(button).click();
     const start = Date.now();
     await compiled();
+    const result = await page.locator("#learn-result").innerHTML();
+    const stdout = (await page.locator(".learn-stdout").allTextContents()).join("");
     return {
       ms: Date.now() - start,
       outcome: await page.locator(".learn-outcome").textContent(),
       errors: await page.locator(".learn-diagnostics li.learn-error").allTextContents(),
       diagnostics: await page.locator(".learn-diagnostics li").allTextContents(),
-      shown: (await page.locator("#learn-result").innerHTML()).length > 0,
+      result,
+      stdout,
+      shown: result.length > 0 || stdout.length > 0,
     };
+  };
+  // The lessons whose program runs an hspec-halogen spec in the page rather
+  // than mounting the component: what hspec's summary says for Start.hs and
+  // for Solution.hs. Each test takes down what it mounted, so the result is
+  // empty once the run is over, and the second compile runs on what the
+  // first left, nothing.
+  const specLessons = {
+    "13-testing": {
+      start: { summary: /^2 examples, 1 failure$/m, lines: [/^ {2}greets by name \[✔\]$/m, /^ {2}counts clicks \[✘\]$/m, /No element matches "button\.increment"/] },
+      solution: { summary: /^3 examples, 0 failures$/m, lines: [/^ {2}counts clicks \[✔\]$/m, /^ {2}greets a new name once the old one is cleared \[✔\]$/m] },
+    },
+  };
+  const reportProblems = (run, expected, file) => {
+    const missing = [expected.summary, ...expected.lines].filter((pattern) => !pattern.test(run.stdout));
+    return [
+      missing.length ? `; ${file}'s report lacks ${missing.join(", ")}:\n${run.stdout}` : "",
+      run.result === "" ? "" : `; ${file} left something mounted: ${run.result.slice(0, 200)}`,
+    ].join("");
   };
   // A lesson, from the introduction's list, once it can compile.
   const openLesson = async (lesson, on = page) => {
@@ -336,12 +361,17 @@ try {
     const solution = await runLesson("button.learn-solution");
     const startOk = /^Compiled and ran/.test(start.outcome) && start.errors.length === 0;
     const solutionOk = /^Compiled and ran/.test(solution.outcome) && solution.diagnostics.length === 0 && solution.shown;
+    const report = specLessons[lesson.slug];
+    const reported = report ? reportProblems(start, report.start, "Start.hs") + reportProblems(solution, report.solution, "Solution.hs") : "";
     const problems = [
       startOk ? "" : `; Start.hs: ${start.outcome} ${start.errors.join(" | ")}`,
       solutionOk ? "" : `; Solution.hs: ${solution.outcome} ${solution.diagnostics.join(" | ")}${solution.shown ? "" : " (nothing shown)"}`,
+      reported,
     ].join("");
-    console.log(`${startOk && solutionOk ? "ok " : "FAIL"} ${lesson.slug}: Start.hs ${seconds(start.ms)}, Solution.hs ${seconds(solution.ms)}${problems}`);
-    if (!startOk || !solutionOk) failed = true;
+    const summaries = report ? ` (${[start, solution].map((run) => run.stdout.match(/^\d+ examples?, \d+ failures?$/m)?.[0] ?? "no summary").join("; then ")}, nothing left mounted)` : "";
+    const ok = startOk && solutionOk && !reported;
+    console.log(`${ok ? "ok " : "FAIL"} ${lesson.slug}: Start.hs ${seconds(start.ms)}, Solution.hs ${seconds(solution.ms)}${ok ? summaries : problems}`);
+    if (!ok) failed = true;
   }
   assert.ok(!failed, "every lesson's solution compiles and shows something");
   assert.equal(await page.evaluate(() => window.learnNoReload), 1, "following the lessons' links never reloads");
