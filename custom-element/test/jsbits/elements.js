@@ -45,6 +45,20 @@ function halogen_ce_test_move(id, to) {
   halogen_ce_test_element(to).appendChild(halogen_ce_test_element(id));
 }
 
+// Take an element out of the page and keep it, to put it back with
+// reattach: what a framework does when it moves a node and does something
+// else in between, in one task.
+function halogen_ce_test_detach(id) {
+  const element = halogen_ce_test_element(id);
+  if (!globalThis.halogenCeTestDetached) globalThis.halogenCeTestDetached = {};
+  globalThis.halogenCeTestDetached[id] = element;
+  element.remove();
+}
+
+function halogen_ce_test_reattach(id, into) {
+  halogen_ce_test_element(into).appendChild(globalThis.halogenCeTestDetached[id]);
+}
+
 function halogen_ce_test_remove(id) {
   halogen_ce_test_element(id).remove();
 }

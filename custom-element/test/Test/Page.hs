@@ -13,6 +13,8 @@ module Test.Page
   , hasMethod
   , move
   , remove
+  , detach
+  , reattach
   , create
   , shadowText
   , shadowColour
@@ -50,6 +52,8 @@ $( browserJS
      , ("js_has_method", "halogen_ce_test_has_method", Unsafe, [t|JSText -> JSText -> IO Bool|])
      , ("js_move", "halogen_ce_test_move", Unsafe, [t|JSText -> JSText -> IO ()|])
      , ("js_remove", "halogen_ce_test_remove", Unsafe, [t|JSText -> IO ()|])
+     , ("js_detach", "halogen_ce_test_detach", Unsafe, [t|JSText -> IO ()|])
+     , ("js_reattach", "halogen_ce_test_reattach", Unsafe, [t|JSText -> JSText -> IO ()|])
      , ("js_create", "halogen_ce_test_create", Unsafe, [t|JSText -> JSText -> JSText -> JSText -> JSText -> IO ()|])
      , ("js_shadow_text", "halogen_ce_test_shadow_text", Unsafe, [t|JSText -> IO JSText|])
      , ("js_shadow_colour", "halogen_ce_test_shadow_colour", Unsafe, [t|JSText -> JSText -> IO JSText|])
@@ -95,6 +99,14 @@ move element to = js_move (toJSText element) (toJSText to)
 
 remove :: Text -> IO ()
 remove = js_remove . toJSText
+
+-- | Take the element out of the page, keeping it for 'reattach'.
+detach :: Text -> IO ()
+detach = js_detach . toJSText
+
+-- | Put a detached element back, at the end of another.
+reattach :: Text -> Text -> IO ()
+reattach element into = js_reattach (toJSText element) (toJSText into)
 
 -- | Make an element of a name from JavaScript, with an id and a property,
 -- and put it into another.

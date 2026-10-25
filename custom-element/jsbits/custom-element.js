@@ -73,7 +73,13 @@ function halogen_custom_element_class(entry) {
 function halogen_custom_element_connected(entry, element) {
   const state = halogen_custom_element_state(element);
   if (state.leaving) {
+    // Moved: it keeps its tree, as a rule. But if its name was defined
+    // again while it was out of the page, that definition disposed of its
+    // tree and did not mount it (it was not connected then), so it would
+    // stay empty: the hook is called all the same, and Haskell mounts an
+    // element that has no tree and leaves one that has alone.
     state.leaving = false;
+    if (entry.hooks) entry.hooks.connect(element);
     return;
   }
   entry.connected.add(element);

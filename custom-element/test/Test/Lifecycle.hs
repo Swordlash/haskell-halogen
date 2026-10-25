@@ -6,6 +6,7 @@ module Test.Lifecycle (spec) where
 import Data.Aeson (toJSON)
 import Data.IORef (newIORef, readIORef)
 import Example.Counter qualified as Counter
+import Halogen.CustomElement qualified as CE
 import Halogen.VDom.DOM.Monad (MonadBrowserDOM)
 import Test.Hspec.Halogen
 import Test.Page
@@ -50,6 +51,28 @@ spec m = do
     findIn page "#to .count" >>= (`shouldHaveText` "2")
     undefine registration
     unsafeIOToPageM (readIORef finalized) `shouldReturn` 1
+
+  -- The define here is made without waiting, so that the three steps are
+  -- one task: the element is out of the page as its name is defined again
+  -- (so the definition does not mount it), and back before its removal is
+  -- acted on.
+  it "mounts a moved element again when its name was defined again while it was out of the page" $ runPage $ do
+    first <- unsafeIOToPageM (newIORef 0)
+    second <- unsafeIOToPageM (newIORef 0)
+    registration <- defineElement m "x-ce-redefined-moved" Counter.definition (Counter.counter first)
+    page <- htmlContainer "<div id=\"redefined-from\"><x-ce-redefined-moved id=\"redefined-moved\" label=\"moved\"></x-ce-redefined-moved></div><div id=\"redefined-to\"></div>"
+    _ <- findIn page "#redefined-moved .count"
+    again <- unsafeIOToPageM $ do
+      detach "redefined-moved"
+      again <- runTest (CE.define "x-ce-redefined-moved" Counter.definition (Counter.other second) :: m (CE.Registration m))
+      reattach "redefined-moved" "redefined-to"
+      pure again
+    settle
+    findIn page "#redefined-to .other" >>= (`shouldHaveText` "other: moved")
+    unsafeIOToPageM (readIORef first) `shouldReturn` 1
+    undefine registration
+    undefine again
+    unsafeIOToPageM (readIORef second) `shouldReturn` 1
 
   it "swaps the component of every element when the name is defined again" $ runPage $ do
     first <- unsafeIOToPageM (newIORef 0)
