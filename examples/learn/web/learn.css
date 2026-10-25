@@ -370,7 +370,13 @@ span.learn-location {
     height: 100vh;
   }
 
-  .learn-main {
+  /* A lesson's three columns scroll each on their own; the introduction,
+     which has no columns, scrolls as a whole on a short viewport. */
+  .learn-main:has(.learn-lesson) {
     overflow: hidden;
+  }
+
+  .learn-main:has(.learn-home) {
+    overflow: auto;
   }
 }

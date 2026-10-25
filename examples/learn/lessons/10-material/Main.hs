@@ -12,6 +12,7 @@ module Main (main) where
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Monad (unless, when)
 import Control.Monad.IO.Class (liftIO)
+import Data.Maybe (isNothing)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Halogen (HalogenSocket (..))
@@ -48,7 +49,11 @@ asset tag attr url = do
   querySelector (QuerySelector (selector <> "[data-loaded]")) root >>= \case
     Just _ -> pure ()
     Nothing -> do
-      element <- querySelector (QuerySelector selector) root >>= maybe (create doc root) pure
+      -- The listeners go on before the element goes into the document, so
+      -- that a request served from the cache cannot end before they are
+      -- there (the program may be preempted between the two).
+      existing <- querySelector (QuerySelector selector) root
+      element <- maybe (create doc) pure existing
       done <- liftIO newEmptyMVar
       loaded <- mkEventListener (\_ -> setAttribute Nothing (AttrName "data-loaded") "" element >> liftIO (putMVar done True))
       -- An element whose request failed is taken out again, so that the
@@ -62,14 +67,15 @@ asset tag attr url = do
       target <- elementToEventTarget element
       addEventListener (EventType "load") loaded target
       addEventListener (EventType "error") failed target
+      when (isNothing existing) $ do
+        parent <- querySelector (QuerySelector "head") root >>= maybe (error "the page has no head") pure
+        child <- elementToNode element
+        appendChild child =<< elementToNode parent
       ok <- liftIO (takeMVar done)
       unless ok (error ("could not load " <> T.unpack url))
   where
-    create doc root = do
+    create doc = do
       element <- createElement Nothing (ElemName tag) (toDocument doc)
       when (tag == "link") (setAttribute Nothing (AttrName "rel") "stylesheet" element)
       setAttribute Nothing (AttrName attr) url element
-      parent <- querySelector (QuerySelector "head") root >>= maybe (error "the page has no head") pure
-      child <- elementToNode element
-      appendChild child =<< elementToNode parent
       pure element
