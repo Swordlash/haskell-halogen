@@ -301,6 +301,12 @@ storage, …) is built only from public hooks.
 - Commit subjects are short imperative sentences in plain English ("Make a prop that goes away
   actually go away"), sometimes prefixed with the package (`core: …`, `hooks: …`); bodies explain why.
 - Haddocks and comments explain reasoning in full sentences rather than restating the code.
+- A component is `H.component initialState render [H.onAction handleAction, …]`, with
+  `H.onQuery`, `H.onInitialize`, `H.onFinalize` and `H.onReceive` as needed; the lifecycle
+  handlers take a `HalogenM` program, so an `Initialize` action exists only where the component
+  wants one. `H.mkComponent H.ComponentSpec {…}` with an `eval` of its own (written out, or
+  `H.mkEval` of an `EvalSpec`) is for a component that answers its messages with one function,
+  such as one that wraps another's `eval`.
 - Don't hardcode a monad: components, specs and helpers are polymorphic in `m` with class
   constraints (`MonadMaterial m`, `MonadUUID m`, `MonadBrowserTest m`, …), and only an entry point
   picks one: `Main.hs`, or a test suite's `main`. A spec takes the monad as a required type argument

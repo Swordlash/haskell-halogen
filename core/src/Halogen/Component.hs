@@ -100,7 +100,10 @@ hoist nat (Component ComponentSpec {render, eval, initialState}) =
 -- |
 -- | It's not a requirement to use `mkEval`, and sometimes it's preferrable
 -- | to write a component `eval` function from scratch, but often `mkEval` is
--- | more convenient for common cases.
+-- | more convenient for common cases. The usual way to a component is
+-- | neither: 'Halogen.component' takes the handlers as a list of 'onAction'
+-- | and the other @on@ functions, and 'componentSpec' gives a spec they are
+-- | added to with @&@.
 -- |
 -- | See below for more details about `mkEval` and `defaultEval`.
 data EvalSpec state query action slots input output m = EvalSpec
