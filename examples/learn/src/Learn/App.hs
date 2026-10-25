@@ -43,7 +43,7 @@ import Learn.Route (Route (..), lessonOf)
 import Learn.View qualified as View
 import Numeric (showFFloat)
 import Protolude hiding (State, link)
-import UnliftIO (MonadUnliftIO)
+import UnliftIO (MonadUnliftIO, tryAny)
 
 data State = State
   { router :: Router Route
@@ -158,16 +158,21 @@ component =
         router <- gets (.router)
         Router.follow router f
       Progressed p -> do
-        modify $ \s -> case p of
-          Ready mb -> s {compiler = Loaded mb, knownMb = mb}
-          LoadFailed message -> s {compiler = Broken message}
+        modify $ \s -> case (s.compiler, p) of
+          (_, Ready mb) -> s {compiler = Loaded mb, knownMb = mb}
+          (_, LoadFailed message) -> s {compiler = Broken message}
+          -- A download that outlives a failed start goes on reporting; it
+          -- must not hide the failure, and Retry with it.
+          (Broken _, _) -> s
           _ -> s {compiler = Loading p}
         syncEditor
       LoadCompiler -> loadCompiler
       FromEditor (Changed text) -> withLesson $ \lesson -> do
         -- What is kept is the reader's own code: none, once it is the
         -- lesson's start again (Reset).
-        H.liftEffect $
+        -- Storage the browser denies (a strict private window) must not
+        -- stop the lesson: the code is then kept for this visit only.
+        void $ H.liftEffect $ tryAny $
           if text == lesson.start
             then removeStorageItem LocalStorage (storageKey lesson)
             else writeStorageItem LocalStorage (storageKey lesson) text
@@ -213,7 +218,7 @@ component =
     -- was kept, else the lesson's start.
     enterLesson = withLesson $ \lesson -> do
       st <- get
-      saved <- H.liftEffect (readStorageItem LocalStorage (storageKey lesson))
+      saved <- join . rightToMaybe <$> H.liftEffect (tryAny (readStorageItem LocalStorage (storageKey lesson)))
       let text = fromMaybe lesson.start saved
       H.getHTMLElementRef st.editorHost >>= traverse_ \host -> do
         events <- liftIO HS.create

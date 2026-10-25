@@ -51,7 +51,14 @@ asset tag attr url = do
       element <- querySelector (QuerySelector selector) root >>= maybe (create doc root) pure
       done <- liftIO newEmptyMVar
       loaded <- mkEventListener (\_ -> setAttribute Nothing (AttrName "data-loaded") "" element >> liftIO (putMVar done True))
-      failed <- mkEventListener (\_ -> liftIO (putMVar done False))
+      -- An element whose request failed is taken out again, so that the
+      -- next compile makes a new one and a new request, instead of waiting
+      -- on one that will never load.
+      failed <- mkEventListener $ \_ -> do
+        child <- elementToNode element
+        parent <- querySelector (QuerySelector "head") root >>= maybe (error "the page has no head") pure
+        removeChild child =<< elementToNode parent
+        liftIO (putMVar done False)
       target <- elementToEventTarget element
       addEventListener (EventType "load") loaded target
       addEventListener (EventType "error") failed target
