@@ -324,7 +324,10 @@ clicks =
       const { layers } = await (await fetch(`${url}rootfs.json`)).json();
       const cdn = layers.find((l) => l.name === "pixi")?.external?.[0]?.url;
       if (!cdn) return null;
-      const reachable = await page.evaluate(
+      // Probed from a page of its own: a fetch that fails logs a console
+      // error, which the test page counts as an error of the page.
+      const probe = await page.context().browser().newPage();
+      const reachable = await probe.evaluate(
         (cdn) =>
           fetch(cdn).then(
             (r) => r.ok,
@@ -332,6 +335,7 @@ clicks =
           ),
         cdn,
       );
+      await probe.close();
       return reachable ? null : `${cdn} cannot be reached from the browser, and the pixi layer loads PixiJS from there`;
     },
     source:

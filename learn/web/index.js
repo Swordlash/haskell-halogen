@@ -230,10 +230,8 @@ async function load() {
     const layer = config.layers.find((l) => l.name === name);
     if (!layer) return Promise.reject(new Error(`no layer ${name} in rootfs.json`));
     if (!loading.has(name)) {
-      loading.set(
-        name,
-        exclusive(async () => {
-          const button = $(`layer-${name}`);
+      const button = $(`layer-${name}`);
+      const load = exclusive(async () => {
           if (button) button.disabled = true;
           const start = performance.now();
           const size = layer.compressedSize ? ` (${mb(layer.compressedSize)})` : "";
@@ -253,6 +251,16 @@ async function load() {
           $("ghcArgs").value = [$("ghcArgs").value, `-package-db ${layer.packageDb}`, ...packages].join(" ");
           if (button) button.textContent = `${name} ✓`;
           status(`Loaded the ${name} layer.`);
+        });
+      // A load that fails (a dropped connection, a 503) is forgotten, so the
+      // next call fetches again; one under way or done is shared.
+      loading.set(
+        name,
+        load.catch((error) => {
+          loading.delete(name);
+          if (button) button.disabled = false;
+          status(`Could not load the ${name} layer: ${error.message}`);
+          throw error;
         }),
       );
     }
