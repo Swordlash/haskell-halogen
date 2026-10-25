@@ -18,7 +18,8 @@
 -- every address the router writes starts with that, and every one it reads
 -- has it taken off before its route is parsed. 'newHashRouter' keeps the
 -- route in the fragment instead (@#\/blog\/post\/1@), for a page that is one
--- file a server knows nothing about.
+-- file a server knows nothing about, or for a part of a page whose path is
+-- someone else's.
 --
 -- 'changes' is one emitter per router, shared by everyone who subscribes:
 -- it carries the router's own navigations and the browser's (back,
@@ -46,6 +47,7 @@ module Halogen.Router
   , navigate
   , redirect
   , href
+  , fragmentAddress
   , link
   , linkProps
   , Follow (..)
@@ -97,6 +99,9 @@ data Router route = Router
   , memory :: IORef Text
   -- ^ The address natively, as a browser's @pathname + search + hash@; in a
   -- browser the address is the browser's.
+  , page :: Text
+  -- ^ The address the page was at when the router was made, without its
+  -- fragment: what a hash router's 'href' writes before the @#@.
   , notifier :: HS.Subscribe IO route
   , popstate :: HS.Subscription IO
   -- ^ The router's @popstate@ listener, which 'stop' takes away.
@@ -111,20 +116,34 @@ newRouter :: (MonadBrowserDOM m, MonadUnliftIO m) => Text -> route -> RouteDuple
 newRouter base = start (Paths (normaliseBase base)) (normaliseBase base)
 
 -- | A router that keeps the route in the fragment: the codec's address
--- after a @#@, whatever the path is. Fragment links resolve against a
--- page's @\<base href>@, so a page with one should use 'newRouter' instead.
+-- after a @#@, whatever the path is. It leaves the path and the query alone,
+-- so it can live in a page whose path another router reads.
+--
+-- Its addresses are written in full, the page's own path and query before
+-- the @#@ (@\/lesson\/?q=1#\/about@), and not as a bare @#\/about@: a bare
+-- fragment resolves against the page's @\<base href>@ when it has one, which
+-- names another address than the page's (@\/#\/about@ under a base of
+-- @\/@), so a link would leave the page and a push would change its path.
+-- 'navigate' and 'redirect' write the path the page is at as they go, so
+-- they keep it when something else changed it since the router was made; a
+-- link's @href@, which is a pure value, names the path the page was at when
+-- the router was made. In a page whose path changes while a hash router
+-- lives, a plain click on its link goes where it should and a link opened
+-- in a new tab goes to the router's first path: make a router for each path
+-- if that matters.
 newHashRouter :: (MonadBrowserDOM m, MonadUnliftIO m) => route -> RouteDuplex' route -> m (Router route)
 newHashRouter = start Fragment "/"
 
 start :: (MonadBrowserDOM m, MonadUnliftIO m) => Addressing -> Text -> route -> RouteDuplex' route -> m (Router route)
 start addressing initial fallback duplex = do
   memory <- liftIO (newIORef initial)
+  page <- liftIO (fst . T.breakOn "#" <$> readAddress memory)
   notifier <- liftIO HS.create
   target <- windowToEventTarget =<< window
   popstates <- HS.lowerEmitter (HQE.eventListener (EventType "popstate") target (const (Just ())))
   -- The listener reads where the page is through a router whose
   -- subscription is not yet known: 'current' reads only the address.
-  let reading = Router {duplex, fallback, addressing, memory, notifier, popstate = HS.Subscription pass}
+  let reading = Router {duplex, fallback, addressing, memory, page, notifier, popstate = HS.Subscription pass}
   listening <- liftIO $ HS.subscribe popstates $ \() -> current reading >>= HS.notify notifier.listener
   -- Taking the listener off twice would free its callback twice, so only
   -- the first 'stop' does.
@@ -159,9 +178,20 @@ normaliseBase base = case T.dropAround (== '/') base of
 
 -- | The address as the browser has it: @pathname + search + hash@.
 address :: Router route -> IO Text
-address router
+address router = readAddress router.memory
+
+readAddress :: IORef Text -> IO Text
+readAddress memory
   | inBrowser = fromJSText <$> js_router_location
-  | otherwise = readIORef router.memory
+  | otherwise = readIORef memory
+
+-- | The address a hash router writes for a fragment, on a page at an
+-- address (@pathname + search + hash@): the page's own path and query, then
+-- the fragment, which replaces the page's.
+--
+-- > fragmentAddress "/lesson/?q=1#/old" "#/about" == "/lesson/?q=1#/about"
+fragmentAddress :: Text -> Text -> Text
+fragmentAddress whole fragment = fst (T.breakOn "#" whole) <> fragment
 
 -- | The part of an address the codec reads, if the address is the router's.
 routePart :: Addressing -> Text -> Maybe Text
@@ -192,10 +222,15 @@ changes router = router.notifier.emitter
 href :: Router route -> route -> Text
 href router route = case router.addressing of
   Paths base -> T.dropWhileEnd (== '/') base <> absolute
-  Fragment -> "#" <> absolute
+  Fragment -> fragmentAddress router.page ("#" <> absolute)
+  where
+    absolute = absoluteRoute router route
+
+-- | The codec's address for a route, starting with @/@.
+absoluteRoute :: Router route -> route -> Text
+absoluteRoute router route = if "/" `T.isPrefixOf` printed then printed else "/" <> printed
   where
     printed = print router.duplex route
-    absolute = if "/" `T.isPrefixOf` printed then printed else "/" <> printed
 
 -- | Go to a route, as following a link to it does: a new entry in the
 -- history, and the route on 'changes'. Going where the page already is
@@ -213,20 +248,25 @@ redirect router = go router js_router_replace_state
 go :: (MonadIO m) => Router route -> (JSText -> IO ()) -> route -> m ()
 go router write route = liftIO $ do
   whole <- address router
-  let target = href router route
-      here = case router.addressing of
-        Paths _ -> whole
-        -- No fragment, or an empty one, is the root, as 'routePart' reads
-        -- it: going to the root from there goes nowhere.
-        Fragment -> case snd (T.breakOn "#" whole) of
-          fragment | fragment `elem` ["", "#"] -> "#/"
-          fragment -> fragment
-  unless (target == here) $ do
+  -- A hash router compares fragments, and writes the path the page is at
+  -- now rather than the one 'href' names, so as not to take the page back
+  -- to a path something else has left since the router was made.
+  let (target, there, here) = case router.addressing of
+        Paths _ -> (href router route, href router route, whole)
+        Fragment ->
+          let fragment = "#" <> absoluteRoute router route
+           in ( fragmentAddress whole fragment
+              , fragment
+              , -- No fragment, or an empty one, is the root, as 'routePart'
+                -- reads it: going to the root from there goes nowhere.
+                case snd (T.breakOn "#" whole) of
+                  at | at `elem` ["", "#"] -> "#/"
+                  at -> at
+              )
+  unless (there == here) $ do
     if inBrowser
       then write (toJSText target)
-      else writeIORef router.memory $ case router.addressing of
-        Paths _ -> target
-        Fragment -> fst (T.breakOn "#" whole) <> target
+      else writeIORef router.memory target
     HS.notify router.notifier.listener route
 
 -- | A click on a link to a route, to be followed: what 'link' hands its

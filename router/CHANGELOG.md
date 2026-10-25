@@ -47,3 +47,14 @@
   the default in its listener, for a link whose element is written some
   other way: in an `hh` quote, `<a {{ Router.linkProps router Followed
   route }}>`. `link` is `HH.a` with them after its own properties.
+* A hash router (`newHashRouter`) writes whole addresses, the page's own
+  path and query before the `#` (`/lesson/#/about`), rather than a bare
+  `#/about`. A bare fragment resolves against the page's `<base href>`, not
+  its address, so on a page with a base other than its own path (every page
+  of a site under a `HALOGEN_BASE_PATH` but its root) a link to a route and
+  a `navigate` went to the base's address instead: the page left, Back left
+  it too, and a reload lost the route. `navigate` and `redirect` write the
+  path the page is at as they go, which keeps a path another router changed
+  meanwhile; `href`, a pure value, names the path the page was at when the
+  router was made. `fragmentAddress` is how both are written. A hash router
+  natively starts at `/`, so its `href`s now start with `/#`.
