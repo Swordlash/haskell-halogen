@@ -862,11 +862,18 @@ try {
     console.log("ok  lesson 15's connected views render again only for their own part of the store");
   }
 
-  // Tab indents in the editor, and Escape then Tab leaves it.
-  await page.locator(".learn-editor .cm-content").click();
-  const typed = await page.evaluate(() => document.querySelector(".learn-editor .cm-content").innerText.length);
+  // Tab indents in the editor, and Escape then Tab leaves it. The click is
+  // on the module's header line, so that the two spaces are counted in a
+  // line that has text (an empty line's text changes by one, its line break
+  // giving way to the spaces), wherever the layout puts the editor.
+  const headerLine = page.locator(".learn-editor .cm-line", { hasText: /^module Lesson/ });
+  await headerLine.click();
+  const typed = (await headerLine.textContent()).length;
   await page.keyboard.press("Tab");
-  await page.waitForFunction((n) => document.querySelector(".learn-editor .cm-content").innerText.length === n + 2, typed);
+  await page.waitForFunction(
+    (n) => [...document.querySelectorAll(".learn-editor .cm-line")].some((l) => l.textContent.includes("module Lesson") && l.textContent.length === n + 2),
+    typed,
+  );
   assert.ok(await page.evaluate(() => !!document.activeElement.closest(".cm-editor")), "Tab stays in the editor");
   await page.keyboard.press("Escape");
   await page.keyboard.press("Tab");
