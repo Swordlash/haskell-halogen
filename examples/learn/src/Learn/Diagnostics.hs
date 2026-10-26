@@ -116,17 +116,18 @@ didNotCompile output =
 -- what is inside them stays (and has its own marks taken out). The closing
 -- parenthesis is the one that matches, not one in a string literal or a
 -- character; when GHC's message does not close it, the parenthesis stays.
--- A name that only starts like the mark, or one not followed by a list of
--- properties, is left as it was.
+--
+-- An element applied to fewer arguments than it takes (@HH.li [...]@ in
+-- @map (HH.li [...]) groups@) has its mark as the first of its literal
+-- list of properties instead, @Learn__Spans.IProp (Learn__Spans.attr
+-- ...)@, which goes with the comma after it and the space after that.
+--
+-- A name that only starts like a mark, or one not followed by what a mark
+-- is made of, is left as it was.
 withoutMarks :: Text -> Text
-withoutMarks t = case T.breakOn markStart t of
-  (before, rest)
-    | T.null rest -> before
-    | Just after <- unmark (T.drop (T.length markStart) rest) -> before <> withoutMarks after
-    | otherwise -> before <> markStart <> withoutMarks (T.drop (T.length markStart) rest)
+withoutMarks = removing "Learn__Spans.withProps" unwrap . removing "Learn__Spans.IProp" unlist
   where
-    markStart = "Learn__Spans.withProps"
-    unmark s = do
+    unwrap s = do
       afterSpace <- T.stripPrefix " " s <|> T.stripPrefix "\n" s
       afterList <- T.stripStart <$> markList (T.stripStart afterSpace)
       pure $ fromMaybe afterList $ do
@@ -140,6 +141,30 @@ withoutMarks t = case T.breakOn markStart t of
         guard (properties == "..." || "Learn__Spans.attr" `T.isPrefixOf` properties)
         pure (T.drop (end + 1) inside)
       Nothing -> T.stripPrefix "..." s
+    unlist s = do
+      afterSpace <- T.stripPrefix " " s <|> T.stripPrefix "\n" s
+      let start = T.stripStart afterSpace
+      afterMark <- case T.stripPrefix "(" start of
+        Just inside -> do
+          end <- closing inside
+          let attribute = T.strip (T.take end inside)
+          guard (attribute == "..." || "Learn__Spans.attr" `T.isPrefixOf` attribute)
+          pure (T.drop (end + 1) inside)
+        Nothing -> T.stripPrefix "..." start
+      pure (maybe afterMark T.stripStart (T.stripPrefix "," afterMark))
+
+-- | The text with each mark that starts with this name taken out, as the
+-- function says what is left once the name and the rest of one are gone
+-- (given what follows the name), or that what follows is not the rest of
+-- one, and the name stays.
+removing :: Text -> (Text -> Maybe Text) -> Text -> Text
+removing name unmark = go
+  where
+    go t = case T.breakOn name t of
+      (before, rest)
+        | T.null rest -> before
+        | Just after <- unmark (T.drop (T.length name) rest) -> before <> go after
+        | otherwise -> before <> name <> go (T.drop (T.length name) rest)
 
 -- | Where in the text the parenthesis that closes one just before it is.
 closing :: Text -> Maybe Int

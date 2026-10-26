@@ -95,10 +95,13 @@ the last argument given with `$` too (`HH.ul_ $ map item items`, and each
 element along `HH.div_ $ pure $ HH.p [] $ xs <> ys`). The
 plugin wraps the application in `Halogen.HTML.Core.withProps`, which adds
 the mark to the element it built, before the element's own properties, so a
-`data-learn-src` of the reader's own wins. What gets none: an element applied
-to fewer arguments than it takes, which is still a function (`map HH.li_
-items` marks no `li`; write the element out, `map (\i -> HH.li_ [...])
-items`, for each to be marked), and what an `hh` quasi-quote makes; pointing
+`data-learn-src` of the reader's own wins. An element applied to fewer
+arguments than it takes is still a function, which cannot be wrapped; when
+its first argument is a literal list of properties (`map (HH.li [HP.class_
+c]) groups`), the mark goes at the head of that list instead. What gets
+none: such an element with no list written out (`map HH.li_ items` marks
+no `li`; write the element out, `map (\i -> HH.li_ [...]) items`, for each
+to be marked), and what an `hh` quasi-quote makes; pointing
 at one of those outlines the nearest marked element around it. The marks are
 ordinary attributes, there whether or not Source is on: a test that lists an
 element's attributes sees them, lesson 12's hydration patches them onto the

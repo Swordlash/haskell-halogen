@@ -118,9 +118,10 @@ const templateLines = (() => {
 })();
 assert.ok(templateLines.some((l) => l.includes("HH.p_ [HH.text (\"Clicks: \"")), "the playground's template has its Clicks: paragraph");
 
-// A program for the playground whose paragraph is built inside a chain of
-// $ with another operator in it: Source marks the paragraph where HH.p is,
-// not only the div around it.
+// A program for the playground with a paragraph built inside a chain of $
+// with another operator in it, and one whose HH.p is in parentheses before
+// a $: Source marks each paragraph where its HH.p is, not only the div
+// around it.
 const chainProgram = `{-# LANGUAGE OverloadedStrings #-}
 
 module Lesson (component) where
@@ -132,7 +133,9 @@ import Halogen.HTML qualified as HH
 component :: forall q o m. (MonadIO m) => H.Component q () o m
 component = H.component (\\_ -> pure ()) render []
   where
-    render () = HH.div_ $ pure $ HH.p [] $ [HH.text "a"] <> [HH.text "b"]
+    render () = HH.div_ [chain, parenthesised]
+    chain = HH.div_ $ pure $ HH.p [] $ [HH.text "a"] <> [HH.text "b"]
+    parenthesised = (HH.p []) $ [HH.text "c"]
 `;
 
 // A program for the playground that needs the store layer's package: it
@@ -507,13 +510,19 @@ try {
   await setEditor(page, chainProgram);
   assert.match(await compile("a paragraph built in a chain of $, in the playground"), /^Compiled and ran/);
   const chainLines = chainProgram.split("\n");
-  const chainLine = chainLines.findIndex((l) => l.includes("HH.p [] $")) + 1;
-  const chainAt = (name) => `${chainLine}:${chainLines[chainLine - 1].indexOf(name) + 1}`;
+  const at = (line, name) => {
+    const index = chainLines.findIndex((l) => l.includes(line));
+    return `${index + 1}:${chainLines[index].indexOf(name) + 1}`;
+  };
+  const chainP = at("chain = ", "HH.p");
+  const chainDiv = at("chain = ", "HH.div_");
+  const parenP = at("parenthesised = ", "HH.p");
   const chained = page.locator("#learn-result p", { hasText: "ab" });
   await chained.waitFor({ timeout: 5000 });
-  assert.equal(await chained.getAttribute("data-learn-src"), chainAt("HH.p"), "the paragraph carries where HH.p is");
-  assert.equal(await page.locator("#learn-result div[data-learn-src]").first().getAttribute("data-learn-src"), chainAt("HH.div_"), "the div carries where HH.div_ is");
-  console.log(`ok  in HH.div_ $ pure $ HH.p [] $ xs <> ys the paragraph is marked ${chainAt("HH.p")}, where HH.p is, and the div ${chainAt("HH.div_")}`);
+  assert.equal(await chained.getAttribute("data-learn-src"), chainP, "the paragraph in the chain carries where its HH.p is");
+  assert.equal(await page.locator("#learn-result div div[data-learn-src]").first().getAttribute("data-learn-src"), chainDiv, "the chain's div carries where its HH.div_ is");
+  assert.equal(await page.locator("#learn-result p", { hasText: /^c$/ }).getAttribute("data-learn-src"), parenP, "the parenthesised paragraph carries where its HH.p is");
+  console.log(`ok  in HH.div_ $ pure $ HH.p [] $ xs <> ys the paragraph is marked ${chainP}, where HH.p is, and the div ${chainDiv}; in (HH.p []) $ xs the paragraph ${parenP}`);
   if (manifest.layers.some((layer) => layer.name === "store")) {
     // The layer's archive is held until the progress line has shown, which
     // a local server would otherwise make too short to see.

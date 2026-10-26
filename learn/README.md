@@ -38,8 +38,10 @@ What is here:
   point at the reader's lines and never at the wrapper; the wrapper does show
   in what an error message quotes of the code around it, which the tutorial
   takes out (`Learn.Diagnostics.withoutMarks`). An element applied to fewer
-  arguments than it takes (`map HH.li_ items`) and what a quasi-quote (`hh`)
-  makes get no mark. The tutorial
+  arguments than it takes, a function yet, gets the mark at the head of its
+  list of properties when that is a literal one (`map (HH.li [...]) groups`),
+  and none otherwise (`map HH.li_ items`); what a quasi-quote (`hh`) makes
+  gets none. The tutorial
   passes the flag on every compile and check, for its Source mode
   (`examples/learn/README.md`).
 - `web/index.html`, `web/index.js`: a minimal page (a text area, the GHC

@@ -118,6 +118,33 @@ diagnostics = describe "Learn.Diagnostics" $ do
         , "                  = HH.div [HP.id \"root\"] [p_ ..., ....]"
         , "                ...."
         ]
+  it "takes out the mark at the head of a partially applied element's list, with its comma" $ do
+    withoutMarks
+      ( unlines
+          [ "    * In the expression: HP.disabled \"yes\""
+          , "      In the first argument of `HH.li', namely"
+          , "        `[Learn__Spans.IProp"
+          , "            (Learn__Spans.attr"
+          , "               Nothing (Learn__Spans.AttrName \"data-learn-src\") \"41:24\"),"
+          , "          HP.disabled \"yes\", HP.class_ (HH.ClassName \"c\")]'"
+          , "      In the first argument of `map', namely"
+          , "        `(HH.li"
+          , "            [Learn__Spans.IProp"
+          , "               (Learn__Spans.attr"
+          , "                  Nothing (Learn__Spans.AttrName \"data-learn-src\") \"41:24\"),"
+          , "             HP.disabled \"yes\", HP.class_ (HH.ClassName \"c\")])'"
+          ]
+      )
+      `shouldBe` unlines
+        [ "    * In the expression: HP.disabled \"yes\""
+        , "      In the first argument of `HH.li', namely"
+        , "        `[HP.disabled \"yes\", HP.class_ (HH.ClassName \"c\")]'"
+        , "      In the first argument of `map', namely"
+        , "        `(HH.li"
+        , "            [HP.disabled \"yes\", HP.class_ (HH.ClassName \"c\")])'"
+        ]
+    withoutMarks "HH.li [Learn__Spans.IProp (...)] <$> xs" `shouldBe` "HH.li [] <$> xs"
+    withoutMarks "Learn__Spans.IProp (x)" `shouldBe` "Learn__Spans.IProp (x)"
   it "matches the parenthesis past those in strings and characters, and leaves anything else as it was" $ do
     withoutMarks "In the expression: Learn__Spans.withProps [...] (HH.text \"a) (\\\" ]\" <> f ')') <> x"
       `shouldBe` "In the expression: HH.text \"a) (\\\" ]\" <> f ')' <> x"
