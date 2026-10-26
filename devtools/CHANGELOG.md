@@ -10,4 +10,6 @@ and state changes; a log of the last 200 events, narrowed to a component or a ki
 element a component rendered, outlined while its row is hovered; and, for a state type named with
 `showing @State`, each state a component went through, with a button that puts it back. It
 leaves its own tree out, updates at most ten times a second, and needs no JavaScript or CSS from
-anywhere else.
+anywhere else. How much it keeps is bounded, and `Settings` (through `openWith`, `openInWith` and
+`panelWith`) say by how much: the log's length, 200 by default, and the inbox's, 5000, where the
+listener keeps events between two refreshes of the panel.

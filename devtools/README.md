@@ -19,7 +19,11 @@ main = runBrowserDOM $ do
 `DevTools.open` puts the panel at the bottom right of the window, in an element of its own at
 the end of the body; `DevTools.openIn element` puts it inside an element of the page instead, in
 its flow; `DevTools.panel` is the panel as a component, for a program (or a test) that mounts it
-itself. The socket's `dispose` closes it.
+itself. The socket's `dispose` closes it. Each has a variant that takes `Settings` (`openWith`,
+`openInWith`, `panelWith`): how many events the log keeps (200 by default; this is also how many
+states back a component can be put, since a state travels with its event) and how many the
+listener keeps for the panel between two of its refreshes (5000). Nothing the panel holds grows
+past these.
 
 ## What it shows
 
