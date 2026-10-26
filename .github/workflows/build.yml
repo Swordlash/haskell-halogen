@@ -225,8 +225,18 @@ jobs:
     # material's, net's, custom-element's, devtools' and tauri's) run in
     # headless Chromium, driven by the hspec-halogen executable, a native
     # program that needs the host GHC.
+    - name: Cache Chromium
+      uses: actions/cache@v5
+      with:
+        path: ~/.cache/ms-playwright
+        key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+
+    # Without --with-deps: the runner image already has every library the
+    # headless shell needs (apt reported each one installed), and what
+    # --with-deps added besides, fonts and an xvfb upgrade, the tests do not
+    # use, while its apt fetch from the mirror has taken eleven minutes.
     - name: Install Chromium
-      run: npx playwright install --with-deps --only-shell chromium
+      run: npx playwright install --only-shell chromium
 
     # The runner image already ships this GHC under ghcup, so this only sets
     # it as the default; it installs one if a later image does not. (Caching
@@ -405,8 +415,18 @@ jobs:
     # headless Chromium, driven by the hspec-halogen executable, which is a
     # native program, built with the host GHC installed above; and so do the
     # tutorial's and the playground's.
+    - name: Cache Chromium
+      uses: actions/cache@v5
+      with:
+        path: ~/.cache/ms-playwright
+        key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+
+    # Without --with-deps: the runner image already has every library the
+    # headless shell needs (apt reported each one installed), and what
+    # --with-deps added besides, fonts and an xvfb upgrade, the tests do not
+    # use, while its apt fetch from the mirror has taken eleven minutes.
     - name: Install Chromium
-      run: npx playwright install --with-deps --only-shell chromium
+      run: npx playwright install --only-shell chromium
 
     - name: Test
       run: npm run test-wasm
