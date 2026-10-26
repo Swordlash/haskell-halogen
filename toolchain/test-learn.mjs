@@ -667,14 +667,17 @@ try {
     console.log("ok  a check under way when Compile is pressed is not reported over the compile");
   }
 
-  // Back and forward.
-  const last = lessons[lessons.length - 1];
+  // Back and forward: back to the introduction the lesson the page is on
+  // was opened from, and forward to that lesson again (lesson 20 when its
+  // checks above ran, which is no longer the last lesson).
+  const here = page.url();
+  const heading = await page.locator("article h1").textContent();
   await page.goBack();
   await page.waitForURL(url);
   await page.locator(".learn-home h1").waitFor({ timeout: 5000 });
   await page.goForward();
-  await page.waitForURL(`${url}${last.slug}/`);
-  await page.locator("article h1", { hasText: last.title }).waitFor({ timeout: 5000 });
+  await page.waitForURL(here);
+  await page.locator("article h1", { hasText: heading }).waitFor({ timeout: 5000 });
   console.log("ok  back and forward");
 
   // Lesson 6's hash router, under the page's <base href>: its links and
