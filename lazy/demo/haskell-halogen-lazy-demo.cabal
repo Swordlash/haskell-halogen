@@ -1,0 +1,34 @@
+cabal-version:      3.0
+name:               haskell-halogen-lazy-demo
+version:            0.1.0.0
+synopsis:           The types the lazy demo library and the program loading it share
+description:
+  The tutorial's lesson on lazy components loads a component from a shared
+  library (feature/, built by toolchain/build-learn-rootfs.sh into
+  liblazy-demo.so) with "Halogen.Lazy.Dyld". The program and the library
+  must agree on the component's type, so its query and output types are
+  here, in a library both are built against, and not in the shared library,
+  whose types the program cannot name. Not meant for release.
+homepage:           https://github.com/Swordlash/haskell-halogen
+license:            Apache-2.0
+license-file:       LICENSE
+author:             Mateusz Goślinowski
+maintainer:         mateusz.goslinowski@gmail.com
+category:           Web
+build-type:         Simple
+extra-source-files: feature/*.hs
+
+library
+    default-language: GHC2021
+    ghc-options:      -Wall -Wextra -Wcompat -Wredundant-constraints -Wmissing-export-lists -Wunused-packages
+    hs-source-dirs:   src
+    exposed-modules:  Halogen.Lazy.Demo
+    build-depends:
+        base >= 4.20 && < 5,
+        text,
+        haskell-halogen-core
+
+source-repository head
+  type:     git
+  location: https://github.com/Swordlash/haskell-halogen.git
+  subdir:   lazy/demo
