@@ -8,8 +8,10 @@
 # page per route written for HALOGEN_BASE_PATH (the path the site is served
 # under; the deploy sets it). The other examples are built so that each still
 # links and prerenders on its own, which nothing else checks for wasm (the test
-# suites build only themselves), and so the size report below covers them all;
-# each is served on its own with npm run serve-wasm.
+# suites build only themselves); each is served on its own with npm run
+# serve-wasm. Their sizes, raw, gzipped and with brotli, are reported by the
+# deploy (build-deploy.yml) rather than here: compressing them all at the
+# highest settings takes a minute that a pull request's build has no use for.
 #
 # The rootfs is toolchain/build-learn-rootfs.sh's output directory, which
 # examples/learn/bundle.sh copies in. When there is none, it is built first;
@@ -44,12 +46,6 @@ if [ ! -f "$public_dir/learn/rootfs/rootfs.json" ]; then
   printf '%s/learn has no rootfs/rootfs.json: the tutorial would deploy without its compiler.\n' "$public_dir" >&2
   exit 1
 fi
-
-# GitHub Pages compresses on the fly, so only report the sizes here rather
-# than writing precompressed copies into the upload. The rootfs' archives are
-# compressed already.
-node toolchain/compress.mjs --no-write \
-  $(find "$public_dir" -mindepth 2 -path "$public_dir/learn/rootfs" -prune -o -type f \( -name '*.wasm' -o -name '*.js' -o -name '*.css' \) -print | sort)
 
 printf '\nAll examples built in %s; Pages deploys %s/learn (%s).\n' \
   "$public_dir" "$public_dir" "$(du -sh "$public_dir/learn" | cut -f1)"

@@ -77,8 +77,14 @@
 # ghc-api-browser/playground001.sh) and try-miso's build-root.sh.
 #
 # Environment:
-#   ZSTD_CLEVEL    zstd level for the archives (default 19, as for a release;
-#                  3 packs in seconds, for trying things out)
+#   ZSTD_CLEVEL    zstd level for the archives (default 12; 3 packs in a few
+#                  seconds, for trying things out). Not 19, the level a
+#                  release would pick: on 4 cores every archive took 129 s
+#                  to pack at 19 and 8 s at 12, for 77.3 MB and 83.4 MB, a
+#                  sixteenth of the time for 8% more bytes, and at 19
+#                  packing was four and a half of the seven minutes CI spent
+#                  on the rootfs. The level is in --key, so changing it
+#                  builds anew.
 #   LEARN_LAYERS   further layers, as name=package,package... separated by
 #                  spaces (default: DEFAULT_LAYERS below, every package of
 #                  this project a lesson can use; empty for none), for example
@@ -87,7 +93,7 @@
 #                  100 MB a file on GitHub may have); a larger archive is
 #                  split into parts of this size
 #   LEARN_GHC_API  when set to 1, keep the ghc package exposed, with its
-#                  interfaces (32 MB, 8 MB compressed), for programs that
+#                  interfaces (32 MB, 9 MB compressed), for programs that
 #                  import the GHC API
 #   WASM_SO_OPT    when set, wasm-opt flags the layers' .so are run through,
 #                  as GHC's own build does its libraries' (see learn/README.md
@@ -117,7 +123,7 @@ case ${1-} in
     shift
     ;;
 esac
-level=${ZSTD_CLEVEL:-19}
+level=${ZSTD_CLEVEL:-12}
 part_bytes=$((${LEARN_PART_MB:-95} * 1000000))
 # The output directory is deleted and written afresh, so it must be one this
 # script wrote (it has a rootfs.json, or the .building mark of a build that

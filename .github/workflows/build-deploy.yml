@@ -37,120 +37,20 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v5
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v5
+    # The steps every wasm job starts with, the same as build.yml's. This job
+    # builds what learn-wasm there builds, so it shares that job's caches of
+    # the build directories, and it only restores the store (see the action).
+    - name: Set up the wasm toolchain
+      uses: ./.github/actions/wasm-toolchain
       with:
-        node-version: '24'
-        cache: npm
+        ghc-version: ${{ env.GHC_VERSION }}
+        wasm-ghc-version: ${{ env.WASM_GHC_VERSION }}
+        ghc-wasm-meta-rev: ${{ env.GHC_WASM_META_REV }}
+        cabal-version: ${{ env.CABAL_VERSION }}
+        cabal-dir: ${{ env.CABAL_DIR }}
+        cache-scope: learn
 
-    # Shares its key with the build-wasm job in build.yml, so whichever runs
-    # first populates it for the other. Only ~/.ghc-wasm is cacheable: ghcup
-    # installs the cross GHC under its own base directory, which lives outside
-    # $HOME on the runner image and is not ours to archive.
-    - name: Cache wasm sysroot
-      uses: actions/cache@v5
-      with:
-        path: ~/.ghc-wasm
-        key: ${{ runner.os }}-ghc-wasm-sysroot-${{ env.GHC_WASM_META_REV }}
-
-    - name: Cache wasm cross-compiler
-      uses: actions/cache@v5
-      with:
-        path: /usr/local/.ghcup/ghc/wasm32-wasi-${{ env.WASM_GHC_VERSION }}
-        key: ${{ runner.os }}-ghcup-wasm32-wasi-${{ env.WASM_GHC_VERSION }}
-
-    # Each half checks for itself rather than trusting cache-hit, so a cache
-    # that turns out not to carry a toolchain repairs itself instead of
-    # failing the build several steps later.
-    - name: Install GHC WebAssembly toolchain
-      run: |
-        mkdir -p "$RUNNER_TEMP/ghc-wasm-meta"
-        curl --fail --location --retry 5 "https://gitlab.haskell.org/haskell-wasm/ghc-wasm-meta/-/archive/$GHC_WASM_META_REV/ghc-wasm-meta-$GHC_WASM_META_REV.tar.gz" | tar xz --strip-components=1 --directory "$RUNNER_TEMP/ghc-wasm-meta"
-        if [ ! -x "$HOME/.ghc-wasm/add_to_github_path.sh" ]; then
-          SKIP_GHC=1 FLAVOUR=9.14 "$RUNNER_TEMP/ghc-wasm-meta/setup.sh"
-        fi
-        # shellcheck source=/dev/null
-        . ~/.ghc-wasm/env
-        if ! ghcup whereis cabal "$CABAL_VERSION" >/dev/null 2>&1; then
-          ghcup install cabal "$CABAL_VERSION"
-        fi
-        ghcup set cabal "$CABAL_VERSION"
-        if ! ghcup whereis ghc "wasm32-wasi-$WASM_GHC_VERSION" >/dev/null 2>&1; then
-          ghcup -s "file://$RUNNER_TEMP/ghc-wasm-meta/ghcup-wasm-0.0.9.yaml" install ghc "wasm32-wasi-$WASM_GHC_VERSION" --set -- $CONFIGURE_ARGS
-        fi
-        ghcup set ghc "wasm32-wasi-$WASM_GHC_VERSION"
-
-    # Puts the wasm tools on PATH and exports CC/AR/LD and friends for every
-    # later step, so it has to run whether or not anything was installed above.
-    - name: Activate toolchain
-      run: |
-        echo "$(ghcup whereis basedir)/ghc/wasm32-wasi-$WASM_GHC_VERSION/bin" >> "$GITHUB_PATH"
-        echo "$(ghcup whereis basedir)/bin" >> "$GITHUB_PATH"
-        ~/.ghc-wasm/add_to_github_path.sh
-
-    - name: Install JavaScript dependencies
-      run: npm ci
-
-    - name: Update Cabal package index
-      run: cabal update
-
-    # Restore, never save. This job shares the wasm store with the build-wasm
-    # job in build.yml but builds a strict subset of it: the examples, and not
-    # the test suites. Saving from here can only ever hand the next run a store
-    # with the test dependencies missing.
-    #
-    # Both workflows run on a push to master, so whichever finished last
-    # decided what the next run restored -- and before the store was keyed per
-    # run they shared one key outright, so this job, having no Test step to
-    # wait for, won every race. That is why build-wasm rebuilt the whole hspec
-    # stack on every run while build-js and the native job did not.
-    - name: Restore cached cabal dependencies
-      uses: actions/cache/restore@v5
-      with:
-        path: ${{ env.CABAL_DIR }}/store
-        key: ${{ runner.os }}-wasm-${{ env.WASM_GHC_VERSION }}-cabal-store-${{ github.run_id }}-${{ github.run_attempt }}
-        restore-keys: |
-          ${{ runner.os }}-wasm-${{ env.WASM_GHC_VERSION }}-cabal-store-
-
-    # The repository's own packages built with the host GHC: what the
-    # examples' prerender executables need (core, jsbits, router, the
-    # examples they render), and what test-wasm's hspec-halogen runner needs.
-    # The store above only holds their dependencies, so without this they are
-    # compiled from scratch on every run. Keep in step with the same step in
-    # the build-wasm job in build.yml.
-    #
-    # Unique per run so it is always written back, restored by prefix from
-    # the newest earlier run. Unlike the store, either job's tree is a valid
-    # start for the other's: both build into it with the same compiler, a
-    # tree with more or fewer components in it is just more or less to
-    # build, GHC (since 9.4) recompiles a module by its source's hash rather
-    # than its mtime, so a restored module is reused exactly where its source
-    # is unchanged, and cabal re-plans when the configuration has changed.
-    - name: Cache native build directory
-      uses: actions/cache@v5
-      with:
-        path: dist-newstyle/native
-        key: ${{ runner.os }}-wasm-native-build-${{ env.GHC_VERSION }}-${{ github.run_id }}-${{ github.run_attempt }}
-        restore-keys: |
-          ${{ runner.os }}-wasm-native-build-${{ env.GHC_VERSION }}-
-
-    # The runner image already ships this GHC under ghcup, so this only sets
-    # it as the default; it installs one if a later image does not. (Caching
-    # it only unpacked a copy over the image's, which tar cannot re-time.)
-    # Before the build: th's ghc-lib-parser runs alex and happy while it
-    # compiles. cabal builds them for wasm (alex.wasm, happy.wasm), which it
-    # cannot run, and falls back to PATH, where native ones have to be: a
-    # happy ghc-lib-parser accepts (not 2.2).
-    - name: Install host GHC, alex and happy
-      run: |
-        if ! ghcup whereis ghc "$GHC_VERSION" >/dev/null 2>&1; then
-          ghcup install ghc "$GHC_VERSION"
-        fi
-        ghcup set ghc "$GHC_VERSION"
-        cabal install alex happy --constraint='happy <2.2' --ignore-project --with-compiler="$(ghcup whereis ghc "$GHC_VERSION")" --installdir="$CABAL_DIR/bin" --install-method=copy --overwrite-policy=always
-        echo "$CABAL_DIR/bin" >> "$GITHUB_PATH"
-
-    # The tutorial's compiler, cached under the same key as in the build-wasm
+    # The tutorial's compiler, cached under the same key as in the learn-wasm
     # job in build.yml (see the note there), so that whichever runs first
     # builds it for the other. Keep these three steps in step with those.
     - name: Key the tutorial's rootfs
@@ -190,7 +90,21 @@ jobs:
       env:
         HALOGEN_BASE_PATH: ${{ steps.pages.outputs.base_path }}
 
-    # The same browser test as the build-wasm job in build.yml, run here too
+    # Every example's script, stylesheet and binary, raw, gzipped and with
+    # brotli, in the log and the job summary, so that a change in what a
+    # reader downloads shows. Only reported (--no-write): GitHub Pages
+    # compresses on the fly, so precompressed copies would only weigh down
+    # the upload, and the rootfs' archives are compressed already. Here rather
+    # than in build-wasm-all.sh, so that a pull request's build does not spend
+    # the minute it takes.
+    - name: Report the sizes
+      run: |
+        public_dir=dist-newstyle/wasm/public
+        # shellcheck disable=SC2046
+        node toolchain/compress.mjs --no-write \
+          $(find "$public_dir" -mindepth 2 -path "$public_dir/learn/rootfs" -prune -o -type f \( -name '*.wasm' -o -name '*.js' -o -name '*.css' \) -print | sort)
+
+    # The same browser test as the learn-wasm job in build.yml, run here too
     # because the two workflows run side by side on a push to master: without
     # it, a tutorial that fails there would still be deployed from here.
     - name: Cache Chromium

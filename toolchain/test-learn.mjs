@@ -26,18 +26,19 @@
 // inside a chain of $ where its HH.p is, loads the store layer when it is
 // checked, and keeps all that for the next visit;
 // every lesson in examples/learn/lessons compiles its Solution.hs without a
-// diagnostic and shows something (one line per lesson, which is how a new
-// lesson is checked); an error GHC throws rather than reports is still a
-// failed compile; lesson 13's spec runs in the page, its Start.hs with one
-// failure and its Solution.hs with none, by hspec's report under the editor,
-// and leaves nothing mounted; lesson 19's scene is drawn and a click on its
-// sphere changes the colour the text names; the page checks the code as the
-// reader types (lesson 20: the types of the bindings listed and over their
-// names with no Compile, a typed error marked within the check's delay, and
-// a check never reported over a compile asked for after it); the routes
-// survive back and forward; lesson 6's hash router
-// keeps the lesson's address under the page's <base href>, Back included;
-// what lesson 5's Finalize prints shows on every compile after the first;
+// diagnostic and shows something (two lessons at a time, on two pages, and
+// one line per lesson, which is how a new lesson is checked); an error GHC
+// throws rather than reports is still a failed compile; lesson 13's spec
+// runs in the page, its Start.hs with one failure and its Solution.hs with
+// none, by hspec's report under the editor, and leaves nothing mounted;
+// lesson 19's scene is drawn and a click on its sphere changes the colour
+// the text names; the page checks the code as the reader types (lesson 20:
+// the types of the bindings listed and over their names with no Compile, a
+// typed error marked within the check's delay, and a check never reported
+// over a compile asked for after it); the routes survive back and forward;
+// lesson 6's hash router keeps the lesson's address under the page's <base
+// href>, Back included; what lesson 5's Finalize prints shows on every
+// compile after the first;
 // Escape then Tab leaves the editor; the reader's code survives a reload, and
 // the compiler a second visit, from the Cache API; on a narrow screen nothing
 // large is downloaded until asked; a compiler that fails to load can be
@@ -284,11 +285,11 @@ try {
   // the compiles started) and Compile is enabled again: the click's action
   // may run a moment after the click, so the button alone could still show
   // the last compile's state.
-  const compiled = async () => {
-    const before = await page.locator(".learn-outcome").getAttribute("data-run");
-    await page.locator("button.learn-compile:not([disabled])").click();
-    await page.locator(`.learn-outcome:not([data-run="${before}"])`).waitFor({ timeout: 120000 });
-    await page.locator("button.learn-compile:not([disabled])").waitFor({ timeout: 120000 });
+  const compiled = async (on = page) => {
+    const before = await on.locator(".learn-outcome").getAttribute("data-run");
+    await on.locator("button.learn-compile:not([disabled])").click();
+    await on.locator(`.learn-outcome:not([data-run="${before}"])`).waitFor({ timeout: 120000 });
+    await on.locator("button.learn-compile:not([disabled])").waitFor({ timeout: 120000 });
   };
   const compile = async (what) => {
     const start = Date.now();
@@ -580,17 +581,17 @@ try {
   // may leave something unused), and its solution compiles with no
   // diagnostic at all and shows something: a component in the result, or
   // what the program printed, for a lesson whose program runs a spec.
-  const runLesson = async (button, check) => {
-    await page.locator(button).click();
+  const runLesson = async (on, button, check) => {
+    await on.locator(button).click();
     const start = Date.now();
-    await compiled();
+    await compiled(on);
     const ms = Date.now() - start;
-    const result = await page.locator("#learn-result").innerHTML();
-    const stdout = (await page.locator(".learn-stdout").allTextContents()).join("");
+    const result = await on.locator("#learn-result").innerHTML();
+    const stdout = (await on.locator(".learn-stdout").allTextContents()).join("");
     let checked = "";
     if (check) {
       try {
-        await check(page.locator("#learn-result"));
+        await check(on.locator("#learn-result"));
       } catch (error) {
         checked = error.message.split("\n")[0];
       }
@@ -598,9 +599,9 @@ try {
     return {
       ms,
       checked,
-      outcome: await page.locator(".learn-outcome").textContent(),
-      errors: await page.locator(".learn-diagnostics li.learn-error").allTextContents(),
-      diagnostics: await page.locator(".learn-diagnostics li").allTextContents(),
+      outcome: await on.locator(".learn-outcome").textContent(),
+      errors: await on.locator(".learn-diagnostics li.learn-error").allTextContents(),
+      diagnostics: await on.locator(".learn-diagnostics li").allTextContents(),
       result,
       stdout,
       shown: result.length > 0 || stdout.length > 0,
@@ -618,7 +619,8 @@ try {
     },
   };
   // The lessons whose program puts a page of its own into the result rather
-  // than mount the component there: what the page does after each compile.
+  // than mount the component there: what the page does after each compile,
+  // given the result's element (on whichever page the lesson compiled).
   // Lesson 14's is plain HTML around its custom element, <x-lesson>, whose
   // shadow root Playwright's selectors go into; Start.hs dispatches no event
   // and has no count() method, which the exercise adds.
@@ -834,11 +836,47 @@ try {
     // The lesson's layers may be loading still.
     await on.locator("button.learn-compile:not([disabled])").waitFor({ timeout: 120000 });
   };
+  // The lessons are compiled two at a time, on this page and on a second
+  // one, each taking every other lesson so that the two halves weigh about
+  // the same. One compile at a time leaves cores idle that a second compiler
+  // can use. The second page is in a context of its own, as a reader's
+  // second browser would be: it loads the app and the compiler for itself
+  // (its Cache API is empty, so the archives are downloaded again, from the
+  // local server), while this page starts on its half.
+  const second = await browser.newContext({ viewport: { width: 1400, height: 900 } });
+  const other = await second.newPage();
+  watch(other);
+  other.on("dialog", (dialog) => dialog.accept());
+  const halves = [lessons.filter((_, i) => i % 2 === 0), lessons.filter((_, i) => i % 2 === 1)];
+  const otherReady = (async () => {
+    const since = Date.now();
+    await other.goto(`${url}${halves[1][0].slug}/`);
+    await other.locator(".learn-editor .cm-editor").waitFor({ timeout: 30000 });
+    await other.evaluate(() => {
+      window.learnNoReload = 1;
+    });
+    await untilReady(other, since, "second page: ");
+  })();
+  const runs = new Map();
+  const runHalf = async (on, half) => {
+    for (const lesson of half) {
+      await openLesson(lesson, on);
+      const pageChecks = pageLessons[lesson.slug];
+      const start = await runLesson(on, "button.learn-reset", pageChecks?.start);
+      const solution = await runLesson(on, "button.learn-solution", pageChecks?.solution);
+      runs.set(lesson.slug, { start, solution });
+    }
+  };
+  const loopStart = Date.now();
+  // Both halves run to their end even when one fails, so that every
+  // lesson's line below is printed and nothing goes on on the second page
+  // after it is closed.
+  const halvesDone = await Promise.allSettled([runHalf(page, halves[0]), otherReady.then(() => runHalf(other, halves[1]))]);
+  // The lines in lesson order, as the lessons are listed.
   for (const lesson of lessons) {
-    await openLesson(lesson);
+    if (!runs.has(lesson.slug)) continue;
+    const { start, solution } = runs.get(lesson.slug);
     const pageChecks = pageLessons[lesson.slug];
-    const start = await runLesson("button.learn-reset", pageChecks?.start);
-    const solution = await runLesson("button.learn-solution", pageChecks?.solution);
     const startOk = /^Compiled and ran/.test(start.outcome) && start.errors.length === 0 && !start.checked;
     const solutionOk = /^Compiled and ran/.test(solution.outcome) && solution.diagnostics.length === 0 && solution.shown && !solution.checked;
     const report = specLessons[lesson.slug];
@@ -854,8 +892,13 @@ try {
     console.log(`${ok ? "ok " : "FAIL"} ${lesson.slug}: Start.hs ${seconds(start.ms)}, Solution.hs ${seconds(solution.ms)}${ok ? summaries + paged : problems}`);
     if (!ok) failed = true;
   }
+  console.log(`    every lesson compiled in ${seconds(Date.now() - loopStart)}, two at a time`);
+  for (const done of halvesDone) if (done.status === "rejected") throw done.reason;
   assert.ok(!failed, "every lesson's solution compiles and shows something");
-  assert.equal(await page.evaluate(() => window.learnNoReload), 1, "following the lessons' links never reloads");
+  for (const on of [page, other]) {
+    assert.equal(await on.evaluate(() => window.learnNoReload), 1, "following the lessons' links never reloads");
+  }
+  await second.close();
 
   // The live check, on lesson 20: what GHC says of the code as it is, with
   // no Compile, is in the editor and under it, with the types of the
@@ -867,8 +910,8 @@ try {
     await page.locator("button.learn-reset").click();
     const runBefore = await page.locator(".learn-outcome").getAttribute("data-run");
     const checkedAt = Date.now();
-    // Start.hs's own check: its holes, which the code the loop above left
-    // (Solution.hs) does not have.
+    // Start.hs's own check: its holes, which Solution.hs, what the loop above
+    // leaves on the page that compiled lesson 20, does not have.
     const warning = (text) => page.locator(".learn-diagnostics li.learn-warning", { hasText: text });
     await warning("Found hole: _ :: State -> State").waitFor({ timeout: 60000 });
     const checked = page.locator(".learn-check", { hasText: /^Checked in/ });
@@ -1181,8 +1224,9 @@ function watch(page, expected) {
   });
 }
 
-// Wait for the compiler, printing each phase the page shows as it changes.
-async function untilReady(page, since) {
+// Wait for the compiler, printing each phase the page shows as it changes
+// (after the label, for a page other than the first).
+async function untilReady(page, since, label = "") {
   let last = "";
   for (const deadline = Date.now() + 300000; ; await page.waitForTimeout(100)) {
     const status = await page.evaluate(() =>
@@ -1192,7 +1236,7 @@ async function untilReady(page, since) {
     );
     const phase = status.replace(/[\d.]+ of /, "… of ").replace(/: Downloading GHC: [\d.]+/, ": Downloading GHC");
     if (phase !== last) {
-      console.log(`    ${seconds(Date.now() - since)}  ${status}`);
+      console.log(`    ${label}${seconds(Date.now() - since)}  ${status}`);
       last = phase;
     }
     if (status.includes("in your browser")) return;

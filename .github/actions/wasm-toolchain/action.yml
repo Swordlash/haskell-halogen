@@ -1,0 +1,215 @@
+name: GHC WebAssembly toolchain
+description: >-
+  What every job that builds for wasm starts with: Node.js, the wasm cross
+  compiler and its sysroot, the npm packages, cabal's index, the wasm store,
+  the native and wasm build directories, and the host GHC with alex and
+  happy.
+  The jobs that use it (test-wasm and learn-wasm in build.yml, build-deploy in
+  build-deploy.yml) share these steps here rather than each keeping a copy of
+  them in step with the others.
+
+# The versions and the store's directory come in as inputs, rather than
+# from whatever the calling workflow has in its env, so that what the action
+# depends on is stated here and each workflow passes its own pins (which the
+# env of build.yml and of build-deploy.yml keep the same).
+inputs:
+  ghc-version:
+    description: The host GHC, for the native programs (prerender executables, hspec-halogen's runner) and alex and happy.
+    required: true
+  wasm-ghc-version:
+    description: The wasm cross compiler, as with-compiler in cabal-wasm.project names it.
+    required: true
+  ghc-wasm-meta-rev:
+    description: The ghc-wasm-meta revision the toolchain is installed from.
+    required: true
+  cabal-version:
+    description: The cabal-install to use.
+    required: true
+  cabal-dir:
+    description: CABAL_DIR, under which the store is.
+    required: true
+  cache-scope:
+    description: >-
+      The job's own line of build directory caches (test, learn): each job
+      restores the newest tree its own kind of job saved, and another job's
+      only when there is none.
+    required: true
+  save-store:
+    description: Whether the store is saved at the end of the job, or only restored (see the step).
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+  - name: Setup Node.js
+    uses: actions/setup-node@v5
+    with:
+      node-version: '24'
+      cache: npm
+
+  # Only ~/.ghc-wasm (wasi-sdk, binaryen, node) is cacheable: ghcup installs
+  # the cross GHC under its own base directory, which lives outside $HOME on
+  # the runner image and is not ours to archive. Every job using this action
+  # shares the key, so whichever runs first populates it for the others.
+  - name: Cache wasm sysroot
+    uses: actions/cache@v5
+    with:
+      path: ~/.ghc-wasm
+      key: ${{ runner.os }}-ghc-wasm-sysroot-${{ inputs.ghc-wasm-meta-rev }}
+
+  # See the note in build.yml's build-js job: ghcup's base directory is
+  # /usr/local/.ghcup, so cache only this cross compiler out of it.
+  - name: Cache wasm cross-compiler
+    uses: actions/cache@v5
+    with:
+      path: /usr/local/.ghcup/ghc/wasm32-wasi-${{ inputs.wasm-ghc-version }}
+      key: ${{ runner.os }}-ghcup-wasm32-wasi-${{ inputs.wasm-ghc-version }}
+
+  # Each half checks for itself rather than trusting cache-hit, so a cache
+  # that turns out not to carry a toolchain repairs itself instead of
+  # failing the build several steps later.
+  - name: Install GHC WebAssembly toolchain
+    shell: bash
+    env:
+      GHC_WASM_META_REV: ${{ inputs.ghc-wasm-meta-rev }}
+      WASM_GHC_VERSION: ${{ inputs.wasm-ghc-version }}
+      CABAL_VERSION: ${{ inputs.cabal-version }}
+    run: |
+      mkdir -p "$RUNNER_TEMP/ghc-wasm-meta"
+      curl --fail --location --retry 5 "https://gitlab.haskell.org/haskell-wasm/ghc-wasm-meta/-/archive/$GHC_WASM_META_REV/ghc-wasm-meta-$GHC_WASM_META_REV.tar.gz" | tar xz --strip-components=1 --directory "$RUNNER_TEMP/ghc-wasm-meta"
+      if [ ! -x "$HOME/.ghc-wasm/add_to_github_path.sh" ]; then
+        SKIP_GHC=1 FLAVOUR=9.14 "$RUNNER_TEMP/ghc-wasm-meta/setup.sh"
+      fi
+      # shellcheck source=/dev/null
+      . ~/.ghc-wasm/env
+      if ! ghcup whereis cabal "$CABAL_VERSION" >/dev/null 2>&1; then
+        ghcup install cabal "$CABAL_VERSION"
+      fi
+      ghcup set cabal "$CABAL_VERSION"
+      if ! ghcup whereis ghc "wasm32-wasi-$WASM_GHC_VERSION" >/dev/null 2>&1; then
+        # shellcheck disable=SC2086
+        ghcup -s "file://$RUNNER_TEMP/ghc-wasm-meta/ghcup-wasm-0.0.9.yaml" install ghc "wasm32-wasi-$WASM_GHC_VERSION" --set -- $CONFIGURE_ARGS
+      fi
+      ghcup set ghc "wasm32-wasi-$WASM_GHC_VERSION"
+
+  # Puts the wasm tools on PATH and exports CC/AR/LD and friends for every
+  # later step, so it has to run whether or not anything was installed above.
+  - name: Activate toolchain
+    shell: bash
+    env:
+      WASM_GHC_VERSION: ${{ inputs.wasm-ghc-version }}
+    run: |
+      echo "$(ghcup whereis basedir)/ghc/wasm32-wasi-$WASM_GHC_VERSION/bin" >> "$GITHUB_PATH"
+      echo "$(ghcup whereis basedir)/bin" >> "$GITHUB_PATH"
+      ~/.ghc-wasm/add_to_github_path.sh
+
+  - name: Install JavaScript dependencies
+    shell: bash
+    run: npm ci
+
+  - name: Update Cabal package index
+    shell: bash
+    run: cabal update
+
+  # Unique per run so the store is always written back, restored by prefix
+  # from the newest earlier run. See the note in build.yml's build job.
+  #
+  # Saved by one job only, test-wasm, and restored by the others. The jobs
+  # build different parts of one plan: test-wasm the test suites, learn-wasm
+  # and the deploy the rootfs' libraries and the examples. Today both parts
+  # need the same store units, but a job that saves a store with a part's
+  # units missing hands the next run of the other job a rebuild of them.
+  # That once happened here: the deploy, which builds no test suites, saved
+  # the store under the key the test job used, and as it finished first on a
+  # push to master it won every race, so that the test job rebuilt the whole
+  # hspec stack on every run while build-js and the native job did not. And
+  # two jobs of one run saving under the same key would only race for it.
+  - name: Cache cabal dependencies
+    if: inputs.save-store == 'true'
+    uses: actions/cache@v5
+    with:
+      path: ${{ inputs.cabal-dir }}/store
+      key: ${{ runner.os }}-wasm-${{ inputs.wasm-ghc-version }}-cabal-store-${{ github.run_id }}-${{ github.run_attempt }}
+      restore-keys: |
+        ${{ runner.os }}-wasm-${{ inputs.wasm-ghc-version }}-cabal-store-
+
+  - name: Restore cached cabal dependencies
+    if: inputs.save-store != 'true'
+    uses: actions/cache/restore@v5
+    with:
+      path: ${{ inputs.cabal-dir }}/store
+      key: ${{ runner.os }}-wasm-${{ inputs.wasm-ghc-version }}-cabal-store-${{ github.run_id }}-${{ github.run_attempt }}
+      restore-keys: |
+        ${{ runner.os }}-wasm-${{ inputs.wasm-ghc-version }}-cabal-store-
+
+  # The repository's own packages built with the host GHC: what the
+  # examples' prerender executables need (core, jsbits, router, the
+  # examples they render), and what test-wasm's hspec-halogen runner needs.
+  # The store above only holds their dependencies, so without this they are
+  # compiled from scratch on every run.
+  #
+  # Unique per run so it is always written back, restored by prefix from
+  # the newest earlier run. Unlike the store, any job's tree is a valid
+  # start for another's: they all build into it with the same compiler, a
+  # tree with more or fewer components in it is just more or less to
+  # build, GHC (since 9.4) recompiles a module by its source's hash rather
+  # than its mtime, so a restored module is reused exactly where its source
+  # is unchanged, and cabal re-plans when the configuration has changed.
+  # Each job still restores its own kind's tree first (cache-scope), as that
+  # has the components it builds, and saves under a key of its own, which
+  # two jobs of one run could not share; another kind's tree is the
+  # fallback.
+  - name: Cache native build directory
+    uses: actions/cache@v5
+    with:
+      path: dist-newstyle/native
+      key: ${{ runner.os }}-wasm-native-build-${{ inputs.ghc-version }}-${{ inputs.cache-scope }}-${{ github.run_id }}-${{ github.run_attempt }}
+      restore-keys: |
+        ${{ runner.os }}-wasm-native-build-${{ inputs.ghc-version }}-${{ inputs.cache-scope }}-
+        ${{ runner.os }}-wasm-native-build-${{ inputs.ghc-version }}-
+
+  # The same for the wasm build: our packages, test suites and examples as
+  # the wasm GHC compiled them, so that a change to one package recompiles
+  # what depends on it and not every package. Not the whole directory: its
+  # cache/ (cabal's plan and the record of the compiler) is planned again in
+  # seconds, and a plan restored from a run with another set of packages
+  # has made cabal fail with "unknown-component" before; learn/ is the
+  # rootfs, cached on its own under a key of exactly its inputs; public/ is
+  # the examples' output, written afresh by every build; and learn-build/
+  # and tmp/ are what an interrupted rootfs build or cabal leave behind. An
+  # exclusion only applies to what an include pattern lists, which is why
+  # the include is the directory's entries (wasm/*) and not the directory.
+  - name: Cache wasm build directory
+    uses: actions/cache@v5
+    with:
+      path: |
+        dist-newstyle/wasm/*
+        !dist-newstyle/wasm/cache
+        !dist-newstyle/wasm/learn
+        !dist-newstyle/wasm/public
+        !dist-newstyle/wasm/learn-build
+        !dist-newstyle/wasm/tmp
+      key: ${{ runner.os }}-wasm-build-${{ inputs.wasm-ghc-version }}-${{ inputs.cache-scope }}-${{ github.run_id }}-${{ github.run_attempt }}
+      restore-keys: |
+        ${{ runner.os }}-wasm-build-${{ inputs.wasm-ghc-version }}-${{ inputs.cache-scope }}-
+        ${{ runner.os }}-wasm-build-${{ inputs.wasm-ghc-version }}-
+
+  # The runner image already ships this GHC under ghcup, so this only sets
+  # it as the default; it installs one if a later image does not. (Caching
+  # it only unpacked a copy over the image's, which tar cannot re-time.)
+  # Before the build: th's ghc-lib-parser runs alex and happy while it
+  # compiles. cabal builds them for wasm (alex.wasm, happy.wasm), which it
+  # cannot run, and falls back to PATH, where native ones have to be: a
+  # happy ghc-lib-parser accepts (not 2.2).
+  - name: Install host GHC, alex and happy
+    shell: bash
+    env:
+      GHC_VERSION: ${{ inputs.ghc-version }}
+      CABAL_DIR: ${{ inputs.cabal-dir }}
+    run: |
+      if ! ghcup whereis ghc "$GHC_VERSION" >/dev/null 2>&1; then
+        ghcup install ghc "$GHC_VERSION"
+      fi
+      ghcup set ghc "$GHC_VERSION"
+      cabal install alex happy --constraint='happy <2.2' --ignore-project --with-compiler="$(ghcup whereis ghc "$GHC_VERSION")" --installdir="$CABAL_DIR/bin" --install-method=copy --overwrite-policy=always
+      echo "$CABAL_DIR/bin" >> "$GITHUB_PATH"
