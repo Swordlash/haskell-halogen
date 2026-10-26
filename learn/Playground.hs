@@ -422,7 +422,7 @@ markModule marks parsed =
       L _ OpApp {} -> markOperators e
       _
         | Just from <- application 0 e -> wrap from =<< underSpine e
-        | Just listed <- inList e -> underSpine listed
+        | Just listed <- inList e -> put True >> underSpine listed
         | otherwise -> gmapM markAll e
 
     -- What an element's application is applied to, marked, but not the
