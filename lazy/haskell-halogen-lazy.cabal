@@ -1,0 +1,103 @@
+cabal-version:      3.0
+name:               haskell-halogen-lazy
+version:            0.1.0.0
+synopsis:           Components that arrive later: a placeholder until a loader hands the component over
+description:
+  "Halogen.Lazy" wraps a component the page has not got yet: the wrapper
+  shows a placeholder while a loader fetches the component, then renders it
+  in its place, an ordinary child from then on, with the wrapper's input,
+  output and queries, as React's @lazy@ and @Suspense@ do. @memo@ shares one
+  load between every mount.
+  .
+  "Halogen.Lazy.Dyld" is a loader for code the page loads on demand: on
+  WebAssembly, a shared library that GHC's dynamic linker links into a
+  program it started, which hands a component over through an exported
+  entry. Only a program GHC's @dyld.mjs@ started can do that (the tutorial's
+  page is one); natively, on the JavaScript backend and in a program linked
+  into one @.wasm@, it reports that it is not available, and the wrapper
+  works with any other loader.
+homepage:           https://github.com/Swordlash/haskell-halogen
+license:            Apache-2.0
+license-file:       LICENSE
+author:             Mateusz Goślinowski
+maintainer:         mateusz.goslinowski@gmail.com
+category:           Web
+build-type:         Simple
+extra-doc-files:    CHANGELOG.md, README.md
+extra-source-files: jsbits/*.js
+
+common defaults
+  default-language: GHC2021
+  ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists -Wunused-packages
+
+  default-extensions:
+      DataKinds
+      DerivingStrategies
+      DuplicateRecordFields
+      LambdaCase
+      NamedFieldPuns
+      NoFieldSelectors
+      NoImplicitPrelude
+      OverloadedRecordDot
+      OverloadedStrings
+      RequiredTypeArguments
+      StrictData
+      TypeOperators
+
+library
+    import:           defaults
+    hs-source-dirs:   src
+    exposed-modules:
+      Halogen.Lazy
+      Halogen.Lazy.Dyld
+    build-depends:
+        base >= 4.20 && < 5,
+        exceptions,
+        protolude,
+        row-types,
+        text,
+        unliftio,
+        haskell-halogen-core,
+        haskell-halogen-jsbits
+
+    if arch(javascript)
+        js-sources:   jsbits/lazy.js
+        ghc-options:  -fexpose-all-unfoldings
+
+    if arch(wasm32)
+        ghc-options:  -fexpose-all-unfoldings
+
+-- Pure Haskell over core's driver, so the same suite runs natively and, under
+-- Node, on the JavaScript and WebAssembly backends: its components are
+-- rendered by a render spec that records their text (Test.Harness) rather
+-- than into a DOM. It also renders the demo library's component
+-- (demo/feature/Feature.hs, which the tutorial's rootfs builds into a shared
+-- library) through the wrapper, which keeps that module compiling on every
+-- backend.
+test-suite Halogen-lazy-test
+    import:           defaults
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test, demo/feature
+    main-is:          Test.hs
+    other-modules:
+      Feature
+      Test.Demo
+      Test.Dyld
+      Test.Harness
+      Test.Lazy
+    build-depends:
+        base,
+        haskell-halogen-core,
+        haskell-halogen-lazy,
+        haskell-halogen-lazy-demo,
+        hspec >= 2,
+        mtl,
+        protolude,
+        row-types,
+        text,
+        unliftio
+
+source-repository head
+  type:     git
+  location: https://github.com/Swordlash/haskell-halogen.git
+  subdir:   lazy

@@ -18,3 +18,4 @@
 15-store
 16-devtools
 17-worker
+18-lazy

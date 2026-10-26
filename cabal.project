@@ -11,6 +11,8 @@ packages:
   custom-element
   devtools
   worker
+  lazy
+  lazy/demo
   tauri
   hspec-halogen
   th

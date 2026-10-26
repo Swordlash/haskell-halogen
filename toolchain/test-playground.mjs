@@ -714,6 +714,61 @@ main = Worker.program [Worker.some double, Worker.some failing] $ runBrowserDOM 
       await appText(page, "available False; doubled 21 to 42; failing: user error (no luck)");
     },
   },
+
+  // A component that arrives later: Halogen.Lazy's placeholder, while
+  // Halogen.Lazy.Dyld fetches the layer's demo library and has dyld link it
+  // into the program, then the component its entry hands over, which waves
+  // on a click and when its parent tells it to, and raises it each time.
+  lazy: {
+    what: "a component from the lazy layer's demo library, fetched and linked while the program runs",
+    source: String.raw`{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ExplicitNamespaces #-}
+{-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE OverloadedStrings #-}
+
+module Main (main) where
+
+import Control.Monad.IO.Class (liftIO)
+import Control.Monad.State (put)
+import Data.Row (type (.==))
+import Data.Text qualified as T
+import Halogen qualified as H
+import Halogen.HTML qualified as HH
+import Halogen.HTML.Events qualified as HE
+import Halogen.Lazy qualified as Lazy
+import Halogen.Lazy.Demo qualified as Demo
+import Halogen.Lazy.Dyld qualified as Dyld
+${mounting}
+
+data Action = Heard Demo.Output | Tell
+
+page :: H.Component q () o BrowserDOM
+page = H.component (\_ -> pure "nothing heard") render [H.onAction handle]
+  where
+    render :: T.Text -> H.ComponentHTML Action ("feature" .== H.Slot Demo.Query Demo.Output ()) BrowserDOM
+    render heard =
+      HH.div_
+        [ HH.slot "feature" () (Lazy.lazy loading feature) "playground" Heard
+        , HH.button [HE.onClick (const Tell)] [HH.text "tell it"]
+        , HH.p_ [HH.text heard]
+        ]
+    loading = Lazy.defaultLoading {Lazy.placeholder = HH.p_ [HH.text "linking"]}
+    feature :: BrowserDOM (Demo.Feature BrowserDOM)
+    feature = liftIO (Dyld.load (Dyld.library "layers/lazy/liblazy-demo.so" Demo.entry))
+    handle action = case action of
+      Heard (Demo.Waved n) -> put ("heard " <> T.pack (show n))
+      Tell -> H.tell "feature" () Demo.Wave
+` + mainOf("page"),
+    async verify(page) {
+      await appText(page, "Hello, playground!");
+      await page.locator("#app button", { hasText: /^Wave$/ }).click();
+      await appText(page, "Waved 1 time.");
+      await appText(page, "heard 1");
+      await page.locator("#app button", { hasText: "tell it" }).click();
+      await appText(page, "Waved 2 times.");
+      await appText(page, "heard 2");
+    },
+  },
 };
 
 const mb = (bytes) => `${(bytes / 1e6).toFixed(0)} MB`;
