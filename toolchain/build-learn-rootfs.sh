@@ -254,6 +254,10 @@ cp -RL "$libdir" "$hslib"
 chmod -R u+w "$hslib"
 global_db=$hslib/package.conf.d
 pkg() { "$wasm_ghc_pkg" --no-user-package-db --global-package-db="$global_db" "$@"; }
+# The copy gave the DB's directory and files a fresh modification time, so
+# ghc-pkg would take its package.cache for stale and warn at every read until
+# something rebuilt it; rebuild it now.
+pkg recache
 find "$hslib" '(' \
   -name '*.hi' \
   -o -name '*.a' \
