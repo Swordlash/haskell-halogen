@@ -85,15 +85,20 @@ line two down), the cursor's position is taken back to the compiled code
 before an element is matched to it, and an element whose code has been
 deleted since says so on its label and has no line. GHC's messages quote
 the code they compiled, marks and all; `Learn.Diagnostics.withoutMarks`
-takes the marks out of a run's stderr before the page reads it. What gets a mark: an
-application of an element function of `Halogen.HTML.Elements`, qualified or
-not as the module imports it, to a literal list of properties (`HH.div
-[HP.id "x"] [...]`, `HH.input []`). What does not: an element whose
-properties are not written as a list in place (a list in a variable, a
-comprehension, `props <> more`), the `_` variants (`HH.div_ kids`, which
-have no list to add to), `HH.element` and `HH.withKeys`, SVG's elements
-(`Halogen.Svg.Elements`), and what an `hh` quasi-quote makes; pointing at one
-of those outlines the nearest marked element around it. The marks are
+takes the marks out of a run's stderr before the page reads it. What gets a
+mark: every application of an element function of `Halogen.HTML.Elements` or
+`Halogen.Svg.Elements`, qualified or not as the module imports it, to all
+the arguments its type takes, however its properties are written (`HH.div
+[HP.id "x"] [...]`, `HH.div props kids`, `HH.p_ [...]`, a leaf such as
+`HH.input []` or `HH.br_`, `HH.element`, `HH.withKeys`, `SE.circle [...]`),
+the last argument given with `$` too (`HH.ul_ $ map item items`). The
+plugin wraps the application in `Halogen.HTML.Core.withProps`, which adds
+the mark to the element it built, before the element's own properties, so a
+`data-learn-src` of the reader's own wins. What gets none: an element applied
+to fewer arguments than it takes, which is still a function (`map HH.li_
+items` marks no `li`; write the element out, `map (\i -> HH.li_ [...])
+items`, for each to be marked), and what an `hh` quasi-quote makes; pointing
+at one of those outlines the nearest marked element around it. The marks are
 ordinary attributes, there whether or not Source is on: a test that lists an
 element's attributes sees them, lesson 12's hydration patches them onto the
 prerendered HTML, and lesson 21's wire carries them as `attr` operations.
@@ -187,7 +192,8 @@ click count again, that the playground's page is prerendered and linked from the
 introduction, that lesson 2's Open in playground arrives there with its code
 when `localStorage` refuses every write,
 which compiles and counts, with Source working there too, that the template
-compiles and counts, that checking `store` shows the progress line and then
+compiles and counts, with each of its elements marked and its `HH.p_`
+paragraph outlined by Source at its line and column, that checking `store` shows the progress line and then
 "loaded" by its checkbox and lets a program importing `Halogen.Store`
 compile, and that the code, the layer and the arguments are there and compile
 on a second visit, that a type error is
