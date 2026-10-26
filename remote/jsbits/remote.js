@@ -256,10 +256,23 @@ function halogen_remote_loopback(container, callback) {
   });
 }
 
-// JSON text as the object a handler reads its event from.
+// JSON text as the object a handler reads its event from, with the methods
+// a listener may call on an event: a handler declared with
+// HE.preventingDefault or HE.stoppingPropagation has the listener call them
+// before its action. They do nothing, since the page dispatched the event
+// long before (the client prevents the defaults that matter itself), and
+// defaultPrevented says so.
 function halogen_remote_parse(text) {
-  return JSON.parse(text);
+  var event = JSON.parse(text);
+  if (event === null || typeof event !== "object") return event;
+  event.preventDefault = halogen_remote_ignore;
+  event.stopPropagation = halogen_remote_ignore;
+  event.stopImmediatePropagation = halogen_remote_ignore;
+  event.defaultPrevented = false;
+  return event;
 }
+
+function halogen_remote_ignore() {}
 
 // Show, in the container, the session a server at the address keeps for
 // this page, over a WebSocket: what Halogen.Remote.Server serves. The

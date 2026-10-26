@@ -8,6 +8,7 @@ module Test.Components
   , toggling
   , swapping
   , form
+  , guardedForm
   )
 where
 
@@ -122,6 +123,24 @@ form =
     render n =
       HH.form
         [HP.id "form", HP.action "/elsewhere", HE.onSubmit (const Submitted)]
+        [ HH.button [HP.id "submit"] [HH.text "send"]
+        , HH.span [HP.id "submitted"] [HH.text (show n)]
+        ]
+
+-- | 'form', its handler declared with 'HE.preventingDefault' and
+-- 'HE.stoppingPropagation', which the listener acts on, on the event the
+-- backend hands it, before the action.
+guardedForm :: forall m. (Monad m) => H.Component H.VoidF () Void m
+guardedForm =
+  H.component
+    (\() -> pure (0 :: Int))
+    render
+    [H.onAction (\Submitted -> modify (+ 1))]
+  where
+    render :: Int -> H.ComponentHTML Submitted Empty m
+    render n =
+      HH.form
+        [HP.id "form", HP.action "/elsewhere", HE.stoppingPropagation (HE.preventingDefault (HE.onSubmit (const Submitted)))]
         [ HH.button [HP.id "submit"] [HH.text "send"]
         , HH.span [HP.id "submitted"] [HH.text (show n)]
         ]

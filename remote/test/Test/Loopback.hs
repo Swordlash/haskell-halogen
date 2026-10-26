@@ -99,6 +99,14 @@ spec m = do
     click back
     find ui "#poke" >>= (`shouldHaveText` "poked 3")
 
+  it "runs a handler that prevents the default and stops propagation" $ runPage $ do
+    traffic <- unsafeIOToPageM (newIORef [])
+    ui <- mount m (host traffic guardedForm) ()
+    find ui "#submit" >>= click
+    find ui "#submitted" >>= (`shouldHaveText` "1")
+    find ui "#submit" >>= click
+    find ui "#submitted" >>= (`shouldHaveText` "2")
+
   it "empties its element when disposed of, and showed the traffic both ways" $ runPage $ do
     traffic <- unsafeIOToPageM (newIORef [])
     ui <- mount m (host traffic counter) ()

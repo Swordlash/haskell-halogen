@@ -33,7 +33,9 @@
 --   prevents the default itself, of every @submit@ it listens for and every
 --   @click@ on an @a@ element it listens for, and of nothing else.
 --   'Halogen.HTML.Events.preventingDefault' does not help: what a handler
---   does to its event is decided in the listener, which runs here.
+--   does to its event is decided in the listener, which runs here. A
+--   handler declared with it (or 'Halogen.HTML.Events.stoppingPropagation')
+--   runs as any other, and its preventing or stopping does nothing.
 -- * Focus and selection are the page's. The client sets an element's
 --   @value@ only when it differs from what the element holds, so text being
 --   typed is not undone, and every event reports the values of its target's

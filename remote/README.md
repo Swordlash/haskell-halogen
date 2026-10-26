@@ -150,9 +150,11 @@ The program and the page are apart, and the wire takes time:
   as under the in-memory DOM.
 - **`preventDefault`.** A handler hears of an event after the page is done with it, too late to
   prevent its default, and `HE.preventingDefault` cannot help either: what a handler does to its
-  event is decided in the listener, on the program's side. The client prevents the default itself
-  for the two cases a component that listens never wants: every `submit` it listens for, and a
-  `click` on an `a` element it listens for. Nothing else is prevented.
+  event is decided in the listener, on the program's side. A handler declared with it (or with
+  `HE.stoppingPropagation`) runs as any other, and its preventing or stopping does nothing. The
+  client prevents the default itself for the two cases a component that listens never wants:
+  every `submit` it listens for, and a `click` on an `a` element it listens for. Nothing else is
+  prevented.
 - **Focus and selection** are the page's. The client sets an element's `value` only when it
   differs from what the element holds, so text being typed is not undone, and each event reports
   its current target's `value`, `checked` and `selectedIndex`, which the mirror takes as the

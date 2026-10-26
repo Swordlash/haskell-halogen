@@ -184,6 +184,15 @@ spec = describe "a session" $ do
     Session.liveNodes session `shouldReturn` nodes
     Session.dispose session
 
+  it "runs a handler that prevents the default and stops propagation" $ do
+    (session, wire, ops, _) <- mounted guardedForm
+    formNode <- required "form" (elementWithId ops "form")
+    listener <- required "listener" (listenerOn ops formNode "submit")
+    Session.receive session (eventFor listener formNode "submit" (object ["type" .= ("submit" :: Text)]))
+    patch <- nextOps wire
+    [t | SetText _ t <- patch] `shouldBe` ["1"]
+    Session.dispose session
+
   it "drops an event for a listener it does not have, and a message that is none" $ do
     (session, wire, _, socket) <- mounted counter
     Session.receive session (clickOn 999 999)
