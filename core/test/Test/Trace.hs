@@ -8,8 +8,8 @@
 -- natively.
 module Test.Trace (spec) where
 
-import Control.Exception (SomeException, try)
-import Control.Monad (void)
+import Control.Exception (ErrorCall (..), SomeException, throwIO, try)
+import Control.Monad (void, when)
 import Control.Monad.State.Class (gets, modify)
 import Data.Dynamic (fromDynamic, toDyn)
 import Data.Foldable (traverse_)
@@ -47,7 +47,12 @@ import Halogen.VDom.Types (ElemName (..))
 data Rendered (s :: Type) (act :: Type) (ps :: Row Type) (o :: Type) = Rendered
 
 walking :: IORef [Text] -> AD.RenderSpec IO Rendered
-walking texts =
+walking = walkingWith (const (pure ()))
+
+-- | 'walking', whose render also runs the check on each render's text: a
+-- render fails when the check throws.
+walkingWith :: (Text -> IO ()) -> IORef [Text] -> AD.RenderSpec IO Rendered
+walkingWith check texts =
   AD.RenderSpec
     { AD.render = render
     , AD.renderChild = id
@@ -65,6 +70,7 @@ walking texts =
       -> IO (Rendered s act ps o)
     render _ renderChild html _ = do
       let (slots, text) = walk (HC.unHTML html)
+      check (mconcat text)
       traverse_ (\case ComponentSlot box -> void (renderChild box); ThunkSlot _ -> pure ()) slots
       modifyIORef' texts (<> [mconcat text])
       pure Rendered
@@ -98,12 +104,25 @@ counter =
     , H.onQuery (\(GetCount reply) -> gets (\c -> Just (reply c.count)))
     ]
 
--- | A component whose render throws: its first render fails, and the tree
--- it was to be the root of is never made.
+-- | A component whose render the render spec refuses (its text is
+-- "broken"), and a parent that renders it: the child's first render fails,
+-- so the parent's does, and the tree is never made.
 data Broken = Broken
 
 broken :: H.Component H.VoidF () Void IO
-broken = H.component (\() -> pure Broken) (\Broken -> error "a render that throws") []
+broken = H.component (\() -> pure Broken) (\Broken -> HH.text "broken") []
+
+refusingBroken :: Text -> IO ()
+refusingBroken text = when (text == "broken") (throwIO (ErrorCall "a render that fails"))
+
+data Breaking = Breaking
+
+breaking :: H.Component H.VoidF () Void IO
+breaking =
+  H.component
+    (\() -> pure Breaking)
+    (\Breaking -> HH.div_ [HH.slot_ "child" () broken ()] :: H.ComponentHTML () ("child" .== H.Slot H.VoidF Void ()) IO)
+    []
 
 -- | A parent rendering one counter, named.
 data Parent = Parent (HS.Emitter IO ())
@@ -171,15 +190,19 @@ spec = describe "Halogen.Trace" $ do
 
   it "forgets a component whose first render throws" $ do
     texts <- newIORef []
-    (kinds, key) <- listened $ \events -> do
-      failed <- try (AD.runUI (walking texts) broken ()) :: IO (Either SomeException (AD.HalogenSocket H.VoidF Void IO))
+    (kinds, keys) <- listened $ \events -> do
+      failed <- try (AD.runUI (walkingWith refusingBroken texts) breaking ()) :: IO (Either SomeException (AD.HalogenSocket H.VoidF Void IO))
       assertWith "the mount failed" (either (const True) (const False) failed)
       evs <- readIORef events
       pure (map (kind . (.what)) evs, [e.tag.id | e <- evs, Trace.Mounted <- [e.what]])
-    assertEqual "the events" ["Mounted", "Finalized"] kinds
-    case key of
-      [k] -> Trace.restoreState k (toDyn Broken) >>= assertEqual "not kept" False
-      _ -> assertWith ("one component mounted, found " <> show key) False
+    -- The parent mounts, then the child; the child's render fails, which
+    -- ends the child, and the parent's render with it.
+    assertEqual "the events" ["Mounted", "Mounted", "Finalized", "Finalized"] kinds
+    case keys of
+      [parentKey, childKey] -> do
+        Trace.restoreState childKey (toDyn Broken) >>= assertEqual "the child is not kept" False
+        Trace.restoreState parentKey (toDyn Breaking) >>= assertEqual "the parent is not kept" False
+      _ -> assertWith ("two components mounted, found " <> show keys) False
 
   it "reports nothing, and keeps nothing, while nobody listens" $ do
     texts <- newIORef []
