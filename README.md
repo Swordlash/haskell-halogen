@@ -24,6 +24,7 @@ AI usage disclaimer: All code until tag `0.9.0` was hand-written. Any later comm
 | [router/](router/) | `haskell-halogen-router` | Routing by the page's address: a port of `purescript-routing-duplex`, joined to the browser's history. |
 | [net/](net/) | `haskell-halogen-net` | The browser's `fetch`: a request as a value, its response and body as values, aborted when the component waiting for it goes away. |
 | [custom-element/](custom-element/) | `haskell-halogen-custom-element` | A component as a custom element (a Web Component) for any page, React's, Vue's or plain HTML: attributes and properties are its input, outputs are `CustomEvent`s, queries are methods. |
+| [devtools/](devtools/) | `haskell-halogen-devtools` | A panel over the page that shows what the components do as they do it: their tree, counts of renders, actions and state changes, a log of events, the hovered component outlined, and earlier states put back. |
 | [tauri/](tauri/) | `haskell-halogen-tauri` | Tauri v2's IPC for an app in a Tauri webview: Rust commands with aeson JSON, events as emitters, the window's own events; inert in a plain browser. |
 | [material/](material/) | `haskell-halogen-material` | Google Material Components bindings. |
 | [pixi/](pixi/) | `haskell-halogen-pixi` | A PixiJS v8 canvas rendering backend. |
@@ -34,8 +35,8 @@ AI usage disclaimer: All code until tag `0.9.0` was hand-written. Any later comm
 | [th-plugin/](th-plugin/) | `haskell-halogen-th-plugin` | A GHC plugin that expands the quotes as a module is parsed, so every error, type errors included, is at its place in the file. |
 | [examples/](examples/) | `halogen-example-*` | One runnable browser app per library, and `learn`, the tutorial, whose code compiles in the page. |
 
-`hooks`, `store`, `router`, `material`, `pixi`, `hspec-halogen`, `th` and `custom-element` depend on
-`core`, and `tauri` on `core` for its emitters; `net` and `sound` are independent of those runtime libraries. WASM backends also use the `jsbits`
+`hooks`, `store`, `router`, `material`, `pixi`, `hspec-halogen`, `th`, `custom-element` and `devtools`
+depend on `core`, and `tauri` on `core` for its emitters; `net` and `sound` are independent of those runtime libraries. WASM backends also use the `jsbits`
 compile-time helper. `th` builds natively and for WebAssembly, not with the JavaScript
 backend, which cannot build `ghc-lib-parser`. Every package builds from the one `cabal.project` at the
 repository root, so a change to
@@ -259,6 +260,34 @@ raises is dispatched as a `CustomEvent`; `counter.reset()` sends it a query. An 
 of its component when it is removed, not when it is moved, and defining the name again swaps the
 component of every element of it. `CE.onEvent` reads the `detail` of another library's element's
 events. `examples/custom-element` is a plain page driving two such elements from JavaScript.
+
+## Watching a program: the trace and the panel
+
+Every component tree reports what it does to `Halogen.Trace` (in `core`) once something listens:
+components mounted and gone, renders and how long they took, actions, state changes, queries,
+outputs, subscriptions and forks, each tagged with the component's id, its parent's id and a label,
+the name of its state's type unless `H.named` gave it another. With nothing listening the driver
+builds no event at all.
+
+```haskell
+stop <- Trace.subscribe $ \event -> putStrLn (show event.tag.id <> " " <> Trace.summary event.what)
+```
+
+`haskell-halogen-devtools` is a listener with a face: `DevTools.open` puts a panel over the page
+with the tree of components and their counts of renders, actions and state changes, a log of the
+last events, the component under the mouse outlined on the page, and, for a state type the program
+names with `DevTools.showing @State`, each state shown with a button that puts it back
+(`Trace.restoreState`). `hspec-halogen` listens too: a failing test prints what the tree did up to
+the failure. Lesson 16 of the tutorial opens the panel beside the reader's component.
+
+```haskell
+main = runBrowserDOM $ do
+  DevTools.showing @Counter.State
+  tools <- DevTools.open
+  body <- HA.awaitBody
+  socket <- runUI Counter.component () body
+  HA.keepForNextRun (socket.dispose >> tools.dispose)
+```
 
 ## Tauri
 

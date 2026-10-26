@@ -358,7 +358,36 @@ try {
     heard: (text) => result.locator(".lesson-heard", { hasText: text }).waitFor({ timeout: 5000 }),
     press: (what) => result.locator(`button[data-do=${what}]`).click(),
   });
+  // Lesson 16's is the component with Halogen.DevTools' panel under it: the
+  // panel lists the component and counts a click, and the count of renders
+  // climbs every second for Start.hs, whose timer writes a new state on
+  // every tick, and stays put for Solution.hs, which writes only a new
+  // minute.
+  const devtoolsPanel = async (result) => {
+    const row = result.locator('.halogen-devtools [data-label="Lesson.State"]');
+    await row.waitFor({ timeout: 5000 });
+    await result.locator("button", { hasText: "+1" }).click();
+    await row.locator(".halogen-devtools-actions", { hasText: /^1$/ }).waitFor({ timeout: 5000 });
+    await result.locator(".halogen-devtools-state", { hasText: "count = 1" }).first().waitFor({ timeout: 5000 });
+    // The first tick, a second in, writes the minute for the first time.
+    await result.page().waitForTimeout(1500);
+    const renders = async () => Number(await row.locator(".halogen-devtools-renders").textContent());
+    const before = await renders();
+    await result.page().waitForTimeout(2500);
+    return (await renders()) - before;
+  };
   const pageLessons = {
+    "16-devtools": {
+      async start(result) {
+        const more = await devtoolsPanel(result);
+        assert.ok(more >= 2, `the timer renders every second: ${more} more renders in 2.5 s`);
+      },
+      async solution(result) {
+        const more = await devtoolsPanel(result);
+        // The minute may turn while the test waits.
+        assert.ok(more <= 1, `the timer renders only a new minute: ${more} more renders in 2.5 s`);
+      },
+    },
     "14-custom-element": {
       async start(result) {
         const lesson = lessonPage(result);

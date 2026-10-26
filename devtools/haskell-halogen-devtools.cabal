@@ -1,0 +1,101 @@
+cabal-version:      3.4
+name:               haskell-halogen-devtools
+version:            0.1.0.0
+synopsis:           A panel over the page that shows what a haskell-halogen program's components do
+description:
+  "Halogen.DevTools" opens a panel over the page (or inside an element of
+  it) that reads haskell-halogen-core's trace ("Halogen.Trace"): the tree of
+  the program's components, with their labels, ids and how often each has
+  rendered, handled an action and changed its state; a log of the last 200
+  events, narrowed to one component or one kind of event; the element a
+  component rendered outlined when its row is hovered; and, for states of a
+  type the program has said how to show, each state a component went
+  through, with a button that puts it back. The panel is itself a Halogen
+  component, in a tree of its own, and leaves its own events out.
+homepage:           https://github.com/Swordlash/haskell-halogen
+license:            Apache-2.0
+license-file:       LICENSE
+author:             Mateusz Goślinowski
+maintainer:         mateusz.goslinowski@gmail.com
+category:           Web, Development
+build-type:         Simple
+extra-doc-files:    CHANGELOG.md, README.md
+extra-source-files: jsbits/*.js, test/jsbits/*.js
+
+flag interactive
+    description: Build the browser test suite for browser GHCi (toolchain/dev-test.sh)
+    default:     False
+    manual:      True
+
+common defaults
+    default-language: GHC2021
+    ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists -Wunused-packages
+    default-extensions:
+        DataKinds
+        DerivingStrategies
+        DuplicateRecordFields
+        LambdaCase
+        NoFieldSelectors
+        OverloadedRecordDot
+        OverloadedStrings
+        StrictData
+
+library
+    import:           defaults
+    hs-source-dirs:   src
+    exposed-modules:  Halogen.DevTools
+    build-depends:
+        base >= 4.20 && < 5,
+        containers,
+        mtl,
+        row-types,
+        text,
+        unliftio,
+        haskell-halogen-core,
+        haskell-halogen-jsbits
+
+    if arch(javascript)
+        js-sources:   jsbits/devtools.js
+        ghc-options:  -fexpose-all-unfoldings
+
+    if arch(wasm32)
+        ghc-options:  -fexpose-all-unfoldings
+
+-- The panel beside a counter in headless Chromium (see hspec-halogen), on
+-- both browser backends, with a hover the harness lacks (test/jsbits).
+-- Natively it only reports that it skipped.
+test-suite Halogen-devtools-test
+    import:           defaults
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          Test.hs
+    -- A spec takes the monad its components run in as a type argument.
+    default-extensions: RequiredTypeArguments
+    other-modules:    Example.Counter
+                      Test.Panel
+    build-depends:
+        base,
+        mtl,
+        row-types,
+        text,
+        haskell-halogen-core,
+        haskell-halogen-devtools,
+        haskell-halogen-jsbits,
+        hspec-halogen
+
+    if arch(javascript)
+        js-sources:   test/jsbits/hover.js
+
+    if arch(wasm32) && !flag(interactive)
+        ghc-options:
+            -no-hs-main
+            -optl-mexec-model=reactor
+            "-optl-Wl,--export=hs_start"
+
+    if flag(interactive)
+        cpp-options:  -DINTERACTIVE
+
+source-repository head
+  type:     git
+  location: https://github.com/Swordlash/haskell-halogen.git
+  subdir:   devtools

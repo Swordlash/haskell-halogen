@@ -11,7 +11,10 @@ browser's history), `net` (the browser's networking: `fetch`, a thin binding on
 WebSocket and server-sent events, whose events arrive through `Halogen.Subscription` emitters),
 `custom-element` (`haskell-halogen-custom-element`: a component as a custom element, a Web
 Component any page can use, its attributes and properties the component's input, its outputs
-`CustomEvent`s and its queries methods; and `onEvent` for others' custom elements), `tauri`
+`CustomEvent`s and its queries methods; and `onEvent` for others' custom elements), `devtools`
+(`haskell-halogen-devtools`: a panel over the page, read from core's `Halogen.Trace`, with the tree
+of components, their counts, a log of events, the hovered component outlined and earlier states
+put back), `tauri`
 (Tauri v2's IPC through its global API `window.__TAURI__`: commands with aeson JSON, events as
 emitters, the current window's events), `material`
 (Material Components bindings), `pixi` (PixiJS v8 canvas backend), `sound` (music and sound
@@ -22,7 +25,7 @@ and `clay` quasi-quoters, HTML and CSS with Haskell inside, parsed by ghc-lib-pa
 deploys: lessons as routes, each with its text, an editor and the result of compiling the reader's code
 in the page. `learn/` is no package: it is GHC itself running in a page, compiling and mounting a
 component the reader wrote (the compiler the tutorial runs on, the rootfs, and a bare page for trying it;
-its `README.md` has the rootfs, its manifest and the measurements). `hooks`, `store`, `router`, `net` (for `Halogen.Subscription`), `material`, `pixi`, `hspec-halogen` and `th` depend only on `core`; `tauri` on `core` (for `Halogen.Subscription`'s emitters) and `jsbits`; `custom-element` on `core` and `jsbits`; `sound` depends on none of them, only on `jsbits`. Everything builds from the root
+its `README.md` has the rootfs, its manifest and the measurements). `hooks`, `store`, `router`, `net` (for `Halogen.Subscription`), `material`, `pixi`, `hspec-halogen` and `th` depend only on `core`; `tauri` on `core` (for `Halogen.Subscription`'s emitters) and `jsbits`; `custom-element` and `devtools` on `core` and `jsbits`; `sound` depends on none of them, only on `jsbits`. Everything builds from the root
 `cabal.project`, so a `core` change is type-checked against every dependent and example.
 
 Every package is compiled for three targets: native GHC, the GHC JavaScript backend, and GHC
@@ -46,12 +49,12 @@ npm run test-playground         # learn/'s page on the rootfs in headless Chromi
 npm run build-js                # JS backend: build all, bundle the material example into dist/
 npm run dev -- <example>        # an example in browser GHCi, reloaded and rerun on save
 npm run dev-test -- <package>   # a package's browser test suite in browser GHCi, rerun on save
-npm run format                  # fourmolu over core, hooks, store, router, net, custom-element, tauri, pixi, hspec-halogen, th, material/test, examples
+npm run format                  # fourmolu over core, hooks, store, router, net, custom-element, devtools, tauri, pixi, hspec-halogen, th, material/test, examples
 ```
 
 `core`, `hooks`, `store`, `router`, `net`, `tauri` and `sound` have test suites that run under Node (`Halogen-core-test`,
-`Halogen-hooks-test`, `Halogen-store-test`, `Halogen-router-test`, `Halogen-net-test`, `Halogen-tauri-test`, `Halogen-sound-test`), and `material`, `net`, `custom-element`, `tauri` and `hspec-halogen` have ones that run in a browser
-(`Halogen-material-test`, `Halogen-net-browser-test`, `Halogen-custom-element-test`, `Halogen-tauri-browser-test`, `hspec-halogen-test`; on wasm and JS, see below).
+`Halogen-hooks-test`, `Halogen-store-test`, `Halogen-router-test`, `Halogen-net-test`, `Halogen-tauri-test`, `Halogen-sound-test`), and `material`, `net`, `custom-element`, `devtools`, `tauri` and `hspec-halogen` have ones that run in a browser
+(`Halogen-material-test`, `Halogen-net-browser-test`, `Halogen-custom-element-test`, `Halogen-devtools-test`, `Halogen-tauri-browser-test`, `hspec-halogen-test`; on wasm and JS, see below).
 `Halogen-net-browser-test` fetches the files in `net/test/web/` from the runner's server, and
 what that server cannot do (a request held until the test lets it go, a body that stops halfway,
 a response echoing its request) from `net/test/web/network-double.js`, which wraps the page's
@@ -212,6 +215,17 @@ it. A component that goes away cancels its fibers; a render pass that fails take
 it made, and the VDom backend rebuilds a machine whose patch failed. The loop and a fiber's worker
 change hands masked. `core/test/Test/DriverContract.hs` and `core/test/Test/Runtime.hs` state the
 contract as tests.
+
+What a tree does is reported to `Halogen.Trace` (in `Halogen.IO.Driver.Mount` and `.Eval`):
+components made and gone, renders with their time, actions, state changes, queries, outputs,
+subscriptions and forks, each tagged with the component's id, its parent's and its label (its state
+type's name from the `Typeable` that `mkComponent` asks for, or `H.named`'s). The driver asks
+`listening` before it builds an event, and keeps a registry of live components (for `restoreState`
+and `rootNode`) only for those made while someone listens, so a program with no listener pays one
+read of a reference per hook point. `Component`'s constructor carries a `ComponentInfo` (the label
+and the state's `TypeRep`, `Nothing` for a state that cannot be `Typeable`, such as one holding an
+`m` action, as `Portal`, `Canvas`, material's `List`/`Tabs`, custom-element's wrapper and hooks
+have). `hspec-halogen` prints a test's last 50 events when it fails; `devtools` shows them live.
 
 The canvas layer reuses this: a scene (`Halogen.Canvas.Elements`/`Properties`, in core) is an
 ordinary `VDom` whose nodes, in `pixi`, are Pixi display objects — so HTML and canvas share one
