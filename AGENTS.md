@@ -315,8 +315,8 @@ Every compile and check also passes `--learn-spans`, whose parser plugin gives e
 builds a `data-learn-src="<line>:<column>"` attribute; the page's Source mode (`js/source.js`) reads
 it back to outline what the pointer is on and go to its line, and `Learn.Diagnostics.withoutMarks`
 takes the marks out of GHC's messages. `/playground/` (`Learn.Playground`) is the same compiler with
-no lesson around it: layers picked by checkboxes, code kept in `localStorage`, and a lesson's code
-handed to it through `sessionStorage` by its "Open in playground". Lesson 13's own
+no lesson around it: layers picked by checkboxes, code kept in `localStorage` as best effort, and a
+lesson's code handed to it in the app's state by its "Open in playground". Lesson 13's own
 `Main.hs` runs the lesson's `spec` instead of mounting (`hspec-halogen`'s `runBrowserTestsIn`, the
 rootfs' `hspec` layer): with no runner in the page, the harness performs its actions with synthetic
 events (`hspec-halogen/jsbits/page.js`'s in-page mode, which `hspec-halogen-test` also runs its
