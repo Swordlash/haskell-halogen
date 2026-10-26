@@ -22,23 +22,30 @@ import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
 import Halogen.Subscription qualified as HS
 import Protolude hiding (State)
-import UnliftIO.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 
 -- | The lines, newest last, and who is told when they change.
 data Board = Board
-  { kept :: IORef [Text]
+  { kept :: MVar [Text]
   , changes :: HS.Subscribe IO [Text]
   }
 
 newBoard :: IO Board
-newBoard = Board <$> newIORef [] <*> HS.create
+newBoard = Board <$> newMVar [] <*> HS.create
 
 -- | Add a line, keeping the last fifty, and tell every component showing the
 -- board.
+--
+-- The lines are told while the board is held, so that what each component
+-- hears comes in the order the lines were posted: two sessions posting at
+-- once could otherwise make @[a, b]@ and then tell @[a]@ last, and every
+-- page would show a board without @b@ until the next post. Telling does not
+-- wait for the components (each hands its action to its own tree), so the
+-- board is held only as long as it takes to hand them over.
 post :: Board -> Text -> IO ()
-post shared line = do
-  now <- atomicModifyIORef' shared.kept (\ls -> let kept = lastN 50 (ls <> [line]) in (kept, kept))
+post shared line = modifyMVar_ shared.kept $ \ls -> do
+  let now = lastN 50 (ls <> [line])
   HS.notify shared.changes.listener now
+  pure now
   where
     lastN n xs = drop (length xs - n) xs
 
@@ -55,7 +62,7 @@ data Action
 board :: forall q m. (MonadIO m) => Board -> H.Component q () Void m
 board shared =
   H.component
-    (\() -> State "" <$> liftIO (readIORef shared.kept))
+    (\() -> State "" <$> liftIO (readMVar shared.kept))
     render
     [ H.onInitialize (void (H.subscribe (Heard <$> shared.changes.emitter)))
     , H.onAction $ \case

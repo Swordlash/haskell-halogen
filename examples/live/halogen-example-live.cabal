@@ -58,7 +58,6 @@ library
       protolude,
       row-types,
       text,
-      unliftio,
       haskell-halogen-core,
       haskell-halogen-remote
 
@@ -82,7 +81,6 @@ executable halogen-example-live
     build-depends:
         row-types,
         text,
-        unliftio,
         haskell-halogen-remote
   -- Natively the page has nothing to mount (Main says so), and needs none
   -- of the example's modules.
