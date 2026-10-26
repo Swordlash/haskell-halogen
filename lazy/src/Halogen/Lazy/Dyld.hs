@@ -68,6 +68,7 @@ $( browserJS
      [ ("js_available", "halogen_lazy_available", Unsafe, [t|IO Bool|])
      , ("js_load", "halogen_lazy_load", Unsafe, [t|JSText -> JSText -> JSText -> IO Promise|])
      , ("js_number", "halogen_lazy_number", Unsafe, [t|JSVal -> IO Int|])
+     , ("js_abandon", "halogen_lazy_abandon", Unsafe, [t|Promise -> IO ()|])
      ]
  )
 
@@ -145,8 +146,14 @@ load lib = do
   ok <- available
   if not ok
     then throwIO NotAvailable
-    else do
-      outcome <- await =<< js_load (toJSText lib.url) (toJSText lib.path) (toJSText lib.entry)
+    else mask $ \restore -> do
+      promise <- js_load (toJSText lib.url) (toJSText lib.path) (toJSText lib.entry)
+      -- The thread may be cancelled while it waits (the wrapper taken off
+      -- the page before the library arrived): the fetch and the link go on,
+      -- the entry is still called, and the StablePtr it makes would have
+      -- nobody to free it, so the page is told to free it when it comes.
+      -- From here to the free below, nothing else can interrupt.
+      outcome <- restore (await promise) `onException` js_abandon promise
       case outcome of
         Left e
           | e.name == "NotAvailableError" -> throwIO NotAvailable

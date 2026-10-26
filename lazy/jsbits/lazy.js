@@ -110,3 +110,19 @@ async function halogen_lazy_load(url, path, entry) {
 function halogen_lazy_number(value) {
   return value;
 }
+
+// A load whose program stopped waiting for it (the thread that asked was
+// cancelled): the StablePtr the entry gives is freed as it arrives, through
+// the runtime dyld exports, as the program would have freed it. A load that
+// fails has nothing to free.
+function halogen_lazy_abandon(promise) {
+  Promise.resolve(promise).then(
+    (pointer) => {
+      const host = globalThis.halogenDyld;
+      if (host && host.dyld && typeof host.dyld.exportFuncs.rts_freeStablePtr === "function") {
+        host.dyld.exportFuncs.rts_freeStablePtr(pointer);
+      }
+    },
+    () => {},
+  );
+}
