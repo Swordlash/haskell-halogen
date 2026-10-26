@@ -22,6 +22,7 @@ AI usage disclaimer: All code until tag `0.9.0` was hand-written. Any later comm
 | [hooks/](hooks/) | `haskell-halogen-hooks` | A port of `purescript-halogen-hooks`: a component as one function. |
 | [store/](store/) | `haskell-halogen-store` | Global state: a port of `purescript-halogen-store`, one store changed by a pure reducer and components connected to the part they need. |
 | [lazy/](lazy/) | `haskell-halogen-lazy` | A component that arrives later: a placeholder until a loader hands the component over, which then mounts in its place, as React's `lazy`; on WebAssembly under GHC's dynamic linker, a loader that links a shared library into the running program. |
+| [remote/](remote/) | `haskell-halogen-remote` | A component's DOM over a wire, as Phoenix LiveView: the program runs natively (or anywhere), its DOM operations go to a thin JavaScript client in the page as JSON, and the page's events come back to its handlers; a WebSocket server, and a loopback that shows the wire inside one page. |
 | [router/](router/) | `haskell-halogen-router` | Routing by the page's address: a port of `purescript-routing-duplex`, joined to the browser's history. |
 | [net/](net/) | `haskell-halogen-net` | The browser's `fetch`: a request as a value, its response and body as values, aborted when the component waiting for it goes away. |
 | [custom-element/](custom-element/) | `haskell-halogen-custom-element` | A component as a custom element (a Web Component) for any page, React's, Vue's or plain HTML: attributes and properties are its input, outputs are `CustomEvent`s, queries are methods. |
@@ -38,7 +39,7 @@ AI usage disclaimer: All code until tag `0.9.0` was hand-written. Any later comm
 | [th-plugin/](th-plugin/) | `haskell-halogen-th-plugin` | A GHC plugin that expands the quotes as a module is parsed, so every error, type errors included, is at its place in the file. |
 | [examples/](examples/) | `halogen-example-*` | One runnable browser app per library, and `learn`, the tutorial, whose code compiles in the page. |
 
-`hooks`, `store`, `router`, `material`, `pixi`, `three`, `hspec-halogen`, `th`, `custom-element`, `devtools` and `lazy`
+`hooks`, `store`, `router`, `material`, `pixi`, `three`, `hspec-halogen`, `th`, `custom-element`, `devtools`, `lazy` and `remote`
 depend on `core`, and `tauri` on `core` for its emitters; `net`, `sound` and `worker` are independent of those runtime libraries. WASM backends also use the `jsbits`
 compile-time helper. `th` builds natively and for WebAssembly, not with the JavaScript
 backend, which cannot build `ghc-lib-parser`. Every package builds from the one `cabal.project` at the
@@ -239,6 +240,23 @@ On WebAssembly, in a program GHC's dynamic linker started, `Halogen.Lazy.Dyld.lo
 loader: the page fetches a shared library and dyld links it into the running program, whose entry
 hands the component over. The tutorial runs on dyld, so its lesson 18 shows it; what an application
 needs to run that way, and what it costs, is in [lazy/README.md](lazy/README.md).
+
+## The DOM over a wire
+
+`haskell-halogen-remote` runs a component somewhere other than the page that shows it, as Phoenix
+LiveView does. `RemoteDOM` is one more backend of the reconciler: it keeps a mirror of the page and
+records what the component does to it, a session sends that as JSON to a thin client in the page
+(`remote/jsbits/remote.js`), and the page's events come back to the component's handlers. The
+component does not change; only its entry point names `RemoteDOM`.
+
+```haskell
+Server.serve Server.defaultSettings {Server.pages = [("/", "web/live.html", "text/html")]} board ()
+```
+
+Natively `Halogen.Remote.Server` serves a component over WebSockets, a session per page; in a page
+`Halogen.Remote.Loopback` runs the same pipeline with the wire in view, which the tutorial's lesson
+21 shows. [remote/README.md](remote/README.md) has the protocol and what cannot cross a wire (refs,
+a `preventDefault` in time, focus), and `examples/live` is a board every tab shares.
 
 ## Fetching
 

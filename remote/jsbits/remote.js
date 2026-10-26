@@ -22,6 +22,9 @@ function halogen_remote_attach(container, send) {
     nodes: new Map(),
     ids: new WeakMap(),
     listeners: new Map(),
+    // The keys of the listeners on each node, by its number, so that a
+    // node that is forgotten takes its own listeners off and no others.
+    keysOf: new Map(),
   };
   halogen_remote_forget_all(client);
   container.setAttribute("data-halogen-remote", "attached");
@@ -41,6 +44,7 @@ function halogen_remote_unlisten_all(client) {
     entry.target.removeEventListener(entry.type, entry.handler);
   });
   client.listeners.clear();
+  client.keysOf.clear();
 }
 
 // Apply one message of the program's: {"n": sequence, "ops": [...]}.
@@ -141,16 +145,15 @@ function halogen_remote_forget(client, node) {
   var id = client.ids.get(node);
   if (id !== undefined) {
     client.nodes.delete(id);
-    var prefix = id + ":";
-    var gone = [];
-    client.listeners.forEach(function (entry, key) {
-      if (key.indexOf(prefix) === 0) gone.push(key);
-    });
-    for (var i = 0; i < gone.length; i++) {
-      var entry = client.listeners.get(gone[i]);
-      entry.target.removeEventListener(entry.type, entry.handler);
-      client.listeners.delete(gone[i]);
+    var keys = client.keysOf.get(id) || [];
+    for (var i = 0; i < keys.length; i++) {
+      var entry = client.listeners.get(keys[i]);
+      if (entry) {
+        entry.target.removeEventListener(entry.type, entry.handler);
+        client.listeners.delete(keys[i]);
+      }
     }
+    client.keysOf.delete(id);
   }
   for (var c = node.firstChild; c; c = c.nextSibling) halogen_remote_forget(client, c);
 }
@@ -169,6 +172,9 @@ function halogen_remote_listen(client, id, type, listener) {
   };
   target.addEventListener(type, handler);
   client.listeners.set(key, { target: target, type: type, handler: handler });
+  var keys = client.keysOf.get(id);
+  if (keys) keys.push(key);
+  else client.keysOf.set(id, [key]);
 }
 
 function halogen_remote_unlisten(client, id, type, listener) {
@@ -177,6 +183,11 @@ function halogen_remote_unlisten(client, id, type, listener) {
   if (entry) {
     entry.target.removeEventListener(entry.type, entry.handler);
     client.listeners.delete(key);
+    var keys = client.keysOf.get(id);
+    if (keys) {
+      var at = keys.indexOf(key);
+      if (at >= 0) keys.splice(at, 1);
+    }
   }
 }
 

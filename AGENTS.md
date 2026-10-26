@@ -5,7 +5,12 @@ This file provides guidance to AI coding agents working with code in this reposi
 ## What this is
 
 A port of purescript-halogen to GHC Haskell, as a multi-package cabal project: `core`
-(`haskell-halogen-core`, the port itself), `jsbits` (compile-time shared JavaScript embedding), `hooks` (`purescript-halogen-hooks` port), `store` (`purescript-halogen-store` port: one store, a pure reducer, components connected to the part of it they need), `lazy` (`haskell-halogen-lazy`: a wrapper that shows a placeholder until a loader hands it the real component, as React's `lazy`, and `Halogen.Lazy.Dyld`, a loader that has GHC's wasm dyld link a shared library into the running program; `lazy/demo` is `haskell-halogen-lazy-demo`, the types its demo library shares with the tutorial, and `lazy/demo/feature` the library, which the rootfs builds), `router` (`purescript-routing-duplex` port, with the
+(`haskell-halogen-core`, the port itself), `jsbits` (compile-time shared JavaScript embedding), `hooks` (`purescript-halogen-hooks` port), `store` (`purescript-halogen-store` port: one store, a pure reducer, components connected to the part of it they need), `lazy` (`haskell-halogen-lazy`: a wrapper that shows a placeholder until a loader hands it the real component, as React's `lazy`, and `Halogen.Lazy.Dyld`, a loader that has GHC's wasm dyld link a shared library into the running program; `lazy/demo` is `haskell-halogen-lazy-demo`, the types its demo library shares with the tutorial, and `lazy/demo/feature` the library, which the rootfs builds), `remote` (`haskell-halogen-remote`: a
+LiveView, a component whose DOM is on the other side of a wire: `RemoteDOM`, one more backend, keeps a
+mirror of the page and records each change, a session sends them as JSON to a thin client,
+`remote/jsbits/remote.js`, and runs the listener each event from the page names;
+`Halogen.Remote.Server` serves a component over WebSockets natively, `Halogen.Remote.Loopback` runs
+the same pipeline inside one page), `router` (`purescript-routing-duplex` port, with the
 browser's history), `net` (the browser's networking: `fetch`, a thin binding on
 `Halogen.JSBits.Promise` that aborts its request when the waiting fiber is killed, and
 WebSocket and server-sent events, whose events arrive through `Halogen.Subscription` emitters),
@@ -29,7 +34,7 @@ and `clay` quasi-quoters, HTML and CSS with Haskell inside, parsed by ghc-lib-pa
 deploys: lessons as routes, each with its text, an editor and the result of compiling the reader's code
 in the page. `learn/` is no package: it is GHC itself running in a page, compiling and mounting a
 component the reader wrote (the compiler the tutorial runs on, the rootfs, and a bare page for trying it;
-its `README.md` has the rootfs, its manifest and the measurements). `hooks`, `store`, `router`, `net` (for `Halogen.Subscription`), `material`, `pixi`, `hspec-halogen` and `th` depend only on `core`; `tauri` on `core` (for `Halogen.Subscription`'s emitters) and `jsbits`; `custom-element`, `devtools`, `lazy` and `three` on `core` and `jsbits`; `sound` and `worker` depend on none of them, only on `jsbits`. Everything builds from the root
+its `README.md` has the rootfs, its manifest and the measurements). `hooks`, `store`, `router`, `net` (for `Halogen.Subscription`), `material`, `pixi`, `hspec-halogen` and `th` depend only on `core`; `tauri` on `core` (for `Halogen.Subscription`'s emitters) and `jsbits`; `custom-element`, `devtools`, `lazy`, `three` and `remote` on `core` and `jsbits`; `sound` and `worker` depend on none of them, only on `jsbits`. Everything builds from the root
 `cabal.project`, so a `core` change is type-checked against every dependent and example.
 
 Every package is compiled for three targets: native GHC, the GHC JavaScript backend, and GHC
@@ -54,12 +59,13 @@ npm run test-worker             # examples/worker in headless Chromium (after bu
 npm run build-js                # JS backend: build all, bundle the material example into dist/
 npm run dev -- <example>        # an example in browser GHCi, reloaded and rerun on save
 npm run dev-test -- <package>   # a package's browser test suite in browser GHCi, rerun on save
-npm run format                  # fourmolu over core, hooks, store, router, net, custom-element, devtools, worker, lazy, tauri, pixi, three, hspec-halogen, th, material/test, examples
+npm run format                  # fourmolu over core, hooks, store, router, net, custom-element, devtools, worker, lazy, remote, tauri, pixi, three, hspec-halogen, th, material/test, examples
 ```
 
-`core`, `hooks`, `store`, `router`, `net`, `worker`, `lazy`, `tauri`, `three` and `sound` have test suites that run under Node (`Halogen-core-test`,
-`Halogen-hooks-test`, `Halogen-store-test`, `Halogen-router-test`, `Halogen-net-test`, `Halogen-worker-test`, `Halogen-lazy-test`, `Halogen-tauri-test`, `Halogen-three-test`, `Halogen-sound-test`), and `material`, `net`, `custom-element`, `devtools`, `tauri`, `three` and `hspec-halogen` have ones that run in a browser
-(`Halogen-material-test`, `Halogen-net-browser-test`, `Halogen-custom-element-test`, `Halogen-devtools-test`, `Halogen-tauri-browser-test`, `Halogen-three-browser-test`, `hspec-halogen-test`; on wasm and JS, see below).
+`core`, `hooks`, `store`, `router`, `net`, `worker`, `lazy`, `remote`, `tauri`, `three` and `sound` have test suites that run under Node (`Halogen-core-test`,
+`Halogen-hooks-test`, `Halogen-store-test`, `Halogen-router-test`, `Halogen-net-test`, `Halogen-worker-test`, `Halogen-lazy-test`, `Halogen-remote-test`, `Halogen-tauri-test`, `Halogen-three-test`, `Halogen-sound-test`), and `material`, `net`, `custom-element`, `devtools`, `remote`, `tauri`, `three` and `hspec-halogen` have ones that run in a browser
+(`Halogen-material-test`, `Halogen-net-browser-test`, `Halogen-custom-element-test`, `Halogen-devtools-test`, `Halogen-remote-browser-test`, `Halogen-tauri-browser-test`, `Halogen-three-browser-test`, `hspec-halogen-test`; on wasm and JS, see below).
+`Halogen-remote-test` also serves a component over a real WebSocket, natively.
 `Halogen-net-browser-test` fetches the files in `net/test/web/` from the runner's server, and
 what that server cannot do (a request held until the test lets it go, a body that stops halfway,
 a response echoing its request) from `net/test/web/network-double.js`, which wraps the page's
@@ -163,7 +169,10 @@ and wired into `test/Test.hs`.
 A component evaluates in the monad the DOM is spoken in. Each backend is a newtype over `IO`:
 `BrowserDOM` (instances in `Halogen.VDom.DOM.Monad.JSFFI`, one module for both browser backends),
 `MemDOM` (in-memory tree, instance in `.Native`, native only — this is what native tests render into),
-`PixiDOM` in `pixi` and `ThreeDOM` in `three`. `Halogen.VDom.DOM.Monad` picks the backend with CPP **and** the core `.cabal`
+`PixiDOM` in `pixi`, `ThreeDOM` in `three` and `RemoteDOM` in `remote` (whose DOM is a mirror of a page
+across a wire; its handles hold node numbers). Natively a `JSVal` is a `Dynamic` of what it was made
+from (`Halogen.JSBits.Native`), so an event built from JSON (a test's, or one a remote client sent)
+has properties `Data.Foreign` reads, and `MemDOM` keeps its nodes in their handles' values. `Halogen.VDom.DOM.Monad` picks the backend with CPP **and** the core `.cabal`
 file picks the matching `exposed-modules` per `arch(...)` — keep the two in step.
 
 The class hierarchy (`Halogen.VDom.DOM.Monad.Class`) is split by capability: `MonadDOM` (mutable tree
@@ -305,7 +314,10 @@ bindings as `learn-type` lines on stdout (`Learn.Types`), shown as tooltips and 
 `Main.hs` runs the lesson's `spec` instead of mounting (`hspec-halogen`'s `runBrowserTestsIn`, the
 rootfs' `hspec` layer): with no runner in the page, the harness performs its actions with synthetic
 events (`hspec-halogen/jsbits/page.js`'s in-page mode, which `hspec-halogen-test` also runs its
-examples through), and hspec's report is the program's stdout.
+examples through), and hspec's report is the program's stdout. Lesson 21's `Main.hs` mounts the
+lesson's component in `RemoteDOM` through `Halogen.Remote.Loopback` in an element of a page
+component of its own, whose `<pre>` shows the wire's traffic as it crosses (the rootfs' `live`
+layer).
 
 The deploy is that tree and nothing else: `build-deploy.yml` builds the rootfs (`build-learn-rootfs.sh`,
 restored instead from a cache keyed by its `--key`, a hash of the plan's units in the closure of the
