@@ -183,7 +183,7 @@ function halogen_custom_element_install(entry, observed, methods) {
 // Define the name, or take it over again: returns the elements connected now,
 // for Haskell to mount, or what customElements.define threw (a name it does
 // not take, or one something else has defined).
-function halogen_custom_element_define(name, token, observedJson, methodsJson, shadow, styles, connect, change, disconnect, method) {
+function halogen_custom_element_define(name, token, observedJson, methodsJson, shadow, styles, connect, change, disconnect, method, dispose) {
   const registry = halogen_custom_element_registry();
   const observed = JSON.parse(observedJson);
   let entry = registry.entries.get(name);
@@ -214,6 +214,10 @@ function halogen_custom_element_define(name, token, observedJson, methodsJson, s
     }
     registry.entries.set(name, entry);
   }
+  // A definition still in force is another program's: the one taking the
+  // name over disposed of its own before asking. Its trees go first, through
+  // the callback it left here, since this program cannot reach them.
+  if (entry.hooks) entry.hooks.dispose(null);
   entry.observed = observed;
   entry.observedLower = observed.map((n) => n.toLowerCase());
   entry.shadow = shadow;
@@ -228,7 +232,7 @@ function halogen_custom_element_define(name, token, observedJson, methodsJson, s
   }
   halogen_custom_element_install(entry, observed, JSON.parse(methodsJson));
   entry.token = token;
-  entry.hooks = { connect, change, disconnect, method };
+  entry.hooks = { connect, change, disconnect, method, dispose };
   // An element removed in this task is still noted as connected until its
   // microtask has run, and is left to it.
   return Array.from(entry.connected).filter((element) => element.isConnected);

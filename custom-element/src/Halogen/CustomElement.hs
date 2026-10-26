@@ -101,7 +101,7 @@ where
 
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar, withMVar)
 import Control.Exception (SomeException, displayException, mask, onException, throwIO, try)
-import Control.Monad (unless, void, when, (>=>))
+import Control.Monad (join, unless, void, when, (>=>))
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.State.Class (put)
 import Data.Aeson (FromJSON, ToJSON, Value (..), eitherDecodeStrictText, encode, toJSON)
@@ -109,7 +109,7 @@ import Data.Aeson.Types (parseJSON, parseMaybe)
 import Data.ByteString.Lazy qualified as Lazy
 import Data.Char (isAsciiLower, isAsciiUpper)
 import Data.Foldable (for_, traverse_)
-import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
+import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -133,7 +133,7 @@ import Web.Event.Internal.Types (Event (..))
 
 $( browserJS
      ["jsbits/custom-element.js"]
-     [ ("js_define", "halogen_custom_element_define", Unsafe, [t|JSText -> Int -> JSText -> JSText -> Int -> JSText -> Callback -> Callback -> Callback -> Callback -> IO JSVal|])
+     [ ("js_define", "halogen_custom_element_define", Unsafe, [t|JSText -> Int -> JSText -> JSText -> Int -> JSText -> Callback -> Callback -> Callback -> Callback -> Callback -> IO JSVal|])
      , ("js_fresh_token", "halogen_custom_element_fresh_token", Unsafe, [t|IO Int|])
      , ("js_inert", "halogen_custom_element_inert", Unsafe, [t|JSText -> Int -> IO ()|])
      , ("js_instance_id", "halogen_custom_element_instance_id", Unsafe, [t|JSVal -> IO Int|])
@@ -253,7 +253,7 @@ define name definition component = withRunInIO $ \run -> do
   -- The definition this one takes over goes first, its elements' components
   -- with it.
   previous <- atomicModifyIORef' registry (\r -> (Map.delete name r, Map.lookup name r))
-  for_ previous snd
+  for_ previous $ \(_, disposePrevious, freePrevious) -> disposePrevious >> freePrevious
   -- The token comes from the page's registry, not from this program: two
   -- programs in one page (the tutorial's app and the program it compiled,
   -- or a run of browser GHCi after another) share the registry, and a
@@ -285,6 +285,14 @@ define name definition component = withRunInIO $ \run -> do
     key <- js_instance_id element
     atomicModifyIORef' instances (\is -> (IntMap.delete key is, IntMap.lookup key is)) >>= traverse_ disposeInstance
   onMethod <- mkSyncCallback (callMethod definition.methods lookupInstance)
+  -- The page's registry keeps how to dispose of this definition too, and
+  -- calls it when another program in the page (the tutorial's app and the
+  -- program it compiled, a run of browser GHCi after another) defines the
+  -- name: that program cannot see this one's registry. The callback is not
+  -- freed with the others, since it may be the one running then; it is
+  -- freed when this program defines the name again.
+  disposeRef <- newIORef (pure ())
+  onDispose <- mkSyncCallback (\_ -> join (readIORef disposeRef))
   let callbacks = [onConnect, onChange, onDisconnect, onMethod]
   defined <-
     js_define
@@ -298,9 +306,10 @@ define name definition component = withRunInIO $ \run -> do
       onChange
       onDisconnect
       onMethod
+      onDispose
   refused <- js_is_error defined
   when refused $ do
-    traverse_ freeCallback callbacks
+    traverse_ freeCallback (onDispose : callbacks)
     refusal <- JSError <$> (fromJSText <$> js_error_name defined) <*> (fromJSText <$> js_error_message defined)
     throwIO refusal
   disposed <- newIORef False
@@ -308,10 +317,11 @@ define name definition component = withRunInIO $ \run -> do
         already <- atomicModifyIORef' disposed (True,)
         unless already $ do
           js_inert (toJSText name) token
-          atomicModifyIORef' registry (\r -> (Map.update (\entry -> if fst entry == token then Nothing else Just entry) name r, ()))
+          atomicModifyIORef' registry (\r -> (Map.update (\entry@(t, _, _) -> if t == token then Nothing else Just entry) name r, ()))
           atomicModifyIORef' instances (IntMap.empty,) >>= traverse_ disposeInstance
           traverse_ freeCallback callbacks
-  atomicModifyIORef' registry (\r -> (Map.insert name (token, disposeAll) r, ()))
+  writeIORef disposeRef disposeAll
+  atomicModifyIORef' registry (\r -> (Map.insert name (token, disposeAll, freeCallback onDispose) r, ()))
   -- An element already on the page that fails to mount (its component's
   -- initialState threw, say) fails the definition: the elements mounted
   -- before it, the callbacks and the name's hooks go with it, so that a
@@ -321,11 +331,12 @@ define name definition component = withRunInIO $ \run -> do
   pure Registration {dispose = liftIO disposeAll}
 
 -- | The names defined in this program, each with the token of its current
--- definition and how to dispose of it. It is Haskell's rather than the
--- page's for the reason 'Halogen.IO.Util.keepForNextRun' gives: a run that
--- defines a name again is a new program in the same session, which must
--- dispose of the elements the last one mounted, and only Haskell can.
-registry :: IORef (Map Text (Int, IO ()))
+-- definition, how to dispose of it, and how to free the callback the page
+-- disposes of it through. The page's registry has that callback too, for
+-- another program defining the name; this one is for the same program
+-- defining it again, which disposes of the last definition before the
+-- page is asked, and may then free the callback, which is not running.
+registry :: IORef (Map Text (Int, IO (), IO ()))
 registry = unsafePerformIO (newIORef Map.empty)
 {-# NOINLINE registry #-}
 
