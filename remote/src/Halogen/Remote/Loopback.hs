@@ -58,7 +58,10 @@ instance Exception LoopbackError
 
 -- | Show the component in the element, through a client the element gets
 -- for itself: the element is the client's, which empties it, so it should
--- be one nothing else renders into. Throws 'NotAvailable' natively.
+-- be one nothing else renders into. Throws 'NotAvailable' natively, and what
+-- the component throws if it fails to mount (in its initial state or first
+-- render), having let go of everything it took for it: the element is left
+-- without a client.
 mountIn :: HTMLElement -> Component q i o RemoteDOM -> i -> IO Loopback
 mountIn = mountWatched (const pass)
 
@@ -82,18 +85,19 @@ mountWatched watch (HTMLElement element) component input = do
     watch (ToProgram text)
     HS.notify listener (ToProgram text)
     readIORef sessionRef >>= traverse_ (`Session.receive` text)
-  client <- Client.attach element callback
-  session <- Session.newSession $ \text -> do
-    watch (ToPage text)
-    HS.notify listener (ToPage text)
-    Client.apply client text
+  client <- Client.attach element callback `onException` freeCallback callback
+  let release = Client.detach client >> freeCallback callback
+  session <-
+    Session.newSession
+      ( \text -> do
+          watch (ToPage text)
+          HS.notify listener (ToPage text)
+          Client.apply client text
+      )
+      `onException` release
   writeIORef sessionRef (Just session)
-  _ <- Session.mount session component input
-  pure
-    Loopback
-      { dispose = do
-          Session.dispose session
-          Client.detach client
-          freeCallback callback
-      , traffic = emitter
-      }
+  let end = Session.dispose session >> release
+  -- A mount that fails has ended the session already; disposing of it
+  -- again does nothing more.
+  _ <- Session.mount session component input `onException` end
+  pure Loopback {dispose = end, traffic = emitter}

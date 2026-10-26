@@ -130,6 +130,11 @@ sending session n = do
 -- | Mount the component in the session's page: the first message the client
 -- gets is its first render. A session mounts one component, once.
 --
+-- A component that fails to mount (its initial state or its first render
+-- throws) ends the session: nothing has been sent, its sender stops, the
+-- mirror is forgotten, and the exception is thrown on, so a caller has
+-- nothing of the session left to free.
+--
 -- It is 'Halogen.VDom.Driver.runUI' into the session's body, with each
 -- render counted as under way while it runs, so that no batch ends inside
 -- one (see the module's header).
@@ -139,10 +144,9 @@ mount session component input = do
   when already $ throwIO AlreadyMounted
   let recorder = session.recorder
       spec = counted (renderSpec (Internal.documentHandle recorder) (Internal.bodyHandle recorder))
-  socket <-
-    run session (Driver.runUI spec component input)
-      `finally` STM.atomically (STM.writeTVar session.held False)
+  socket <- run session (Driver.runUI spec component input) `onException` dispose session
   writeIORef session.mounted (Just socket.dispose)
+  STM.atomically (STM.writeTVar session.held False)
   pure socket
   where
     counted :: RenderSpec RemoteDOM r -> RenderSpec RemoteDOM r

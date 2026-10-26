@@ -221,6 +221,16 @@ spec = describe "a session" $ do
     Session.liveListeners session `shouldReturn` 0
     Session.dispose session
 
+  it "ends itself, having sent nothing, when the component fails to mount" $ do
+    (wire, send) <- newWire
+    session <- Session.newSession send
+    outcome <- try (Session.mount session failing ())
+    either (\(ErrorCall e) -> e) (const "mounted") outcome `shouldBe` "no state to start from"
+    silent wire
+    Session.liveNodes session `shouldReturn` 2
+    Session.liveListeners session `shouldReturn` 0
+    Session.dispose session
+
   it "mounts one component" $ do
     (session, _, _, _) <- mounted counter
     (Session.mount session counter () $> False) `catch` (\Session.AlreadyMounted -> pure True) `shouldReturn` True

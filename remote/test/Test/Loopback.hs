@@ -50,6 +50,25 @@ host traffic remote =
       for_ st.running (liftIO . (.dispose))
       modify (\s -> s {running = Nothing})
 
+-- | A page's component that tries to show a component of the wire's, and
+-- says whether it could.
+trying :: forall m q. (MonadIO m, MonadUUID m) => H.Component q () Void RemoteDOM -> H.Component H.VoidF () Void m
+trying remote =
+  H.component
+    (\() -> (,"trying") <$> H.newRefLabel "remote")
+    render
+    [H.onInitialize start]
+  where
+    render :: (H.RefLabel, Text) -> H.ComponentHTML () Empty m
+    render (label, outcome) = HH.div_ [HH.div [HP.id "remote", HP.ref label] [], HH.span [HP.id "outcome"] [HH.text outcome]]
+    start = do
+      (label, _) <- get
+      element <- H.getHTMLElementRef label
+      for_ element $ \container ->
+        liftIO (try (Loopback.mountIn container remote ())) >>= \case
+          Left (ErrorCall e) -> modify (second (const (toS e)))
+          Right loopback -> liftIO loopback.dispose >> modify (second (const "mounted"))
+
 spec :: forall m -> (MonadBrowserTest m, MonadUUID m) => Spec
 spec m = do
   it "shows a component through the client, and patches it on the page's own clicks" $ runPage $ do
@@ -106,6 +125,13 @@ spec m = do
     find ui "#submitted" >>= (`shouldHaveText` "1")
     find ui "#submit" >>= click
     find ui "#submitted" >>= (`shouldHaveText` "2")
+
+  it "lets its element go when the component fails to mount" $ runPage $ do
+    ui <- mount m (trying failing) ()
+    find ui "#outcome" >>= (`shouldHaveText` "no state to start from")
+    container <- find ui "#remote"
+    getAttribute container "data-halogen-remote" >>= (`shouldBe` Nothing)
+    getProperty container "childElementCount" >>= (`shouldBe` "0")
 
   it "empties its element when disposed of, and showed the traffic both ways" $ runPage $ do
     traffic <- unsafeIOToPageM (newIORef [])

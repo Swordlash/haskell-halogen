@@ -15,12 +15,12 @@ point names `RemoteDOM`.
 client, `mount` of one component, `receive` of each message from the client and `dispose`. The
 session sends its operations in batches, normally one per render and never part of one, the first
 beginning with `clear`; an event runs its listener as a page's callback would, and one for a
-listener that has gone is dropped. `Halogen.Remote.Protocol` says what crosses, as compact JSON:
-an operation is an array with its name first (`["create", 3, null, "div"]`), an event an object
-naming its listener and node with the fields handlers read. A node taken out and not put back by
-the end of a batch is forgotten, on both sides, so a child component whose parent replaces the
-element around it keeps its node. `Halogen.Remote.Internal` is the recorder itself, for tests and
-tools.
+listener that has gone is dropped. A component that fails to mount ends its session, which has sent
+nothing. `Halogen.Remote.Protocol` says what crosses, as compact JSON: an operation is an array with
+its name first (`["create", 3, null, "div"]`), an event an object naming its listener and node with
+the fields handlers read. A node taken out and not put back by the end of a batch is forgotten, on
+both sides, so a child component whose parent replaces the element around it keeps its node.
+`Halogen.Remote.Internal` is the recorder itself, for tests and tools.
 
 `Halogen.Remote.Server` (native) serves a component over WebSockets with warp and wai-websockets,
 a session per connection, with the client at the socket's path and `.js` and the pages it is
@@ -29,7 +29,8 @@ own session, and a connection that closes disposes of its session.
 
 `Halogen.Remote.Loopback.mountIn` runs the same pipeline inside one page, with every message
 emitted on `traffic` both ways, and `mountWatched` hands every message, the first render's
-included, to a watcher given before anything crosses; natively they throw `NotAvailable`.
+included, to a watcher given before anything crosses; natively they throw `NotAvailable`. A
+component that fails to mount leaves the element without a client.
 
 The client (`jsbits/remote.js`) prevents the default of every `submit`, and of every `click` on
 an `a` element, that it listens for, since a handler hears of an event too late to; a handler

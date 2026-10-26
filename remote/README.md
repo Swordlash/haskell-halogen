@@ -56,7 +56,9 @@ and moves its node into the new element). The first message begins with `clear`,
 render.
 An event from the client runs its listener as a page's callback would, and is dropped if the
 listener has gone (its removal crossed the wire after the event left). `dispose` sends nothing
-more, disposes of the component's tree and forgets the mirror.
+more, disposes of the component's tree and forgets the mirror. A component that fails to mount
+(its initial state or first render throws) ends the session, which has sent nothing, and `mount`
+throws what it threw.
 
 `Halogen.Remote.Server` and `Halogen.Remote.Loopback` are both made of this; so is a test, whose
 wire can be a list (see `test/Test/Session.hs`).
@@ -165,8 +167,12 @@ The program and the page are apart, and the wire takes time:
 ## Tests
 
 `Halogen-remote-test` runs natively and, under Node, on both browser backends: a session whose
-wire is a list (the first render, a click's patch, an input's value, a child removed, an unknown
-listener, disposal), the protocol's JSON, and natively a component served over a real WebSocket.
+wire is a list (the first render, a click's patch and position, an input's value, a child removed,
+a child kept while its parent replaces the element around it, a handler that prevents the default,
+an unknown listener, a component that fails to mount, disposal), the recorder on its own (a node
+taken out is forgotten when the batch is taken and not before, no batch in the middle of a
+render), the protocol's JSON, and natively a component served over a real WebSocket.
 `Halogen-remote-browser-test` runs the loopback in headless Chromium (hspec-halogen) on both
-browser backends: real clicks and typing through the client, a form whose submission the page
-does not carry out, and disposal.
+browser backends: real clicks and typing through the client, a child's element kept across its
+parent's new element, a form whose submission the page does not carry out (with and without
+`HE.preventingDefault`), a component that fails to mount, and disposal.

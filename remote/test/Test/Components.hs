@@ -10,6 +10,7 @@ module Test.Components
   , form
   , guardedForm
   , pointing
+  , failing
   )
 where
 
@@ -161,3 +162,11 @@ pointing =
         [ HH.button [HP.id "point", HE.onClick (\e -> (ME.clientX e, ME.clientY e))] [HH.text "here"]
         , HH.span [HP.id "where"] [HH.text (maybe "nowhere" (\(x, y) -> show x <> "," <> show y) at)]
         ]
+
+-- | A component that cannot start: its initial state throws.
+failing :: forall m. (MonadIO m) => H.Component H.VoidF () Void m
+failing =
+  H.component
+    (\() -> liftIO (throwIO (ErrorCall "no state to start from")) :: m ())
+    (\() -> HH.text "never shown" :: H.ComponentHTML () Empty m)
+    []
