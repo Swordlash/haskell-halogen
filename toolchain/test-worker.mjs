@@ -74,8 +74,9 @@ try {
   });
   // The page's workers, as they start and end.
   const workers = new Set();
-  const open = async (address) => {
+  const open = async (address, init) => {
     const opened = await context.newPage();
+    if (init) await opened.addInitScript(init);
     // The workers' console is the page's too, each line of theirs prefixed
     // with the worker's number.
     opened.on("pageerror", (error) => errors.push(error.message));
@@ -208,6 +209,28 @@ try {
       `ok  with Worker.run and no worker: ${count} primes in ${ms(millis)}, the component drew ${drew} frames, the page showed ${run.shown} different counts in ${run.samples} of its frames`,
     );
     noErrors("in the fallback");
+  }
+
+  await page.close();
+
+  // A page whose Worker constructor throws, as a browser refusing a Blob
+  // worker does: available still says yes, and the failure to start must
+  // reach the program as the job's WorkerError, not as an exception out of
+  // the binding.
+  page = await open(url, () => {
+    globalThis.Worker = class {
+      constructor() {
+        throw new DOMException("workers are refused here", "SecurityError");
+      }
+    };
+  });
+  await page.locator("#available", { hasText: "Web Workers are available" }).waitFor({ timeout: 30000 });
+  {
+    const run = await runJob("worker", "in a worker");
+    assert.match(run.text, /failed: the worker did not start: .*workers are refused here/, "the start's failure, as the job's");
+    assert.equal(workers.size, 0, "no worker started");
+    console.log(`ok  a worker that cannot be made fails the job: ${run.text}`);
+    noErrors("with a worker that cannot start");
   }
 
   noErrors("at the end");

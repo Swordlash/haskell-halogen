@@ -109,7 +109,15 @@ function halogen_worker_fail(pool, index, entry, message) {
 function halogen_worker_start(pool, index) {
   const { type, source } = halogen_worker_script(pool, index);
   const url = URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
-  const worker = new Worker(url, { type: type, name: `halogen-worker-${index}` });
+  let worker;
+  try {
+    worker = new Worker(url, { type: type, name: `halogen-worker-${index}` });
+  } catch (error) {
+    // A browser that refuses a Blob worker (a SecurityError under some
+    // policies) throws here, before any message: the URL goes with it.
+    URL.revokeObjectURL(url);
+    throw error;
+  }
   const entry = { worker: worker, url: url, ready: false, queue: [], pending: new Map() };
   worker.onmessage = (event) => {
     const data = event.data;
@@ -148,7 +156,19 @@ function halogen_worker_start(pool, index) {
 function halogen_worker_run(pool, job, args) {
   const index = pool.next;
   pool.next = (pool.next + 1) % pool.size;
-  const entry = pool.workers[index] ?? (pool.workers[index] = halogen_worker_start(pool, index));
+  let entry = pool.workers[index];
+  if (entry === undefined) {
+    // A worker that cannot be made is this job's failure, through the
+    // promise like any other, not an exception out of this call: available
+    // only knows that Worker and the configuration exist.
+    try {
+      entry = pool.workers[index] = halogen_worker_start(pool, index);
+    } catch (error) {
+      const failed = Promise.reject(new Error(`the worker did not start: ${error?.message ?? error}`));
+      failed.catch(() => {});
+      return failed;
+    }
+  }
   const id = ++pool.ids;
   const promise = new Promise((resolve, reject) => entry.pending.set(id, { resolve: resolve, reject: reject }));
   promise.catch(() => {});
