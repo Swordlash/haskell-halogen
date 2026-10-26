@@ -26,6 +26,19 @@ What is here:
   interface has only what it exports under `-fno-code`), printed in the
   module's own scope as GHCi's `:type` prints them; a run in which GHC did
   not typecheck it again reports the ones kept for the same source.
+  `--learn-spans`, the playground's too, marks the elements `Lesson` builds
+  with where they are in its source: a parser plugin gives every application
+  of an element function of `Halogen.HTML.Elements` to a literal list of
+  properties (`HH.button [...] [...]`, qualified or not, as the module imports
+  it) one more, the attribute `data-learn-src="<line>:<column>"` of where the
+  application starts, and adds the import that attribute needs. It rewrites
+  the syntax tree, not the text, so GHC's diagnostics point at the reader's
+  lines; the attribute does show in what an error message quotes of the code
+  around it, which the tutorial takes out (`Learn.Diagnostics.withoutMarks`).
+  The `_` variants, a list of properties that is not a literal, SVG's
+  elements and what a quasi-quote (`hh`) makes get no mark. The tutorial
+  passes the flag on every compile and check, for its Source mode
+  (`examples/learn/README.md`).
 - `web/index.html`, `web/index.js`: a minimal page (a text area, the GHC
   arguments, a button per layer, Run, stdout and stderr, `#app`, and the
   timings it measured). Plain modules, no bundler, no editor.
