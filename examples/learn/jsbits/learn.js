@@ -90,6 +90,28 @@ function halogen_learn_editor_goto(view, line, column) {
   halogen_learn_api().editor.goto(view, line, column);
 }
 
+function halogen_learn_editor_show_source(view, line) {
+  halogen_learn_api().editor.showSource(view, line);
+}
+
+function halogen_learn_editor_source_mode(view, on) {
+  halogen_learn_api().editor.setSourceMode(view, on);
+}
+
 function halogen_learn_editor_destroy(view) {
   halogen_learn_api().editor.destroy(view);
+}
+
+// The Source mode's outline over the result's element; onEvent gets a JSON
+// string for each thing the reader does there (see source.js).
+function halogen_learn_source_start(result, onEvent) {
+  return halogen_learn_api().source.start(result, (event) => onEvent(event));
+}
+
+function halogen_learn_source_outline(handle, line, column) {
+  halogen_learn_api().source.outline(handle, line, column);
+}
+
+function halogen_learn_source_stop(handle) {
+  halogen_learn_api().source.stop(handle);
 }

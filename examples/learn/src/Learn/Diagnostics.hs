@@ -10,11 +10,17 @@
 -- followed by its message, indented, up to the next blank line or the next
 -- location, and with the offending source quoted under a gutter of @|@,
 -- which is left out here: the editor shows the source itself.
+--
+-- The page has GHC mark the elements of the reader's code with where they are
+-- in it (the playground's @--learn-spans@), and what GHC quotes of that code
+-- then has the mark in it; 'withoutMarks' takes it out before anything here
+-- reads GHC's output.
 module Learn.Diagnostics
   ( Diagnostic (..)
   , Severity (..)
   , parseDiagnostics
   , didNotCompile
+  , withoutMarks
   )
 where
 
@@ -87,6 +93,38 @@ didNotCompile output =
   any ((== Error) . (.severity)) (parseDiagnostics output)
     || "Please report this as a GHC bug" `T.isInfixOf` output
     || "panic! (the 'impossible' happened)" `T.isInfixOf` output
+
+-- | What GHC wrote, without the property the playground adds to each element
+-- of the reader's code (@learn\/Playground.hs@'s @lessonSpans@). GHC knows
+-- the code it compiled, mark and all, and quotes it so where a message shows
+-- the code around an error:
+--
+-- > In the first argument of `HH.p', namely
+-- >   `[Learn__Spans.attr
+-- >       (Learn__Spans.AttrName "data-learn-src") "17:11",
+-- >     HP.disabled "yes"]'
+--
+-- which reads here as the reader wrote it, @`[HP.disabled "yes"]'@. GHC
+-- breaks a long expression over lines, at the spaces between its parts and
+-- after its commas, so the mark is found whatever space is between its
+-- parts, and the comma after it goes with it, and the space after that. The
+-- lines GHC broke stay as they were.
+withoutMarks :: Text -> Text
+withoutMarks t = case T.breakOn markStart t of
+  (before, rest)
+    | T.null rest -> before
+    | Just after <- markEnd (T.drop (T.length markStart) rest) -> before <> withoutMarks after
+    | otherwise -> before <> markStart <> withoutMarks (T.drop (T.length markStart) rest)
+  where
+    markStart = "Learn__Spans.attr"
+    markEnd s = do
+      s1 <- T.stripPrefix "(Learn__Spans.AttrName" (T.stripStart s)
+      s2 <- T.stripPrefix "\"data-learn-src\")" (T.stripStart s1)
+      s3 <- T.stripPrefix "\"" (T.stripStart s2)
+      let (position, s4) = T.span (\c -> isDigit c || c == ':') s3
+      guard (not (T.null position))
+      s5 <- T.stripPrefix "\"" s4
+      pure (maybe s5 T.stripStart (T.stripPrefix "," s5))
 
 -- | A location line: the diagnostic it starts (its message still empty),
 -- and what follows the severity on the line, without GHC's codes.

@@ -13,6 +13,8 @@
   --error: #b42318;
   --warning: #9a6700;
   --active-line: rgba(59, 91, 219, 0.06);
+  --source-line: rgba(59, 91, 219, 0.18);
+  --source-fill: rgba(59, 91, 219, 0.12);
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 }
 
@@ -27,6 +29,8 @@
     --error: #ff9b8f;
     --warning: #f0c060;
     --active-line: rgba(142, 164, 255, 0.08);
+    --source-line: rgba(142, 164, 255, 0.22);
+    --source-fill: rgba(142, 164, 255, 0.16);
   }
 }
 
@@ -393,6 +397,43 @@ button.learn-binding:focus-visible code {
   cursor: pointer;
   color: var(--muted);
   font-size: 0.85rem;
+}
+
+/* The Source mode (js/source.js): the toggle, pressed while it is on, and the
+   box over the element under the pointer, fixed over its rectangle, with
+   where it was built at its top left corner. The box takes no pointer
+   events, so the element under it is still the one pointed at. */
+
+button.learn-source[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+}
+
+.learn-result.learn-sourcing {
+  cursor: crosshair;
+}
+
+.learn-source-box {
+  position: fixed;
+  z-index: 1000;
+  pointer-events: none;
+  outline: 2px solid var(--accent);
+  background: var(--source-fill);
+  border-radius: 2px;
+}
+
+.learn-source-label {
+  position: absolute;
+  left: -2px;
+  bottom: 100%;
+  margin-bottom: 2px;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--accent);
+  color: var(--bg);
+  font: 11px/1.6 var(--mono);
+  white-space: nowrap;
 }
 
 /* One column. */

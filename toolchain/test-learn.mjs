@@ -16,6 +16,8 @@
 // printed), with the manifest's version and sizes and so without a HEAD
 // request; the first two lessons compile and run as their text says, and a
 // type error is reported at its line with the last result still showing;
+// Source on lesson 2 outlines what the pointer and the editor's cursor are
+// on, marks its line and goes there on a click the program does not get;
 // every lesson in examples/learn/lessons compiles its Solution.hs without a
 // diagnostic and shows something (one line per lesson, which is how a new
 // lesson is checked); an error GHC throws rather than reports is still a
@@ -262,6 +264,43 @@ try {
   await plus.click();
   await page.locator("#learn-result p", { hasText: "Count: 2" }).waitFor({ timeout: 5000 });
   console.log("ok  lesson 2 via Next: the counter counts to 2");
+
+  // Source, on lesson 2's counter: every element the code built carries
+  // where it was built; hovering the + button outlines it, labelled with
+  // that, and marks its line in the editor; a click goes to the line, and
+  // the program does not count it; the editor's cursor outlines the element
+  // its line made; off, the outline goes and a click counts again.
+  const solutionLines = lessons[1].solution.split("\n");
+  const plusLine = solutionLines.findIndex((l) => l.includes("Increment)] [HH.text")) + 1;
+  const plusColumn = solutionLines[plusLine - 1].indexOf("HH.button") + 1;
+  assert.ok(plusLine > 0 && plusColumn > 0, "lesson 2's solution has its + button on a line of its own");
+  assert.equal(await plus.getAttribute("data-learn-src"), `${plusLine}:${plusColumn}`, "the + button carries where it was built");
+  const minus = page.locator("#learn-result button", { hasText: /^-$/ });
+  await page.locator("button.learn-source:not([disabled])").click();
+  await page.locator('button.learn-source[aria-pressed="true"]').waitFor({ timeout: 5000 });
+  await plus.hover();
+  await outlined(page, plus);
+  assert.equal(await page.locator(".learn-source-label").textContent(), `Lesson.hs:${plusLine}:${plusColumn}`, "the outline says where");
+  await page.locator(".learn-editor .cm-line.learn-source-line", { hasText: 'Increment)] [HH.text "+"]' }).waitFor({ timeout: 5000 });
+  await plus.click();
+  assert.match(await page.locator(".cm-activeLine").textContent(), /Increment\)\] \[HH\.text "\+"\]/, "a click goes to the element's line");
+  await page.waitForTimeout(500);
+  await page.locator("#learn-result p", { hasText: "Count: 2" }).waitFor({ timeout: 1000 });
+  // The pointer off the result: the cursor, at the + button's position
+  // now, outlines it; a line up, the - button's.
+  await page.mouse.move(5, 5);
+  await outlined(page, plus);
+  assert.equal(await page.locator(".learn-editor .cm-line.learn-source-line").count(), 0, "the pointer gone, no line is marked for it");
+  await page.keyboard.press("ArrowUp");
+  await outlined(page, minus);
+  await page.locator("button.learn-source").click();
+  await page.locator('button.learn-source[aria-pressed="false"]').waitFor({ timeout: 5000 });
+  assert.equal(await page.locator(".learn-source-box").count(), 0, "off, the outline goes");
+  await plus.click();
+  await page.locator("#learn-result p", { hasText: "Count: 3" }).waitFor({ timeout: 5000 });
+  await minus.click();
+  await page.locator("#learn-result p", { hasText: "Count: 2" }).waitFor({ timeout: 5000 });
+  console.log(`ok  Source on lesson 2: the + button is outlined as Lesson.hs:${plusLine}:${plusColumn} and its line marked, a click goes there uncounted, the cursor outlines its line's element, and off a click counts`);
 
   // A type error: reported at its line, marked in the editor, and the last
   // result stays on the page.
@@ -913,6 +952,22 @@ async function untilReady(page, since) {
     if (status.includes("in your browser")) return;
     assert.ok(Date.now() < deadline, `the compiler loads (last: ${status})`);
   }
+}
+
+// Wait for the Source mode's box to be shown over the element.
+async function outlined(page, target) {
+  const element = await target.elementHandle();
+  await page.waitForFunction(
+    (el) => {
+      const box = document.querySelector(".learn-source-box");
+      if (!box || box.hidden) return false;
+      const a = box.getBoundingClientRect();
+      const b = el.getBoundingClientRect();
+      return ["left", "top", "width", "height"].every((side) => Math.abs(a[side] - b[side]) < 1);
+    },
+    element,
+    { timeout: 5000 },
+  );
 }
 
 function escapeHtml(text) {

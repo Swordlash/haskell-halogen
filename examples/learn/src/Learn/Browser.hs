@@ -36,7 +36,16 @@ module Learn.Browser
   , showDiagnostics
   , showTypes
   , gotoPosition
+  , showSource
+  , setSourceMode
   , destroyEditor
+
+    -- * The Source mode
+  , Source
+  , SourceEvent (..)
+  , startSource
+  , outlineSource
+  , stopSource
   )
 where
 
@@ -45,7 +54,7 @@ import Data.Aeson (FromJSON (..), ToJSON (..), object, withObject, (.!=), (.:), 
 import Data.Aeson qualified as Aeson
 import Halogen.JSBits (Callback, JSText, JSVal, Safety (..), browserJS, freeCallback, fromJSText, jsValText, mkCallback, toJSText)
 import Halogen.JSBits.Promise (JSError (..), Promise (..), await)
-import Learn.Diagnostics (Diagnostic)
+import Learn.Diagnostics (Diagnostic, withoutMarks)
 import Learn.Types (Binding, splitTypes)
 import Protolude
 import Web.DOM.Internal.Types (HTMLElement (..))
@@ -69,7 +78,12 @@ $( browserJS
      , ("js_editor_diagnostics", "halogen_learn_editor_diagnostics", Unsafe, [t|JSVal -> JSText -> IO ()|])
      , ("js_editor_types", "halogen_learn_editor_types", Unsafe, [t|JSVal -> JSText -> IO ()|])
      , ("js_editor_goto", "halogen_learn_editor_goto", Unsafe, [t|JSVal -> Int -> Int -> IO ()|])
+     , ("js_editor_show_source", "halogen_learn_editor_show_source", Unsafe, [t|JSVal -> Int -> IO ()|])
+     , ("js_editor_source_mode", "halogen_learn_editor_source_mode", Unsafe, [t|JSVal -> Bool -> IO ()|])
      , ("js_editor_destroy", "halogen_learn_editor_destroy", Unsafe, [t|JSVal -> IO ()|])
+     , ("js_source_start", "halogen_learn_source_start", Unsafe, [t|HTMLElement -> Callback -> IO JSVal|])
+     , ("js_source_outline", "halogen_learn_source_outline", Unsafe, [t|JSVal -> Int -> Int -> IO ()|])
+     , ("js_source_stop", "halogen_learn_source_stop", Unsafe, [t|JSVal -> IO ()|])
      ]
  )
 
@@ -187,6 +201,8 @@ data RunResult = RunResult
   , stdout :: Text
   -- ^ What the program wrote, without the lines of 'types'.
   , stderr :: Text
+  -- ^ What GHC wrote, without the marks of the Source mode
+  -- ('withoutMarks').
   , types :: [Binding]
   , ms :: Int
   }
@@ -201,7 +217,7 @@ instance FromJSON RunResult where
       <*> o .: "compiled"
       <*> o .:? "error"
       <*> pure out
-      <*> o .: "stderr"
+      <*> (withoutMarks <$> o .: "stderr")
       <*> pure types
       <*> o .: "ms"
 
@@ -224,7 +240,12 @@ endRun = void (await =<< js_end_run)
 -- | A CodeMirror editor, and the callback it calls.
 data Editor = Editor JSVal Callback
 
-data EditorEvent = Changed Text | CompileRequested
+data EditorEvent
+  = Changed Text
+  | CompileRequested
+  | -- | The cursor is at this line and column (from 1), told only while
+    -- 'setSourceMode' is on.
+    Cursor Int Int
   deriving stock (Eq, Show)
 
 instance FromJSON EditorEvent where
@@ -232,6 +253,7 @@ instance FromJSON EditorEvent where
     o .: "type" >>= \case
       "change" -> Changed <$> o .: "text"
       "compile" -> pure CompileRequested
+      "cursor" -> Cursor <$> o .: "line" <*> o .: "column"
       other -> fail ("no such event: " <> other)
 
 -- | An editor in the element, which must be empty and stay the editor's:
@@ -265,8 +287,60 @@ showTypes (Editor view _) = js_editor_types view . encodeText
 gotoPosition :: Editor -> Int -> Int -> IO ()
 gotoPosition (Editor view _) = js_editor_goto view
 
+-- | Mark this line (from 1) as the one that made what the reader points
+-- at, in place of the line marked before; 0 marks none.
+showSource :: Editor -> Int -> IO ()
+showSource (Editor view _) = js_editor_show_source view
+
+-- | Whether the editor tells where its cursor is ('Cursor'). Turned on, it
+-- tells at once, even when the cursor has not moved since it last did.
+setSourceMode :: Editor -> Bool -> IO ()
+setSourceMode (Editor view _) = js_editor_source_mode view
+
 destroyEditor :: Editor -> IO ()
 destroyEditor (Editor view callback) = js_editor_destroy view >> freeCallback callback
+
+-- | The Source mode over the element a compile mounts into, and the callback
+-- it calls (@js\/source.js@). It reads the @data-learn-src@ marks the
+-- playground puts on the elements of the reader's code
+-- (@learn\/Playground.hs@'s @--learn-spans@).
+data Source = Source JSVal Callback
+
+-- | What the reader does over the result while the Source mode is on.
+data SourceEvent
+  = -- | The pointer is over the element made at this line and column.
+    Pointing Int Int
+  | -- | It is over none.
+    NotPointing
+  | -- | The reader clicked the element made here, to go there. The program
+    -- did not see the click.
+    Picked Int Int
+  deriving stock (Eq, Show)
+
+instance FromJSON SourceEvent where
+  parseJSON = withObject "SourceEvent" $ \o ->
+    o .: "type" >>= \case
+      "hover" -> Pointing <$> o .: "line" <*> o .: "column"
+      "leave" -> pure NotPointing
+      "goto" -> Picked <$> o .: "line" <*> o .: "column"
+      other -> fail ("no such event: " <> other)
+
+-- | Outline what the pointer is over in the element, and say so, until
+-- 'stopSource'.
+startSource :: HTMLElement -> (SourceEvent -> IO ()) -> IO Source
+startSource element onEvent = do
+  callback <- mkCallback $ \value -> either (const pass) onEvent (decode (jsValText value))
+  overlay <- js_source_start element callback
+  pure (Source overlay callback)
+
+-- | Outline the element made at this line and column, or else the one on
+-- that line made last before the column, while the pointer is over none.
+-- Nothing when the line made none.
+outlineSource :: Source -> Int -> Int -> IO ()
+outlineSource (Source overlay _) = js_source_outline overlay
+
+stopSource :: Source -> IO ()
+stopSource (Source overlay callback) = js_source_stop overlay >> freeCallback callback
 
 encodeText :: (ToJSON a) => a -> JSText
 encodeText = toJSText . decodeUtf8 . toS . Aeson.encode

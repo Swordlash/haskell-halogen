@@ -26,6 +26,14 @@
 -- slug) and never patches inside: its content is the compiled program's,
 -- another Halogen tree, run by the compiler's runtime. Before the page takes
 -- the element away (another route), that tree is ended ('endRun').
+--
+-- The Source toggle, once a compile has mounted something, shows which line
+-- made what: the compiler marks every element of the reader's code with
+-- where it was built (the playground's @--learn-spans@, passed on every
+-- compile), and while Source is on, the element under the pointer is
+-- outlined and its line marked in the editor, a click on it goes to that
+-- line (the program does not get the click), and the element the editor's
+-- cursor is in is outlined ('Browser.startSource').
 module Learn.App (component) where
 
 import Control.Monad.UUID (MonadUUID)
@@ -41,7 +49,7 @@ import Halogen.Router (Follow, Router)
 import Halogen.Router qualified as Router
 import Halogen.Subscription qualified as HS
 import Halogen.VDom.DOM.Monad (MonadBrowserDOM, StorageKind (..), readStorageItem, removeStorageItem, writeStorageItem)
-import Learn.Browser (CompileRequest (..), Editor, EditorEvent (..), Progress (..), RunResult (..), Sizes (..))
+import Learn.Browser (CompileRequest (..), Editor, EditorEvent (..), Progress (..), RunResult (..), Sizes (..), Source, SourceEvent (..))
 import Learn.Browser qualified as Browser
 import Learn.Diagnostics (Diagnostic (..), Severity (..), didNotCompile, parseDiagnostics)
 import Learn.Lesson (Lesson (..), wrapper)
@@ -58,6 +66,10 @@ data State = State
   , route :: Route
   , editorHost :: H.RefLabel
   , editor :: Maybe (Editor, H.SubscriptionId)
+  , resultHost :: H.RefLabel
+  -- ^ @#learn-result@, which the Source mode reads.
+  , source :: Maybe (Source, H.SubscriptionId)
+  -- ^ The Source mode, while it is on.
   , narrow :: Bool
   , compiler :: Compiler
   , sizes :: Maybe Sizes
@@ -137,6 +149,8 @@ data Action
   | Reset
   | ShowSolution
   | Goto Int Int
+  | ToggleSource
+  | FromSource SourceEvent
 
 component :: forall q o m. (MonadBrowserDOM m, MonadUnliftIO m, MonadUUID m) => H.Component q (Router Route) o m
 component =
@@ -148,12 +162,15 @@ component =
     initialState router = do
       route <- Router.current router
       editorHost <- H.newRefLabel "editor"
+      resultHost <- H.newRefLabel "result"
       pure
         State
           { router
           , route
           , editorHost
           , editor = Nothing
+          , resultHost
+          , source = Nothing
           , narrow = False
           , compiler = NotLoaded
           , sizes = Nothing
@@ -228,6 +245,8 @@ component =
         when (was /= edited) $ modify $ \s -> s {edited}
         checkSoon
       FromEditor CompileRequested -> handleAction Compile
+      FromEditor (Cursor line column) ->
+        gets (.source) >>= traverse_ \(source, _) -> H.liftEffect (liftIO (Browser.outlineSource source line column))
       Compile -> do
         st <- get
         when (canCompile st) $ for_ ((,) <$> lessonOf st.route <*> st.editor) $ \(lesson, (editor, _)) -> do
@@ -250,6 +269,13 @@ component =
                 -- compiled and then stopped has them too.
                 keepTypes editor result.compiled result.types
                 modify $ \s -> s {run = Ran result, mounted = s.mounted || result.compiled, diagnostics, lastCheck = Nothing}
+                -- What the Source mode outlined was the last run's: the
+                -- line marked for the pointer is forgotten, and the editor
+                -- says where its cursor is again, for the new elements.
+                when result.compiled $
+                  gets (.source) >>= traverse_ \_ -> H.liftEffect $ liftIO $ do
+                    Browser.showSource editor 0
+                    Browser.setSourceMode editor True
             -- The reader may have typed while it compiled.
             startCheck
       Reset -> withEditor $ \lesson editor -> H.liftEffect (liftIO (Browser.setEditorText editor lesson.start))
@@ -261,6 +287,11 @@ component =
             else pure True
         when sure $ H.liftEffect (liftIO (Browser.setEditorText editor lesson.solution))
       Goto line column -> withEditor $ \_ editor -> H.liftEffect (liftIO (Browser.gotoPosition editor line column))
+      ToggleSource -> gets (.source) >>= maybe startSource (const stopSource)
+      FromSource event -> withEditor $ \_ editor -> H.liftEffect $ liftIO $ case event of
+        Pointing line _ -> Browser.showSource editor line
+        NotPointing -> Browser.showSource editor 0
+        Picked line column -> Browser.gotoPosition editor line column
 
     withLesson f = gets (lessonOf . (.route)) >>= traverse_ f
 
@@ -337,7 +368,31 @@ component =
         editor <- H.liftEffect $ liftIO $ Browser.createEditor host text (readOnly st) (HS.notify events.listener)
         modify $ \s -> s {editor = Just (editor, subscription), edited = text /= lesson.start, visit = s.visit + 1}
 
+    -- The Source mode over the result, and the editor telling where its
+    -- cursor is, once there is something in the result to show the source
+    -- of.
+    startSource = do
+      st <- get
+      when (canSource st) $ for_ st.editor $ \(editor, _) ->
+        H.getHTMLElementRef st.resultHost >>= traverse_ \element -> do
+          events <- liftIO HS.create
+          subscription <- H.subscribe (FromSource <$> events.emitter)
+          source <- H.liftEffect $ liftIO $ Browser.startSource element (HS.notify events.listener)
+          modify $ \s -> s {source = Just (source, subscription)}
+          H.liftEffect $ liftIO $ Browser.setSourceMode editor True
+
+    stopSource = do
+      st <- get
+      for_ st.source $ \(source, subscription) -> do
+        H.unsubscribe subscription
+        H.liftEffect $ liftIO $ Browser.stopSource source
+        for_ st.editor $ \(editor, _) -> H.liftEffect $ liftIO $ do
+          Browser.setSourceMode editor False
+          Browser.showSource editor 0
+        modify $ \s -> s {source = Nothing}
+
     leaveLesson = do
+      stopSource
       st <- get
       for_ st.editor $ \(editor, subscription) -> do
         H.unsubscribe subscription
@@ -576,11 +631,33 @@ component =
       HH.withKeys
         HH.section
         [HP.class_ (HH.ClassName "learn-result-column")]
-        ( [("compiler", compilerPanel st) | not (isLoaded st.compiler)]
+        ( [
+            ( "toolbar"
+            , HH.div
+                [HP.class_ (HH.ClassName "learn-toolbar")]
+                [ HH.button
+                    [ HP.class_ (HH.ClassName "learn-source")
+                    , HP.disabled (not (canSource st))
+                    , HP.attr (H.AttrName "aria-pressed") (if isJust st.source then "true" else "false")
+                    , HP.title "Point at an element of the result to see the line of code that made it"
+                    , HE.onClick (const ToggleSource)
+                    ]
+                    [HH.text "Source"]
+                ]
+            )
+          ]
+            <> [ ( "source"
+                 , HH.p
+                     [HP.class_ (HH.ClassName "learn-note")]
+                     [HH.text "Point at an element to see the line that made it; click it to go there (the program does not get the click). The editor's cursor outlines the element its line made."]
+                 )
+               | isJust st.source
+               ]
+            <> [("compiler", compilerPanel st) | not (isLoaded st.compiler)]
             <> [("layers", layersPanel message) | isLoaded st.compiler, Just message <- [st.layerFailure]]
             <> [ ("outcome", HH.p [HP.class_ (HH.ClassName "learn-outcome"), HP.attr (H.AttrName "data-run") (show st.runs)] [HH.text (outcome st)])
                , -- Never patched inside: the compiled program's.
-                 ("result", HH.div [HP.id "learn-result", HP.class_ (HH.ClassName "learn-result")] [])
+                 ("result", HH.div [HP.id "learn-result", HP.class_ (HH.ClassName "learn-result"), HP.ref st.resultHost] [])
                ]
             <> output st.run
         )
@@ -698,6 +775,10 @@ canCompile st =
     && isJust st.editor
     && not (isCompiling st.run)
     && all (`elem` st.loadedLayers) (maybe [] (.layers) (lessonOf st.route))
+
+-- | The Source mode needs the editor, and a compile's elements to read.
+canSource :: State -> Bool
+canSource st = st.mounted && isJust st.editor
 
 readOnly :: State -> Bool
 readOnly st = st.narrow && not (isLoaded st.compiler)

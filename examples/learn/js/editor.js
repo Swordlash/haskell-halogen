@@ -12,9 +12,12 @@
 // again. The Halogen app owns the element the editor lives in (it renders
 // it empty and never patches inside it) and talks to the editor only through
 // these functions; the editor tells the app what happens through one callback,
-// with a JSON string: {"type":"change","text":...} or {"type":"compile"}.
+// with a JSON string: {"type":"change","text":...} or {"type":"compile"}, and,
+// while the app's Source mode is on (setSourceMode), {"type":"cursor","line",
+// "column"} whenever the cursor is somewhere new, from 1 as GHC counts.
 import { Compartment, EditorState, StateEffect, StateField } from "@codemirror/state";
 import {
+  Decoration,
   EditorView,
   drawSelection,
   highlightActiveLine,
@@ -38,7 +41,40 @@ const theme = EditorView.theme({
   "&.cm-focused": { outline: "none" },
   ".cm-tooltip": { background: "var(--panel)", color: "var(--fg)", border: "1px solid var(--border)" },
   ".cm-learn-type": { fontFamily: "var(--mono)", padding: "2px 6px", whiteSpace: "pre-wrap", maxWidth: "70ch" },
+  ".learn-source-line": { background: "var(--source-line)" },
 });
+
+// The line the Source mode marks (showSource): the one that made the element
+// under the pointer. It moves with the text when the text changes.
+const setSourceLine = StateEffect.define();
+const sourceLine = StateField.define({
+  create: () => Decoration.none,
+  update(value, transaction) {
+    value = value.map(transaction.changes);
+    for (const effect of transaction.effects) {
+      if (!effect.is(setSourceLine)) continue;
+      const doc = transaction.state.doc;
+      value =
+        effect.value >= 1 && effect.value <= doc.lines
+          ? Decoration.set([Decoration.line({ class: "learn-source-line" }).range(doc.line(effect.value).from)])
+          : Decoration.none;
+    }
+    return value;
+  },
+  provide: (field) => EditorView.decorations.from(field),
+});
+
+// Where the cursor is, from 1 as GHC counts, to the app while the Source mode
+// is on and only when it has moved since it was last told.
+function reportCursor(view) {
+  if (!view.learnSource) return;
+  const head = view.state.selection.main.head;
+  const line = view.state.doc.lineAt(head);
+  const at = { line: line.number, column: head - line.from + 1 };
+  if (view.learnCursor && view.learnCursor.line === at.line && view.learnCursor.column === at.column) return;
+  view.learnCursor = at;
+  view.learnSend({ type: "cursor", ...at });
+}
 
 // The types the app last gave (showTypes), by name: what the tooltips say.
 const setTypes = StateEffect.define();
@@ -110,6 +146,7 @@ export function create(parent, text, readOnly, onEvent) {
         lintGutter(),
         types,
         typeTooltip,
+        sourceLine,
         theme,
         editable.of([EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)]),
         keymap.of([
@@ -134,6 +171,7 @@ export function create(parent, text, readOnly, onEvent) {
         ]),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) send({ type: "change", text: update.state.doc.toString() });
+          if (update.selectionSet || update.docChanged) reportCursor(update.view);
         }),
         EditorView.contentAttributes.of({
           "aria-label": "Lesson.hs",
@@ -143,6 +181,9 @@ export function create(parent, text, readOnly, onEvent) {
     }),
   });
   view.learnEditable = editable;
+  view.learnSend = send;
+  view.learnSource = false;
+  view.learnCursor = null;
   return view;
 }
 
@@ -194,6 +235,24 @@ export function goto(view, line, column) {
   const at = Math.min(l.from + Math.max(column - 1, 0), l.to);
   view.dispatch({ selection: { anchor: at }, scrollIntoView: true });
   view.focus();
+}
+
+// Mark this line (from 1) as the one that made the element under the
+// pointer, scrolled into view if it is not; 0 marks none.
+export function showSource(view, line) {
+  const doc = view.state.doc;
+  const effects = [setSourceLine.of(line)];
+  if (line >= 1 && line <= doc.lines) effects.push(EditorView.scrollIntoView(doc.line(line).from, { y: "nearest" }));
+  view.dispatch({ effects });
+}
+
+// Whether the app wants to hear where the cursor is ("cursor" events). On,
+// the editor says at once, and again whenever the cursor moves: the app
+// turns it on again after a compile to hear it anew.
+export function setSourceMode(view, on) {
+  view.learnSource = on;
+  view.learnCursor = null;
+  reportCursor(view);
 }
 
 export function destroy(view) {

@@ -62,6 +62,34 @@ constructor, a record field, a class's or an instance's methods. A name
 right after a dot, qualified or a record's field, shows no tooltip, and a
 local name that is also a top-level one shows the top-level one's type.
 
+**Source.** Every compile and check passes the playground `--learn-spans`
+(`js/playground.js`), so every element the reader's code builds carries
+`data-learn-src="<line>:<column>"`, where in `Lesson.hs` the element
+function was applied (`learn/README.md` says how the parser plugin does
+it). The Source toggle above the result, enabled once a compile has mounted
+something, reads them back (`js/source.js`): while it is on, the element
+under the pointer is outlined by a box fixed over its rectangle, labelled
+with its position, and its line is marked in the editor (`js/editor.js`'s
+`showSource`); a click on it moves the editor's cursor there, and is stopped
+in the capture phase, so the program does not see it; and the editor tells
+the app where its cursor is (`setSourceMode`, a `cursor` event sent only
+while Source is on), which outlines the element whose position that is, or
+the one that starts last on the cursor's line before it. A new compile
+leaves Source on, over the new elements. GHC's messages quote the code they
+compiled, marks and all; `Learn.Diagnostics.withoutMarks` takes the marks
+out of a run's stderr before the page reads it. What gets a mark: an
+application of an element function of `Halogen.HTML.Elements`, qualified or
+not as the module imports it, to a literal list of properties (`HH.div
+[HP.id "x"] [...]`, `HH.input []`). What does not: an element whose
+properties are not written as a list in place (a list in a variable, a
+comprehension, `props <> more`), the `_` variants (`HH.div_ kids`, which
+have no list to add to), `HH.element` and `HH.withKeys`, SVG's elements
+(`Halogen.Svg.Elements`), and what an `hh` quasi-quote makes; pointing at one
+of those outlines the nearest marked element around it. The marks are
+ordinary attributes, there whether or not Source is on: a test that lists an
+element's attributes sees them, lesson 12's hydration patches them onto the
+prerendered HTML, and lesson 21's wire carries them as `attr` operations.
+
 On a screen under 900 pixels wide the compiler is not loaded by itself (it is
 a 63 MB download and takes 1.2 GB of memory once running): the lesson and its
 code are there to read, and a button loads the compiler anyway.
@@ -107,7 +135,11 @@ for), and checks that every lesson's page arrives with its heading in it,
 that the page is adopted and the compiler loads (printing how long each step
 took) with no `HEAD` request, the manifest giving the version and the sizes,
 that the first two lessons do what their text says (and lesson 15's
-connected views render again only for their own part of the store), that a type error is
+connected views render again only for their own part of the store), that
+Source on lesson 2 outlines the button under the pointer at the position it
+was built at, marks its line, goes there on a click the counter does not
+count, outlines what the editor's cursor is on, and once off lets a click
+count again, that a type error is
 listed at its line with the last result still mounted, that **every lesson's
 `Start.hs` compiles and its `Solution.hs` compiles with no diagnostic and
 shows something** (one line per lesson; for lesson 13, whose program runs a
