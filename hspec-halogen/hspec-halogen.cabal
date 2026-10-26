@@ -43,6 +43,7 @@ library
                       Test.Hspec.Halogen.Internal.Page
     build-depends:
         base,
+        containers,
         protolude,
         text,
         HUnit,
@@ -119,6 +120,7 @@ test-suite hspec-halogen-test
                       Test.LastRun
                       Test.Promised
                       Test.Reconcile
+                      Test.Timeline
                       Test.Todo
                       Test.Window
     ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists -Wunused-packages
@@ -135,6 +137,7 @@ test-suite hspec-halogen-test
         text,
         containers,
         hspec,
+        HUnit,
         row-types,
         unliftio,
         haskell-halogen-core,

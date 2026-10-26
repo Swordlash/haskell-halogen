@@ -28,6 +28,7 @@ import Test.InPage qualified
 import Test.IndexedDB qualified
 import Test.Promised qualified
 import Test.Reconcile qualified
+import Test.Timeline qualified
 import Test.Todo qualified
 
 -- Natively BrowserDOM has no MonadBrowserDOM, which this spec asks for.
@@ -51,6 +52,7 @@ main = runBrowserTests $ do
   describe "IndexedDB" (Test.IndexedDB.spec BrowserDOM)
   describe "Promised" (Test.Promised.spec BrowserDOM)
   describe "Without the runner" (Test.InPage.spec BrowserDOM)
+  describe "A failure's timeline" (Test.Timeline.spec BrowserDOM)
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
   -- These need the browser's DOM ('MonadBrowserDOM'), which 'BrowserDOM'
   -- has only in a browser.

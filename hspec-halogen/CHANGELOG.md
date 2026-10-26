@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+* A test that fails says what the tree did before it failed: while a test
+  runs, `runPage` keeps the last 50 events of core's trace
+  (`Halogen.Trace`), and the failure's message ends with a section "What
+  the tree did", one line per event, oldest first, with its time since the
+  test started, the component's label and id, and what happened
+  (`12.3 ms  Counter#3  action`, `12.9 ms  Counter#3  state changed`,
+  `13.0 ms  Counter#3  rendered in 0.4 ms`). For an expectation of the
+  `shouldBe` kind the section comes before what was expected and what came.
+
 * The worked examples in `test/Example` build their components with
   core's `H.component initialState render [H.onAction handleAction, ...]`
   instead of `H.mkComponent` over a spec made with `H.mkEval` and
