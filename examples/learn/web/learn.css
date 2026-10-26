@@ -215,11 +215,14 @@ button.learn-retry {
   gap: 8px;
 }
 
+/* The editor keeps its height when what is under it (a long list of
+   diagnostics, the types) is more than the column holds: the column
+   scrolls instead. */
 .learn-editor {
   border: 1px solid var(--border);
   border-radius: 6px;
   overflow: hidden;
-  min-height: 0;
+  flex-shrink: 0;
 }
 
 .learn-editor:empty {
