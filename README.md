@@ -8,6 +8,8 @@ Haskell, plus the component and rendering libraries built on top of it.
 [The tutorial](https://swordlash.github.io/haskell-halogen/) teaches it in the browser: each lesson
 is a page with its text, an editor and a Compile button, and GHC itself, compiled to WebAssembly,
 compiles your code in the page and mounts the component beside the text, with no server behind it.
+Its playground is the same compiler with no lesson around it, and its Source button shows which
+line of your code made the element under the pointer.
 The tutorial is a Halogen app too ([examples/learn](examples/learn/README.md)).
 
 AI usage disclaimer: All code until tag `0.9.0` was hand-written. Any later commits might have used Codex or Claude.
@@ -115,8 +117,9 @@ npm run build-wasm-all            # every example, size-optimised with wasm-opt,
 npm run test-learn                # drive the built tutorial in headless Chromium, every lesson compiled
 ```
 
-The tutorial, `examples/learn`, is what GitHub Pages serves: a page per lesson, switched by the
-URL's path (`/02-counter/`) through `haskell-halogen-router`, with GHC in `rootfs/` beside it. The
+The tutorial, `examples/learn`, is what GitHub Pages serves: a page per lesson and one for the
+playground, switched by the URL's path (`/02-counter/`, `/playground/`) through
+`haskell-halogen-router`, with GHC in `rootfs/` beside it. The
 build writes an `index.html` for every route, each with its lesson already rendered into it, so the
 back button, reloads and deep links work on a static host with no 404 fallback.
 [examples/learn/README.md](examples/learn/README.md) says how it is built, tested and deployed, and
