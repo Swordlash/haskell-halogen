@@ -4,7 +4,7 @@ args: -package haskell-halogen-remote
 
 In every lesson so far the component's program and the page it draws were in one place: the program ran in the page and changed its DOM itself. Phoenix LiveView, in Elixir, splits them. The program runs on a server; what it does to its DOM goes over a WebSocket to a small script in the page, which does it; and what the reader does in the page comes back over the same socket to the program's handlers. The page holds no state and runs none of the program, so it has nothing to download but the script, and a server that holds the state can show the same state to every page at once.
 
-`haskell-halogen-remote` does that for Halogen. Compile the code, and under the list you see the wire: every message that crosses it, newest last. Here both ends are in this page, through `Halogen.Remote.Loopback`, so that the wire can be shown; what crosses is what would cross the network.
+`haskell-halogen-remote` does that for Halogen. Compile the code, and under the list you see the wire: every message that crosses it, newest first. Here both ends are in this page, through `Halogen.Remote.Loopback`, so that the wire can be shown; what crosses is what would cross the network.
 
 ## The same component
 

@@ -7,7 +7,7 @@
 -- through Halogen.Remote.Loopback: its operations go, as JSON, to a client
 -- in an element of this page, the page's events come back the same way, and
 -- a page component of its own shows each message under the result as it
--- crosses, newest last. What it keeps for the next run ends that page
+-- crosses, newest first. What it keeps for the next run ends that page
 -- component, whose finalizer ends the loopback.
 module Main (main) where
 
@@ -40,8 +40,14 @@ wire = H.component start render [H.onInitialize mountIt, H.onFinalize stop, H.on
     render st =
       HH.div_
         [ HH.div [HP.ref st.container, HP.class_ (H.ClassName "lesson-remote")] []
-        , HH.p_ [HH.text "The wire, newest last:"]
-        , HH.pre [HP.class_ (H.ClassName "lesson-wire")] [HH.text (T.unlines st.seen)]
+        , HH.p_ [HH.text "The wire, newest first:"]
+        , -- Wrapped, so that a message as wide as the first render's
+          -- reads in the narrow result's column.
+          HH.pre
+            [ HP.class_ (H.ClassName "lesson-wire")
+            , HP.styleText "white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.75rem; max-height: 28rem; overflow-y: auto"
+            ]
+            [HH.text (T.unlines st.seen)]
         ]
     mountIt = do
       st <- get
@@ -53,12 +59,11 @@ wire = H.component start render [H.onInitialize mountIt, H.onFinalize stop, H.on
     stop = do
       st <- get
       for_ st.running (\loopback -> liftIO loopback.dispose)
-    heard (Crossed message) = modify (\s -> s {seen = lastFew (s.seen <> [describe message])})
+    heard (Crossed message) = modify (\s -> s {seen = take 12 (describe message : s.seen)})
     describe = \case
       Loopback.ToPage text -> "to the page:    " <> shorten text
       Loopback.ToProgram text -> "to the program: " <> shorten text
     shorten text = if T.length text > 600 then T.take 600 text <> " …" else text
-    lastFew xs = drop (length xs - 12) xs
 
 main :: IO ()
 main = runBrowserDOM $ do

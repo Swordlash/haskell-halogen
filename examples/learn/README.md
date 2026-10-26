@@ -295,7 +295,7 @@ interpreted program has no binary for one to load), and the jobs run on the
 page. Lesson 21's mounts a page component of its own into `#learn-result`, which mounts
 `component` in `RemoteDOM` with `Halogen.Remote.Loopback.mountIn` into an element of its own (the
 component's operations go to a client there as JSON, the page's events come back) and shows the
-messages as they cross in a `<pre>` under it, newest last; it keeps the page component's `dispose`,
+messages as they cross in a `<pre>` under it, newest first; it keeps the page component's `dispose`,
 whose finalizer disposes of the loopback. A `Main.hs` may also run a
 spec of the lesson's instead, as lesson 13's does: `Lesson` exports `spec` beside `component`, and `main` is
 `HA.endPreviousRun` then `runBrowserTestsIn result (spec BrowserDOM)`
