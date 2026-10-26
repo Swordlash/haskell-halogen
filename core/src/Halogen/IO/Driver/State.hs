@@ -24,6 +24,8 @@ import Halogen.Data.Slot as SlotStorage
 import Halogen.IO.Driver.Runtime (Fiber, Loop)
 import Halogen.Query.HalogenM
 import Halogen.Subscription qualified as HS
+import Halogen.Trace.Internal (Tag (..), newTagId)
+import Type.Reflection (SomeTypeRep (..))
 import Web.DOM.Element (Element)
 
 -- | Where a component is in its life. Its programs run while it is 'Alive';
@@ -73,6 +75,9 @@ data Batch = Batch
 
 data DriverState m r s f act ps i o = DriverState
   { component :: ComponentSpec s f act ps i o m
+  , info :: ComponentInfo s
+  , tag :: Tag
+  -- ^ Who the component is in the trace ("Halogen.Trace").
   , state :: s
   , refs :: Map Text Element
   , children :: SlotStorage ps (DriverStateRef m r)
@@ -134,13 +139,25 @@ renderStateX_ f = unDriverStateX $ \st ->
 unDriverStateX :: (forall s act ps i. DriverState m r s f act ps i o -> a) -> DriverStateX m r f o -> a
 unDriverStateX f (DriverStateX st) = f st
 
+-- | The state of a component being made, the child of the component with
+-- the given id (none for a tree's root).
 initDriverState
-  :: ComponentSpec s f act ps i o m
+  :: ComponentInfo s
+  -> ComponentSpec s f act ps i o m
   -> s
   -> (o -> IO ())
   -> Tree m r
+  -> Maybe Int
   -> IO (DriverState m r s f act ps i o)
-initDriverState component state handler tree = do
+initDriverState info component state handler tree parent = do
+  tagId <- newTagId
+  let tag =
+        Tag
+          { id = tagId
+          , parent
+          , label = info.label
+          , stateType = SomeTypeRep <$> info.stateType
+          }
   selfRef <- newIORef (fix identity)
   handlerRef <- newIORef handler
   pendingQueries <- newIORef (Just [])
@@ -156,6 +173,8 @@ initDriverState component state handler tree = do
   let ds =
         DriverState
           { component
+          , info
+          , tag
           , state
           , refs = mempty
           , children = SlotStorage.empty

@@ -48,17 +48,20 @@ component
   => Renderer scene event m
   -> H.Component H.VoidF scene event m
 component renderer =
-  H.component
-    ( \scene -> do
-        canvasRef <- H.newRefLabel "canvas"
-        pure CanvasState {scene, mounted = Nothing, canvasRef}
-    )
-    render
-    [ H.onAction handleAction
-    , H.onInitialize (handleAction Mount)
-    , H.onFinalize (handleAction Unmount)
-    , H.onReceive (handleAction . Receive)
-    ]
+  -- The state holds the mounted backend, an @m@'s: not 'Typeable' for a
+  -- polymorphic @m@, so the trace counts what the component does without
+  -- carrying its states.
+  H.Component H.ComponentInfo {label = "Halogen.Canvas", stateType = Nothing}
+    $ H.componentSpec
+      ( \scene -> do
+          canvasRef <- H.newRefLabel "canvas"
+          pure CanvasState {scene, mounted = Nothing, canvasRef}
+      )
+      render
+    & H.onAction handleAction
+    & H.onInitialize (handleAction Mount)
+    & H.onFinalize (handleAction Unmount)
+    & H.onReceive (handleAction . Receive)
   where
     render :: CanvasState scene m -> H.ComponentHTML (Action scene event) Empty m
     render CanvasState {canvasRef} =

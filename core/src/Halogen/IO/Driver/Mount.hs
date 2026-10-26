@@ -12,9 +12,11 @@ module Halogen.IO.Driver.Mount
 where
 
 import Control.Exception (onException, throwIO, try)
+import Data.Dynamic (Dynamic (..))
 import Data.Map.Strict qualified as M
 import Data.NT
 import Data.Row
+import GHC.Clock (getMonotonicTime)
 import HPrelude hiding (get, onException, throwIO, try)
 import Halogen.Component
 import Halogen.Data.Slot qualified as Slot
@@ -26,9 +28,12 @@ import Halogen.Query.HalogenQ qualified as HQ
 import Halogen.Query.Input
 import Halogen.Query.Input qualified as Input
 import Halogen.Subscription qualified as HS
+import Halogen.Trace.Internal qualified as Trace
 import Halogen.VDom.DOM.Prop (ElemRef (..))
+import Type.Reflection (eqTypeRep, (:~~:) (..))
 import Unsafe.Coerce (unsafeCoerce)
 import Web.DOM.Element (Element)
+import Web.DOM.Internal.Types (Node)
 
 data HalogenSocket query output m = HalogenSocket
   { query :: forall a. query a -> m (Maybe a)
@@ -55,6 +60,10 @@ data RenderSpec (m :: Type -> Type) (r :: Type -> Type -> Row Type -> Type -> Ty
   -- what its elements are (on wasm two handles for one element need not be
   -- equal), and the driver asks when a @ref@'s element is removed: see
   -- 'Input.RefUpdate'. A renderer that makes no elements is never asked.
+  , rootNode :: forall s act ps o. r s act ps o -> m (Maybe Node)
+  -- ^ The DOM node that stands for a component's rendering on the page,
+  -- for "Halogen.Trace"'s 'Halogen.Trace.rootNode' (a panel outlines it).
+  -- 'Nothing' from a renderer whose output is not the DOM's.
   }
 
 -- | Mount a component. The tree runs on a loop of its own (see
@@ -112,7 +121,7 @@ mount toTheEnd spec@RenderSpec {dispose} c i = withRunInIO $ \runInIO -> do
   let emit o = runInIO (HS.notify sio.listener o)
   enter loop $ do
     -- The initializers have run their synchronous parts when this returns.
-    root <- withBatch tree (runComponent tree spec emit i c)
+    root <- withBatch tree (runComponent tree spec Nothing emit i c)
     if toTheEnd
       then whenInitialized tree (putMVar mounted root)
       else putMVar mounted root
@@ -187,13 +196,21 @@ runComponent
    . (MonadIO m)
   => Tree m r
   -> RenderSpec m r
+  -> Maybe Int
   -> (o' -> IO ())
   -> i'
   -> Component f' i' o' m
   -> IO (DriverStateRef m r f' o')
-runComponent tree spec handler input (Component cs) = do
+runComponent tree spec parent handler input (Component info cs) = do
   initial <- treeRunM tree (cs.initialState input)
-  ds <- initDriverState cs initial handler tree
+  ds <- initDriverState info cs initial handler tree parent
+  Trace.emit ds.tag Trace.Mounted
+  Trace.register
+    ds.tag.id
+    Trace.Entry
+      { restore = restoreWith tree spec ds.selfRef
+      , node = readIORef ds.selfRef >>= \d -> join <$> traverse (treeRunM tree . specRootNode spec) d.rendering
+      }
   b <- currentBatch tree
   before <- atomicModifyIORef' b.initializers ([],)
   renderComponent tree spec ds.selfRef
@@ -220,6 +237,7 @@ runComponent tree spec handler input (Component cs) = do
             ks <- atomicModifyIORef' tree.initializing $ \(n, ks) ->
               if n == 1 then ((0, []), ks) else ((n - 1, ks), [])
             sequence_ (reverse ks)
+          Trace.emit ds.tag Trace.Initialized
           handlePending ds.pendingQueries >> handlePending ds.pendingOuts
   writeIORef b.initializers (initializer : before)
   pure (DriverStateRef var)
@@ -244,9 +262,18 @@ renderComponent tree spec var = do
         when outermost $ writeIORef ds.pendingHandlers (Just [])
         let passes = do
               writeIORef ds.renderAgain False
-              renderPass tree spec var
+              timed (renderPass tree spec var)
               again <- readIORef ds.renderAgain
               when again passes
+            -- The clock is read only for a listener.
+            timed pass' =
+              Trace.listening >>= \case
+                False -> pass'
+                True -> do
+                  start <- getMonotonicTime
+                  pass'
+                  end <- getMonotonicTime
+                  Trace.emit ds.tag (Trace.Rendered ((end - start) * 1000))
             handlers = do
               pending <- readIORef ds.pendingHandlers
               writeIORef ds.pendingHandlers (Just [])
@@ -300,7 +327,7 @@ renderPass tree spec var = do
             $ specRender
               spec
               (liftIO . handler)
-              (liftIO . slotChild tree spec childHandler childrenIn childrenOut created)
+              (liftIO . slotChild tree spec ds.tag.id childHandler childrenIn childrenOut created)
               (ds.component.render ds.state)
               ds.rendering
         children <- readIORef childrenOut
@@ -322,13 +349,14 @@ slotChild
    . (MonadIO m)
   => Tree m r
   -> RenderSpec m r
+  -> Int
   -> (act -> IO ())
   -> IORef (Slot.SlotStorage ps (DriverStateRef m r))
   -> IORef (Slot.SlotStorage ps (DriverStateRef m r))
   -> IORef [IO ()]
   -> ComponentSlotBox ps m act
   -> IO (RenderStateX r)
-slotChild tree spec handler childrenIn childrenOut created ComponentSlotBox {..} = do
+slotChild tree spec parent handler childrenIn childrenOut created ComponentSlotBox {..} = do
   ref <-
     pop <$> readIORef childrenIn >>= \case
       Just (existing@(DriverStateRef child), rest) -> do
@@ -341,7 +369,7 @@ slotChild tree spec handler childrenIn childrenOut created ComponentSlotBox {..}
         launchOwned child False (const pass) (evalM child (runNT (unsafeCoerce cds.component.eval) (HQ.Receive input ()))) (report "A child's Receive")
         pure existing
       Nothing -> do
-        new@(DriverStateRef child) <- runComponent tree spec (maybe pass handler . output) input component
+        new@(DriverStateRef child) <- runComponent tree spec (Just parent) (maybe pass handler . output) input component
         -- Taken back if the pass fails.
         modifyIORef' created ((readIORef child >>= discard tree spec . DriverStateX) :)
         pure new
@@ -360,6 +388,8 @@ discard :: Tree m r -> RenderSpec m r -> DriverStateX m r f o -> IO ()
 discard tree spec (DriverStateX ds0) = do
   ds <- readIORef ds0.selfRef
   writeIORef ds.life Dead
+  Trace.deregister ds.tag.id
+  Trace.emit ds.tag Trace.Finalized
   traverse_ cancelFiber =<< readIORef ds.fibers
   traverse_ HS.unsubscribe =<< atomicModifyIORef' ds.subscriptions (mempty,)
   Slot.foreachSlot ds.children $ \(DriverStateRef child) ->
@@ -382,6 +412,8 @@ finalize tree (DriverStateX ds0) = withBatch tree $ do
   life <- readIORef ds.life
   when (life == Alive) $ do
     writeIORef ds.life Closing
+    Trace.deregister ds.tag.id
+    Trace.emit ds.tag Trace.Finalized
     traverse_ cancelFiber =<< readIORef ds.fibers
     writeIORef ds.forks mempty
     traverse_ HS.unsubscribe =<< atomicModifyIORef' ds.subscriptions (mempty,)
@@ -394,6 +426,31 @@ finalize tree (DriverStateX ds0) = withBatch tree $ do
     modifyIORef' b.finalizers (finalizer :)
     Slot.foreachSlot ds.children $ \(DriverStateRef child) ->
       readIORef child >>= finalize tree . DriverStateX
+
+-- | 'Halogen.Trace.restoreState' for one component: through its tree's
+-- loop, as any of the tree's work, the state is put in and rendered, as a
+-- program's 'Control.Monad.State.put' would be. A component that has gone,
+-- or whose state's type is not this or is not known, is left alone.
+restoreWith :: (MonadIO m) => Tree m r -> RenderSpec m r -> IORef (DriverState m r s f act ps i o) -> Dynamic -> IO Bool
+restoreWith tree spec var (Dynamic given value) = do
+  ds0 <- readIORef var
+  case ds0.info.stateType of
+    Just stateType
+      | Just HRefl <- eqTypeRep given stateType -> do
+          done <- newEmptyMVar
+          -- Whichever thread runs this, a failure goes back to the caller.
+          enter tree.loop $ putMVar done <=< (try :: IO Bool -> IO (Either SomeException Bool)) $ do
+            ds <- readIORef var
+            life <- readIORef ds.life
+            if life /= Alive
+              then pure False
+              else do
+                writeIORef var ds {state = value}
+                Trace.emit ds.tag (Trace.StateChanged (Just (Dynamic stateType value)))
+                renderComponent tree spec var
+                pure True
+          takeMVar done >>= either throwIO pure
+    _ -> pure False
 
 readRef :: DriverStateRef m r f o -> IO (DriverStateX m r f o)
 readRef (DriverStateRef var) = DriverStateX <$> readIORef var
@@ -416,3 +473,6 @@ specSameElement RenderSpec {sameElement} = sameElement
 
 specChild :: RenderSpec m r -> r s act ps o -> r s act ps o
 specChild RenderSpec {renderChild = child} = child
+
+specRootNode :: RenderSpec m r -> r s act ps o -> m (Maybe Node)
+specRootNode RenderSpec {rootNode} = rootNode

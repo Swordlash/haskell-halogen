@@ -82,18 +82,21 @@ list
    . (MonadMaterial m, MonadUUID m)
   => H.Component (ListQuery slots q) (ListSpec a slots i m) (ListOutput i) m
 list =
-  H.component
-    ( \ListSpec {..} -> do
-        ref <- H.newRefLabel "list"
-        pure ListState {mdcList = Nothing, mdcItems = [], ..}
-    )
-    render
-    [ H.onAction handleAction
-    , H.onQuery handleQuery
-    , H.onInitialize (handleAction Initialize)
-    , H.onFinalize (handleAction DestroyRipples)
-    , H.onReceive (const (handleAction InitRipples))
-    ]
+  -- The state holds HTML of the caller's @m@, which is not 'Typeable' for a
+  -- polymorphic @m@: the trace counts what the list does without carrying
+  -- its states.
+  H.Component H.ComponentInfo {label = "Halogen.Material.List", stateType = Nothing}
+    $ H.componentSpec
+      ( \ListSpec {..} -> do
+          ref <- H.newRefLabel "list"
+          pure ListState {mdcList = Nothing, mdcItems = [], ..}
+      )
+      render
+    & H.onAction handleAction
+    & H.onQuery handleQuery
+    & H.onInitialize (handleAction Initialize)
+    & H.onFinalize (handleAction DestroyRipples)
+    & H.onReceive (const (handleAction InitRipples))
   where
     render :: ListState a slots i m -> HH.ComponentHTML (ListAction i) slots m
     render ListState {elemRenderer = ElemRenderer {..}, ..} =
