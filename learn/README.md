@@ -64,9 +64,10 @@ stays a local tool, for trying the compiler with nothing around it.
 ## Build and run
 
 ```sh
-npm run build-rootfs                # dist-newstyle/wasm/learn/, zstd -19 (two and a half minutes on 4 cores)
-ZSTD_CLEVEL=3 npm run build-rootfs  # the same in 20 seconds, 18 MB larger
-LEARN_REPORT=1 npm run build-rootfs # also each part's compressed size (five minutes)
+npm run build-rootfs                # dist-newstyle/wasm/learn/, zstd -12 (under a minute on 4 cores, our libraries built)
+ZSTD_CLEVEL=3 npm run build-rootfs  # the same in half a minute, 12 MB larger
+ZSTD_CLEVEL=19 npm run build-rootfs # in two and a half minutes, 6 MB smaller
+LEARN_REPORT=1 npm run build-rootfs # also each part's compressed size (ten seconds more)
 npm run test-playground             # headless Chromium, prints timings and memory
 LEARN_ONLY=th npm run test-playground  # the base runs and only the layers named
 python3 -m http.server -d dist-newstyle/wasm/learn 8000   # or any static server
@@ -175,16 +176,18 @@ check` holds and `-package ghc` with `import GHC.Data.FastString` says
 "Could not find module" rather than failing on a missing interface. Its
 library stays, as `libplayground.so` is linked with it and dyld loads it by
 file name. `LEARN_GHC_API=1` keeps `ghc` exposed with its interfaces (the
-archive is then 8.4 MB larger); a program using the GHC API was checked to
+archive is then about 9 MB larger); a program using the GHC API was checked to
 compile and run in the page with it, and to fail as above without.
 
-What it saved, at `zstd -19`:
+What it saved, at `zstd -12` (the parts each compressed alone, as
+`LEARN_REPORT=1` does; the archive before is one built with only `Cabal` and
+`Cabal-syntax` trimmed and `LEARN_GHC_API=1`):
 
-| | Uncompressed | zstd -19 |
+| | Uncompressed | zstd -12 |
 | --- | ---: | ---: |
-| the eight packages beyond Cabal (`.so` and `.dyn_hi`) | 14.1 MB | 2.4 MB |
-| `ghc`'s interfaces | 32.2 MB | 8.4 MB |
-| **`rootfs.tar.zst`** | 411.1 → **364.7 MB** | 62.9 → **52.0 MB** |
+| the eight packages beyond Cabal (`.so` and `.dyn_hi`) | 14.1 MB | 2.7 MB |
+| `ghc`'s interfaces | 32.2 MB | 9.1 MB |
+| **`rootfs.tar.zst`** | 411.8 → **365.4 MB** | 68.1 → **56.3 MB** |
 
 Every test run passes on the trimmed rootfs, Template Haskell and the `th`
 layer's quasi-quoter included.
@@ -218,32 +221,33 @@ base layer already), none of it a boot package the script trims.
 
 The layers (`DEFAULT_LAYERS` in the script; `LEARN_LAYERS='name=pkg,pkg
 ...'` for others, `LEARN_LAYERS=` for none). Sizes are the archive's at
-`zstd -19`; load time is the page's, from asking for the layer to its files
-extracted and its assets loaded; first run is the first program using it,
-which loads its libraries into dyld and compiles. Three runs of
+`zstd -12`, all of one build; load time is the page's, from asking for the
+layer to its files extracted and its assets loaded; first run is the first
+program using it, which loads its libraries into dyld and compiles. Three runs of
 `npm run test-playground`:
 
-| Layer | Packages | Units | Uncompressed | zstd -19 | Assets on the page | Load | First run |
+| Layer | Packages | Units | Uncompressed | zstd -12 | Assets on the page | Load | First run |
 | --- | --- | ---: | ---: | ---: | --- | ---: | ---: |
-| `hooks` | `haskell-halogen-hooks` | 1 | 0.81 MB | 0.13 MB | none | 28–33 ms | 1.2–1.3 s |
-| `router` | `haskell-halogen-router` | 1 | 0.88 MB | 0.14 MB | none | 22–23 ms | 2.8–3.5 s |
-| `net` | `haskell-halogen-net` | 1 | 0.68 MB | 0.11 MB | none | 21–29 ms | 0.6–0.8 s |
-| `elements` | `haskell-halogen-custom-element` | 1 | 0.43 MB | 0.08 MB | none | 22–25 ms | 0.5–0.7 s |
-| `devtools` | `haskell-halogen-devtools` | 1 | 0.71 MB | 0.11 MB | none | 23–24 ms | 1.2–1.5 s |
-| `material` | `haskell-halogen-material` (+ `clock`, `extra`) | 3 | 2.58 MB | 0.36 MB | `material.js` 127 KB, `material.css` 206 KB; the Material Icons font from fonts.gstatic.com | 56–65 ms | 0.7–1.3 s |
-| `pixi` | `haskell-halogen-pixi` | 1 | 0.97 MB | 0.15 MB | none; PixiJS 8.20.1 from jsDelivr (0.8 MB), which the library imports itself | 27–31 ms | 1.4–1.6 s |
-| `three` | `haskell-halogen-three` | 1 | 1.17 MB | 0.19 MB | none; Three.js 0.186.1 from jsDelivr (0.75 MB, 0.19 MB with brotli), which the library imports itself | 26 ms | 2.0–2.1 s |
-| `th` | `haskell-halogen-th` (+ `ghc-lib-parser`, `megaparsec`, `parser-combinators`, `tagsoup`, `css-syntax`, `case-insensitive`) | 7 | 194.7 MB | 21.4 MB | none | 2.1–3.9 s | 8.0–12.0 s |
-| `hspec` | `hspec-halogen` (+ `hspec`, `hspec-core`, `hspec-expectations`, `hspec-discover`, `HUnit`, `quickcheck-io`, `ansi-terminal`, `ansi-terminal-types`, `colour`, `call-stack`, `haskell-lexer`) | 12 | 12.6 MB | 1.34 MB | none | 98–100 ms | 3.6–4.1 s |
-| `store` | `haskell-halogen-store` | 1 | 0.49 MB | 0.07 MB | none | 23–25 ms | 0.9–1.7 s |
+| `hooks` | `haskell-halogen-hooks` | 1 | 0.82 MB | 0.14 MB | none | 28–33 ms | 1.2–1.3 s |
+| `router` | `haskell-halogen-router` | 1 | 0.88 MB | 0.15 MB | none | 22–23 ms | 2.8–3.5 s |
+| `net` | `haskell-halogen-net` | 1 | 0.68 MB | 0.12 MB | none | 21–29 ms | 0.6–0.8 s |
+| `elements` | `haskell-halogen-custom-element` | 1 | 0.43 MB | 0.09 MB | none | 22–25 ms | 0.5–0.7 s |
+| `devtools` | `haskell-halogen-devtools` | 1 | 0.77 MB | 0.13 MB | none | 23–24 ms | 1.2–1.5 s |
+| `material` | `haskell-halogen-material` (+ `clock`, `extra`) | 3 | 2.62 MB | 0.40 MB | `material.js` 127 KB, `material.css` 206 KB; the Material Icons font from fonts.gstatic.com | 56–65 ms | 0.7–1.3 s |
+| `pixi` | `haskell-halogen-pixi` | 1 | 0.97 MB | 0.17 MB | none; PixiJS 8.20.1 from jsDelivr (0.8 MB), which the library imports itself | 27–31 ms | 1.4–1.6 s |
+| `three` | `haskell-halogen-three` | 1 | 1.17 MB | 0.20 MB | none; Three.js 0.186.1 from jsDelivr (0.75 MB, 0.19 MB with brotli), which the library imports itself | 26 ms | 2.0–2.1 s |
+| `th` | `haskell-halogen-th` (+ `ghc-lib-parser`, `megaparsec`, `parser-combinators`, `tagsoup`, `css-syntax`, `case-insensitive`) | 7 | 194.7 MB | 23.4 MB | none | 2.1–3.9 s | 8.0–12.0 s |
+| `hspec` | `hspec-halogen` (+ `hspec`, `hspec-core`, `hspec-expectations`, `hspec-discover`, `HUnit`, `quickcheck-io`, `ansi-terminal`, `ansi-terminal-types`, `colour`, `call-stack`, `haskell-lexer`) | 12 | 12.7 MB | 1.48 MB | none | 98–100 ms | 3.6–4.1 s |
+| `store` | `haskell-halogen-store` | 1 | 0.52 MB | 0.09 MB | none | 23–25 ms | 0.9–1.7 s |
 | `worker` | `haskell-halogen-worker` | 1 | 0.20 MB | 0.04 MB | none | 20–21 ms | 7.4–9.5 s |
-| `lazy` | `haskell-halogen-lazy`, `haskell-halogen-lazy-demo` | 2 | 0.27 MB | 0.06 MB | none; `liblazy-demo.so` (64 KB), which its program fetches itself (below) | 19–27 ms | 6.2–7.2 s |
-| `live` | `haskell-halogen-remote` | 1 | 1.19 MB | 0.18 MB | none | 24–31 ms | 9.4–10.2 s |
-| **all fourteen** | | 34 | 217.8 MB | 24.9 MB | 0.33 MB | 2.3–2.5 s | |
-| all but `th` | | 27 | 23.1 MB | 2.98 MB | 0.33 MB | 0.41–0.47 s | |
+| `lazy` | `haskell-halogen-lazy`, `haskell-halogen-lazy-demo` | 2 | 0.28 MB | 0.06 MB | none; `liblazy-demo.so` (64 KB), which its program fetches itself (below) | 19–27 ms | 6.2–7.2 s |
+| `live` | `haskell-halogen-remote` | 1 | 1.25 MB | 0.21 MB | none | 24–31 ms | 9.4–10.2 s |
+| **all fourteen** | | 34 | 217.9 MB | 26.7 MB | 0.33 MB | 2.3–2.5 s | |
+| all but `th` | | 27 | 23.2 MB | 3.29 MB | 0.33 MB | 0.41–0.47 s | |
 
-(The `hspec` row is from three later runs, on a machine other builds were
-sharing; `th` loaded in 1.6–1.8 s in them. The `elements` row is from
+(The times are from runs of rootfs builds at `zstd -19`, before 12 was the
+default, and the sizes these notes give are of those builds. The `hspec` row
+is from three later runs, on a machine other builds were sharing; `th` loaded in 1.6–1.8 s in them. The `elements` row is from
 three runs later again, of a rootfs in which `th`'s archive was 21.9 MB and
 `material`'s 2.61 MB uncompressed, and `th` loaded in 1.5–1.8 s. The
 `store` and `devtools` rows are each from three runs of a rootfs with that
@@ -283,7 +287,7 @@ other, with `hspec` itself rather than `hspec-core` alone: `hspec-core` is
 and `hspec` adds 0.1 MB.
 
 Of `th`'s, `ghc-lib-parser` is 158.8 MB of `.so` and 22.0 MB of interfaces:
-it is about as big as `libHSghc`, and its archive (21.4 MB) is 43% of the
+it is about as big as `libHSghc`, and its archive (23.4 MB) is 42% of the
 base one, so it stays a layer of its own that only a lesson about the
 quasi-quoters loads. It is well under the per-file limit, so it is one file.
 
@@ -376,7 +380,7 @@ That a layer has its own DB is the practical way, for two reasons found here:
 into `<archive>.00`, `.01`, ..., and the manifest lists the parts in order;
 the page fetches them one after the other and joins the bytes before
 extracting. Nothing is that large today (the largest file is
-`rootfs.tar.zst`, 50.0 MB); `LEARN_PART_MB=20` was used to check it, with
+`rootfs.tar.zst`, 56.3 MB); `LEARN_PART_MB=20` was used to check it, with
 the base archive in four parts and `th`'s in two, and the test passed.
 
 ### The manifest: `rootfs.json`
@@ -459,37 +463,43 @@ a layer does not load while a program compiles.
 ## Measurements
 
 Measured here: a 4-core cloud VM, headless Chromium (Playwright's 1243
-build), the page served from localhost by `test-playground.mjs`, the release build
-(`zstd -19`, dyld patched as below). Times are three runs of
-`npm run test-playground` on a clean build.
+build), the page served from localhost by `test-playground.mjs`, dyld
+patched as below. Times are three runs of `npm run test-playground` on a
+clean build, made when the archives were packed at `zstd -19`; sizes are of
+a build at `zstd -12`, the default since.
 
 ### Sizes
 
-Compressed sizes are each part compressed alone at `zstd -19`, as
-`LEARN_REPORT=1` measures them, here of the deployed rootfs; they add up to
-51.6 MB, and the archive is 1.6 MB smaller. A local build packed the same
-uncompressed sizes into 52.0 MB, so the archive's size moves by a few percent
-from one build to the next.
+Compressed sizes are each part compressed alone at `zstd -12`, as
+`LEARN_REPORT=1` measures them, of a local build; they add up to 56.1 MB,
+and the archive is 56.3 MB. (At `zstd -19` the parts of the deployed rootfs
+added up to 51.6 MB and its archive was 50.0 MB, and a local build packed
+the same uncompressed sizes into 52.0 MB: the archive's size moves by a few
+percent from one build to the next.)
 
-| Part | Uncompressed | zstd -19 |
+| Part | Uncompressed | zstd -12 |
 | --- | ---: | ---: |
-| `libplayground.so` | 0.06 MB | 0.01 MB |
-| `/tmp/clib` (.so) | 6.8 MB | 0.8 MB |
-| boot libraries (.so) | 231.4 MB | 34.0 MB |
-| &nbsp;&nbsp;of which `libHSghc` | 169.5 MB | 25.6 MB |
-| boot libraries (.dyn_hi), without `ghc`'s | 21.7 MB | 5.3 MB |
-| base layer (.so, 62 units) | 84.5 MB | 7.2 MB |
-| base layer (.dyn_hi) | 18.8 MB | 4.1 MB |
+| `libplayground.so` | 0.41 MB | 0.06 MB |
+| `/tmp/clib` (.so) | 6.8 MB | 0.9 MB |
+| boot libraries (.so) | 231.4 MB | 36.6 MB |
+| &nbsp;&nbsp;of which `libHSghc` | 169.5 MB | 27.2 MB |
+| boot libraries (.dyn_hi), without `ghc`'s | 21.7 MB | 5.8 MB |
+| base layer (.so, 62 units) | 84.8 MB | 8.1 MB |
+| base layer (.dyn_hi) | 18.9 MB | 4.4 MB |
 | rest of the libdir (settings, package DB) | 1.3 MB | 0.2 MB |
-| **`rootfs.tar.zst`** | **364.7 MB** | **50.0 MB** |
-| the layers but `th` (six archives) | 18.5 MB | 2.2 MB |
-| the `th` layer | 194.7 MB | 21.4 MB |
+| **`rootfs.tar.zst`** | **365.4 MB** | **56.3 MB** |
+| the layers but `th` (thirteen archives) | 23.2 MB | 3.3 MB |
+| the `th` layer | 194.7 MB | 23.4 MB |
 | material's assets (`material.js`, `material.css`) | 0.33 MB | |
 | `bsdtar.wasm` | | 1.2 MB |
 | `dyld.mjs` + `post-link.mjs` + `prelude.mjs`, `browser_wasi_shim.js`, page, manifest | | 0.16 MB |
 
-At `zstd -3` the base archive is 64.3 MB and `th`'s 27.1 MB. The largest file
-served is `rootfs.tar.zst`, 50.0 MB; the whole output directory is 75.3 MB.
+Packing all the archives takes 8 s on this machine at `zstd -12`, 129 s at
+`-19` and 1.5 s at `-3`. At `zstd -19` the base archive is 52.0 MB and
+`th`'s 21.9 MB, 6.1 MB less in all; at `-3` 64.4 MB and 27.1 MB, 12.2 MB
+more. CI and the deploy use 12, a sixteenth of the time 19 takes for 8%
+more bytes. The largest file served is `rootfs.tar.zst`, 56.3 MB; the whole
+output directory is 84.8 MB.
 
 ### Time
 
@@ -513,7 +523,7 @@ layer takes 2–4 s to fetch and extract its 195 MB, and its first run another
 8–12 s, which is loading its libraries, `ghc-lib-parser`'s 159 MB above
 all, into dyld: run again it takes 0.6 s, and 1.1 s with the quote edited
 (measured once, in a page that loaded only `th`). Over the network the download dominates:
-50 MB is about 16 s at 25 Mbit/s, 4 s at 100 Mbit/s; `th` adds 7 s or 2 s.
+56 MB is about 18 s at 25 Mbit/s, 4.5 s at 100 Mbit/s; `th` adds 7.5 s or 2 s.
 
 **dyld patch.** GHC's `dyld.mjs`, as it ships, builds each library's import
 object with `{ ...this.exportFuncs }`: a copy of every function every library
@@ -577,21 +587,21 @@ layer):
 
 ## Pages
 
-- **Per file**: the largest file is `rootfs.tar.zst`, 50.0 MB, and `th`'s
-  archive is 21.4 MB, both under the 100 MB GitHub allows a file. Should an
+- **Per file**: the largest file is `rootfs.tar.zst`, 56.3 MB, and `th`'s
+  archive is 23.4 MB, both under the 100 MB GitHub allows a file. Should an
   archive grow past `LEARN_PART_MB` (95 MB), the build splits it into parts
   and the page joins them (above), so the limit cannot be hit unnoticed.
 - **What is deployed**: the tutorial (`examples/learn`), whose build copies
   this directory, but for `index.html` and `index.js`, to `rootfs/` beside
   the app; this page is not deployed.
-- **Site size**: 79 MB, the rootfs 75 MB of it (53 MB without the `th`
+- **Site size**: 88 MB, the rootfs 85 MB of it (61 MB without the `th`
   layer), far from the 1 GB limit.
 - **Bandwidth per cold load**: the page, `bsdtar.wasm`, the manifest and
-  `rootfs.tar.zst` are 52.0 MB; a lesson with any of the small layers adds
-  at most 3.3 MB (all thirteen and material's assets; `hspec`'s is the largest,
-  1.3 MB; lesson 18 also fetches `liblazy-demo.so`, 64 KB), and the `th` lesson 21.9 MB more, 77.2 MB in all. Pages has a
-  soft limit of 100 GB a month: about 1,810 cold loads a month without
-  `th`, about 1,300 if every reader also loaded `th`. Its responses are cacheable (10 minutes, then revalidated
+  `rootfs.tar.zst` are 57.7 MB; a lesson with any of the small layers adds
+  at most 3.6 MB (all thirteen and material's assets; `hspec`'s is the largest,
+  1.5 MB; lesson 18 also fetches `liblazy-demo.so`, 64 KB), and the `th` lesson 23.4 MB more, 84.7 MB in all. Pages has a
+  soft limit of 100 GB a month: about 1,630 cold loads a month without
+  `th`, about 1,180 if every reader also loaded `th`. Its responses are cacheable (10 minutes, then revalidated
   with an ETag), and the tutorial keeps the archives in the Cache API under
   the manifest's `version`, so a returning reader downloads them again only
   when a deploy has changed them. Not counted:
@@ -635,7 +645,7 @@ It proves:
   clicks and keystrokes are synthetic events rather than Playwright's
   (`hspec-halogen/README.md`, "Without the runner").
 - Template Haskell splices run in the page (`$(litE ...)`, and `hh`).
-- The boot libraries can be trimmed by 46 MB (11 MB compressed) without
+- The boot libraries can be trimmed by 46 MB (12 MB compressed) without
   breaking anything a program here does.
 
 It does not show:
@@ -668,7 +678,7 @@ It does not show:
   iOS Safari's limits are tighter still. A mobile reader may need a
   "read-only" fallback (prerendered results) rather than a live compiler, and
   the `th` lesson is the one most likely to fail on a small machine.
-- **Download**: 50 MB before the first compile (21 MB more for `th`), and
+- **Download**: 56 MB before the first compile (23 MB more for `th`), and
   Pages' bandwidth limit above. The tutorial keeps the archives in the Cache
   API, so a returning reader downloads them again only after a deploy that
   changed them.
