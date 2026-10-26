@@ -204,6 +204,58 @@ button.learn-retry {
   justify-content: space-between;
 }
 
+/* The playground: a narrow panel in place of the text, with the layers to
+   check and the arguments to add. */
+
+.learn-lesson.learn-playground {
+  grid-template-columns: minmax(0, 0.65fr) minmax(0, 1.3fr) minmax(0, 1fr);
+}
+
+.learn-layers {
+  margin: 1em 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.learn-layers legend {
+  padding: 0 4px;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.learn-layers ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.learn-layer {
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.learn-extra label {
+  display: block;
+  font-size: 0.9rem;
+  margin-bottom: 4px;
+}
+
+.learn-extra-args {
+  width: 100%;
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
 .learn-code,
 .learn-result-column {
   border-left: 1px solid var(--border);

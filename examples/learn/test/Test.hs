@@ -1,11 +1,16 @@
 -- | What the tutorial reads natively: the Markdown of a lesson's text
 -- ("Learn.Markdown"), read at compile time, so that what it gets wrong
--- fails here rather than shows on a page, and GHC's output
--- ("Learn.Diagnostics", "Learn.Types").
+-- fails here rather than shows on a page, GHC's output
+-- ("Learn.Diagnostics", "Learn.Types"), and the playground's addresses and
+-- arguments ("Learn.Route", "Learn.Playground").
 module Main (main) where
 
+import Halogen.Router.Duplex qualified as Duplex
 import Learn.Diagnostics (didNotCompile, withoutMarks)
+import Learn.Lesson (parseDirectoryName)
 import Learn.Markdown (Block (..), Inline (..), parseInlines, parseMarkdown)
+import Learn.Playground (Handoff (..), decodeHandoff, encodeHandoff, fromLesson, packageArgs, readLayers, showLayers, withoutPackages)
+import Learn.Route (Route (..), route)
 import Learn.Types (Binding (..), displayName, splitTypes)
 import Protolude
 import Test.Hspec (Spec, describe, hspec, it, shouldBe, shouldSatisfy)
@@ -15,6 +20,31 @@ main = hspec $ do
   markdown
   diagnostics
   types
+  playground
+
+playground :: Spec
+playground = describe "Learn.Playground" $ do
+  it "is at playground/, which is no lesson's address" $ do
+    rightToMaybe (Duplex.parse route "/playground/") `shouldBe` Just Playground
+    Duplex.print route Playground `shouldBe` "/playground/"
+    rightToMaybe (Duplex.parse route "/02-counter/") `shouldBe` Just (LessonPage "02-counter")
+    -- A lesson's directory, its slug, starts with its number.
+    parseDirectoryName "playground" `shouldSatisfy` isLeft
+  it "names each package of the layers checked once, but the base layer's" $
+    packageArgs
+      ["haskell-halogen-jsbits", "haskell-halogen-core"]
+      [("hooks", ["haskell-halogen-hooks"]), ("lazy", ["haskell-halogen-lazy", "haskell-halogen-lazy-demo"]), ("odd", ["haskell-halogen-core", "haskell-halogen-hooks"])]
+      ["lazy", "odd", "hooks"]
+      `shouldBe` ["-package", "haskell-halogen-hooks", "-package", "haskell-halogen-lazy", "-package", "haskell-halogen-lazy-demo"]
+  it "takes a lesson's layers, and its arguments but for the -package flags its layers give" $ do
+    let handoff = Handoff {code = "module Lesson where\n", layers = ["lazy"], args = ["-package", "haskell-halogen-lazy", "-fdefer-typed-holes", "-package", "haskell-halogen-lazy-demo"]}
+    fromLesson handoff `shouldBe` (["lazy"], "-fdefer-typed-holes")
+    withoutPackages ["-package"] `shouldBe` ["-package"]
+    decodeHandoff (encodeHandoff handoff) `shouldBe` Just handoff
+    decodeHandoff "not a hand-off" `shouldBe` Nothing
+  it "keeps the layers as it reads them" $ do
+    readLayers (showLayers ["store", "hooks"]) `shouldBe` ["store", "hooks"]
+    readLayers "" `shouldBe` []
 
 diagnostics :: Spec
 diagnostics = describe "Learn.Diagnostics" $ do

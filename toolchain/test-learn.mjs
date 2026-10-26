@@ -17,7 +17,10 @@
 // request; the first two lessons compile and run as their text says, and a
 // type error is reported at its line with the last result still showing;
 // Source on lesson 2 outlines what the pointer and the editor's cursor are
-// on, marks its line and goes there on a click the program does not get;
+// on, marks its line and goes there on a click the program does not get, and
+// no mark shows in what GHC says; the playground's page is prerendered, takes
+// lesson 2's code from its Open in playground, compiles its template, loads
+// the store layer when it is checked, and keeps all that for the next visit;
 // every lesson in examples/learn/lessons compiles its Solution.hs without a
 // diagnostic and shows something (one line per lesson, which is how a new
 // lesson is checked); an error GHC throws rather than reports is still a
@@ -101,6 +104,21 @@ for (const slug of (await readdir(lessonsDir)).sort()) {
 }
 assert.ok(lessons.length >= 2, "at least the two first lessons");
 
+// A program for the playground that needs the store layer's package: it
+// imports one of its modules, and shows that it compiled.
+const storeProgram = `{-# LANGUAGE OverloadedStrings #-}
+
+module Lesson (component) where
+
+import Control.Monad.IO.Class (MonadIO)
+import Halogen qualified as H
+import Halogen.HTML qualified as HH
+import Halogen.Store.Monad ()
+
+component :: forall q o m. (MonadIO m) => H.Component q () o m
+component = H.component (\\_ -> pure ()) (\\_ -> HH.p_ [HH.text "The store's package is here."]) []
+`;
+
 const types = {
   ".html": "text/html",
   ".js": "text/javascript",
@@ -164,7 +182,14 @@ try {
   }
   const home = await (await fetch(url)).text();
   for (const lesson of lessons) assert.ok(home.includes(`href="${base}${lesson.slug}/"`), `the introduction links ${lesson.slug}`);
-  console.log(`ok  every page is prerendered (${lessons.length} lessons and the introduction)`);
+  assert.ok(home.includes(`href="${base}playground/"`), "the introduction links the playground");
+  const playgroundPage = await fetch(`${url}playground/`);
+  assert.equal(playgroundPage.status, 200, "playground: status");
+  const playgroundHtml = await playgroundPage.text();
+  assert.ok(playgroundHtml.includes("<h1>Playground</h1>"), "playground: its heading in the page");
+  assert.ok(playgroundHtml.includes(`<base href="${base}">`), "playground: the base path");
+  assert.ok(playgroundHtml.includes('id="learn-result"'), "playground: the result's element");
+  console.log(`ok  every page is prerendered (${lessons.length} lessons, the playground and the introduction)`);
 
   const context = await browser.newContext({ viewport: { width: 1400, height: 900 } });
   const page = await context.newPage();
@@ -318,7 +343,68 @@ try {
   await page.locator("#learn-result p", { hasText: "Count: 2" }).waitFor({ timeout: 1000 });
   await diagnostic.locator("button.learn-location").click();
   assert.match(await page.locator(".cm-activeLine").textContent(), /HH\.text 42/, "clicking the diagnostic moves the cursor to its line");
+  // GHC quotes the code it compiled, Source's marks and all; the page takes
+  // them out of what it shows.
+  const said = (await page.locator(".learn-diagnostics").textContent()) + (await page.locator(".learn-stderr").textContent());
+  assert.ok(!said.includes("Learn__Spans"), `no mark in what GHC is shown to say: ${said}`);
   console.log(`ok  a type error is reported at ${where.trim()}, and the counter is still there`);
+
+  // The playground, from lesson 2: Open in playground takes the lesson's
+  // code there, with the lesson's layers (none) and arguments, and it
+  // compiles as it is; Source works there too; Reset puts the template back,
+  // which compiles and counts; and checking the store layer loads it, says
+  // so by its checkbox, and lets a program importing Halogen.Store compile.
+  await page.locator("button.learn-solution").click();
+  await page.waitForFunction(() => document.querySelector(".learn-editor .cm-content").innerText.includes("subtract 1"));
+  await page.locator("button.learn-open-playground").click();
+  await page.waitForURL(`${url}playground/`);
+  await page.locator("article h1", { hasText: /^Playground$/ }).waitFor({ timeout: 5000 });
+  assert.equal(await page.evaluate(() => window.learnNoReload), 1, "the hand-off does not reload the page");
+  await page.locator(".learn-editor .cm-editor").waitFor({ timeout: 5000 });
+  assert.ok((await page.locator(".learn-editor .cm-content").textContent()).includes("modify (subtract 1)"), "the playground opens with lesson 2's code");
+  assert.equal(await page.evaluate(() => sessionStorage.getItem("learn:playground:handoff")), null, "the hand-off is taken");
+  await page.locator("button.learn-compile:not([disabled])").waitFor({ timeout: 120000 });
+  assert.match(await compile("lesson 2's code, in the playground"), /^Compiled and ran/);
+  const handedPlus = page.locator("#learn-result button", { hasText: /^\+$/ });
+  await handedPlus.click();
+  await page.locator("#learn-result p", { hasText: "Count: 1" }).waitFor({ timeout: 5000 });
+  console.log("ok  Open in playground takes lesson 2's code to the playground, where it compiles and counts");
+  await page.locator("button.learn-source:not([disabled])").click();
+  await handedPlus.hover();
+  await outlined(page, handedPlus);
+  await page.locator("button.learn-source").click();
+  await page.locator('button.learn-source[aria-pressed="false"]').waitFor({ timeout: 5000 });
+  console.log("ok  Source outlines what the pointer is over in the playground too");
+  await page.locator("button.learn-reset").click();
+  await page.waitForFunction(() => document.querySelector(".learn-editor .cm-content").innerText.includes("Click me"));
+  assert.match(await compile("the playground's template"), /^Compiled and ran/);
+  const clickMe = page.locator("#learn-result button", { hasText: "Click me" });
+  await clickMe.click();
+  await clickMe.click();
+  await page.locator("#learn-result p", { hasText: "Clicks: 2" }).waitFor({ timeout: 5000 });
+  assert.equal(await page.evaluate(() => localStorage.getItem("learn:playground:code")), null, "Reset forgets the playground's code");
+  console.log("ok  the playground's template compiles and counts");
+  if (manifest.layers.some((layer) => layer.name === "store")) {
+    // The layer's archive is held until the progress line has shown, which
+    // a local server would otherwise make too short to see.
+    let releaseStore;
+    const storeHeld = new Promise((resolve) => (releaseStore = resolve));
+    const storeArchive = /layers\/store[^/]*\.tar\.zst/;
+    await page.route(storeArchive, async (route) => {
+      await storeHeld;
+      await route.continue();
+    });
+    await page.locator('.learn-layers input[value="store"]').check();
+    await page.locator(".learn-compiler", { hasText: "Loading the layers you checked" }).waitFor({ timeout: 20000 });
+    releaseStore();
+    await page.locator(".learn-layer", { hasText: "store" }).locator(".learn-layer-note", { hasText: "loaded" }).waitFor({ timeout: 60000 });
+    await page.unroute(storeArchive);
+    await page.locator("#learn-extra-args").fill("-fdefer-typed-holes");
+    await setEditor(page, storeProgram);
+    assert.match(await compile("a program importing Halogen.Store, in the playground"), /^Compiled and ran/);
+    await page.locator("#learn-result p", { hasText: "The store's package is here." }).waitFor({ timeout: 5000 });
+    console.log("ok  checking the store layer loads it, and a program importing Halogen.Store compiles");
+  }
 
   // Leaving a lesson while its layer is still downloading: the lesson the
   // reader arrives at gets its own layer once that download ends, and
@@ -806,6 +892,20 @@ try {
   await again.waitForFunction(() => !document.querySelector(".learn-editor .cm-content")?.textContent.includes("subtract"));
   assert.equal(await again.evaluate(() => localStorage.getItem("learn:02-counter")), null, "Reset forgets the reader's code");
   console.log("ok  Reset brings back Start.hs and forgets the saved code");
+  // The playground's code, its layer and its arguments are kept for the
+  // next visit too, and compile as they were.
+  if (manifest.layers.some((layer) => layer.name === "store")) {
+    await again.locator("a.learn-to-playground").first().click();
+    await again.waitForURL(`${url}playground/`);
+    await again.locator(".learn-editor .cm-editor").waitFor({ timeout: 5000 });
+    assert.ok((await again.locator(".learn-editor .cm-content").textContent()).includes("import Halogen.Store.Monad ()"), "the playground's code on a second visit");
+    await again.locator('.learn-layers input[value="store"]:checked').waitFor({ timeout: 10000 });
+    assert.equal(await again.locator("#learn-extra-args").inputValue(), "-fdefer-typed-holes", "the extra arguments on a second visit");
+    await again.locator("button.learn-compile:not([disabled])").waitFor({ timeout: 120000 });
+    await again.locator("button.learn-compile").click();
+    await again.locator("#learn-result p", { hasText: "The store's package is here." }).waitFor({ timeout: 120000 });
+    console.log("ok  the playground's code, its checked layer and its arguments are kept for the next visit, and compile");
+  }
   await context.close();
 
   // A narrow screen downloads nothing large until asked.

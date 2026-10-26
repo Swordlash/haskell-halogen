@@ -99,14 +99,16 @@ export function manifest(root) {
   return manifests.get(base);
 }
 
-// The manifest as the page shows it: the GHC version and what each archive
-// downloads.
+// The manifest as the page shows it: the GHC version, what each archive
+// downloads, and the packages in each, which the playground names with
+// -package for the layers the reader checks.
 export async function describe(root) {
   const m = await manifest(root);
   return {
     ghc: m.ghc,
     base: m.archive.size,
-    layers: m.layers.map((layer) => ({ name: layer.name, size: layer.size })),
+    basePackages: m.rootfs?.packages ?? [],
+    layers: m.layers.map((layer) => ({ name: layer.name, size: layer.size, packages: layer.packages ?? [] })),
   };
 }
 

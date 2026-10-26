@@ -28,7 +28,8 @@ function halogen_learn_scroll_to_top() {
   globalThis.scrollTo(0, 0);
 }
 
-// A JSON string: {"ghc":..., "base":bytes|null, "layers":[{"name":..., "size":...}]}.
+// A JSON string: {"ghc":..., "base":bytes|null, "basePackages":[...],
+// "layers":[{"name":..., "size":..., "packages":[...]}]}.
 function halogen_learn_describe(root) {
   return halogen_learn_api()
     .playground.describe(root)

@@ -16,6 +16,7 @@ module Learn.Browser
 
     -- * The compiler
   , Sizes (..)
+  , Layer (..)
   , describe
   , Progress (..)
   , startCompiler
@@ -107,11 +108,21 @@ scrollToTop :: IO ()
 scrollToTop = js_scroll_to_top
 
 -- | What the compiler downloads, for the page to say: GHC's version and each
--- archive's size in bytes, when the server says.
+-- archive's size in bytes, when the server says; and the packages of each
+-- archive, for the playground's @-package@ flags.
 data Sizes = Sizes
   { ghc :: Text
   , base :: Maybe Int
-  , layers :: [(Text, Maybe Int)]
+  , basePackages :: [Text]
+  , layers :: [Layer]
+  }
+  deriving stock (Eq, Show)
+
+-- | A layer of the rootfs, by the manifest.
+data Layer = Layer
+  { name :: Text
+  , size :: Maybe Int
+  , packages :: [Text]
   }
   deriving stock (Eq, Show)
 
@@ -119,8 +130,9 @@ instance FromJSON Sizes where
   parseJSON = withObject "Sizes" $ \o -> do
     ghc <- o .: "ghc"
     base <- o .:? "base"
-    layers <- traverse (withObject "layer" (\l -> (,) <$> l .: "name" <*> l .:? "size")) =<< o .: "layers"
-    pure Sizes {ghc, base, layers}
+    basePackages <- o .:? "basePackages" .!= []
+    layers <- traverse (withObject "layer" (\l -> Layer <$> l .: "name" <*> l .:? "size" <*> l .:? "packages" .!= [])) =<< o .: "layers"
+    pure Sizes {ghc, base, basePackages, layers}
 
 -- | Read the rootfs' manifest.
 describe :: Text -> IO (Either Text Sizes)

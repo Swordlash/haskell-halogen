@@ -2,6 +2,12 @@
 -- lesson with its text, a code editor and the result of compiling the code,
 -- which GHC does in the page ("Learn.Browser").
 --
+-- The playground is one more such page, with no lesson: the reader checks
+-- the layers their code needs instead of a lesson's header naming them
+-- ("Learn.Playground"). What the editor holds the code of, and what a
+-- compile of it passes, is a 'Code', the lesson's or the playground's, so
+-- that everything else here does not tell the two apart.
+--
 -- The build renders every route's page with this component natively
 -- (@Prerender.hs@), so a lesson's text is on the page before any of the
 -- program has arrived; the program then adopts that page
@@ -37,6 +43,7 @@
 module Learn.App (component) where
 
 import Control.Monad.UUID (MonadUUID)
+import DOM.HTML.Indexed qualified as I
 import Data.List (lookup)
 import Data.Row (Empty)
 import Data.Text qualified as T
@@ -49,11 +56,13 @@ import Halogen.Router (Follow, Router)
 import Halogen.Router qualified as Router
 import Halogen.Subscription qualified as HS
 import Halogen.VDom.DOM.Monad (MonadBrowserDOM, StorageKind (..), readStorageItem, removeStorageItem, writeStorageItem)
-import Learn.Browser (CompileRequest (..), Editor, EditorEvent (..), Progress (..), RunResult (..), Sizes (..), Source, SourceEvent (..))
+import Learn.Browser (CompileRequest (..), Editor, EditorEvent (..), Layer (..), Progress (..), RunResult (..), Sizes (..), Source, SourceEvent (..))
 import Learn.Browser qualified as Browser
 import Learn.Diagnostics (Diagnostic (..), Severity (..), didNotCompile, parseDiagnostics)
-import Learn.Lesson (Lesson (..), wrapper)
+import Learn.Lesson (Lesson (..), defaultMain, wrapper)
 import Learn.Lessons (lessons)
+import Learn.Playground (Handoff (..))
+import Learn.Playground qualified as Playground
 import Learn.Route (Route (..), lessonOf)
 import Learn.Types (Binding (..), displayName)
 import Learn.View qualified as View
@@ -113,7 +122,57 @@ data State = State
   , lastCheck :: Maybe (Int, Bool)
   -- ^ How long the last check whose result is shown took, and whether the
   -- code typechecked.
+  , playground :: PlaygroundSettings
   }
+
+-- | What the reader chose in the playground beside the code: the layers
+-- checked, and GHC arguments of their own, as they typed them.
+data PlaygroundSettings = PlaygroundSettings
+  { layers :: [Text]
+  , extra :: Text
+  }
+
+-- | What the editor is for, on the page the reader is at: a lesson's code,
+-- or the playground's. A compile passes its layers and arguments.
+data Code = Code
+  { key :: Text
+  -- ^ What the reader's code is kept under in @localStorage@.
+  , start :: Text
+  -- ^ What the editor opens with when nothing is kept, and what Reset puts
+  -- back: a lesson's @Start.hs@, the playground's template.
+  , solution :: Maybe Text
+  , main :: Text
+  -- ^ The program around @Lesson@.
+  , layers :: [Text]
+  , args :: [Text]
+  }
+
+codeOf :: State -> Maybe Code
+codeOf st = case st.route of
+  Playground ->
+    Just
+      Code
+        { key = Playground.codeKey
+        , start = Playground.template
+        , solution = Nothing
+        , main = defaultMain
+        , layers = st.playground.layers
+        , args = packages <> T.words st.playground.extra
+        }
+  r -> lessonCode <$> lessonOf r
+  where
+    -- Known once the manifest has been read; until then the page compiles
+    -- nothing that needs them ('canCompile').
+    packages = maybe [] (\s -> Playground.packageArgs s.basePackages [(l.name, l.packages) | l <- s.layers] st.playground.layers) st.sizes
+    lessonCode lesson =
+      Code
+        { key = storageKey lesson
+        , start = lesson.start
+        , solution = Just lesson.solution
+        , main = wrapper lesson
+        , layers = lesson.layers
+        , args = lesson.args
+        }
 
 -- | The types of the lesson's top-level bindings, from the last check or
 -- compile that typechecked, and whether that is still so of the code (it is
@@ -151,6 +210,9 @@ data Action
   | Goto Int Int
   | ToggleSource
   | FromSource SourceEvent
+  | OpenInPlayground
+  | ToggleLayer Text Bool
+  | SetExtraArgs Text
 
 component :: forall q o m. (MonadBrowserDOM m, MonadUnliftIO m, MonadUUID m) => H.Component q (Router Route) o m
 component =
@@ -190,6 +252,7 @@ component =
           , checking = False
           , checkDue = Nothing
           , lastCheck = Nothing
+          , playground = PlaygroundSettings {layers = [], extra = ""}
           }
 
     handleAction :: Action -> H.HalogenM State Action Empty o m ()
@@ -199,20 +262,20 @@ component =
         void $ H.subscribe (Arrived <$> Router.changes router)
         narrow <- H.liftEffect (liftIO Browser.narrowScreen)
         modify $ \s -> s {narrow}
-        enterLesson
+        enterPage
         -- What the compiler weighs, for the page to say, whether or not it
         -- is loaded: the manifest is small.
         void $ H.fork readSizes
         unless narrow loadCompiler
-      Finalize -> leaveLesson
+      Finalize -> leavePage
       Arrived r -> do
         current <- gets (.route)
         unless (r == current) $ do
-          leaveLesson
+          leavePage
           modify $ \s ->
             s {route = r, edited = False, run = NotRun, mounted = False, layerFailure = Nothing, diagnostics = [], bindings = Nothing, lastCheck = Nothing}
           H.liftEffect (liftIO Browser.scrollToTop)
-          enterLesson
+          enterPage
           gets (.compiler) >>= \case
             Loaded _ -> loadLayers >> startCheck
             _ -> pass
@@ -229,7 +292,7 @@ component =
           _ -> s {compiler = Loading p}
         syncEditor
       LoadCompiler -> loadCompiler
-      FromEditor (Changed text) -> withLesson $ \lesson -> do
+      FromEditor (Changed text) -> withCode $ \code -> do
         -- What is kept is the reader's own code: none, once it is the
         -- lesson's start again (Reset).
         -- Storage the browser denies (a strict private window) must not
@@ -237,10 +300,10 @@ component =
         void
           $ H.liftEffect
           $ tryAny
-          $ if text == lesson.start
-            then removeStorageItem LocalStorage (storageKey lesson)
-            else writeStorageItem LocalStorage (storageKey lesson) text
-        let edited = text /= lesson.start
+          $ if text == code.start
+            then removeStorageItem LocalStorage code.key
+            else writeStorageItem LocalStorage code.key text
+        let edited = text /= code.start
         was <- gets (.edited)
         when (was /= edited) $ modify $ \s -> s {edited}
         checkSoon
@@ -249,10 +312,10 @@ component =
         gets (.source) >>= traverse_ \(source, _) -> H.liftEffect (liftIO (Browser.outlineSource source line column))
       Compile -> do
         st <- get
-        when (canCompile st) $ for_ ((,) <$> lessonOf st.route <*> st.editor) $ \(lesson, (editor, _)) -> do
+        when (canCompile st) $ for_ ((,) <$> codeOf st <*> st.editor) $ \(code, (editor, _)) -> do
           source <- H.liftEffect (liftIO (Browser.editorText editor))
           modify $ \s -> s {run = Compiling, runs = s.runs + 1, coveredEdit = Just s.edits}
-          compiled <- liftIO $ Browser.compile (request lesson source)
+          compiled <- liftIO $ Browser.compile (request code source)
           -- The reader may have left meanwhile, even for this same lesson
           -- again: that visit's editor is another one, and its run its own.
           now <- gets (.visit)
@@ -278,14 +341,43 @@ component =
                     Browser.setSourceMode editor True
             -- The reader may have typed while it compiled.
             startCheck
-      Reset -> withEditor $ \lesson editor -> H.liftEffect (liftIO (Browser.setEditorText editor lesson.start))
-      ShowSolution -> withEditor $ \lesson editor -> do
+      Reset -> withEditor $ \code editor -> H.liftEffect (liftIO (Browser.setEditorText editor code.start))
+      ShowSolution -> withEditor $ \code editor -> for_ code.solution $ \solution -> do
         edited <- gets (.edited)
         sure <-
           if edited
             then H.liftEffect (liftIO (Browser.confirm "Replace your code with the lesson's solution? Your code is not kept."))
             else pure True
-        when sure $ H.liftEffect (liftIO (Browser.setEditorText editor lesson.solution))
+        when sure $ H.liftEffect (liftIO (Browser.setEditorText editor solution))
+      -- The lesson's code, as the reader has it, with what it compiles
+      -- with, for the playground to take when it is entered: in the
+      -- session's store, so that it is this tab's alone, and gone with it.
+      OpenInPlayground -> withEditor $ \code editor -> do
+        text <- H.liftEffect (liftIO (Browser.editorText editor))
+        let handoff = Playground.encodeHandoff Handoff {code = text, layers = code.layers, args = code.args}
+        void $ H.liftEffect $ tryAny $ writeStorageItem SessionStorage Playground.handoffKey handoff
+        router <- gets (.router)
+        Router.navigate router Playground
+      ToggleLayer name checked -> do
+        modify $ \s ->
+          s
+            { playground =
+                PlaygroundSettings
+                  { layers = (if checked then ordNub . (<> [name]) else filter (/= name)) s.playground.layers
+                  , extra = s.playground.extra
+                  }
+            , layerFailure = Nothing
+            }
+        keepSettings
+        gets (.compiler) >>= \case
+          Loaded _ -> loadLayers
+          _ -> pass
+        -- The arguments are not the ones the last check had.
+        checkSoon
+      SetExtraArgs extra -> do
+        modify $ \s -> s {playground = s.playground {extra}}
+        keepSettings
+        checkSoon
       Goto line column -> withEditor $ \_ editor -> H.liftEffect (liftIO (Browser.gotoPosition editor line column))
       ToggleSource -> gets (.source) >>= maybe startSource (const stopSource)
       FromSource event -> withEditor $ \_ editor -> H.liftEffect $ liftIO $ case event of
@@ -293,9 +385,38 @@ component =
         NotPointing -> Browser.showSource editor 0
         Picked line column -> Browser.gotoPosition editor line column
 
-    withLesson f = gets (lessonOf . (.route)) >>= traverse_ f
+    withCode f = gets codeOf >>= traverse_ f
 
-    request lesson source = CompileRequest {lesson = source, main = wrapper lesson, args = lesson.args, layers = lesson.layers}
+    request code source = CompileRequest {lesson = source, main = code.main, args = code.args, layers = code.layers}
+
+    -- The playground's layers and extra arguments, kept for the next visit
+    -- as the code is (and, as the code, for this one only when the browser
+    -- denies its storage).
+    keepSettings = do
+      settings <- gets (.playground)
+      void $ H.liftEffect $ tryAny $ do
+        writeStorageItem LocalStorage Playground.layersKey (Playground.showLayers settings.layers)
+        writeStorageItem LocalStorage Playground.argsKey settings.extra
+
+    -- The playground's layers and arguments: what a lesson handed it, if one
+    -- has since the last visit (taken, so that a reload finds what the
+    -- reader made of it since), else what was kept. A hand-off's code is
+    -- kept as the reader's at once, for the same reason, and is what the
+    -- editor opens with.
+    restoreSettings = do
+      let stored kind key = join . rightToMaybe <$> H.liftEffect (tryAny (readStorageItem kind key))
+      handed <- (Playground.decodeHandoff =<<) <$> stored SessionStorage Playground.handoffKey
+      case handed of
+        Just handoff -> do
+          void $ H.liftEffect $ tryAny $ removeStorageItem SessionStorage Playground.handoffKey
+          let (layers, extra) = Playground.fromLesson handoff
+          modify $ \s -> s {playground = PlaygroundSettings {layers, extra}}
+          keepSettings
+          void $ H.liftEffect $ tryAny $ writeStorageItem LocalStorage Playground.codeKey handoff.code
+        Nothing -> do
+          layers <- maybe [] Playground.readLayers <$> stored LocalStorage Playground.layersKey
+          extra <- fromMaybe "" <$> stored LocalStorage Playground.argsKey
+          modify $ \s -> s {playground = PlaygroundSettings {layers, extra}}
 
     markDiagnostics editor diagnostics =
       H.liftEffect $ liftIO $ Browser.showDiagnostics editor (filter ((== "Lesson.hs") . (.file)) diagnostics)
@@ -334,11 +455,11 @@ component =
     startCheck = do
       st <- get
       when (canCompile st && not st.checking && isNothing st.checkDue && st.coveredEdit /= Just st.edits) $
-        for_ ((,) <$> lessonOf st.route <*> st.editor) $
-          \(lesson, (editor, _)) -> do
+        for_ ((,) <$> codeOf st <*> st.editor) $
+          \(code, (editor, _)) -> do
             source <- H.liftEffect (liftIO (Browser.editorText editor))
             modify $ \s -> s {checking = True, coveredEdit = Just st.edits}
-            checked <- liftIO $ Browser.typecheck (request lesson source)
+            checked <- liftIO $ Browser.typecheck (request code source)
             modify $ \s -> s {checking = False}
             now <- get
             -- Not if the code has changed since, or a compile has started
@@ -353,20 +474,24 @@ component =
 
     withEditor f = do
       st <- get
-      for_ ((,) <$> lessonOf st.route <*> st.editor) $ \(lesson, (editor, _)) -> f lesson editor
+      for_ ((,) <$> codeOf st <*> st.editor) $ \(code, (editor, _)) -> f code editor
 
-    -- The editor, in the lesson's element, with the reader's code if any
-    -- was kept, else the lesson's start.
-    enterLesson = withLesson $ \lesson -> do
-      modify $ \s -> s {edits = s.edits + 1}
-      st <- get
-      saved <- join . rightToMaybe <$> H.liftEffect (tryAny (readStorageItem LocalStorage (storageKey lesson)))
-      let text = fromMaybe lesson.start saved
-      H.getHTMLElementRef st.editorHost >>= traverse_ \host -> do
-        events <- liftIO HS.create
-        subscription <- H.subscribe (FromEditor <$> events.emitter)
-        editor <- H.liftEffect $ liftIO $ Browser.createEditor host text (readOnly st) (HS.notify events.listener)
-        modify $ \s -> s {editor = Just (editor, subscription), edited = text /= lesson.start, visit = s.visit + 1}
+    -- The editor, in the page's element, with the reader's code if any was
+    -- kept, else the lesson's start (the playground's template); for the
+    -- playground, its layers and arguments first.
+    enterPage = do
+      route <- gets (.route)
+      when (route == Playground) restoreSettings
+      withCode $ \code -> do
+        modify $ \s -> s {edits = s.edits + 1}
+        st <- get
+        saved <- join . rightToMaybe <$> H.liftEffect (tryAny (readStorageItem LocalStorage code.key))
+        let text = fromMaybe code.start saved
+        H.getHTMLElementRef st.editorHost >>= traverse_ \host -> do
+          events <- liftIO HS.create
+          subscription <- H.subscribe (FromEditor <$> events.emitter)
+          editor <- H.liftEffect $ liftIO $ Browser.createEditor host text (readOnly st) (HS.notify events.listener)
+          modify $ \s -> s {editor = Just (editor, subscription), edited = text /= code.start, visit = s.visit + 1}
 
     -- The Source mode over the result, and the editor telling where its
     -- cursor is, once there is something in the result to show the source
@@ -391,7 +516,7 @@ component =
           Browser.showSource editor 0
         modify $ \s -> s {source = Nothing}
 
-    leaveLesson = do
+    leavePage = do
       stopSource
       st <- get
       for_ st.editor $ \(editor, subscription) -> do
@@ -413,7 +538,7 @@ component =
           progress <- liftIO HS.create
           subscription <- H.subscribe (Progressed <$> progress.emitter)
           root <- liftIO Browser.rootfsAddress
-          let wanted = maybe [] (.layers) (lessonOf st.route)
+          let wanted = maybe [] (.layers) (codeOf st)
           liftIO (Browser.startCompiler root wanted (HS.notify progress.listener)) >>= \case
             Left message -> do
               -- The page tells nothing more through this start's progress:
@@ -448,15 +573,16 @@ component =
         Right sizes -> modify $ \s -> s {sizes = Just sizes}
         Left _ -> pass
 
-    -- The current lesson's layers, once the compiler has started. One load
-    -- at a time: while one is under way the compiler reads as loading, so
-    -- a lesson the reader arrives at meanwhile is not asked for; when the
-    -- load ends, the lesson current then is checked again, so its layers
-    -- follow and Compile is enabled there too. A layer that does not load
-    -- is this lesson's failure, not the compiler's.
+    -- The current lesson's layers (the playground's checked ones), once the
+    -- compiler has started. One load at a time: while one is under way the
+    -- compiler reads as loading, so a lesson the reader arrives at meanwhile
+    -- is not asked for; when the load ends, the lesson current then is
+    -- checked again, so its layers follow and Compile is enabled there too
+    -- (and a layer checked meanwhile in the playground is loaded). A layer
+    -- that does not load is this lesson's failure, not the compiler's.
     loadLayers = do
       st <- get
-      let wanted = maybe [] (.layers) (lessonOf st.route)
+      let wanted = maybe [] (.layers) (codeOf st)
       unless (st.loadingLayers || all (`elem` st.loadedLayers) wanted) $ do
         modify $ \s -> s {loadingLayers = True, layerFailure = Nothing}
         result <- liftIO (Browser.ensureLayers wanted)
@@ -489,9 +615,10 @@ component =
         , HH.withKeys
             HH.main
             [HP.class_ (HH.ClassName "learn-main")]
-            [ case lessonOf st.route of
-                Nothing -> ("", home st)
-                Just lesson -> (lesson.slug, lessonPage st lesson)
+            [ case (lessonOf st.route, codeOf st) of
+                (Just lesson, Just code) -> (lesson.slug, lessonPage st lesson code)
+                (Nothing, Just code) -> ("playground", playgroundPage st code)
+                _ -> ("", home st)
             ]
         ]
 
@@ -504,7 +631,9 @@ component =
         , HH.nav
             [HP.class_ (HH.ClassName "learn-pager")]
             ( case lessonOf st.route of
-                Nothing -> []
+                Nothing
+                  | st.route == Playground -> [HH.span [HP.class_ (HH.ClassName "learn-position")] [HH.text "Playground"]]
+                  | otherwise -> []
                 Just lesson ->
                   [ HH.span [HP.class_ (HH.ClassName "learn-position")] [HH.text ("Lesson " <> show lesson.number <> " of " <> show (length lessons))]
                   , pager st "Previous" (neighbour (-1) lesson) "learn-prev"
@@ -527,6 +656,11 @@ component =
                 "A tutorial for haskell-halogen, the Haskell port of PureScript's Halogen. Each lesson has a short text, code to change, and a Compile button: GHC itself runs in this page, compiled to WebAssembly, and compiles your code into a component that runs beside the lesson. Nothing is sent to a server."
             ]
         , HH.p_ [HH.text (downloadNote st)]
+        , HH.p_
+            [ HH.text "Just want to write code? The "
+            , link st Playground [HP.class_ (HH.ClassName "learn-to-playground")] [HH.text "playground"]
+            , HH.text " is the same compiler with no lesson around it: pick the layers your code needs."
+            ]
         , HH.ol
             [HP.class_ (HH.ClassName "learn-lessons")]
             [ HH.li_
@@ -538,7 +672,7 @@ component =
         , HH.p_ [HH.text "Start with the first lesson; each builds on the one before."]
         ]
 
-    lessonPage st lesson =
+    lessonPage st lesson code =
       HH.div
         [HP.class_ (HH.ClassName "learn-lesson")]
         [ HH.article
@@ -547,14 +681,76 @@ component =
                 <> View.blocks lesson.text
                 <> [ HH.nav
                        [HP.class_ (HH.ClassName "learn-pager learn-pager-bottom")]
-                       [pager st "Previous lesson" (neighbour (-1) lesson) "learn-prev", pager st "Next lesson" (neighbour 1 lesson) "learn-next"]
+                       [ pager st "Previous lesson" (neighbour (-1) lesson) "learn-prev"
+                       , link st Playground [HP.class_ (HH.ClassName "learn-to-playground")] [HH.text "Playground"]
+                       , pager st "Next lesson" (neighbour 1 lesson) "learn-next"
+                       ]
                    ]
             )
-        , codeColumn st lesson
+        , codeColumn st code
         , resultColumn st
         ]
 
-    codeColumn st lesson =
+    -- The playground: a narrow panel in place of a lesson's text, with the
+    -- layers to pick and the arguments to add, beside the same code and
+    -- result columns.
+    playgroundPage st code =
+      HH.div
+        [HP.class_ (HH.ClassName "learn-lesson learn-playground")]
+        [ HH.article
+            [HP.class_ (HH.ClassName "learn-text learn-playground-panel")]
+            [ HH.h1_ [HH.text "Playground"]
+            , HH.p_
+                [ HH.text
+                    "The lessons' compiler with no lesson around it: GHC compiles your module Lesson in this page, and nothing is sent anywhere. Pick the layers your code needs, and the page passes GHC their packages."
+                ]
+            , HH.fieldset
+                [HP.class_ (HH.ClassName "learn-layers")]
+                ( HH.legend_ [HH.text "Layers"]
+                    : case st.sizes of
+                      Just sizes -> [HH.ul_ (map (layerChoice st) sizes.layers)]
+                      Nothing -> [HH.p [HP.class_ (HH.ClassName "learn-note")] [HH.text "The layers are listed once the page has read what the compiler is made of."]]
+                )
+            , HH.p
+                [HP.class_ (HH.ClassName "learn-extra")]
+                [ HH.label [HP.for "learn-extra-args"] [HH.text "Extra GHC arguments"]
+                , HH.input
+                    [ HP.id "learn-extra-args"
+                    , HP.class_ (HH.ClassName "learn-extra-args")
+                    , HP.type_ I.InputText
+                    , HP.value st.playground.extra
+                    , HP.placeholder "-fdefer-typed-holes"
+                    , HP.spellcheck False
+                    , HE.onValueInput SetExtraArgs
+                    ]
+                ]
+            , HH.p [HP.class_ (HH.ClassName "learn-note")] [HH.text "Your code, the layers and the arguments are kept in this browser for your next visit. Reset puts the example back."]
+            , HH.nav
+                [HP.class_ (HH.ClassName "learn-pager learn-pager-bottom")]
+                [link st Home [HP.class_ (HH.ClassName "learn-to-lessons")] [HH.text "Lessons"]]
+            ]
+        , codeColumn st code
+        , resultColumn st
+        ]
+
+    -- A layer to check: its name, its packages, and what it downloads, or
+    -- that it is loaded.
+    layerChoice st layer =
+      let checked = layer.name `elem` st.playground.layers
+          sizeNote
+            | checked && layer.name `elem` st.loadedLayers = "loaded"
+            | otherwise = maybe "" (\bytes -> megabytes bytes <> " MB") layer.size
+       in HH.li_
+            [ HH.label
+                [HP.class_ (HH.ClassName "learn-layer")]
+                [ HH.input [HP.type_ I.InputCheckbox, HP.value layer.name, HP.checked checked, HE.onChecked (ToggleLayer layer.name)]
+                , HH.text (" " <> layer.name <> " ")
+                , HH.span [HP.class_ (HH.ClassName "learn-note")] [HH.text (T.intercalate ", " layer.packages)]
+                , HH.span [HP.class_ (HH.ClassName "learn-note learn-layer-note")] [HH.text (if T.null sizeNote then "" else " · " <> sizeNote)]
+                ]
+            ]
+
+    codeColumn st code =
       HH.withKeys
         HH.section
         [HP.class_ (HH.ClassName "learn-code")]
@@ -562,23 +758,37 @@ component =
             ( "toolbar"
             , HH.div
                 [HP.class_ (HH.ClassName "learn-toolbar")]
-                [ HH.button
-                    [ HP.class_ (HH.ClassName "learn-compile")
-                    , HP.disabled (not (canCompile st))
-                    , HE.onClick (const Compile)
-                    , HP.title "Ctrl+Enter (Cmd+Enter on a Mac) in the editor"
-                    ]
-                    [HH.text (if isCompiling st.run then "Compiling…" else "Compile")]
-                , HH.button [HP.class_ (HH.ClassName "learn-reset"), HP.disabled (isNothing st.editor), HE.onClick (const Reset)] [HH.text "Reset"]
-                , HH.button [HP.class_ (HH.ClassName "learn-solution"), HP.disabled (isNothing st.editor), HE.onClick (const ShowSolution)] [HH.text "Solution"]
-                , HH.span [HP.class_ (HH.ClassName "learn-file")] [HH.text ("Lesson.hs" <> if st.edited then ", edited" else "")]
-                ]
+                ( [ HH.button
+                      [ HP.class_ (HH.ClassName "learn-compile")
+                      , HP.disabled (not (canCompile st))
+                      , HE.onClick (const Compile)
+                      , HP.title "Ctrl+Enter (Cmd+Enter on a Mac) in the editor"
+                      ]
+                      [HH.text (if isCompiling st.run then "Compiling…" else "Compile")]
+                  , HH.button [HP.class_ (HH.ClassName "learn-reset"), HP.disabled (isNothing st.editor), HE.onClick (const Reset)] [HH.text "Reset"]
+                  ]
+                    -- A lesson's: the playground has no solution, and is
+                    -- where its code would be opened.
+                    <> concat
+                      [ [ HH.button [HP.class_ (HH.ClassName "learn-solution"), HP.disabled (isNothing st.editor), HE.onClick (const ShowSolution)] [HH.text "Solution"]
+                        , HH.button
+                            [ HP.class_ (HH.ClassName "learn-open-playground")
+                            , HP.disabled (isNothing st.editor)
+                            , HP.title "Your code, in the playground, with this lesson's layers"
+                            , HE.onClick (const OpenInPlayground)
+                            ]
+                            [HH.text "Open in playground"]
+                        ]
+                      | isJust code.solution
+                      ]
+                    <> [HH.span [HP.class_ (HH.ClassName "learn-file")] [HH.text ("Lesson.hs" <> if st.edited then ", edited" else "")]]
+                )
             )
           , -- The editor's own element comes first, and stays: the code
             -- shown until the editor is there goes after it.
             ("editor", HH.div [HP.class_ (HH.ClassName "learn-editor"), HP.ref st.editorHost] [])
           ]
-            <> [("fallback", HH.pre [HP.class_ (HH.ClassName "learn-fallback")] [HH.text lesson.start]) | isNothing st.editor]
+            <> [("fallback", HH.pre [HP.class_ (HH.ClassName "learn-fallback")] [HH.text code.start]) | isNothing st.editor]
             <> [("check", HH.p [HP.class_ (HH.ClassName "learn-check")] [HH.text text]) | Just text <- [checkLine st]]
             <> [("diagnostics", diagnosticList st.diagnostics) | not (null st.diagnostics)]
             <> [("bindings", bindingList b) | Just b <- [st.bindings], not (null b.list)]
@@ -654,7 +864,7 @@ component =
                | isJust st.source
                ]
             <> [("compiler", compilerPanel st) | not (isLoaded st.compiler)]
-            <> [("layers", layersPanel message) | isLoaded st.compiler, Just message <- [st.layerFailure]]
+            <> [("layers", layersPanel st message) | isLoaded st.compiler, Just message <- [st.layerFailure]]
             <> [ ("outcome", HH.p [HP.class_ (HH.ClassName "learn-outcome"), HP.attr (H.AttrName "data-run") (show st.runs)] [HH.text (outcome st)])
                , -- Never patched inside: the compiled program's.
                  ("result", HH.div [HP.id "learn-result", HP.class_ (HH.ClassName "learn-result"), HP.ref st.resultHost] [])
@@ -684,7 +894,7 @@ component =
                   , HH.button [HP.class_ (HH.ClassName "learn-load"), HE.onClick (const LoadCompiler)] [HH.text "Load the compiler anyway"]
                   ]
               | otherwise -> [HH.p_ [HH.text "The compiler loads once the page has started."]]
-            Loading p -> progressView p
+            Loading p -> progressView st p
             Loaded _ -> []
             Broken message ->
               [ HH.p [HP.class_ (HH.ClassName "learn-error")] [HH.text ("The compiler did not load: " <> message)]
@@ -692,14 +902,18 @@ component =
               ]
         )
 
-    layersPanel message =
+    layersPanel st message =
       HH.div
         [HP.class_ (HH.ClassName "learn-compiler")]
-        [ HH.p [HP.class_ (HH.ClassName "learn-error")] [HH.text ("This lesson's libraries did not load: " <> message)]
+        [ HH.p [HP.class_ (HH.ClassName "learn-error")] [HH.text (capitalised (libraries st) <> " did not load: " <> message)]
         , HH.button [HP.class_ (HH.ClassName "learn-retry-layers"), HE.onClick (const LoadCompiler)] [HH.text "Retry"]
         ]
 
-    progressView = \case
+    -- What a layer load is for, in the words of the page it is on.
+    libraries st = if st.route == Playground then "the layers you checked" else "the lesson's libraries"
+    capitalised t = T.toUpper (T.take 1 t) <> T.drop 1 t
+
+    progressView st = \case
       Downloading loaded total _ ->
         [ HH.p_ [HH.text ("Downloading GHC: " <> megabytes loaded <> maybe " MB" (\t -> " of " <> megabytes t <> " MB") total)]
         , bar (fmap (\t -> fromIntegral loaded / fromIntegral (max 1 t)) total)
@@ -708,7 +922,7 @@ component =
       ReadingCache -> [HH.p_ [HH.text "Reading GHC from your browser's cache…"], bar Nothing]
       Extracting -> [HH.p_ [HH.text "Extracting…"], bar Nothing]
       Starting -> [HH.p_ [HH.text "Starting GHC…"], bar Nothing]
-      LoadingLayers -> [HH.p_ [HH.text "Loading the lesson's libraries…"], bar Nothing]
+      LoadingLayers -> [HH.p_ [HH.text ("Loading " <> libraries st <> "…")], bar Nothing]
       Ready _ -> []
       LoadFailed message -> [HH.p_ [HH.text message]]
 
@@ -756,7 +970,8 @@ component =
 
     layerSizes st lesson = case st.sizes of
       Just s
-        | Just bytes <- sum <$> traverse (\name -> join (lookup name s.layers)) lesson.layers -> ", " <> megabytes' (fromIntegral bytes / 1e6 :: Double) <> " MB more"
+        | Just bytes <- sum <$> traverse (\name -> join (lookup name [(l.name, l.size) | l <- s.layers])) lesson.layers ->
+            ", " <> megabytes' (fromIntegral bytes / 1e6 :: Double) <> " MB more"
       _ -> ""
 
 -- | How long the reader stops typing before the code is checked, in
@@ -769,12 +984,18 @@ checkDelay = 1200000
 neighbour :: Int -> Lesson -> Maybe Lesson
 neighbour step lesson = head (drop (lesson.number - 1 + step) lessons) <* guard (lesson.number - 1 + step >= 0)
 
+-- | The compiler is there, with the page's layers, and is not compiling.
+-- The playground's layers' packages come from the manifest, so with a layer
+-- checked it waits for that too.
 canCompile :: State -> Bool
 canCompile st =
   isLoaded st.compiler
     && isJust st.editor
     && not (isCompiling st.run)
-    && all (`elem` st.loadedLayers) (maybe [] (.layers) (lessonOf st.route))
+    && all (`elem` st.loadedLayers) wanted
+    && (null wanted || st.route /= Playground || isJust st.sizes)
+  where
+    wanted = maybe [] (.layers) (codeOf st)
 
 -- | The Source mode needs the editor, and a compile's elements to read.
 canSource :: State -> Bool

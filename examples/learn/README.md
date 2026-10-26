@@ -4,12 +4,13 @@ A tutorial for haskell-halogen whose code compiles in the browser. Each lesson
 is a page with its text, a code editor and a Compile button; GHC itself,
 compiled to WebAssembly (the playground of [`learn/`](../../learn/README.md)),
 compiles the reader's module in the page and mounts the component it defines
-beside the text, with no server behind it.
+beside the text, with no server behind it. Its playground, `/playground/`, is
+the same compiler with no lesson around it.
 
 ## How it works
 
 The page is a Halogen application (`src/Learn/App.hs`) with a route per
-lesson, through `haskell-halogen-router`. The build renders every route's page
+lesson and one for the playground, through `haskell-halogen-router`. The build renders every route's page
 natively (`Prerender.hs`, under the site's base path), so a lesson's text is on
 the page before any WebAssembly has arrived; `app.wasm` then adopts that page
 (`hydrateUI`) and starts the compiler in the background. The compiler is the
@@ -90,6 +91,36 @@ ordinary attributes, there whether or not Source is on: a test that lists an
 element's attributes sees them, lesson 12's hydration patches them onto the
 prerendered HTML, and lesson 21's wire carries them as `attr` operations.
 
+**The playground.** `/playground/` (`Learn.Route`'s `Playground`, which no
+lesson can shadow: a lesson's slug starts with its two digits) is the same
+page with the lesson's text replaced by a narrow panel: a checkbox for each
+layer of the manifest (its name, its packages, and what it downloads, or
+"loaded"), a field for extra GHC arguments, and a link back to the lessons.
+The code is a module `Lesson` as a lesson's is, mounted by the default
+wrapper; Reset puts back its template (`Learn.Playground.template`, a
+counter). A compile passes `-package` for each package of each layer checked
+(the manifest's `packages`, which `js/playground.js`'s `describe` hands the
+app, but for the base layer's), then the extra arguments; checking a layer
+loads it as a lesson's are loaded on arrival, with the same progress line.
+The code, the layers and the arguments are kept in `localStorage`
+(`learn:playground:code`, `learn:playground:layers`,
+`learn:playground:args`) on every change, and the code's entry is removed
+once it is the template again. Every lesson's toolbar has **Open in
+playground**, which puts the editor's text, the lesson's layers and its
+arguments in `sessionStorage` (`learn:playground:handoff`, JSON) and goes
+to the playground; the playground takes a hand-off before what it kept,
+removes it, keeps its code as the reader's, checks its layers, and puts its
+arguments but the `-package` flags (which name the layers' packages, as a
+lesson's header must) in the extra field: lesson 20's `-fdefer-typed-holes`.
+What does not come with it is a lesson's own `Main.hs` (lessons 6, 12 to 17
+and 21): the playground mounts `component` with the default wrapper, so a
+component that needs the program around it (lesson 15's store, lesson 17's
+pool, lesson 6's router as its input) does not compile there as it is, and
+a lesson's spec (13) or page (14, 16, 21) is not run.
+The introduction links it above the list of lessons, every lesson's bottom
+pager has a Playground link between Previous and Next, and the playground's
+has one back to the lessons.
+
 On a screen under 900 pixels wide the compiler is not loaded by itself (it is
 a 63 MB download and takes 1.2 GB of memory once running): the lesson and its
 code are there to read, and a button loads the compiler anyway.
@@ -139,7 +170,13 @@ connected views render again only for their own part of the store), that
 Source on lesson 2 outlines the button under the pointer at the position it
 was built at, marks its line, goes there on a click the counter does not
 count, outlines what the editor's cursor is on, and once off lets a click
-count again, that a type error is
+count again, that the playground's page is prerendered and linked from the
+introduction, that lesson 2's Open in playground arrives there with its code,
+which compiles and counts, with Source working there too, that the template
+compiles and counts, that checking `store` shows the progress line and then
+"loaded" by its checkbox and lets a program importing `Halogen.Store`
+compile, and that the code, the layer and the arguments are there and compile
+on a second visit, that a type error is
 listed at its line with the last result still mounted, that **every lesson's
 `Start.hs` compiles and its `Solution.hs` compiles with no diagnostic and
 shows something** (one line per lesson; for lesson 13, whose program runs a
