@@ -113,7 +113,8 @@ Plain functions on the global object, which the server serves at its path with `
   and reconnects with a growing delay (`options.minDelay`, 0.5 s, doubling up to
   `options.maxDelay`, 10 s) when the connection is lost; each connection is a new session, which
   begins by emptying the container. The container's `data-halogen-remote` is `connected` or
-  `disconnected`, for the page's styling. It returns `{close()}`.
+  `disconnected`, for the page's styling. It returns `{close()}`, which closes the connection and
+  stops for good, a reconnection waiting for its delay included.
 - `halogen_remote_attach(container, send)` is a client without a socket, whose events go to
   `send` as JSON text; `halogen_remote_apply(client, text)` applies a batch and
   `halogen_remote_detach(client)` stops listening and empties the container.

@@ -35,4 +35,5 @@ The client (`jsbits/remote.js`) prevents the default of every `submit`, and of e
 an `a` element, that it listens for, since a handler hears of an event too late to; a handler
 declared with `HE.preventingDefault` or `HE.stoppingPropagation` runs as any other, its preventing
 and stopping doing nothing. Refs are nodes of the mirror, focus and selection stay the page's, and
-nothing is hydrated.
+nothing is hydrated. `halogen_remote_connect`'s `close()` also stops a reconnection that is
+waiting for its delay.

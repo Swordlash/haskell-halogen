@@ -287,11 +287,13 @@ function halogen_remote_connect(address, container, options) {
   var settings = options || {};
   var minDelay = typeof settings.minDelay === "number" ? settings.minDelay : 500;
   var maxDelay = typeof settings.maxDelay === "number" ? settings.maxDelay : 10000;
-  var state = { socket: null, attempts: 0, stopped: false };
+  var state = { socket: null, attempts: 0, stopped: false, retry: null };
   var url = new URL(address, location.href);
   if (url.protocol === "http:") url.protocol = "ws:";
   else if (url.protocol === "https:") url.protocol = "wss:";
   function connect() {
+    state.retry = null;
+    if (state.stopped) return;
     var socket = new WebSocket(url.href);
     state.socket = socket;
     var client = halogen_remote_attach(container, function (text) {
@@ -311,14 +313,17 @@ function halogen_remote_connect(address, container, options) {
       if (!state.stopped) {
         var delay = Math.min(maxDelay, minDelay * Math.pow(2, state.attempts));
         state.attempts += 1;
-        setTimeout(connect, delay);
+        state.retry = setTimeout(connect, delay);
       }
     };
   }
   connect();
   return {
+    // A reconnection that is waiting for its delay does not happen.
     close: function () {
       state.stopped = true;
+      if (state.retry !== null) clearTimeout(state.retry);
+      state.retry = null;
       if (state.socket) state.socket.close();
     },
   };
