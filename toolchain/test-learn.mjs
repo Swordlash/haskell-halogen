@@ -22,8 +22,9 @@
 // no mark shows in what GHC says; the playground's page is prerendered, takes
 // lesson 2's code from its Open in playground (with localStorage refusing
 // writes), compiles its template, whose every element Source marks (its
-// HH.p_ paragraph outlined at its line and column), loads the store layer
-// when it is checked, and keeps all that for the next visit;
+// HH.p_ paragraph outlined at its line and column), marks a paragraph built
+// inside a chain of $ where its HH.p is, loads the store layer when it is
+// checked, and keeps all that for the next visit;
 // every lesson in examples/learn/lessons compiles its Solution.hs without a
 // diagnostic and shows something (one line per lesson, which is how a new
 // lesson is checked); an error GHC throws rather than reports is still a
@@ -116,6 +117,23 @@ const templateLines = (() => {
   return [...list.matchAll(/^\s*[[,] ("(?:[^"\\]|\\.)*")\s*$/gm)].map((m) => JSON.parse(m[1]));
 })();
 assert.ok(templateLines.some((l) => l.includes("HH.p_ [HH.text (\"Clicks: \"")), "the playground's template has its Clicks: paragraph");
+
+// A program for the playground whose paragraph is built inside a chain of
+// $ with another operator in it: Source marks the paragraph where HH.p is,
+// not only the div around it.
+const chainProgram = `{-# LANGUAGE OverloadedStrings #-}
+
+module Lesson (component) where
+
+import Control.Monad.IO.Class (MonadIO)
+import Halogen qualified as H
+import Halogen.HTML qualified as HH
+
+component :: forall q o m. (MonadIO m) => H.Component q () o m
+component = H.component (\\_ -> pure ()) render []
+  where
+    render () = HH.div_ $ pure $ HH.p [] $ [HH.text "a"] <> [HH.text "b"]
+`;
 
 // A program for the playground that needs the store layer's package: it
 // imports one of its modules, and shows that it compiled.
@@ -486,6 +504,16 @@ try {
   await page.locator("button.learn-source").click();
   await page.locator('button.learn-source[aria-pressed="false"]').waitFor({ timeout: 5000 });
   console.log(`ok  Source on the playground's template: its HH.p_ paragraph is outlined as Lesson.hs:${clicksLine}:${clicksColumn} and its line marked, and its div, button and paragraph are all marked`);
+  await setEditor(page, chainProgram);
+  assert.match(await compile("a paragraph built in a chain of $, in the playground"), /^Compiled and ran/);
+  const chainLines = chainProgram.split("\n");
+  const chainLine = chainLines.findIndex((l) => l.includes("HH.p [] $")) + 1;
+  const chainAt = (name) => `${chainLine}:${chainLines[chainLine - 1].indexOf(name) + 1}`;
+  const chained = page.locator("#learn-result p", { hasText: "ab" });
+  await chained.waitFor({ timeout: 5000 });
+  assert.equal(await chained.getAttribute("data-learn-src"), chainAt("HH.p"), "the paragraph carries where HH.p is");
+  assert.equal(await page.locator("#learn-result div[data-learn-src]").first().getAttribute("data-learn-src"), chainAt("HH.div_"), "the div carries where HH.div_ is");
+  console.log(`ok  in HH.div_ $ pure $ HH.p [] $ xs <> ys the paragraph is marked ${chainAt("HH.p")}, where HH.p is, and the div ${chainAt("HH.div_")}`);
   if (manifest.layers.some((layer) => layer.name === "store")) {
     // The layer's archive is held until the progress line has shown, which
     // a local server would otherwise make too short to see.

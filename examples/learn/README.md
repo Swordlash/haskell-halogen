@@ -91,7 +91,8 @@ mark: every application of an element function of `Halogen.HTML.Elements` or
 the arguments its type takes, however its properties are written (`HH.div
 [HP.id "x"] [...]`, `HH.div props kids`, `HH.p_ [...]`, a leaf such as
 `HH.input []` or `HH.br_`, `HH.element`, `HH.withKeys`, `SE.circle [...]`),
-the last argument given with `$` too (`HH.ul_ $ map item items`). The
+the last argument given with `$` too (`HH.ul_ $ map item items`, and each
+element along `HH.div_ $ pure $ HH.p [] $ xs <> ys`). The
 plugin wraps the application in `Halogen.HTML.Core.withProps`, which adds
 the mark to the element it built, before the element's own properties, so a
 `data-learn-src` of the reader's own wins. What gets none: an element applied
@@ -193,7 +194,9 @@ introduction, that lesson 2's Open in playground arrives there with its code
 when `localStorage` refuses every write,
 which compiles and counts, with Source working there too, that the template
 compiles and counts, with each of its elements marked and its `HH.p_`
-paragraph outlined by Source at its line and column, that checking `store` shows the progress line and then
+paragraph outlined by Source at its line and column, that a paragraph built
+inside a chain of `$` with another operator in it is marked where its `HH.p`
+is, that checking `store` shows the progress line and then
 "loaded" by its checkbox and lets a program importing `Halogen.Store`
 compile, and that the code, the layer and the arguments are there and compile
 on a second visit, that a type error is

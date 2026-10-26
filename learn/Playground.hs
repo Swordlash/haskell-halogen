@@ -345,10 +345,14 @@ spansQualifier = mkModuleName "Learn__Spans"
 -- An application is the element applied to exactly as many arguments as its
 -- type takes ('spanMarks'), in parentheses or not (@(HH.div props) kids@),
 -- and the last of them may be given with @$@ (@HH.div_ $ map item items@,
--- @HH.div props $ kids@), which lesson code writes as often as it writes the
--- application itself. The mark is the position of the element function's
--- name. The rewrite goes from the outside in: an element is wrapped once,
--- and then what its arguments build is marked inside it.
+-- @HH.div props $ kids@, @HH.ul_ $ map item xs <> rest@), which lesson code
+-- writes as often as it writes the application itself: a run of operators
+-- is split at its @$@s, which bind less tightly than any other operator, so
+-- that each @$@ applies what is before it to all that follows, whatever the
+-- other operators in the run are (see @markOperators@). The mark is the
+-- position of the element function's name. The rewrite goes from the
+-- outside in: an element is wrapped once, and then what its arguments build
+-- is marked inside it.
 --
 -- Left alone, and so without a mark: an element applied to fewer arguments
 -- than it takes (@map HH.li_ items@, @HH.withKeys HH.ul@'s @HH.ul@), which
@@ -389,31 +393,39 @@ markModule marks parsed =
 
     markExpr :: LHsExpr GhcPs -> State Bool (LHsExpr GhcPs)
     markExpr e = case e of
-      L _ OpApp {}
-        | (first, rest@(_ : _ : _)) <- operatorsOf e
-        , all (isDollar . fst) rest ->
-            markOperators (rightNested first rest)
-        | otherwise -> markOperators e
+      L _ OpApp {} -> markOperators e
       _
         | Just from <- application 0 e -> wrap from =<< gmapM markAll e
         | otherwise -> gmapM markAll e
 
     -- A run of operators, which GHC parses as it reads them, nested to the
-    -- left (@a $ b $ c@ is @(a $ b) $ c@ until the renamer knows the
-    -- operators' fixities): the operands are each marked, but the run's
-    -- inner nodes, which are not the expressions the reader wrote, are not
-    -- taken for applications. The run is an application itself when its
-    -- first operator is @$@ and its first operand an element short of one
-    -- argument, since no operator binds less tightly than @$@: whatever
-    -- follows it is that argument.
+    -- left (@a $ b <> c@ is @(a $ b) <> c@ until the renamer knows the
+    -- operators' fixities), so that its inner nodes are not the expressions
+    -- the reader wrote. It is split at its @$@s instead: @$@ is infixr 0,
+    -- and no operator binds less tightly, so the @$@s nest to the right over
+    -- the stretches between them, @a $ (b <> c)@, and each stretch is a run
+    -- of its own, left as GHC parsed it for the renamer to resolve as usual.
+    -- The rebuilt run means what the reader wrote: an operator of precedence
+    -- 0 that is also infixr (@seq@) nests with @$@ the same way, and the
+    -- renamer still reassociates a stretch to the left of a @$@ that ends in
+    -- one; an infixl or infix one next to @$@ is a fixity error either way.
+    -- Each @$@ is an application when the stretch before it is an element
+    -- short of one argument, and the stretches on both sides are marked
+    -- inside, so in @HH.div_ $ pure $ HH.p [] $ xs <> ys@ both the @div@ and
+    -- the @p@ are. A run with no @$@ is left as it was, its operands marked.
     markOperators :: LHsExpr GhcPs -> State Bool (LHsExpr GhcPs)
-    markOperators e = do
-      let from = case operatorsOf e of
-            (first, (operator, _) : _) | isDollar operator -> application 1 first
-            _ -> Nothing
-      inner <- overOperands e
-      maybe (pure inner) (`wrap` inner) from
+    markOperators e = case break (isDollar . fst) rest of
+      (_, []) -> overOperands e
+      (before, (dollar, next) : after) -> do
+        let left = leftNested first before
+            right = leftNested next after
+            from = application 1 left
+        left' <- markExpr left
+        right' <- markExpr right
+        let inner = L (combineLocsA left right) (OpApp noExtField left' dollar right')
+        maybe (pure inner) (`wrap` inner) from
       where
+        (first, rest) = operatorsOf e
         overOperands = \case
           L l (OpApp x left operator right) -> do
             left' <- overOperands left
@@ -421,18 +433,11 @@ markModule marks parsed =
             pure (L l (OpApp x left' operator right'))
           operand -> markExpr operand
 
-    -- A run of nothing but @$@ means each operand applied to all that
-    -- follows it: nested to the right, so that each of those applications
-    -- is a node to mark. (Mixed with other operators, a run is left as GHC
-    -- parsed it, since how it nests depends on fixities only the renamer
-    -- knows.) A right operand that is a run of its own is left as it is by
-    -- the renamer, which reassociates only a left one.
-    rightNested :: LHsExpr GhcPs -> [(LHsExpr GhcPs, LHsExpr GhcPs)] -> LHsExpr GhcPs
-    rightNested first = \case
-      [] -> first
-      (operator, next) : rest ->
-        let right = rightNested next rest
-         in L (combineLocsA first right) (OpApp noExtField first operator right)
+    -- A stretch of a run, nested to the left as GHC parses one. (A right
+    -- operand that is a run of its own, as the stretch after a @$@ is, is
+    -- left as it is by the renamer, which reassociates only a left one.)
+    leftNested :: LHsExpr GhcPs -> [(LHsExpr GhcPs, LHsExpr GhcPs)] -> LHsExpr GhcPs
+    leftNested = foldl' (\left (operator, right) -> L (combineLocsA left right) (OpApp noExtField left operator right))
 
     -- The run's first operand, and each operator with the operand after it.
     operatorsOf :: LHsExpr GhcPs -> (LHsExpr GhcPs, [(LHsExpr GhcPs, LHsExpr GhcPs)])
