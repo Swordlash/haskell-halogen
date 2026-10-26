@@ -193,8 +193,18 @@ jobs:
     # The same browser test as the build-wasm job in build.yml, run here too
     # because the two workflows run side by side on a push to master: without
     # it, a tutorial that fails there would still be deployed from here.
+    - name: Cache Chromium
+      uses: actions/cache@v5
+      with:
+        path: ~/.cache/ms-playwright
+        key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+
+    # Without --with-deps: the runner image already has every library the
+    # headless shell needs (apt reported each one installed), and what
+    # --with-deps added besides, fonts and an xvfb upgrade, the tests do not
+    # use, while its apt fetch from the mirror has taken eleven minutes.
     - name: Install Chromium
-      run: npx playwright install --with-deps --only-shell chromium
+      run: npx playwright install --only-shell chromium
 
     - name: Test the tutorial in a browser
       run: npm run test-learn
