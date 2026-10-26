@@ -496,8 +496,8 @@ layer):
   layer), far from the 1 GB limit.
 - **Bandwidth per cold load**: the page, `bsdtar.wasm`, the manifest and
   `rootfs.tar.zst` are 51.4 MB; a lesson with any of the small layers adds
-  at most 2.6 MB (all six and material's assets; `hspec`'s is the largest,
-  1.3 MB), and the `th` lesson 21.4 MB more, 75.4 MB in all. Pages has a
+  at most 2.8 MB (all eight and material's assets; `hspec`'s is the largest,
+  1.3 MB), and the `th` lesson 21.4 MB more, 75.6 MB in all. Pages has a
   soft limit of 100 GB a month: about 1,850 cold loads a month without
   `th`, about 1,330 if every reader also loaded `th`. Its responses are cacheable (10 minutes, then revalidated
   with an ETag), and the tutorial keeps the archives in the Cache API under
