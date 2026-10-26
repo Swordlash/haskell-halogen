@@ -192,7 +192,7 @@ its own. A library two layers both need belongs in the base layer:
 build if a layer's closure reaches a unit another layer already carries, as
 two copies of one library in a session would be two libraries to dyld. Today
 no two layers share anything: hooks, router, net, elements, devtools, pixi,
-three, store and worker need only themselves beyond the base layer, lazy its two packages
+three, store, worker and live need only themselves beyond the base layer, lazy its two packages
 (`haskell-halogen-lazy` and `haskell-halogen-lazy-demo`), material also `clock` and `extra`, th its
 parsers, hspec hspec's own closure (`hspec`, `hspec-core`, `HUnit`,
 `ansi-terminal` and the rest; `QuickCheck` and its generators are in the
@@ -220,6 +220,7 @@ which loads its libraries into dyld and compiles. Three runs of
 | `store` | `haskell-halogen-store` | 1 | 0.49 MB | 0.07 MB | none | 23–25 ms | 0.9–1.7 s |
 | `worker` | `haskell-halogen-worker` | 1 | 0.20 MB | 0.04 MB | none | 20–21 ms | 7.4–9.5 s |
 | `lazy` | `haskell-halogen-lazy`, `haskell-halogen-lazy-demo` | 2 | 0.27 MB | 0.06 MB | none; `liblazy-demo.so` (64 KB), which its program fetches itself (below) | 19–27 ms | 6.2–7.2 s |
+| `live` | `haskell-halogen-remote` | 1 | not measured yet | not measured yet | none | not measured yet | not measured yet |
 | **all thirteen** | | 33 | 216.6 MB | 24.7 MB | 0.33 MB | 2.2–2.4 s | |
 | all but `th` | | 26 | 21.9 MB | 2.80 MB | 0.33 MB | 0.42–0.45 s | |
 
@@ -245,7 +246,7 @@ in the same runs, and 1.1 s in a run with only that layer
 libraries, then the program fetches `liblazy-demo.so` and dyld links it.
 The `three` row and the two totals are from three runs of a rootfs with all
 thirteen layers, whose sizes the totals add up (`th`'s archive 21.9 MB in
-it); `th` loaded in 1.8–2.0 s. `three`'s first run compiles the program,
+it); `th` loaded in 1.8–2.0 s. The `live` row is not measured yet, and the totals are without it. `three`'s first run compiles the program,
 loads the layer's library, and clicks the canvas until Three.js has come from
 jsDelivr and the click, raycast into the scene, reaches the box, so its
 2.0–2.1 s include fetching Three.js, which is not in the layer's size. In
@@ -291,7 +292,9 @@ interpreted program has no binary for one to load), one job run through
 `WorkerError`; lazy, `Halogen.Lazy`'s placeholder while
 `Halogen.Lazy.Dyld` fetches `layers/lazy/liblazy-demo.so` and has dyld link it
 into the program, then the component its entry handed over, clicked and told
-to wave by its parent, which hears it each time. All pass, with no
+to wave by its parent, which hears it each time; live, a counter in `RemoteDOM` mounted into
+`#app` with `Halogen.Remote.Loopback.mountIn`, so that the layer's client builds its button there
+from the JSON the session sends, and clicked through the client. All pass, with no
 console errors. If the CDN cannot be reached from the browser, the pixi and
 three runs are skipped and say why (it was reachable here, through the proxy).
 

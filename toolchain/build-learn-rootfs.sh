@@ -133,8 +133,9 @@ fi
 BASE_LAYER="haskell-halogen-jsbits haskell-halogen-core"
 # Every package of this project a lesson can use, a layer each. Each holds
 # its package and what that needs beyond the base layer: hooks, router, net,
-# elements (haskell-halogen-custom-element), devtools, pixi, three, store and
-# worker only themselves;
+# elements (haskell-halogen-custom-element), devtools, pixi, three, store,
+# worker and live (haskell-halogen-remote, whose server is native and not in
+# it) only themselves;
 # material also clock and extra; th also ghc-lib-parser (as big as GHC's own
 # library) and the parsers it uses, which is why it is a layer of its own
 # that only a lesson about quasi-quotes loads;
@@ -146,7 +147,7 @@ BASE_LAYER="haskell-halogen-jsbits haskell-halogen-core"
 # liblazy-demo.so, is served beside the archive rather than in it: see step 8).
 # sound and tauri are not here: a lesson has no sound to play nor a Tauri to
 # talk to.
-DEFAULT_LAYERS="hooks=haskell-halogen-hooks router=haskell-halogen-router net=haskell-halogen-net elements=haskell-halogen-custom-element devtools=haskell-halogen-devtools material=haskell-halogen-material pixi=haskell-halogen-pixi three=haskell-halogen-three th=haskell-halogen-th hspec=hspec-halogen store=haskell-halogen-store worker=haskell-halogen-worker lazy=haskell-halogen-lazy,haskell-halogen-lazy-demo"
+DEFAULT_LAYERS="hooks=haskell-halogen-hooks router=haskell-halogen-router net=haskell-halogen-net elements=haskell-halogen-custom-element devtools=haskell-halogen-devtools material=haskell-halogen-material pixi=haskell-halogen-pixi three=haskell-halogen-three th=haskell-halogen-th hspec=hspec-halogen store=haskell-halogen-store worker=haskell-halogen-worker lazy=haskell-halogen-lazy,haskell-halogen-lazy-demo live=haskell-halogen-remote"
 layers=${LEARN_LAYERS-$DEFAULT_LAYERS}
 # Boot packages that neither GHC (the closure of ghc, ghci, ghc-boot,
 # template-haskell, hpc and ghc-heap) nor any package above depends on, so no
