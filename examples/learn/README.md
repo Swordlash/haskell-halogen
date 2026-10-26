@@ -85,7 +85,10 @@ its count of renders climbs every second for `Start.hs` and not for
 `Solution.hs`; for lesson 17, whose program runs its jobs through
 `Halogen.Worker`, that the component says no worker can be made here, and
 that each counts the primes right, `Start.hs` drawing no frame meanwhile and
-`Solution.hs`, through `Worker.run` in a `liftIO`, at least one), that back, forward, a second visit
+`Solution.hs`, through `Worker.run` in a `liftIO`, at least one; for lesson 18, whose component comes from a shared library
+the program links while it runs, that the library's component greets the
+name and waves, and for `Solution.hs` that the parent hears it, tells it to
+wave and asks it how often, and that hidden and shown again it starts over), that back, forward, a second visit
 (from the cache) and Reset work, that a narrow screen downloads nothing large
 until asked, that a failed load can be retried and loads from a manifest
 without a version or sizes too, and that nothing is logged as an error.
@@ -141,8 +144,14 @@ args: -package haskell-halogen-hooks
   The rootfs has `hooks`, `router`, `net`, `material`, `pixi`, `th` and
   `store`, one per package of the same name (`haskell-halogen-hooks`, ...),
   `elements`, for `haskell-halogen-custom-element`, `devtools`, for
-  `haskell-halogen-devtools`, `worker`, for `haskell-halogen-worker`, and
-  `hspec`, for `hspec-halogen` (see `learn/README.md`, "Layers").
+  `haskell-halogen-devtools`, `worker`, for `haskell-halogen-worker`,
+  `hspec`, for `hspec-halogen`, and `lazy`, for `haskell-halogen-lazy` and
+  `haskell-halogen-lazy-demo` (see `learn/README.md`, "Layers").
+  `lazy` also has a library of its own beside the archive,
+  `rootfs/layers/lazy/liblazy-demo.so`, which lesson 18's program fetches
+  and links into itself while it runs, with `Halogen.Lazy.Dyld`: the page
+  hands its dyld over for that (`js/playground.js` sets
+  `globalThis.halogenDyld`).
 - `args` (optional): further GHC arguments, separated by spaces, after the
   ones every compile has (`-package haskell-halogen-core
   -Wno-missed-extra-shared-lib -i/tmp`). A layer's package still has to be
@@ -250,7 +259,9 @@ What the code can use: GHC's boot libraries (`base`, `text`, `containers`,
 `Cabal`), `haskell-halogen-core`, `haskell-halogen-jsbits` and everything they
 depend on (`aeson`, `vector`, `clay`, `row-types`, `unliftio`, `protolude`,
 ...), and the packages of the layers the header names (the `hspec` layer's
-`hspec-halogen` brings `hspec`, `hspec-core` and `HUnit` with it). Template Haskell
+`hspec-halogen` brings `hspec`, `hspec-core` and `HUnit` with it, and the
+`lazy` layer's `haskell-halogen-lazy-demo` the types lesson 18's library
+shares with the program). Template Haskell
 works. A `foreign import javascript` of the lesson's own does not (GHC would
 need clang in the page, `learn/README.md`): JavaScript is reached through the
 libraries' bindings.
