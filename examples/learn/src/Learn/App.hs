@@ -123,6 +123,9 @@ data State = State
   -- ^ How long the last check whose result is shown took, and whether the
   -- code typechecked.
   , playground :: PlaygroundSettings
+  , handoff :: Maybe Handoff
+  -- ^ What a lesson's Open in playground hands the playground, until the
+  -- playground opens with it.
   }
 
 -- | What the reader chose in the playground beside the code: the layers
@@ -253,6 +256,7 @@ component =
           , checkDue = Nothing
           , lastCheck = Nothing
           , playground = PlaygroundSettings {layers = [], extra = ""}
+          , handoff = Nothing
           }
 
     handleAction :: Action -> H.HalogenM State Action Empty o m ()
@@ -354,12 +358,12 @@ component =
             else pure True
         when sure $ H.liftEffect (liftIO (Browser.setEditorText editor solution))
       -- The lesson's code, as the reader has it, with what it compiles
-      -- with, for the playground to take when it is entered: in the
-      -- session's store, so that it is this tab's alone, and gone with it.
+      -- with, for the playground to open with when it is entered. It stays
+      -- in this component's state: the playground is entered without a
+      -- page load, and the browser's storage may refuse to keep it.
       OpenInPlayground -> withEditor $ \code editor -> do
         text <- H.liftEffect (liftIO (Browser.editorText editor))
-        let handoff = Playground.encodeHandoff Handoff {code = text, layers = code.layers, args = code.args}
-        void $ H.liftEffect $ tryAny $ writeStorageItem SessionStorage Playground.handoffKey handoff
+        modify $ \s -> s {handoff = Just Handoff {code = text, layers = code.layers, args = code.args}}
         router <- gets (.router)
         Router.navigate router Playground
       ToggleLayer name checked -> do
@@ -402,25 +406,27 @@ component =
         writeStorageItem LocalStorage Playground.layersKey (Playground.showLayers settings.layers)
         writeStorageItem LocalStorage Playground.argsKey settings.extra
 
-    -- The playground's layers and arguments: what a lesson handed it, if one
-    -- has since the last visit (taken, so that a reload finds what the
-    -- reader made of it since), else what was kept. A hand-off's code is
-    -- kept as the reader's at once, for the same reason, and is what the
-    -- editor opens with.
-    restoreSettings = do
-      let stored kind key = join . rightToMaybe <$> H.liftEffect (tryAny (readStorageItem kind key))
-      handed <- (Playground.decodeHandoff =<<) <$> stored SessionStorage Playground.handoffKey
-      case handed of
-        Just handoff -> do
-          void $ H.liftEffect $ tryAny $ removeStorageItem SessionStorage Playground.handoffKey
-          let (layers, extra) = Playground.fromLesson handoff
-          modify $ \s -> s {playground = PlaygroundSettings {layers, extra}}
-          keepSettings
-          void $ H.liftEffect $ tryAny $ writeStorageItem LocalStorage Playground.codeKey handoff.code
-        Nothing -> do
-          layers <- maybe [] Playground.readLayers <$> stored LocalStorage Playground.layersKey
-          extra <- fromMaybe "" <$> stored LocalStorage Playground.argsKey
-          modify $ \s -> s {playground = PlaygroundSettings {layers, extra}}
+    -- What the playground opens with ('Playground.opening'): what a lesson
+    -- has just handed it (taken, so that coming back finds what the reader
+    -- made of it since), else what was kept; its layers and arguments go
+    -- into the state, and its code, if not the template, is given back for
+    -- the editor. A hand-off is kept as the reader's at once, for a reload
+    -- to find, as far as the browser lets it: what the editor opens with is
+    -- the hand-off itself, not what the storage has after that write.
+    openPlayground = do
+      handed <- gets (.handoff)
+      modify $ \s -> s {handoff = Nothing}
+      kept <- Playground.Kept <$> stored Playground.codeKey <*> stored Playground.layersKey <*> stored Playground.argsKey
+      let opened = Playground.opening handed kept
+      modify $ \s -> s {playground = PlaygroundSettings {layers = opened.layers, extra = opened.extra}}
+      for_ handed $ \handoff -> do
+        keepSettings
+        void $ H.liftEffect $ tryAny $ writeStorageItem LocalStorage Playground.codeKey handoff.code
+      pure opened.code
+
+    -- What @localStorage@ has under this key, if the browser lets it be
+    -- read.
+    stored key = join . rightToMaybe <$> H.liftEffect (tryAny (readStorageItem LocalStorage key))
 
     markDiagnostics editor diagnostics =
       H.liftEffect $ liftIO $ Browser.showDiagnostics editor (filter ((== "Lesson.hs") . (.file)) diagnostics)
@@ -482,14 +488,18 @@ component =
 
     -- The editor, in the page's element, with the reader's code if any was
     -- kept, else the lesson's start (the playground's template); for the
-    -- playground, its layers and arguments first.
+    -- playground, what it opens with, layers and arguments first. A
+    -- hand-off is for the page entered next only.
     enterPage = do
       route <- gets (.route)
-      when (route == Playground) restoreSettings
+      opened <-
+        if route == Playground
+          then Just <$> openPlayground
+          else Nothing <$ modify (\s -> s {handoff = Nothing})
       withCode $ \code -> do
         modify $ \s -> s {edits = s.edits + 1}
         st <- get
-        saved <- join . rightToMaybe <$> H.liftEffect (tryAny (readStorageItem LocalStorage code.key))
+        saved <- maybe (stored code.key) pure opened
         let text = fromMaybe code.start saved
         H.getHTMLElementRef st.editorHost >>= traverse_ \host -> do
           events <- liftIO HS.create

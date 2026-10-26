@@ -113,12 +113,16 @@ The code, the layers and the arguments are kept in `localStorage`
 (`learn:playground:code`, `learn:playground:layers`,
 `learn:playground:args`) on every change, and the code's entry is removed
 once it is the template again. Every lesson's toolbar has **Open in
-playground**, which puts the editor's text, the lesson's layers and its
-arguments in `sessionStorage` (`learn:playground:handoff`, JSON) and goes
-to the playground; the playground takes a hand-off before what it kept,
-removes it, keeps its code as the reader's, checks its layers, and puts its
-arguments but the `-package` flags (which name the layers' packages, as a
-lesson's header must) in the extra field: lesson 20's `-fdefer-typed-holes`.
+playground**, which hands the editor's text, the lesson's layers and its
+arguments to the playground and goes there; the hand-off is held in the
+app's state, not the browser's storage, since the playground is entered
+without a page load and a store may refuse a write (full, or denied). The
+playground opens with a hand-off before what it kept
+(`Learn.Playground.opening`), takes it, puts its code in the editor as it is
+and keeps it as the reader's as far as the browser lets it, checks its
+layers, and puts its arguments but the `-package` flags (which name the
+layers' packages, as a lesson's header must) in the extra field: lesson
+20's `-fdefer-typed-holes`.
 What does not come with it is a lesson's own `Main.hs` (lessons 6, 12 to 17
 and 21): the playground mounts `component` with the default wrapper, so a
 component that needs the program around it (lesson 15's store, lesson 17's
@@ -180,7 +184,8 @@ count, outlines what the editor's cursor is on, does all that at the line
 the code has moved to when two lines are added above it and taken out
 again, gives an element whose code is deleted no line, and once off lets a
 click count again, that the playground's page is prerendered and linked from the
-introduction, that lesson 2's Open in playground arrives there with its code,
+introduction, that lesson 2's Open in playground arrives there with its code
+when `localStorage` refuses every write,
 which compiles and counts, with Source working there too, that the template
 compiles and counts, that checking `store` shows the progress line and then
 "loaded" by its checkbox and lets a program importing `Halogen.Store`

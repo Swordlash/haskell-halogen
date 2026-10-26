@@ -20,7 +20,8 @@
 // on, marks its line and goes there on a click the program does not get, at
 // the line its code is on after edits since the compile, and
 // no mark shows in what GHC says; the playground's page is prerendered, takes
-// lesson 2's code from its Open in playground, compiles its template, loads
+// lesson 2's code from its Open in playground (with localStorage refusing
+// writes), compiles its template, loads
 // the store layer when it is checked, and keeps all that for the next visit;
 // every lesson in examples/learn/lessons compiles its Solution.hs without a
 // diagnostic and shows something (one line per lesson, which is how a new
@@ -404,19 +405,36 @@ try {
   // so by its checkbox, and lets a program importing Halogen.Store compile.
   await page.locator("button.learn-solution").click();
   await page.waitForFunction(() => document.querySelector(".learn-editor .cm-content").innerText.includes("subtract 1"));
+  // With localStorage refusing every write (full, or denied) and holding
+  // the playground's code from before: the hand-off does not go through it,
+  // so the playground opens with the lesson's code all the same.
+  const keptBefore = "module Lesson where -- kept before";
+  await page.evaluate((kept) => {
+    localStorage.setItem("learn:playground:code", kept);
+    const setItem = Storage.prototype.setItem;
+    window.learnSetItem = setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (this === localStorage) throw new DOMException("The quota has been exceeded.", "QuotaExceededError");
+      return setItem.call(this, key, value);
+    };
+  }, keptBefore);
   await page.locator("button.learn-open-playground").click();
   await page.waitForURL(`${url}playground/`);
   await page.locator("article h1", { hasText: /^Playground$/ }).waitFor({ timeout: 5000 });
   assert.equal(await page.evaluate(() => window.learnNoReload), 1, "the hand-off does not reload the page");
   await page.locator(".learn-editor .cm-editor").waitFor({ timeout: 5000 });
-  assert.ok((await page.locator(".learn-editor .cm-content").textContent()).includes("modify (subtract 1)"), "the playground opens with lesson 2's code");
-  assert.equal(await page.evaluate(() => sessionStorage.getItem("learn:playground:handoff")), null, "the hand-off is taken");
+  const handedText = await page.locator(".learn-editor .cm-content").textContent();
+  assert.ok(handedText.includes("modify (subtract 1)") && !handedText.includes("kept before"), "the playground opens with lesson 2's code, though localStorage refused it");
+  assert.equal(await page.evaluate(() => localStorage.getItem("learn:playground:code")), keptBefore, "localStorage did refuse the write");
+  await page.evaluate(() => {
+    Storage.prototype.setItem = window.learnSetItem;
+  });
   await page.locator("button.learn-compile:not([disabled])").waitFor({ timeout: 120000 });
   assert.match(await compile("lesson 2's code, in the playground"), /^Compiled and ran/);
   const handedPlus = page.locator("#learn-result button", { hasText: /^\+$/ });
   await handedPlus.click();
   await page.locator("#learn-result p", { hasText: "Count: 1" }).waitFor({ timeout: 5000 });
-  console.log("ok  Open in playground takes lesson 2's code to the playground, where it compiles and counts");
+  console.log("ok  Open in playground takes lesson 2's code to the playground, though localStorage refuses every write, and it compiles and counts there");
   await page.locator("button.learn-source:not([disabled])").click();
   await handedPlus.hover();
   await outlined(page, handedPlus);

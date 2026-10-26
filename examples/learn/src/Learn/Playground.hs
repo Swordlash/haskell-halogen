@@ -3,18 +3,17 @@
 -- code needs, and the page passes GHC what a lesson's header would: each
 -- layer's package database, and a @-package@ for each of its packages. What
 -- the page keeps of it in the browser, and what a lesson hands it when the
--- reader opens the lesson's code there, are here too, so that they are read
--- the same way they are written.
+-- reader opens the lesson's code there, are here too, with what the
+-- playground opens with of the two ('opening').
 module Learn.Playground
   ( template
   , codeKey
   , layersKey
   , argsKey
-  , handoffKey
   , Handoff (..)
-  , encodeHandoff
-  , decodeHandoff
-  , fromLesson
+  , Kept (..)
+  , Opening (..)
+  , opening
   , packageArgs
   , withoutPackages
   , readLayers
@@ -22,8 +21,6 @@ module Learn.Playground
   )
 where
 
-import Data.Aeson (FromJSON (..), ToJSON (..), object, withObject, (.:), (.=))
-import Data.Aeson qualified as Aeson
 import Data.Text qualified as T
 import Protolude
 
@@ -70,12 +67,10 @@ codeKey = "learn:playground:code"
 layersKey = "learn:playground:layers"
 argsKey = "learn:playground:args"
 
--- | The key, in @sessionStorage@, of what a lesson hands the playground.
-handoffKey :: Text
-handoffKey = "learn:playground:handoff"
-
 -- | A lesson's code, as the reader had it, and what compiling it took: the
--- lesson's layers, and its GHC arguments.
+-- lesson's layers, and its GHC arguments. The app holds it from the
+-- lesson's Open in playground to the playground's arrival, in its own state
+-- rather than the browser's storage, which may refuse to keep anything.
 data Handoff = Handoff
   { code :: Text
   , layers :: [Text]
@@ -83,27 +78,37 @@ data Handoff = Handoff
   }
   deriving stock (Eq, Show)
 
-instance ToJSON Handoff where
-  toJSON h = object ["code" .= h.code, "layers" .= h.layers, "args" .= h.args]
+-- | What @localStorage@ had under 'codeKey', 'layersKey' and 'argsKey':
+-- nothing for an entry the page never kept, or that the browser would not
+-- read.
+data Kept = Kept
+  { code :: Maybe Text
+  , layers :: Maybe Text
+  , args :: Maybe Text
+  }
+  deriving stock (Eq, Show)
 
-instance FromJSON Handoff where
-  parseJSON = withObject "Handoff" $ \o -> Handoff <$> o .: "code" <*> o .: "layers" <*> o .: "args"
+-- | What the playground opens with: the editor's code ('Nothing' for the
+-- template), the layers checked and the extra GHC arguments.
+data Opening = Opening
+  { code :: Maybe Text
+  , layers :: [Text]
+  , extra :: Text
+  }
+  deriving stock (Eq, Show)
 
--- | A hand-off as it is kept, JSON.
-encodeHandoff :: Handoff -> Text
-encodeHandoff = decodeUtf8 . toS . Aeson.encode
-
--- | A hand-off kept, unless what is under its key is something else.
-decodeHandoff :: Text -> Maybe Handoff
-decodeHandoff = Aeson.decodeStrict . encodeUtf8
-
--- | The playground's layers and extra arguments for a hand-off: the
--- lesson's layers, and its arguments but for its @-package@ flags, which
--- name its layers' packages (a lesson's header must, see
+-- | A hand-off, if a lesson has just made one, over what was kept: the
+-- lesson's code, its layers, and its arguments but for its @-package@
+-- flags, which name its layers' packages (a lesson's header must, see
 -- @examples\/learn\/README.md@) and which the playground passes for the
--- layers checked.
-fromLesson :: Handoff -> ([Text], Text)
-fromLesson h = (h.layers, T.unwords (withoutPackages h.args))
+-- layers checked. The hand-off is used as it is, never read back from the
+-- storage it is then written to, so that a write the browser refuses (the
+-- store full, or denied) cannot open the playground with what it kept
+-- before.
+opening :: Maybe Handoff -> Kept -> Opening
+opening handed kept = case handed of
+  Just h -> Opening {code = Just h.code, layers = h.layers, extra = T.unwords (withoutPackages h.args)}
+  Nothing -> Opening {code = kept.code, layers = maybe [] readLayers kept.layers, extra = fromMaybe "" kept.args}
 
 -- | The @-package@ flags for these layers: each package of each one, by
 -- the manifest (a layer's name and its packages), in order and once, but for

@@ -9,7 +9,7 @@ import Halogen.Router.Duplex qualified as Duplex
 import Learn.Diagnostics (didNotCompile, withoutMarks)
 import Learn.Lesson (parseDirectoryName)
 import Learn.Markdown (Block (..), Inline (..), parseInlines, parseMarkdown)
-import Learn.Playground (Handoff (..), decodeHandoff, encodeHandoff, fromLesson, packageArgs, readLayers, showLayers, withoutPackages)
+import Learn.Playground (Handoff (..), Kept (..), Opening (..), opening, packageArgs, readLayers, showLayers, withoutPackages)
 import Learn.Route (Route (..), route)
 import Learn.Types (Binding (..), displayName, splitTypes)
 import Protolude
@@ -36,12 +36,18 @@ playground = describe "Learn.Playground" $ do
       [("hooks", ["haskell-halogen-hooks"]), ("lazy", ["haskell-halogen-lazy", "haskell-halogen-lazy-demo"]), ("odd", ["haskell-halogen-core", "haskell-halogen-hooks"])]
       ["lazy", "odd", "hooks"]
       `shouldBe` ["-package", "haskell-halogen-hooks", "-package", "haskell-halogen-lazy", "-package", "haskell-halogen-lazy-demo"]
-  it "takes a lesson's layers, and its arguments but for the -package flags its layers give" $ do
+  it "takes a lesson's code, its layers, and its arguments but for the -package flags its layers give" $ do
     let handoff = Handoff {code = "module Lesson where\n", layers = ["lazy"], args = ["-package", "haskell-halogen-lazy", "-fdefer-typed-holes", "-package", "haskell-halogen-lazy-demo"]}
-    fromLesson handoff `shouldBe` (["lazy"], "-fdefer-typed-holes")
+    opening (Just handoff) (Kept Nothing Nothing Nothing) `shouldBe` Opening {code = Just "module Lesson where\n", layers = ["lazy"], extra = "-fdefer-typed-holes"}
     withoutPackages ["-package"] `shouldBe` ["-package"]
-    decodeHandoff (encodeHandoff handoff) `shouldBe` Just handoff
-    decodeHandoff "not a hand-off" `shouldBe` Nothing
+  -- What was kept is what the storage has: a write it refused leaves the
+  -- playground's earlier code there, which a hand-off must win over.
+  it "opens with a hand-off over what was kept, and with what was kept, if anything, without one" $ do
+    let handoff = Handoff {code = "module Lesson where -- the lesson's\n", layers = [], args = []}
+        kept = Kept {code = Just "module Lesson where -- kept before\n", layers = Just "store,hooks", args = Just "-Wall"}
+    opening (Just handoff) kept `shouldBe` Opening {code = Just handoff.code, layers = [], extra = ""}
+    opening Nothing kept `shouldBe` Opening {code = kept.code, layers = ["store", "hooks"], extra = "-Wall"}
+    opening Nothing (Kept Nothing Nothing Nothing) `shouldBe` Opening {code = Nothing, layers = [], extra = ""}
   it "keeps the layers as it reads them" $ do
     readLayers (showLayers ["store", "hooks"]) `shouldBe` ["store", "hooks"]
     readLayers "" `shouldBe` []
