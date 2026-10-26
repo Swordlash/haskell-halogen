@@ -14,6 +14,7 @@ import Test.DriverContract qualified as DriverContract
 import Test.DriverLifecycleRaces qualified as DriverLifecycleRaces
 import Test.DriverReentrancy qualified as DriverReentrancy
 import Test.Fork qualified as Fork
+import Test.HTML qualified as HTML
 import Test.Hashable qualified as Hashable
 import Test.Hspec (hspec)
 import Test.Hydrate qualified as Hydrate
@@ -42,6 +43,7 @@ main = hspec $ do
   DriverLifecycleRaces.spec
   Fork.spec
   Hashable.spec
+  HTML.spec
   Hydrate.spec
   IndexedDB.spec
   NativeDom.spec

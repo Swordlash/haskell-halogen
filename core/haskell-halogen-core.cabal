@@ -272,6 +272,7 @@ test-suite Halogen-core-test
                     Test.Fork
                     Test.GHCJS
                     Test.Hashable
+                    Test.HTML
                     Test.Hydrate
                     Test.IndexedDB
                     Test.NativeDom

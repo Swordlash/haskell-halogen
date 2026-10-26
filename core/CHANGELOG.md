@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `Halogen.HTML.Core.withProps` gives the element a piece of HTML is more
+  properties, before its own, so that of two with the same name the
+  element's own still wins: it adds what the element does not say and
+  changes nothing it does. It is for marking HTML someone else built,
+  whatever its properties are or however they were written (the tutorial
+  marks each element of the reader's code with the line that built it this
+  way). A text node and a slot have no properties and are left as they are.
 - A browser that refuses its storage no longer stops the program on wasm.
   A write past the quota, or any use of a store the browser denies the page
   (a strict private window, storage blocked for the site), threw a
