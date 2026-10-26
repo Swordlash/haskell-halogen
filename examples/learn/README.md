@@ -57,7 +57,7 @@ to its line when clicked. When the code stops typechecking, the last ones
 stay, said to be from the last time it compiled. What they know is the
 module's top-level bindings and nothing else: not a binding under a `where`
 or a `let` (so a lesson that wants its pieces listed binds them at the top
-level), not a name the module imports, not a
+level, as lesson 20 does), not a name the module imports, not a
 constructor, a record field, a class's or an instance's methods. A name
 right after a dot, qualified or a record's field, shows no tooltip, and a
 local name that is also a top-level one shows the top-level one's type.
@@ -126,7 +126,13 @@ the program links while it runs, that the library's component greets the
 name and waves, and for `Solution.hs` that the parent hears it, tells it to
 wave and asks it how often, and that hidden and shown again it starts over; for lesson 19,
 whose scene is drawn with Three.js, that its canvas is there and that a click at its centre, on the
-sphere, changes the colour the text under it names), that back, forward, a second visit
+sphere, changes the colour the text under it names; for lesson 20, that the component counts and
+renames), that the page checks the code as the reader types (on lesson 20, whose
+`Start.hs` has three holes: with no Compile, its holes' warnings and the types of its
+bindings are listed, a tooltip over `render` gives its type, a click in the list goes
+to the binding's line, an error typed is marked within the check's delay and goes when
+undone, and a check under way when Compile is pressed is not reported over the
+compile), that back, forward, a second visit
 (from the cache) and Reset work, that a narrow screen downloads nothing large
 until asked, that a failed load can be retried and loads from a manifest
 without a version or sizes too, and that nothing is logged as an error.
@@ -194,6 +200,8 @@ args: -package haskell-halogen-hooks
   ones every compile has (`-package haskell-halogen-core
   -Wno-missed-extra-shared-lib -i/tmp`). A layer's package still has to be
   named here with `-package`, as above. The live check passes them too.
+  Lesson 20's are `-fdefer-typed-holes`, which makes its `Start.hs`'s holes
+  warnings, so that it compiles as a start must.
 
 ### The text
 

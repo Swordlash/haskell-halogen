@@ -22,7 +22,11 @@
 // failed compile; lesson 13's spec runs in the page, its Start.hs with one
 // failure and its Solution.hs with none, by hspec's report under the editor,
 // and leaves nothing mounted; lesson 19's scene is drawn and a click on its
-// sphere changes the colour the text names; the routes survive back and forward; lesson 6's hash router
+// sphere changes the colour the text names; the page checks the code as the
+// reader types (lesson 20: the types of the bindings listed and over their
+// names with no Compile, a typed error marked within the check's delay, and
+// a check never reported over a compile asked for after it); the routes
+// survive back and forward; lesson 6's hash router
 // keeps the lesson's address under the page's <base href>, Back included;
 // what lesson 5's Finalize prints shows on every compile after the first;
 // Escape then Tab leaves the editor; the reader's code survives a reload, and
@@ -422,7 +426,19 @@ try {
       }
     }
   };
+  // Lesson 20's component counts and renames; Start.hs's holes are only
+  // reached by a click, so it is not clicked.
+  const counted = (result, text) => result.locator("p", { hasText: text }).waitFor({ timeout: 5000 });
   const pageLessons = {
+    "20-holes": {
+      start: (result) => counted(result, "Ada has counted to 0."),
+      async solution(result) {
+        await result.locator("button", { hasText: "+1" }).click();
+        await counted(result, "Ada has counted to 1.");
+        await result.locator("input").fill("Grace");
+        await counted(result, "Grace has counted to 1.");
+      },
+    },
     "19-three": { start: sphereColour, solution: sphereColour },
     "17-worker": {
       async start(result) {
@@ -538,6 +554,76 @@ try {
   }
   assert.ok(!failed, "every lesson's solution compiles and shows something");
   assert.equal(await page.evaluate(() => window.learnNoReload), 1, "following the lessons' links never reloads");
+
+  // The live check, on lesson 20: what GHC says of the code as it is, with
+  // no Compile, is in the editor and under it, with the types of the
+  // module's top-level bindings, in a list and over their names. A check
+  // never touches the result.
+  const holes = lessons.find((lesson) => lesson.slug === "20-holes");
+  if (holes) {
+    await openLesson(holes);
+    await page.locator("button.learn-reset").click();
+    const runBefore = await page.locator(".learn-outcome").getAttribute("data-run");
+    const checkedAt = Date.now();
+    // Start.hs's own check: its holes, which the code the loop above left
+    // (Solution.hs) does not have.
+    const warning = (text) => page.locator(".learn-diagnostics li.learn-warning", { hasText: text });
+    await warning("Found hole: _ :: State -> State").waitFor({ timeout: 60000 });
+    const checked = page.locator(".learn-check", { hasText: /^Checked in/ });
+    await checked.waitFor({ timeout: 5000 });
+    const binding = (text) => page.locator(".learn-bindings button.learn-binding", { hasText: text });
+    await binding("render :: State -> HH.HTML w Action").waitFor({ timeout: 5000 });
+    await binding("label :: State -> Text").waitFor({ timeout: 5000 });
+    assert.equal(await binding("rename ::").count(), 0, "Start.hs has no rename yet");
+    await warning("_rename :: Text -> State -> State").waitFor({ timeout: 5000 });
+    await warning(/standing for .Text./).waitFor({ timeout: 5000 });
+    assert.equal(await page.locator(".learn-outcome").getAttribute("data-run"), runBefore, "a check is not a compile");
+    console.log(`ok  lesson 20 is checked with no Compile, ${seconds(Date.now() - checkedAt)} after Reset: ${await checked.textContent()}`);
+
+    // Hovering a binding's name shows its type; a click in the list goes to
+    // its line.
+    await page.locator(".learn-editor .cm-line", { hasText: /^render st =/ }).hover({ position: { x: 12, y: 8 } });
+    await page.locator(".cm-tooltip .cm-learn-type", { hasText: "render :: State -> HH.HTML w Action" }).waitFor({ timeout: 5000 });
+    await binding("label :: State -> Text").click();
+    assert.match(await page.locator(".cm-activeLine").textContent(), /^label ::/, "a binding in the list goes to its line");
+    console.log("ok  hovering render shows its type, and the list goes to label's line");
+
+    // A typed error is marked within the check's delay, the types listed
+    // stay, said to be from before, and undoing it checks clean again.
+    const labelLine = page.locator(".learn-editor .cm-line", { hasText: /^label st =/ });
+    await labelLine.click();
+    await page.keyboard.press("End");
+    const typedAt = Date.now();
+    await page.keyboard.type(" 1");
+    await page.locator(".cm-lintRange-error").first().waitFor({ timeout: 30000 });
+    const marked = Date.now() - typedAt;
+    await page.locator(".learn-check", { hasText: "does not compile" }).waitFor({ timeout: 5000 });
+    await page.locator(".learn-bindings p", { hasText: "From the last time" }).waitFor({ timeout: 5000 });
+    await page.keyboard.press("Backspace");
+    await page.keyboard.press("Backspace");
+    await page.locator(".learn-check", { hasText: "it compiles" }).waitFor({ timeout: 30000 });
+    assert.equal(await page.locator(".cm-lintRange-error").count(), 0, "the error's mark goes with the error");
+    console.log(`ok  a typed error is marked ${seconds(marked)} after the key, and goes when it is undone`);
+
+    // A check under way when Compile is pressed is not reported over the
+    // compile: an error typed, its check let start (the delay is 1.2 s),
+    // undone, and compiled at once, leaves the compile's clean result
+    // standing, whether the check was over by then or not.
+    await page.locator("button.learn-solution").click();
+    await binding("rename :: Text -> State -> State").waitFor({ timeout: 30000 });
+    await labelLine.click();
+    await page.keyboard.press("End");
+    await page.keyboard.type(" 1");
+    await page.waitForTimeout(1300);
+    await page.keyboard.press("Backspace");
+    await page.keyboard.press("Backspace");
+    assert.match(await compile("lesson 20, Solution.hs, with a check before it"), /^Compiled and ran/);
+    await page.waitForTimeout(3000);
+    assert.equal(await page.locator(".learn-diagnostics li").count(), 0, "the check before the compile does not report over it");
+    assert.match(await page.locator(".learn-outcome").textContent(), /^Compiled and ran/);
+    assert.equal(await page.locator(".learn-bindings p").count(), 0, "the types are the code's again");
+    console.log("ok  a check under way when Compile is pressed is not reported over the compile");
+  }
 
   // Back and forward.
   const last = lessons[lessons.length - 1];
