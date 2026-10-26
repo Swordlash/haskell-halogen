@@ -16,9 +16,9 @@
 //
 // It prints what the page measured (fetch, extract, loading the compiler, each
 // layer, each run) and how much memory the page's renderer process used at its
-// peak, and fails on any error in the page. The pixi layer loads PixiJS from
-// jsDelivr, so that run needs the network; if jsDelivr cannot be reached, it
-// is skipped and says so. Everything else the page loads is the rootfs'.
+// peak, and fails on any error in the page. The pixi and three layers load
+// PixiJS and Three.js from jsDelivr, so those runs need the network; if
+// jsDelivr cannot be reached, they are skipped and say so. Everything else the page loads is the rootfs'.
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -124,6 +124,27 @@ import Halogen.VDom.Driver (runUI)
 import Web.DOM.ParentNode (QuerySelector (..))`;
 
 const appText = (page, text) => page.locator("#app", { hasText: text }).waitFor({ timeout: 10000 });
+
+// Why a layer that loads a module from a CDN itself (its `external` entry in
+// rootfs.json) cannot run here, or null when the CDN can be reached. Probed
+// from a page of its own: a fetch that fails logs a console error, which
+// the test page counts as an error of the page.
+async function unreachable(page, name, what) {
+  const { layers } = await (await fetch(`${url}rootfs.json`)).json();
+  const cdn = layers.find((l) => l.name === name)?.external?.[0]?.url;
+  if (!cdn) return null;
+  const probe = await page.context().browser().newPage();
+  const reachable = await probe.evaluate(
+    (cdn) =>
+      fetch(cdn).then(
+        (r) => r.ok,
+        () => false,
+      ),
+    cdn,
+  );
+  await probe.close();
+  return reachable ? null : `${cdn} cannot be reached from the browser, and the ${name} layer loads ${what} from there`;
+}
 
 const layerRuns = {
   // A counter written with haskell-halogen-hooks.
@@ -410,24 +431,7 @@ clicks =
   // A rectangle on a Pixi canvas, tapped.
   pixi: {
     what: "a Pixi scene from the pixi layer, on a canvas, tapped",
-    async skip(page) {
-      const { layers } = await (await fetch(`${url}rootfs.json`)).json();
-      const cdn = layers.find((l) => l.name === "pixi")?.external?.[0]?.url;
-      if (!cdn) return null;
-      // Probed from a page of its own: a fetch that fails logs a console
-      // error, which the test page counts as an error of the page.
-      const probe = await page.context().browser().newPage();
-      const reachable = await probe.evaluate(
-        (cdn) =>
-          fetch(cdn).then(
-            (r) => r.ok,
-            () => false,
-          ),
-        cdn,
-      );
-      await probe.close();
-      return reachable ? null : `${cdn} cannot be reached from the browser, and the pixi layer loads PixiJS from there`;
-    },
+    skip: (page) => unreachable(page, "pixi", "PixiJS"),
     source:
       String.raw`{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedRecordDot #-}
@@ -496,6 +500,85 @@ taps =
           break;
         } catch (error) {
           if (Date.now() > deadline) throw new Error(`no tap reached the Pixi scene (${error.message})`);
+        }
+      }
+    },
+  },
+
+  // A Three.js scene, one box at the origin the camera looks at, clicked:
+  // the click is raycast into the scene and handed to the box's handler.
+  three: {
+    what: "a Three.js scene from the three layer, on a canvas, clicked",
+    skip: (page) => unreachable(page, "three", "Three.js"),
+    source:
+      String.raw`{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RequiredTypeArguments #-}
+{-# LANGUAGE TypeOperators #-}
+
+module Main (main) where
+
+import Clay qualified as C
+import Control.Monad.State (modify)
+import Data.Row (type (.==))
+import Data.Text qualified as T
+import Halogen qualified as H
+import Halogen.HTML qualified as HH
+import Halogen.HTML.Properties qualified as HP
+import Halogen.Three qualified as Three
+import Halogen.Three.Elements qualified as TE
+import Halogen.Three.Properties qualified as TP
+${mounting}
+
+type Slots = "scene" .== H.Slot H.VoidF (Three.SceneEvent ()) ()
+
+newtype Action = Scene (Three.SceneEvent ())
+
+scene :: Three.View ()
+scene =
+  Three.view
+    Three.defaultCamera
+    Three.defaultInteraction
+    [ TE.ambientLight 0xffffff 1
+    , TE.mesh (Three.Box 2 2 2) (Three.basic 0x0ea5e9) [TP.onClick (const (Just ()))]
+    ]
+
+clicks :: H.Component q () o BrowserDOM
+clicks =
+  H.mkComponent
+    H.ComponentSpec
+      { H.initialState = \_ -> pure (0 :: Int)
+      , H.render = render
+      , H.eval = H.mkEval H.defaultEval {H.handleAction = handle}
+      }
+  where
+    render :: Int -> H.ComponentHTML Action Slots BrowserDOM
+    render n =
+      HH.div_
+        [ HH.div
+            [HP.style (C.position C.relative >> C.width (C.px 300) >> C.height (C.px 200))]
+            [HH.slot "scene" () Three.component scene Scene]
+        , HH.p_ [HH.text ("three clicks: " <> T.pack (show n))]
+        ]
+    handle (Scene (Three.Fired ())) = modify (+ 1)
+    handle (Scene _) = pure ()
+` + mainOf("clicks"),
+    async verify(page) {
+      const canvas = page.locator("#app canvas");
+      await canvas.waitFor({ timeout: 10000 });
+      // Three.js arrives from the CDN; until it has, a click goes nowhere.
+      // Click the canvas's centre, where the camera looks at the box, until
+      // one is counted.
+      const deadline = Date.now() + 60000;
+      for (;;) {
+        const box = await canvas.boundingBox();
+        if (box && box.width > 0) await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+        try {
+          await page.locator("#app", { hasText: /three clicks: [1-9]/ }).waitFor({ timeout: 1000 });
+          break;
+        } catch (error) {
+          if (Date.now() > deadline) throw new Error(`no click reached the Three.js scene (${error.message})`);
         }
       }
     },

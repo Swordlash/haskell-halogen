@@ -133,8 +133,8 @@ fi
 BASE_LAYER="haskell-halogen-jsbits haskell-halogen-core"
 # Every package of this project a lesson can use, a layer each. Each holds
 # its package and what that needs beyond the base layer: hooks, router, net,
-# elements (haskell-halogen-custom-element), devtools, pixi, store and worker
-# only themselves;
+# elements (haskell-halogen-custom-element), devtools, pixi, three, store and
+# worker only themselves;
 # material also clock and extra; th also ghc-lib-parser (as big as GHC's own
 # library) and the parsers it uses, which is why it is a layer of its own
 # that only a lesson about quasi-quotes loads;
@@ -146,7 +146,7 @@ BASE_LAYER="haskell-halogen-jsbits haskell-halogen-core"
 # liblazy-demo.so, is served beside the archive rather than in it: see step 8).
 # sound and tauri are not here: a lesson has no sound to play nor a Tauri to
 # talk to.
-DEFAULT_LAYERS="hooks=haskell-halogen-hooks router=haskell-halogen-router net=haskell-halogen-net elements=haskell-halogen-custom-element devtools=haskell-halogen-devtools material=haskell-halogen-material pixi=haskell-halogen-pixi th=haskell-halogen-th hspec=hspec-halogen store=haskell-halogen-store worker=haskell-halogen-worker lazy=haskell-halogen-lazy,haskell-halogen-lazy-demo"
+DEFAULT_LAYERS="hooks=haskell-halogen-hooks router=haskell-halogen-router net=haskell-halogen-net elements=haskell-halogen-custom-element devtools=haskell-halogen-devtools material=haskell-halogen-material pixi=haskell-halogen-pixi three=haskell-halogen-three th=haskell-halogen-th hspec=hspec-halogen store=haskell-halogen-store worker=haskell-halogen-worker lazy=haskell-halogen-lazy,haskell-halogen-lazy-demo"
 layers=${LEARN_LAYERS-$DEFAULT_LAYERS}
 # Boot packages that neither GHC (the closure of ghc, ghci, ghc-boot,
 # template-haskell, hpc and ghc-heap) nor any package above depends on, so no
@@ -442,7 +442,8 @@ cp "$bsdtar_cache" "$out/bsdtar.wasm"
 # puts on globalThis, which imports the @material npm packages and so is not
 # embedded in the library through browserJS as other packages' jsbits are:
 # the page loads it, bundled as examples/material/bundle.sh bundles it for the
-# example, with the components' CSS. Pixi loads PixiJS from a CDN itself.
+# example, with the components' CSS. Pixi loads PixiJS from a CDN itself, and
+# Three Three.js.
 # Lazy's demo library is what its lesson loads with Halogen.Lazy.Dyld: a
 # shared library of its own, fetched by the program while it runs and linked
 # into it by dyld, so it is a file served beside the layer's archive and not
@@ -483,6 +484,14 @@ for layer in $layers; do
           exit 1
         fi
         printf 'external %s PixiJS, which Halogen.Canvas.Pixi.defaultConfig imports when a canvas mounts\n' "$cdn" >>"$manifest"
+        ;;
+      haskell-halogen-three)
+        cdn=$(sed -n 's/.*moduleUrl = "\(https:[^"]*\)".*/\1/p' three/src/Halogen/Three.hs | head -n 1)
+        if [ -z "$cdn" ]; then
+          printf 'No default moduleUrl in three/src/Halogen/Three.hs\n' >&2
+          exit 1
+        fi
+        printf 'external %s Three.js, which Halogen.Three.defaultConfig imports when a scene mounts\n' "$cdn" >>"$manifest"
         ;;
       haskell-halogen-lazy-demo)
         # lazy/demo/feature, compiled as libplayground.so is (step 2), against
