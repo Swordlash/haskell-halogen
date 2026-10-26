@@ -56,7 +56,7 @@ already covers.
 The page needs nothing but a static server: no COOP/COEP headers,
 `crossOriginIsolated` is false and there is no `SharedArrayBuffer` (the test
 checks this). It requests nothing off the site but the layers' external
-dependencies (PixiJS, a font), when they are used: browser_wasi_shim is
+dependencies (PixiJS, Three.js, a font), when they are used: browser_wasi_shim is
 `vendor/`'s copy, shipped beside `dyld.mjs` (below).
 
 Packing is reproducible: GNU tar packs the members sorted by name, with
@@ -181,7 +181,7 @@ its own. A library two layers both need belongs in the base layer:
 build if a layer's closure reaches a unit another layer already carries, as
 two copies of one library in a session would be two libraries to dyld. Today
 no two layers share anything: hooks, router, net, elements, devtools, pixi,
-store and worker need only themselves beyond the base layer, lazy its two packages
+three, store and worker need only themselves beyond the base layer, lazy its two packages
 (`haskell-halogen-lazy` and `haskell-halogen-lazy-demo`), material also `clock` and `extra`, th its
 parsers, hspec hspec's own closure (`hspec`, `hspec-core`, `HUnit`,
 `ansi-terminal` and the rest; `QuickCheck` and its generators are in the
@@ -203,13 +203,14 @@ which loads its libraries into dyld and compiles. Three runs of
 | `devtools` | `haskell-halogen-devtools` | 1 | 0.71 MB | 0.11 MB | none | 23–24 ms | 1.2–1.5 s |
 | `material` | `haskell-halogen-material` (+ `clock`, `extra`) | 3 | 2.58 MB | 0.36 MB | `material.js` 127 KB, `material.css` 206 KB; the Material Icons font from fonts.gstatic.com | 56–65 ms | 0.7–1.3 s |
 | `pixi` | `haskell-halogen-pixi` | 1 | 0.97 MB | 0.15 MB | none; PixiJS 8.20.1 from jsDelivr (0.8 MB), which the library imports itself | 27–31 ms | 1.4–1.6 s |
+| `three` | `haskell-halogen-three` | 1 | 1.17 MB | 0.19 MB | none; Three.js 0.186.1 from jsDelivr (0.75 MB, 0.19 MB with brotli), which the library imports itself | 26 ms | 2.0–2.1 s |
 | `th` | `haskell-halogen-th` (+ `ghc-lib-parser`, `megaparsec`, `parser-combinators`, `tagsoup`, `css-syntax`, `case-insensitive`) | 7 | 194.7 MB | 21.4 MB | none | 2.1–3.9 s | 8.0–12.0 s |
 | `hspec` | `hspec-halogen` (+ `hspec`, `hspec-core`, `hspec-expectations`, `hspec-discover`, `HUnit`, `quickcheck-io`, `ansi-terminal`, `ansi-terminal-types`, `colour`, `call-stack`, `haskell-lexer`) | 12 | 12.6 MB | 1.34 MB | none | 98–100 ms | 3.6–4.1 s |
 | `store` | `haskell-halogen-store` | 1 | 0.49 MB | 0.07 MB | none | 23–25 ms | 0.9–1.7 s |
 | `worker` | `haskell-halogen-worker` | 1 | 0.20 MB | 0.04 MB | none | 20–21 ms | 7.4–9.5 s |
 | `lazy` | `haskell-halogen-lazy`, `haskell-halogen-lazy-demo` | 2 | 0.27 MB | 0.06 MB | none; `liblazy-demo.so` (64 KB), which its program fetches itself (below) | 19–27 ms | 6.2–7.2 s |
-| **all twelve** | | 32 | 215.4 MB | 24.5 MB | 0.33 MB | 1.9–2.3 s | |
-| all but `th` | | 25 | 20.7 MB | 2.61 MB | 0.33 MB | 0.37–0.39 s | |
+| **all thirteen** | | 33 | 216.6 MB | 24.7 MB | 0.33 MB | 2.2–2.4 s | |
+| all but `th` | | 26 | 21.9 MB | 2.80 MB | 0.33 MB | 0.42–0.45 s | |
 
 (The `hspec` row is from three later runs, on a machine other builds were
 sharing; `th` loaded in 1.6–1.8 s in them. The `elements` row is from
@@ -230,7 +231,15 @@ MB in it); `th` loaded in 1.6–1.9 s. The same goes for `lazy`'s first run,
 last of all: 6.2–7.2 s, where `store`'s was 3.6–6.2 s and `hspec`'s 6.4–7.2 s
 in the same runs, and 1.1 s in a run with only that layer
 (`LEARN_ONLY=lazy`). It compiles the program and loads the layer's two
-libraries, then the program fetches `liblazy-demo.so` and dyld links it.)
+libraries, then the program fetches `liblazy-demo.so` and dyld links it.
+The `three` row and the two totals are from three runs of a rootfs with all
+thirteen layers, whose sizes the totals add up (`th`'s archive 21.9 MB in
+it); `th` loaded in 1.8–2.0 s. `three`'s first run compiles the program,
+loads the layer's library, and clicks the canvas until Three.js has come from
+jsDelivr and the click, raycast into the scene, reaches the box, so its
+2.0–2.1 s include fetching Three.js, which is not in the layer's size. In
+those runs the first runs after `th`'s were slow again: `store`'s 6.7–8.3 s,
+`worker`'s 7.1–9.6 s and `lazy`'s 6.2–7.7 s.)
 `hspec`'s archive is small enough that the harness is a layer like any
 other, with `hspec` itself rather than `hspec-core` alone: `hspec-core` is
 4.1 MB of its 10.9 MB of `.so`, `haskell-lexer` 3.0 MB and `colour` 1.4 MB,
@@ -255,7 +264,9 @@ material, `Halogen.Material.Button`
 mounted, its ripple attached by `material.js` (`mdc-ripple-upgraded`), its
 colour from `material.css`, clicked; pixi, a rectangle on a Pixi canvas
 (PixiJS from the CDN), tapped until the tap reaches the scene (Pixi
-initialises asynchronously); th, an `[hh| ... |]` with a `{{ }}` in it, whose
+initialises asynchronously); three, a box at the origin of a Three.js scene
+(Three.js from the CDN), clicked at the canvas's centre until the click,
+raycast into the scene, reaches the box's handler; th, an `[hh| ... |]` with a `{{ }}` in it, whose
 quasi-quoter runs ghc-lib-parser in the page's interpreter; hspec, an
 `hspec-halogen` spec of two tests, a click and a `typeText`, run with
 `runBrowserTestsIn` in `#app`, where with no runner in the page the harness
@@ -270,8 +281,8 @@ interpreted program has no binary for one to load), one job run through
 `Halogen.Lazy.Dyld` fetches `layers/lazy/liblazy-demo.so` and has dyld link it
 into the program, then the component its entry handed over, clicked and told
 to wave by its parent, which hears it each time. All pass, with no
-console errors. If the CDN cannot be reached from the browser, the pixi run
-is skipped and says why (it was reachable here, through the proxy).
+console errors. If the CDN cannot be reached from the browser, the pixi and
+three runs are skipped and say why (it was reachable here, through the proxy).
 
 A note for lessons: on one line, whitespace inside an `hh` quote is text
 (JSX's rule), so `[hh| <p>hello</p> |]` is three nodes and `hh` refuses it
@@ -288,7 +299,9 @@ adds a `<script>` and a `<link>` for them when the layer loads, before any
 run can call them. The CSS names the Material Icons font on fonts.gstatic.com,
 which only a component showing an icon fetches. `pixi` imports PixiJS from
 jsDelivr when a canvas mounts (`Halogen.Canvas.Pixi.defaultConfig`), so it
-needs no asset, only the network; the manifest lists both addresses under
+needs no asset, only the network, and so does `three`, which imports
+Three.js's single-file ES module build from jsDelivr when a scene mounts
+(`Halogen.Three.defaultConfig`); the manifest lists the three addresses under
 `external`. `lazy` carries a library its programs fetch while they run:
 `liblazy-demo.so`, the demo library lesson 18 loads with `Halogen.Lazy.Dyld`
 (`lazy/demo/feature`, compiled `-shared -dynamic` against the base layer's
@@ -532,18 +545,19 @@ layer):
 - **What is deployed**: the tutorial (`examples/learn`), whose build copies
   this directory, but for `index.html` and `index.js`, to `rootfs/` beside
   the app; this page is not deployed.
-- **Site size**: 78 MB, the rootfs 75 MB of it (54 MB without the `th`
+- **Site size**: 79 MB, the rootfs 75 MB of it (53 MB without the `th`
   layer), far from the 1 GB limit.
 - **Bandwidth per cold load**: the page, `bsdtar.wasm`, the manifest and
-  `rootfs.tar.zst` are 51.4 MB; a lesson with any of the small layers adds
-  at most 2.8 MB (all eight and material's assets; `hspec`'s is the largest,
-  1.3 MB; lesson 18 also fetches `liblazy-demo.so`, 64 KB), and the `th` lesson 21.4 MB more, 75.6 MB in all. Pages has a
-  soft limit of 100 GB a month: about 1,850 cold loads a month without
-  `th`, about 1,330 if every reader also loaded `th`. Its responses are cacheable (10 minutes, then revalidated
+  `rootfs.tar.zst` are 52.0 MB; a lesson with any of the small layers adds
+  at most 3.2 MB (all twelve and material's assets; `hspec`'s is the largest,
+  1.3 MB; lesson 18 also fetches `liblazy-demo.so`, 64 KB), and the `th` lesson 21.9 MB more, 77.1 MB in all. Pages has a
+  soft limit of 100 GB a month: about 1,810 cold loads a month without
+  `th`, about 1,300 if every reader also loaded `th`. Its responses are cacheable (10 minutes, then revalidated
   with an ETag), and the tutorial keeps the archives in the Cache API under
   the manifest's `version`, so a returning reader downloads them again only
   when a deploy has changed them. Not counted:
-  PixiJS (0.8 MB) and the icon font, which come from their CDNs.
+  PixiJS (0.8 MB), Three.js (0.75 MB) and the icon font, which come from
+  their CDNs.
 - **Headers**: none needed (no COOP/COEP), and whatever type Pages serves
   `.zst` or a `.00` part with, the page reads it as bytes.
 
@@ -568,7 +582,8 @@ It proves:
   element whose class's callbacks call into the interpreted program's
   component), devtools (a panel listening to the interpreted program's
   trace), material (with its
-  CSS and JavaScript on the page), pixi (PixiJS from its CDN), th, whose
+  CSS and JavaScript on the page), pixi (PixiJS from its CDN), three
+  (Three.js from its CDN, with WebGL), th, whose
   quasi-quoter runs ghc-lib-parser inside the page's GHC, store (a tree run
   through `runStoreT`, whose interpreted components share one store), worker
   (jobs run on the page, there being no binary for a Web Worker to start),
@@ -645,10 +660,10 @@ It does not show:
   (all of `learn/`), so a new copy rebuilds the rootfs in CI. It is not in the
   manifest's `version`, which only keys the archives the tutorial caches: like
   `dyld.mjs`, the shim is fetched as an ordinary module on every visit.
-- **External dependencies**: the pixi layer needs jsDelivr at run time and
-  material's icons need Google Fonts; a reader behind a filter that blocks
-  them gets a canvas that never draws, or icons as words. The manifest lists
-  both, so a page can say so.
+- **External dependencies**: the pixi and three layers need jsDelivr at run
+  time and material's icons need Google Fonts; a reader behind a filter that
+  blocks them gets a canvas that never draws, or icons as words. The manifest
+  lists them, so a page can say so.
 - **dyld patch**: it is ours until GHC takes it; the script checks the code it
   replaces and leaves dyld alone if it changed.
 
@@ -673,6 +688,7 @@ It does not show:
   `examples/material/style.scss`, bundled with the
   [Material Components for the web](https://github.com/material-components/material-components-web)
   packages they import (MIT), as the material example is.
-- PixiJS ([pixijs/pixijs](https://github.com/pixijs/pixijs), MIT) and the
+- PixiJS ([pixijs/pixijs](https://github.com/pixijs/pixijs), MIT), Three.js
+  ([mrdoob/three.js](https://github.com/mrdoob/three.js), MIT) and the
   Material Icons font (Apache-2.0) are not served from here: their CDNs serve
   them.

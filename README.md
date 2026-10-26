@@ -30,6 +30,7 @@ AI usage disclaimer: All code until tag `0.9.0` was hand-written. Any later comm
 | [tauri/](tauri/) | `haskell-halogen-tauri` | Tauri v2's IPC for an app in a Tauri webview: Rust commands with aeson JSON, events as emitters, the window's own events; inert in a plain browser. |
 | [material/](material/) | `haskell-halogen-material` | Google Material Components bindings. |
 | [pixi/](pixi/) | `haskell-halogen-pixi` | A PixiJS v8 canvas rendering backend. |
+| [three/](three/) | `haskell-halogen-three` | Three-dimensional scenes with Three.js, reconciled as HTML is: meshes and lights, a camera the reader orbits, clicks on what the pointer is over. |
 | [jsbits/](jsbits/) | `haskell-halogen-jsbits` | Compile-time embedding of shared browser JavaScript into WASM FFI. |
 | [sound/](sound/) | `haskell-halogen-sound` | Music and sound effects for a page: a theme to loop, a shuffled album fetched ahead, effects on top. |
 | [hspec-halogen/](hspec-halogen/) | `hspec-halogen` | Test components in a real browser with hspec: mount, click, type, check. |
@@ -37,7 +38,7 @@ AI usage disclaimer: All code until tag `0.9.0` was hand-written. Any later comm
 | [th-plugin/](th-plugin/) | `haskell-halogen-th-plugin` | A GHC plugin that expands the quotes as a module is parsed, so every error, type errors included, is at its place in the file. |
 | [examples/](examples/) | `halogen-example-*` | One runnable browser app per library, and `learn`, the tutorial, whose code compiles in the page. |
 
-`hooks`, `store`, `router`, `material`, `pixi`, `hspec-halogen`, `th`, `custom-element`, `devtools` and `lazy`
+`hooks`, `store`, `router`, `material`, `pixi`, `three`, `hspec-halogen`, `th`, `custom-element`, `devtools` and `lazy`
 depend on `core`, and `tauri` on `core` for its emitters; `net`, `sound` and `worker` are independent of those runtime libraries. WASM backends also use the `jsbits`
 compile-time helper. `th` builds natively and for WebAssembly, not with the JavaScript
 backend, which cannot build `ghc-lib-parser`. Every package builds from the one `cabal.project` at the
@@ -47,7 +48,7 @@ repository root, so a change to
 ## The monad a component runs in
 
 A component evaluates in the same monad the DOM is spoken in. Each backend is a newtype over `IO` —
-`BrowserDOM`, `MemDOM`, and `PixiDOM` in `haskell-halogen-pixi` — so more than one can exist in a
+`BrowserDOM`, `MemDOM`, `PixiDOM` in `haskell-halogen-pixi` and `ThreeDOM` in `haskell-halogen-three` — so more than one can exist in a
 single build and each can say, through associated type families, what its tree is made of.
 
 An application with effects of its own stacks them on a backend and derives the classes through:
@@ -443,6 +444,31 @@ The default renderer loads its pinned PixiJS module from jsDelivr when mounted, 
 no Pixi JavaScript shim or global — but the example does need network access when opened. Use
 `componentWith (Config { moduleUrl = ... })` to load a self-hosted or bundled PixiJS v8 module
 instead.
+
+### In three dimensions
+
+`haskell-halogen-three` does the same for a three-dimensional scene, with Three.js. Its vocabulary
+is its own (`Halogen.Three.Elements`, `Halogen.Three.Properties`): groups, meshes of a geometry and
+a material, lights, and handlers for clicks and the pointer coming over or leaving an object, which
+the renderer raycasts from the canvas, since Three.js has no events of its own. A mesh's geometry and
+material are props of its node, so a change of colour patches its material and a change of shape
+gives it a new geometry, the old one disposed of (Three.js keeps a geometry's buffers on the GPU until
+told). `Halogen.Three.component` is core's `Halogen.Canvas.component` over this renderer; a drag
+turns the camera about its target and the wheel brings it nearer, and `CameraMoved` reports where it
+went. The scene is drawn on demand, in the frame after a change, not in a loop.
+
+```haskell
+scene :: Three.View ()
+scene =
+  Three.view Three.defaultCamera Three.defaultInteraction
+    [ TE.ambientLight 0xffffff 0.6
+    , TE.directionalLight 0xffffff 2.5 (Three.Vec3 3 5 4)
+    , TE.mesh (Three.Sphere 1 48 24) (Three.standard 0xf59e0b) [TP.onClick (\_ -> Just ())]
+    ]
+```
+
+Like the Pixi renderer it imports a pinned Three.js from jsDelivr when a scene mounts; give
+`componentWith` a `Config` to load it from elsewhere. Lesson 19 of the tutorial is a scene.
 
 ## Releases
 

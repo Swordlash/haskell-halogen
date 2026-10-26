@@ -88,7 +88,9 @@ that each counts the primes right, `Start.hs` drawing no frame meanwhile and
 `Solution.hs`, through `Worker.run` in a `liftIO`, at least one; for lesson 18, whose component comes from a shared library
 the program links while it runs, that the library's component greets the
 name and waves, and for `Solution.hs` that the parent hears it, tells it to
-wave and asks it how often, and that hidden and shown again it starts over), that back, forward, a second visit
+wave and asks it how often, and that hidden and shown again it starts over; for lesson 19,
+whose scene is drawn with Three.js, that its canvas is there and that a click at its centre, on the
+sphere, changes the colour the text under it names), that back, forward, a second visit
 (from the cache) and Reset work, that a narrow screen downloads nothing large
 until asked, that a failed load can be retried and loads from a manifest
 without a version or sizes too, and that nothing is logged as an error.
@@ -141,8 +143,8 @@ args: -package haskell-halogen-hooks
 - `layers` (optional): the rootfs layers its code needs beside the base one,
   separated by spaces or commas. The page extracts a layer the first time a
   lesson needs it and passes its package database to GHC (`-package-db`).
-  The rootfs has `hooks`, `router`, `net`, `material`, `pixi`, `th` and
-  `store`, one per package of the same name (`haskell-halogen-hooks`, ...),
+  The rootfs has `hooks`, `router`, `net`, `material`, `pixi`, `three`, `th`
+  and `store`, one per package of the same name (`haskell-halogen-hooks`, ...),
   `elements`, for `haskell-halogen-custom-element`, `devtools`, for
   `haskell-halogen-devtools`, `worker`, for `haskell-halogen-worker`,
   `hspec`, for `hspec-halogen`, and `lazy`, for `haskell-halogen-lazy` and
@@ -289,7 +291,8 @@ what `js/playground.js` reads of it beyond what dyld and GHC are given:
   unstyled).
 - a layer's `external` entries are what its code loads from elsewhere at run
   time, which the page does not provide and the reader's browser must reach:
-  PixiJS from jsDelivr for `pixi` (when a canvas mounts) and the Material
+  PixiJS from jsDelivr for `pixi` (when a canvas mounts), Three.js from
+  jsDelivr for `three` (when a scene mounts) and the Material
   Icons font from fonts.gstatic.com for `material` (named by `material.css`,
   fetched only when an icon shows). The page reads nothing from them; a
   lesson using those layers should say it needs the network for them.
