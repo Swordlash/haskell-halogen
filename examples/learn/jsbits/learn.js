@@ -51,6 +51,13 @@ function halogen_learn_compile(request) {
     .then((result) => JSON.stringify(result));
 }
 
+// The same, for a check: see playground.js's check.
+function halogen_learn_check(request) {
+  return halogen_learn_api()
+    .playground.check(JSON.parse(request))
+    .then((result) => JSON.stringify(result));
+}
+
 function halogen_learn_end_run() {
   return halogen_learn_api().playground.endRun();
 }
@@ -73,6 +80,10 @@ function halogen_learn_editor_set_read_only(view, readOnly) {
 
 function halogen_learn_editor_diagnostics(view, diagnostics) {
   halogen_learn_api().editor.showDiagnostics(view, JSON.parse(diagnostics));
+}
+
+function halogen_learn_editor_types(view, bindings) {
+  halogen_learn_api().editor.showTypes(view, JSON.parse(bindings));
 }
 
 function halogen_learn_editor_goto(view, line, column) {

@@ -23,6 +23,7 @@ module Learn.Browser
   , CompileRequest (..)
   , RunResult (..)
   , compile
+  , typecheck
   , endRun
 
     -- * The editor
@@ -33,6 +34,7 @@ module Learn.Browser
   , setEditorText
   , setEditorReadOnly
   , showDiagnostics
+  , showTypes
   , gotoPosition
   , destroyEditor
   )
@@ -44,6 +46,7 @@ import Data.Aeson qualified as Aeson
 import Halogen.JSBits (Callback, JSText, JSVal, Safety (..), browserJS, freeCallback, fromJSText, jsValText, mkCallback, toJSText)
 import Halogen.JSBits.Promise (JSError (..), Promise (..), await)
 import Learn.Diagnostics (Diagnostic)
+import Learn.Types (Binding, splitTypes)
 import Protolude
 import Web.DOM.Internal.Types (HTMLElement (..))
 
@@ -57,12 +60,14 @@ $( browserJS
      , ("js_start", "halogen_learn_start", Unsafe, [t|JSText -> JSText -> Callback -> IO Promise|])
      , ("js_ensure_layers", "halogen_learn_ensure_layers", Unsafe, [t|JSText -> IO Promise|])
      , ("js_compile", "halogen_learn_compile", Unsafe, [t|JSText -> IO Promise|])
+     , ("js_check", "halogen_learn_check", Unsafe, [t|JSText -> IO Promise|])
      , ("js_end_run", "halogen_learn_end_run", Unsafe, [t|IO Promise|])
      , ("js_editor_create", "halogen_learn_editor_create", Unsafe, [t|HTMLElement -> JSText -> Bool -> Callback -> IO JSVal|])
      , ("js_editor_text", "halogen_learn_editor_text", Unsafe, [t|JSVal -> IO JSText|])
      , ("js_editor_set_text", "halogen_learn_editor_set_text", Unsafe, [t|JSVal -> JSText -> IO ()|])
      , ("js_editor_set_read_only", "halogen_learn_editor_set_read_only", Unsafe, [t|JSVal -> Bool -> IO ()|])
      , ("js_editor_diagnostics", "halogen_learn_editor_diagnostics", Unsafe, [t|JSVal -> JSText -> IO ()|])
+     , ("js_editor_types", "halogen_learn_editor_types", Unsafe, [t|JSVal -> JSText -> IO ()|])
      , ("js_editor_goto", "halogen_learn_editor_goto", Unsafe, [t|JSVal -> Int -> Int -> IO ()|])
      , ("js_editor_destroy", "halogen_learn_editor_destroy", Unsafe, [t|JSVal -> IO ()|])
      ]
@@ -170,35 +175,46 @@ data CompileRequest = CompileRequest
 instance ToJSON CompileRequest where
   toJSON r = object ["lesson" .= r.lesson, "main" .= r.main, "args" .= r.args, "layers" .= r.layers]
 
--- | What a compile did: @ok@ when the program's @main@ ran to its end,
--- @compiled@ when GHC compiled it (so that a @main@ that failed is told
--- from code that did not compile), what the program and GHC wrote, and how
--- long it all took.
+-- | What a compile or a check did: @ok@ when the program's @main@ ran to its
+-- end (for a check, when the program typechecked), @compiled@ when GHC
+-- compiled it (so that a @main@ that failed is told from code that did not
+-- compile), what the program and GHC wrote, the types of the lesson's
+-- top-level bindings, if it typechecked, and how long it all took.
 data RunResult = RunResult
   { ok :: Bool
   , compiled :: Bool
   , failure :: Maybe Text
   , stdout :: Text
+  -- ^ What the program wrote, without the lines of 'types'.
   , stderr :: Text
+  , types :: [Binding]
   , ms :: Int
   }
   deriving stock (Eq, Show)
 
 instance FromJSON RunResult where
-  parseJSON = withObject "RunResult" $ \o ->
+  parseJSON = withObject "RunResult" $ \o -> do
+    (types, out) <- splitTypes <$> o .: "stdout"
     RunResult
       <$> o
       .: "ok"
       <*> o .: "compiled"
       <*> o .:? "error"
-      <*> o .: "stdout"
+      <*> pure out
       <*> o .: "stderr"
+      <*> pure types
       <*> o .: "ms"
 
 -- | Compile the lesson and run its @Main.main@. One compile runs at a time;
 -- a second waits for the first.
 compile :: CompileRequest -> IO (Either Text RunResult)
 compile request = decoded =<< await =<< js_compile (encodeText request)
+
+-- | Typecheck the lesson and run nothing: GHC's diagnostics, and the types
+-- of the lesson's bindings when it typechecks (then @ok@). It waits for a
+-- compile under way, and a compile asked for meanwhile waits for it.
+typecheck :: CompileRequest -> IO (Either Text RunResult)
+typecheck request = decoded =<< await =<< js_check (encodeText request)
 
 -- | End whatever the last compile mounted, before the page takes its
 -- element away (see @js\/playground.js@).
@@ -239,6 +255,11 @@ setEditorReadOnly (Editor view _) = js_editor_set_read_only view
 -- | Mark these in the editor, in place of what was marked.
 showDiagnostics :: Editor -> [Diagnostic] -> IO ()
 showDiagnostics (Editor view _) = js_editor_diagnostics view . encodeText
+
+-- | The types the tooltips show over these bindings' names, in place of
+-- the ones before.
+showTypes :: Editor -> [Binding] -> IO ()
+showTypes (Editor view _) = js_editor_types view . encodeText
 
 -- | Put the cursor at this line and column (from 1), and focus the editor.
 gotoPosition :: Editor -> Int -> Int -> IO ()

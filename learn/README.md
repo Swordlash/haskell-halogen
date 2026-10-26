@@ -14,7 +14,18 @@ What is here:
   source to `/tmp/Main.hs`, parses the arguments as GHC flags, loads the
   module and runs `Main.main` in the in-process interpreter. stdout and
   stderr, which the program shares, are line-buffered and flushed when a run
-  ends, so the page gets what a program writes as it writes it.
+  ends, so the page gets what a program writes as it writes it. An argument
+  `--learn-check`, which is the playground's and not GHC's, makes the run a
+  check: the program is compiled with `-fno-code` (typechecked, no bytecode)
+  and nothing is run, which is what the tutorial does as the reader types.
+  Either way, once the program has compiled, the run writes the types of the
+  top-level bindings of a module `Lesson`, if the program has one, to stdout
+  before the program's own output, a line each:
+  `learn-type<TAB>line<TAB>column<TAB>name<TAB>type`. A typechecker plugin
+  of the session's keeps them each time GHC typechecks `Lesson` (the module's
+  interface has only what it exports under `-fno-code`), printed in the
+  module's own scope as GHCi's `:type` prints them; a run in which GHC did
+  not typecheck it again reports the ones kept for the same source.
 - `web/index.html`, `web/index.js`: a minimal page (a text area, the GHC
   arguments, a button per layer, Run, stdout and stderr, `#app`, and the
   timings it measured). Plain modules, no bundler, no editor.

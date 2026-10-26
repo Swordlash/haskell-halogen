@@ -427,42 +427,56 @@ function enqueue(job) {
 // /tmp/Lesson.hs and /tmp/Main.hs, the lesson's own GHC arguments and the
 // layers it uses (which must have been ensured). Resolves, never rejects,
 // with { ok, compiled, error, stdout, stderr, ms }: ok when main ran to the
-// end, compiled when GHC got as far as running it.
+// end, compiled when GHC got as far as running it. Before what the program
+// writes, stdout has a learn-type line for each of Lesson's top-level
+// bindings (learn/Playground.hs), which the app takes out (Learn.Types).
 export function compile(request) {
-  return enqueue(async () => {
-    if (!compiler) throw new Error("the compiler has not started");
-    const dbs = request.layers.flatMap((name) => {
-      const layer = compiler.manifest.layers.find((l) => l.name === name);
-      return layer ? ["-package-db", layer.packageDb] : [];
-    });
-    writeFile("/tmp/Lesson.hs", request.lesson);
-    const output = { stdout: [], stderr: [] };
-    outputSink = output;
-    const t = performance.now();
-    let ok = true;
-    let error = null;
-    try {
-      await compiler.run([...baseArgs, ...dbs, ...request.args].join(" "), request.main);
-    } catch (e) {
-      ok = false;
-      error = String(e?.message ?? e);
-    } finally {
-      outputSink = null;
-    }
-    const ms = Math.round(performance.now() - t);
-    const stderr = output.stderr.join("\n");
-    // Playground.hs fails with this when GHC reports errors, and GHC's
-    // error handler prints it and exits; anything else was the program's
-    // own main failing.
-    const compiled = ok || !stderr.includes("the program did not compile");
-    // GHC's progress ("[1 of 2] Compiling Lesson") goes to stdout, before
-    // what the program writes there.
-    const stdout = output.stdout.filter((l) => !/^\[\s*\d+ of \d+\] Compiling /.test(l)).join("\n");
-    // What the program died of is what GHC's error handler printed last;
-    // the exception itself is only the exit code.
-    const last = output.stderr.filter((l) => l.trim() !== "").pop();
-    return { ok, compiled, error: ok ? null : (last ?? error), stdout, stderr, ms };
+  return enqueue(() => run(request, []));
+}
+
+// Typecheck, and nothing more, as the reader types: the same request and the
+// same result, from a run of the playground with --learn-check, which
+// compiles with -fno-code and runs nothing. Then ok and compiled both say
+// whether it typechecked, and stdout has only the learn-type lines. A check
+// waits for a compile under way, as a compile asked for meanwhile waits for
+// the check: the results come in the order they were asked for.
+export function check(request) {
+  return enqueue(() => run(request, ["--learn-check"]));
+}
+
+async function run(request, flags) {
+  if (!compiler) throw new Error("the compiler has not started");
+  const dbs = request.layers.flatMap((name) => {
+    const layer = compiler.manifest.layers.find((l) => l.name === name);
+    return layer ? ["-package-db", layer.packageDb] : [];
   });
+  writeFile("/tmp/Lesson.hs", request.lesson);
+  const output = { stdout: [], stderr: [] };
+  outputSink = output;
+  const t = performance.now();
+  let ok = true;
+  let error = null;
+  try {
+    await compiler.run([...baseArgs, ...dbs, ...request.args, ...flags].join(" "), request.main);
+  } catch (e) {
+    ok = false;
+    error = String(e?.message ?? e);
+  } finally {
+    outputSink = null;
+  }
+  const ms = Math.round(performance.now() - t);
+  const stderr = output.stderr.join("\n");
+  // Playground.hs fails with this when GHC reports errors, and GHC's
+  // error handler prints it and exits; anything else was the program's
+  // own main failing.
+  const compiled = ok || !stderr.includes("the program did not compile");
+  // GHC's progress ("[1 of 2] Compiling Lesson") goes to stdout, before
+  // what the program writes there.
+  const stdout = output.stdout.filter((l) => !/^\[\s*\d+ of \d+\] Compiling /.test(l)).join("\n");
+  // What the program died of is what GHC's error handler printed last;
+  // the exception itself is only the exit code.
+  const last = output.stderr.filter((l) => l.trim() !== "").pop();
+  return { ok, compiled, error: ok ? null : (last ?? error), stdout, stderr, ms };
 }
 
 // End the last run's tree, before the page takes away the element it is

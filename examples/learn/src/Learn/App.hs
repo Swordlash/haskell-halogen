@@ -14,6 +14,13 @@
 -- memory once running), so on a narrow screen it loads only when the reader
 -- asks; elsewhere it starts loading as the page does.
 --
+-- As the reader types, the page has GHC typecheck the code without running
+-- it ('Browser.typecheck', a check), a moment after the last key, and shows
+-- what GHC says in the editor and under it, with the types of the module's
+-- top-level bindings: over their names, and in a list under the editor.
+-- The Compile button still compiles and runs; a compile reports the types
+-- too, and a check never touches the result.
+--
 -- What a compile mounts goes into @#learn-result@, an element this
 -- component renders once per lesson (the lesson's page is keyed by its
 -- slug) and never patches inside: its content is the compiled program's,
@@ -40,6 +47,7 @@ import Learn.Diagnostics (Diagnostic (..), Severity (..), didNotCompile, parseDi
 import Learn.Lesson (Lesson (..), wrapper)
 import Learn.Lessons (lessons)
 import Learn.Route (Route (..), lessonOf)
+import Learn.Types (Binding (..), displayName)
 import Learn.View qualified as View
 import Numeric (showFFloat)
 import Protolude hiding (State, link)
@@ -74,6 +82,33 @@ data State = State
   , run :: Run
   , mounted :: Bool
   -- ^ A compile has mounted something into this lesson's @#learn-result@.
+  , diagnostics :: [Diagnostic]
+  -- ^ What GHC said of the code the last time it was asked, by a compile
+  -- or a check.
+  , bindings :: Maybe Bindings
+  , edits :: Int
+  -- ^ Counts the editor's changes, and the lessons entered: a check's
+  -- result is for the code it checked, and is dropped once there has been
+  -- another change (or a compile, which says it all again, later).
+  , coveredEdit :: Maybe Int
+  -- ^ The 'edits' the last check or compile started from: the code then
+  -- needs no check of its own.
+  , checking :: Bool
+  -- ^ A check is under way: one at a time.
+  , checkDue :: Maybe H.ForkId
+  -- ^ The check that waits for the reader to stop typing ('checkDelay'),
+  -- killed by the next change while it waits.
+  , lastCheck :: Maybe (Int, Bool)
+  -- ^ How long the last check whose result is shown took, and whether the
+  -- code typechecked.
+  }
+
+-- | The types of the lesson's top-level bindings, from the last check or
+-- compile that typechecked, and whether that is still so of the code (it is
+-- not when the code has an error since).
+data Bindings = Bindings
+  { list :: [Binding]
+  , current :: Bool
   }
 
 data Compiler
@@ -86,7 +121,7 @@ data Compiler
 data Run
   = NotRun
   | Compiling
-  | Ran RunResult [Diagnostic]
+  | Ran RunResult
   | -- | The compiler could not be asked at all.
     Unrun Text
 
@@ -131,6 +166,13 @@ component =
           , edited = False
           , run = NotRun
           , mounted = False
+          , diagnostics = []
+          , bindings = Nothing
+          , edits = 0
+          , coveredEdit = Nothing
+          , checking = False
+          , checkDue = Nothing
+          , lastCheck = Nothing
           }
 
     handleAction :: Action -> H.HalogenM State Action Empty o m ()
@@ -150,11 +192,12 @@ component =
         current <- gets (.route)
         unless (r == current) $ do
           leaveLesson
-          modify $ \s -> s {route = r, edited = False, run = NotRun, mounted = False, layerFailure = Nothing}
+          modify $ \s ->
+            s {route = r, edited = False, run = NotRun, mounted = False, layerFailure = Nothing, diagnostics = [], bindings = Nothing, lastCheck = Nothing}
           H.liftEffect (liftIO Browser.scrollToTop)
           enterLesson
           gets (.compiler) >>= \case
-            Loaded _ -> loadLayers
+            Loaded _ -> loadLayers >> startCheck
             _ -> pass
       Followed f -> do
         router <- gets (.router)
@@ -183,28 +226,32 @@ component =
         let edited = text /= lesson.start
         was <- gets (.edited)
         when (was /= edited) $ modify $ \s -> s {edited}
+        checkSoon
       FromEditor CompileRequested -> handleAction Compile
       Compile -> do
         st <- get
         when (canCompile st) $ for_ ((,) <$> lessonOf st.route <*> st.editor) $ \(lesson, (editor, _)) -> do
           source <- H.liftEffect (liftIO (Browser.editorText editor))
-          modify $ \s -> s {run = Compiling, runs = s.runs + 1}
-          compiled <-
-            liftIO $
-              Browser.compile
-                CompileRequest {lesson = source, main = wrapper lesson, args = lesson.args, layers = lesson.layers}
+          modify $ \s -> s {run = Compiling, runs = s.runs + 1, coveredEdit = Just s.edits}
+          compiled <- liftIO $ Browser.compile (request lesson source)
           -- The reader may have left meanwhile, even for this same lesson
           -- again: that visit's editor is another one, and its run its own.
           now <- gets (.visit)
-          when (now == st.visit) $ case compiled of
-            Left message -> modify $ \s -> s {run = Unrun message}
-            Right result0 -> do
-              let diagnostics = parseDiagnostics result0.stderr
-                  -- What GHC wrote wins over how the run ended: see
-                  -- 'didNotCompile'.
-                  result = result0 {compiled = result0.compiled && (result0.ok || not (didNotCompile result0.stderr))}
-              H.liftEffect $ liftIO $ Browser.showDiagnostics editor (filter ((== "Lesson.hs") . (.file)) diagnostics)
-              modify $ \s -> s {run = Ran result diagnostics, mounted = s.mounted || result.compiled}
+          when (now == st.visit) $ do
+            case compiled of
+              Left message -> modify $ \s -> s {run = Unrun message}
+              Right result0 -> do
+                let diagnostics = parseDiagnostics result0.stderr
+                    -- What GHC wrote wins over how the run ended: see
+                    -- 'didNotCompile'.
+                    result = result0 {compiled = result0.compiled && (result0.ok || not (didNotCompile result0.stderr))}
+                markDiagnostics editor diagnostics
+                -- The types were written before main ran: a program that
+                -- compiled and then stopped has them too.
+                keepTypes editor result.compiled result.types
+                modify $ \s -> s {run = Ran result, mounted = s.mounted || result.compiled, diagnostics, lastCheck = Nothing}
+            -- The reader may have typed while it compiled.
+            startCheck
       Reset -> withEditor $ \lesson editor -> H.liftEffect (liftIO (Browser.setEditorText editor lesson.start))
       ShowSolution -> withEditor $ \lesson editor -> do
         edited <- gets (.edited)
@@ -217,6 +264,62 @@ component =
 
     withLesson f = gets (lessonOf . (.route)) >>= traverse_ f
 
+    request lesson source = CompileRequest {lesson = source, main = wrapper lesson, args = lesson.args, layers = lesson.layers}
+
+    markDiagnostics editor diagnostics =
+      H.liftEffect $ liftIO $ Browser.showDiagnostics editor (filter ((== "Lesson.hs") . (.file)) diagnostics)
+
+    -- The types a run reported, if the code typechecked; else the last
+    -- ones stay, as no longer the code's.
+    keepTypes editor typechecked types
+      | typechecked = do
+          H.liftEffect $ liftIO $ Browser.showTypes editor types
+          modify $ \s -> s {bindings = Just Bindings {list = types, current = True}}
+      | otherwise = modify $ \s -> s {bindings = (\b -> b {current = False}) <$> s.bindings}
+
+    -- A check once the reader has stopped typing for 'checkDelay': the
+    -- change before this one waits no longer. Only once the compiler is
+    -- there; the first check after it has loaded is 'startCheck''s.
+    checkSoon = do
+      st <- get
+      for_ st.checkDue H.kill
+      modify $ \s -> s {edits = s.edits + 1, checkDue = Nothing}
+      when (isLoaded st.compiler) $ do
+        due <- H.fork $ do
+          liftIO (threadDelay checkDelay)
+          -- From here on it is not killed: a change meanwhile drops its
+          -- result instead, so the session never has a run taken from it
+          -- half-way.
+          modify $ \s -> s {checkDue = Nothing}
+          startCheck
+        modify $ \s -> s {checkDue = Just due}
+
+    -- Check the editor's code, if the compiler can be asked (it is there,
+    -- with the lesson's layers, and no compile is under way), no check is
+    -- under way or waiting for the reader, and no check or compile has
+    -- started from this code already. Called again whenever one of those
+    -- may have changed: the compiler and the layers loaded, a compile or a
+    -- check over, another lesson entered.
+    startCheck = do
+      st <- get
+      when (canCompile st && not st.checking && isNothing st.checkDue && st.coveredEdit /= Just st.edits) $
+        for_ ((,) <$> lessonOf st.route <*> st.editor) $
+          \(lesson, (editor, _)) -> do
+            source <- H.liftEffect (liftIO (Browser.editorText editor))
+            modify $ \s -> s {checking = True, coveredEdit = Just st.edits}
+            checked <- liftIO $ Browser.typecheck (request lesson source)
+            modify $ \s -> s {checking = False}
+            now <- get
+            -- Not if the code has changed since, or a compile has started
+            -- (whose result, later, is of the same code or newer), or the
+            -- reader is at another lesson (which counts as a change).
+            when (now.edits == st.edits && now.runs == st.runs) $ for_ checked $ \result -> do
+              let diagnostics = parseDiagnostics result.stderr
+              markDiagnostics editor diagnostics
+              keepTypes editor result.ok result.types
+              modify $ \s -> s {diagnostics, lastCheck = Just (result.ms, result.ok)}
+            startCheck
+
     withEditor f = do
       st <- get
       for_ ((,) <$> lessonOf st.route <*> st.editor) $ \(lesson, (editor, _)) -> f lesson editor
@@ -224,6 +327,7 @@ component =
     -- The editor, in the lesson's element, with the reader's code if any
     -- was kept, else the lesson's start.
     enterLesson = withLesson $ \lesson -> do
+      modify $ \s -> s {edits = s.edits + 1}
       st <- get
       saved <- join . rightToMaybe <$> H.liftEffect (tryAny (readStorageItem LocalStorage (storageKey lesson)))
       let text = fromMaybe lesson.start saved
@@ -238,7 +342,8 @@ component =
       for_ st.editor $ \(editor, subscription) -> do
         H.unsubscribe subscription
         H.liftEffect (liftIO (Browser.destroyEditor editor))
-      modify $ \s -> s {editor = Nothing}
+      for_ st.checkDue H.kill
+      modify $ \s -> s {editor = Nothing, checkDue = Nothing}
       -- A compile under way will mount what it compiled into this lesson's
       -- element, or the next one's: ending the run is queued after it.
       when (st.mounted || isCompiling st.run) $ void $ H.fork (liftIO Browser.endRun)
@@ -275,6 +380,8 @@ component =
               -- while it loaded).
               loadLayers
               syncEditor
+              -- The lesson's code, as it is, without waiting for a change.
+              startCheck
               -- After a Retry, the sizes may not have been read before.
               gets (.sizes) >>= \case
                 Nothing -> readSizes
@@ -309,6 +416,7 @@ component =
             modify $ \s -> s {loadedLayers = ordNub (s.loadedLayers <> wanted)}
             syncEditor
             loadLayers
+            startCheck
 
     -- Whether the editor takes input follows the compiler: on a narrow
     -- screen it is read-only until the compiler has loaded, and an editor
@@ -416,12 +524,38 @@ component =
             ("editor", HH.div [HP.class_ (HH.ClassName "learn-editor"), HP.ref st.editorHost] [])
           ]
             <> [("fallback", HH.pre [HP.class_ (HH.ClassName "learn-fallback")] [HH.text lesson.start]) | isNothing st.editor]
-            <> [("diagnostics", diagnosticList diagnostics) | not (null diagnostics)]
+            <> [("check", HH.p [HP.class_ (HH.ClassName "learn-check")] [HH.text text]) | Just text <- [checkLine st]]
+            <> [("diagnostics", diagnosticList st.diagnostics) | not (null st.diagnostics)]
+            <> [("bindings", bindingList b) | Just b <- [st.bindings], not (null b.list)]
         )
-      where
-        diagnostics = case st.run of
-          Ran _ ds -> ds
-          _ -> []
+
+    -- What the checks are doing, once there has been one; nothing of a
+    -- compile, whose outcome is the result's.
+    checkLine st
+      | st.checking = Just "Checking…"
+      | otherwise = case st.lastCheck of
+          Just (ms, True) -> Just ("Checked in " <> seconds ms <> ": it compiles.")
+          Just (ms, False) -> Just ("Checked in " <> seconds ms <> ": it does not compile.")
+          Nothing -> Nothing
+
+    bindingList b =
+      HH.div
+        [HP.class_ (HH.ClassName "learn-bindings")]
+        ( [HH.h2_ [HH.text "Top-level types"]]
+            <> [HH.p [HP.class_ (HH.ClassName "learn-note")] [HH.text "From the last time the code compiled."] | not b.current]
+            <> [ HH.ul_
+                   [ HH.li_
+                       [ HH.button
+                           [ HP.class_ (HH.ClassName "learn-binding")
+                           , HP.title ("Line " <> show binding.line)
+                           , HE.onClick (const (Goto binding.line binding.column))
+                           ]
+                           [HH.code_ [HH.text (displayName binding <> " :: " <> binding.type_)]]
+                       ]
+                   | binding <- b.list
+                   ]
+               ]
+        )
 
     diagnosticList ds =
       HH.ul
@@ -452,7 +586,7 @@ component =
         )
 
     output = \case
-      Ran result _ ->
+      Ran result ->
         [("stdout", HH.pre [HP.class_ (HH.ClassName "learn-stdout")] [HH.text result.stdout]) | not (T.null result.stdout)]
           <> [ ( "stderr"
                , HH.details
@@ -514,7 +648,7 @@ component =
         | otherwise -> "Your code's component will show here."
       Compiling -> "Compiling…"
       Unrun message -> "The compiler could not run: " <> message
-      Ran result _
+      Ran result
         | result.ok -> "Compiled and ran in " <> seconds result.ms <> "."
         | result.compiled -> "It compiled, and then stopped: " <> fromMaybe "" result.failure
         | st.mounted -> "It did not compile; what is below is from the last time it did."
@@ -547,6 +681,12 @@ component =
       Just s
         | Just bytes <- sum <$> traverse (\name -> join (lookup name s.layers)) lesson.layers -> ", " <> megabytes' (fromIntegral bytes / 1e6 :: Double) <> " MB more"
       _ -> ""
+
+-- | How long the reader stops typing before the code is checked, in
+-- microseconds: long enough not to check every word, as the page's thread is
+-- the compiler's while it checks.
+checkDelay :: Int
+checkDelay = 1200000
 
 -- | Lessons are numbered from 1, in the order of 'lessons'.
 neighbour :: Int -> Lesson -> Maybe Lesson

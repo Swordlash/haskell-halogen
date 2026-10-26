@@ -26,6 +26,42 @@ editor is CodeMirror 6 (`js/editor.js`). Both are bundled by `bundle.sh` into
 inside. GHC's errors come back on stderr; `Learn.Diagnostics` reads their
 locations, which the page lists under the editor and marks in it.
 
+**The live check.** As the reader types, the page has GHC typecheck the code
+without running it: 1.2 s after the last change (`checkDelay` in
+`Learn.App`), once the compiler and the lesson's layers are there and no
+compile is under way, it hands the same two modules and arguments to
+`js/playground.js`'s `check`, which runs the playground with
+`--learn-check` (`learn/Playground.hs` then compiles with `-fno-code` and
+runs nothing). Its diagnostics replace the ones in the editor and under it,
+and a line under the editor says how long it took ("Checked in 0.4 s: it
+compiles."); the result's panel is a compile's alone. The first check runs
+when the compiler is ready, so a lesson opened fresh is checked with no key
+pressed. One check runs at a time, in the page's one queue of runs with the
+compiles (a check waits for a compile under way, and a compile pressed
+meanwhile for the check), and a check's result is dropped when the code has
+changed since it started or a compile has started since: the compile,
+later, says it all again. A change while a check waits out its delay starts
+the delay again.
+
+**The types.** Every run that typechecks the program, a compile or a check,
+writes a line to stdout for each top-level binding of `Lesson` before what
+the program writes there: `learn-type`, the line and column it is bound at,
+its name and its type as GHCi's `:type` prints it, with the names the module
+imports as it writes them (`H.Component`), separated by tabs
+(`learn/README.md` says how the playground finds them). `Learn.Types` takes
+those lines out of stdout (`Learn.Browser` does, as it reads a run's result)
+and the page shows them twice: in the editor, a tooltip over a name the
+module binds at the top level gives its type (`js/editor.js`'s
+`showTypes`), and under the editor, "Top-level types" lists them, each going
+to its line when clicked. When the code stops typechecking, the last ones
+stay, said to be from the last time it compiled. What they know is the
+module's top-level bindings and nothing else: not a binding under a `where`
+or a `let` (so a lesson that wants its pieces listed binds them at the top
+level, as lesson 20 does), not a name the module imports, not a
+constructor, a record field, a class's or an instance's methods. A name
+right after a dot, qualified or a record's field, shows no tooltip, and a
+local name that is also a top-level one shows the top-level one's type.
+
 On a screen under 900 pixels wide the compiler is not loaded by itself (it is
 a 63 MB download and takes 1.2 GB of memory once running): the lesson and its
 code are there to read, and a button loads the compiler anyway.
@@ -90,7 +126,13 @@ the program links while it runs, that the library's component greets the
 name and waves, and for `Solution.hs` that the parent hears it, tells it to
 wave and asks it how often, and that hidden and shown again it starts over; for lesson 19,
 whose scene is drawn with Three.js, that its canvas is there and that a click at its centre, on the
-sphere, changes the colour the text under it names), that back, forward, a second visit
+sphere, changes the colour the text under it names; for lesson 20, that the component counts and
+renames), that the page checks the code as the reader types (on lesson 20, whose
+`Start.hs` has three holes: with no Compile, its holes' warnings and the types of its
+bindings are listed, a tooltip over `render` gives its type, a click in the list goes
+to the binding's line, an error typed is marked within the check's delay and goes when
+undone, and a check under way when Compile is pressed is not reported over the
+compile), that back, forward, a second visit
 (from the cache) and Reset work, that a narrow screen downloads nothing large
 until asked, that a failed load can be retried and loads from a manifest
 without a version or sizes too, and that nothing is logged as an error.
@@ -157,7 +199,9 @@ args: -package haskell-halogen-hooks
 - `args` (optional): further GHC arguments, separated by spaces, after the
   ones every compile has (`-package haskell-halogen-core
   -Wno-missed-extra-shared-lib -i/tmp`). A layer's package still has to be
-  named here with `-package`, as above.
+  named here with `-package`, as above. The live check passes them too.
+  Lesson 20's are `-fdefer-typed-holes`, which makes its `Start.hs`'s holes
+  warnings, so that it compiles as a start must.
 
 ### The text
 

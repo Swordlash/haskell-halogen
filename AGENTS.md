@@ -298,7 +298,10 @@ reader's module to `/tmp/Lesson.hs` from JavaScript and hands the wrapper to the
 `#learn-result`, which the app renders once per lesson (keyed) and never patches inside, and the page
 ends that tree (a compile of `main = endPreviousRun`) before taking the element away. The app and the
 compiled program are two runtimes on one page. GHC's stderr is parsed into diagnostics
-(`Learn.Diagnostics`) for the list under the CodeMirror editor and its lint markers. Lesson 13's own
+(`Learn.Diagnostics`) for the list under the CodeMirror editor and its lint markers. As the reader
+types, the page also checks the code (the playground's `--learn-check`: `-fno-code`, nothing run) a
+moment after the last key, and every compile or check reports the types of `Lesson`'s top-level
+bindings as `learn-type` lines on stdout (`Learn.Types`), shown as tooltips and a list under the editor. Lesson 13's own
 `Main.hs` runs the lesson's `spec` instead of mounting (`hspec-halogen`'s `runBrowserTestsIn`, the
 rootfs' `hspec` layer): with no runner in the page, the harness performs its actions with synthetic
 events (`hspec-halogen/jsbits/page.js`'s in-page mode, which `hspec-halogen-test` also runs its
