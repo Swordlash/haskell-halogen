@@ -376,7 +376,33 @@ try {
     await result.page().waitForTimeout(2500);
     return (await renders()) - before;
   };
+  // Lesson 17's counts primes when its button is pressed. The tutorial has
+  // no binary for a worker to load, so the component says no worker can be
+  // made, and the count runs on the page either way: Start.hs counts in the
+  // component's loop, which draws no frame meanwhile, and Solution.hs with
+  // Worker.run, in a liftIO, which leaves the loop free to draw a frame in
+  // the moments the interpreter gives the page its thread back.
+  const countPrimes = async (result) => {
+    await result.locator(".lesson-workers", { hasText: "No Web Worker here" }).waitFor({ timeout: 5000 });
+    await result.locator("button", { hasText: "Count the primes below 50000" }).click();
+    const answer = result.locator(".lesson-answer", { hasText: "5133 primes" });
+    await answer.waitFor({ timeout: 60000 });
+    const text = await answer.textContent();
+    return { text, drawn: Number(text.match(/\((\d+) frames drawn meanwhile\)/)?.[1]) };
+  };
   const pageLessons = {
+    "17-worker": {
+      async start(result) {
+        const { text, drawn } = await countPrimes(result);
+        assert.match(text, /^Counted 5133 primes/, "Start.hs counts in the handler");
+        assert.equal(drawn, 0, `no frame drawn while the loop counts: ${text}`);
+      },
+      async solution(result) {
+        const { text, drawn } = await countPrimes(result);
+        assert.match(text, /^The job primes counted 5133 primes/, "Solution.hs counts with the job");
+        assert.ok(drawn >= 1, `the loop is free while Worker.run counts: ${text}`);
+      },
+    },
     "16-devtools": {
       async start(result) {
         const more = await devtoolsPanel(result);

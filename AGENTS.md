@@ -14,7 +14,9 @@ Component any page can use, its attributes and properties the component's input,
 `CustomEvent`s and its queries methods; and `onEvent` for others' custom elements), `devtools`
 (`haskell-halogen-devtools`: a panel over the page, read from core's `Halogen.Trace`, with the tree
 of components, their counts, a log of events, the hovered component outlined and earlier states
-put back), `tauri`
+put back), `worker` (`haskell-halogen-worker`: heavy work in Web Workers that are second
+instances of the program's own binary, jobs registered by name, arguments and results as JSON over
+`postMessage`, the job run in the program itself where no worker can be made), `tauri`
 (Tauri v2's IPC through its global API `window.__TAURI__`: commands with aeson JSON, events as
 emitters, the current window's events), `material`
 (Material Components bindings), `pixi` (PixiJS v8 canvas backend), `sound` (music and sound
@@ -25,7 +27,7 @@ and `clay` quasi-quoters, HTML and CSS with Haskell inside, parsed by ghc-lib-pa
 deploys: lessons as routes, each with its text, an editor and the result of compiling the reader's code
 in the page. `learn/` is no package: it is GHC itself running in a page, compiling and mounting a
 component the reader wrote (the compiler the tutorial runs on, the rootfs, and a bare page for trying it;
-its `README.md` has the rootfs, its manifest and the measurements). `hooks`, `store`, `router`, `net` (for `Halogen.Subscription`), `material`, `pixi`, `hspec-halogen` and `th` depend only on `core`; `tauri` on `core` (for `Halogen.Subscription`'s emitters) and `jsbits`; `custom-element` and `devtools` on `core` and `jsbits`; `sound` depends on none of them, only on `jsbits`. Everything builds from the root
+its `README.md` has the rootfs, its manifest and the measurements). `hooks`, `store`, `router`, `net` (for `Halogen.Subscription`), `material`, `pixi`, `hspec-halogen` and `th` depend only on `core`; `tauri` on `core` (for `Halogen.Subscription`'s emitters) and `jsbits`; `custom-element` and `devtools` on `core` and `jsbits`; `sound` and `worker` depend on none of them, only on `jsbits`. Everything builds from the root
 `cabal.project`, so a `core` change is type-checked against every dependent and example.
 
 Every package is compiled for three targets: native GHC, the GHC JavaScript backend, and GHC
@@ -46,14 +48,15 @@ npm run build-rootfs            # the compiler the tutorial runs (GHC, our libra
 npm run build-wasm-all          # every example, wasm-opt'd (the rootfs first if missing); Pages deploys only public/learn
 npm run test-learn              # the built tutorial, rootfs inside, in headless Chromium: every lesson compiled in the page
 npm run test-playground         # learn/'s page on the rootfs in headless Chromium: a program for every layer
+npm run test-worker             # examples/worker in headless Chromium (after build-wasm.sh worker): jobs in Web Workers
 npm run build-js                # JS backend: build all, bundle the material example into dist/
 npm run dev -- <example>        # an example in browser GHCi, reloaded and rerun on save
 npm run dev-test -- <package>   # a package's browser test suite in browser GHCi, rerun on save
-npm run format                  # fourmolu over core, hooks, store, router, net, custom-element, devtools, tauri, pixi, hspec-halogen, th, material/test, examples
+npm run format                  # fourmolu over core, hooks, store, router, net, custom-element, devtools, worker, tauri, pixi, hspec-halogen, th, material/test, examples
 ```
 
-`core`, `hooks`, `store`, `router`, `net`, `tauri` and `sound` have test suites that run under Node (`Halogen-core-test`,
-`Halogen-hooks-test`, `Halogen-store-test`, `Halogen-router-test`, `Halogen-net-test`, `Halogen-tauri-test`, `Halogen-sound-test`), and `material`, `net`, `custom-element`, `devtools`, `tauri` and `hspec-halogen` have ones that run in a browser
+`core`, `hooks`, `store`, `router`, `net`, `worker`, `tauri` and `sound` have test suites that run under Node (`Halogen-core-test`,
+`Halogen-hooks-test`, `Halogen-store-test`, `Halogen-router-test`, `Halogen-net-test`, `Halogen-worker-test`, `Halogen-tauri-test`, `Halogen-sound-test`), and `material`, `net`, `custom-element`, `devtools`, `tauri` and `hspec-halogen` have ones that run in a browser
 (`Halogen-material-test`, `Halogen-net-browser-test`, `Halogen-custom-element-test`, `Halogen-devtools-test`, `Halogen-tauri-browser-test`, `hspec-halogen-test`; on wasm and JS, see below).
 `Halogen-net-browser-test` fetches the files in `net/test/web/` from the runner's server, and
 what that server cannot do (a request held until the test lets it go, a body that stops halfway,
@@ -141,6 +144,13 @@ and wired into `test/Test.hs`.
   `npx playwright install --with-deps --only-shell chromium`, and the pages need the network
   only for PixiJS from jsDelivr and the Material Icons font: the tutorial bundles its
   browser_wasi_shim, and the compiler's is `learn/vendor/`'s, shipped in the rootfs.
+- `toolchain/test-worker.mjs` serves the built `examples/worker` (`dist-newstyle/wasm/public/worker`)
+  and drives real Web Workers, each a second instance of the page's `app.wasm`: the count in each
+  of the pool's workers while the page draws (it samples the component's frame counter at the
+  page's own animation frames), the same count on the page drawing none, a failing job,
+  `terminate`, and the page with `?workers=none`, which leaves `halogenWorker` unset and so runs
+  `Worker.run`'s fallback. CI's wasm job runs it after `test-playground`; the example bundles its
+  WASI shim (`bundle.sh`), so it needs no network.
 
 ## Architecture
 
@@ -251,6 +261,19 @@ they block; on JS, `syncCallback1 ContinueAsync` gives the same behaviour.
 A binding that starts asynchronous work returns a `Promise` (`Halogen.JSBits.Promise`)
 from an `Unsafe` import, and the program `await`s it, which gives a rejection back as a value,
 instead of declaring a `Safe` import and forcing its result with `evaluate`.
+
+### Web Workers
+
+`worker`'s `Halogen.Worker` starts a worker from a `Blob` script that loads the program the way
+the page's loader did (the files `globalThis.halogenWorker` names: on wasm the binary, the JSFFI
+glue and the WASI shim; on the JavaScript backend its `all.js`) and runs `main`, whose
+`Worker.program`/`serve` finds the number the script set in `halogenWorker.worker` and answers
+`{id, job, args}` messages from its table instead of going on to the UI. A job's argument and
+result cross as JSON text, and the fallback (no configuration, natively, in Node, in GHCi, in the
+tutorial's interpreter) goes through the same table and JSON in process. On wasm a computation
+that does not wait holds the page's thread until it ends, whichever Haskell thread runs it: in
+`examples/worker` two seconds of counting in a component's `liftIO` without a worker let the
+page draw one frame, against about 120 in a worker.
 
 ### The tutorial compiles in the browser
 

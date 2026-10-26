@@ -44,6 +44,7 @@
     "build-rootfs": "sh toolchain/build-learn-rootfs.sh",
     "test-learn": "node toolchain/test-learn.mjs",
     "test-playground": "node toolchain/test-playground.mjs",
+    "test-worker": "node toolchain/test-worker.mjs",
     "clean": "rm -rf dist-newstyle/wasm/public dist-newstyle/ghcjs"
   }
 }
