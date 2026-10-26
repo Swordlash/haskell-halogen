@@ -21,6 +21,8 @@
 #   layers/<name>.tar.zst   further layers (LEARN_LAYERS), each with its
 #                    package DB, and layers/<name>/ the files a layer's
 #                    packages need on the page (material's CSS and JavaScript)
+#                    or fetch while a program runs (lazy's demo library,
+#                    liblazy-demo.so)
 #   rootfs.json      the manifest: what the page hands to dyld and GHC (the
 #                    paths in the archive), every archive's parts, sizes,
 #                    package DB and assets, and a version, a hash of the
@@ -138,10 +140,13 @@ BASE_LAYER="haskell-halogen-jsbits haskell-halogen-core"
 # that only a lesson about quasi-quotes loads;
 # hspec (hspec-halogen, the test harness, which runs a suite in the page with
 # synthetic events where it has no Playwright) also hspec, hspec-core, HUnit,
-# ansi-terminal and the rest of hspec's closure that the base layer lacks.
+# ansi-terminal and the rest of hspec's closure that the base layer lacks;
+# lazy is haskell-halogen-lazy and haskell-halogen-lazy-demo, the types its
+# demo library shares with the program loading it (the library itself,
+# liblazy-demo.so, is served beside the archive rather than in it: see step 8).
 # sound and tauri are not here: a lesson has no sound to play nor a Tauri to
 # talk to.
-DEFAULT_LAYERS="hooks=haskell-halogen-hooks router=haskell-halogen-router net=haskell-halogen-net elements=haskell-halogen-custom-element devtools=haskell-halogen-devtools material=haskell-halogen-material pixi=haskell-halogen-pixi th=haskell-halogen-th hspec=hspec-halogen store=haskell-halogen-store worker=haskell-halogen-worker"
+DEFAULT_LAYERS="hooks=haskell-halogen-hooks router=haskell-halogen-router net=haskell-halogen-net elements=haskell-halogen-custom-element devtools=haskell-halogen-devtools material=haskell-halogen-material pixi=haskell-halogen-pixi th=haskell-halogen-th hspec=hspec-halogen store=haskell-halogen-store worker=haskell-halogen-worker lazy=haskell-halogen-lazy,haskell-halogen-lazy-demo"
 layers=${LEARN_LAYERS-$DEFAULT_LAYERS}
 # Boot packages that neither GHC (the closure of ghc, ghci, ghc-boot,
 # template-haskell, hpc and ghc-heap) nor any package above depends on, so no
@@ -438,7 +443,11 @@ cp "$bsdtar_cache" "$out/bsdtar.wasm"
 # embedded in the library through browserJS as other packages' jsbits are:
 # the page loads it, bundled as examples/material/bundle.sh bundles it for the
 # example, with the components' CSS. Pixi loads PixiJS from a CDN itself.
-# Nothing else does: every other package's JavaScript is in its library.
+# Lazy's demo library is what its lesson loads with Halogen.Lazy.Dyld: a
+# shared library of its own, fetched by the program while it runs and linked
+# into it by dyld, so it is a file served beside the layer's archive and not
+# in it. Nothing else needs anything: every other package's JavaScript is in
+# its library.
 in_rootfs() { printf '/%s' "${1#"$stage/"}"; }
 manifest=$work/manifest.txt
 : >"$manifest"
@@ -474,6 +483,24 @@ for layer in $layers; do
           exit 1
         fi
         printf 'external %s PixiJS, which Halogen.Canvas.Pixi.defaultConfig imports when a canvas mounts\n' "$cdn" >>"$manifest"
+        ;;
+      haskell-halogen-lazy-demo)
+        # lazy/demo/feature, compiled as libplayground.so is (step 2), against
+        # the very libraries the layers carry: its NEEDED entries name them by
+        # file name, and dyld finds them linked already when a program that
+        # uses this layer loads it. Its own unit id keeps its symbols from
+        # meeting the program's (both would be main's otherwise). The
+        # packages are named, not their ids: the plan has one of each.
+        step "layer $name: liblazy-demo.so"
+        mkdir -p "$out/layers/$name" "$work/lazy-demo"
+        "$wasm_ghc" -v0 -shared -dynamic -O2 -this-unit-id halogen-lazy-demo-feature \
+          -no-keep-hi-files -no-keep-o-files -outputdir "$work/lazy-demo" \
+          -package-env - -package-db "$store_db" -package-db "$inplace_db" -hide-all-packages \
+          -package base -package mtl -package row-types -package text \
+          -package haskell-halogen-core -package haskell-halogen-lazy -package haskell-halogen-lazy-demo \
+          -Wall -Wextra -Werror -ilazy/demo/feature \
+          lazy/demo/feature/Entry.hs lazy/demo/feature/Feature.hs -o "$out/layers/$name/liblazy-demo.so"
+        printf 'library layers/%s/liblazy-demo.so the demo library its lesson loads with Halogen.Lazy.Dyld\n' "$name" >>"$manifest"
         ;;
     esac
   done
@@ -544,7 +571,7 @@ layers, layer = [], None
 for line in open(manifest, encoding="utf-8"):
     key, _, value = line.rstrip("\n").partition(" ")
     if key == "layer":
-        layer = {"name": value, "assets": [], "external": []}
+        layer = {"name": value, "assets": [], "external": [], "libraries": []}
         layers.append(layer)
     elif key == "packages":
         layer["packages"] = value.split()
@@ -560,6 +587,9 @@ for line in open(manifest, encoding="utf-8"):
     elif key == "external":
         url, what = value.split(" ", 1)
         layer["external"].append({"url": url, "what": what})
+    elif key == "library":
+        path, what = value.split(" ", 1)
+        layer["libraries"].append({"path": path, "size": os.path.getsize(os.path.join(out, path)), "what": what})
 for layer in layers:
     layer.update(archive(f"layers/{layer['name']}.tar.zst"))
 
@@ -579,7 +609,7 @@ def version():
 
 
 # The fields the first page read come first (name, archive, packageDb).
-order = ["name", "archive", "packageDb", "packages", "units", "parts", "size", "compressedSize", "assets", "external"]
+order = ["name", "archive", "packageDb", "packages", "units", "parts", "size", "compressedSize", "assets", "external", "libraries"]
 config = {
     "ghc": ghc,
     "version": version(),
@@ -643,15 +673,17 @@ def mb(n):
 r = config["rootfs"]
 print(f"  {'rootfs.tar.zst':28} {mb(r['compressedSize'])} in {len(r['parts'])} file(s)")
 print(f"  {'version':28} {config['version']}")
-print(f"  {'layer':10} {'units':>5} {'uncompressed':>12} {'compressed':>12} {'files':>5}  assets")
+print(f"  {'layer':10} {'units':>5} {'uncompressed':>12} {'compressed':>12} {'files':>5}  assets and libraries")
 for layer in config["layers"]:
-    assets = ", ".join(a["path"] for a in layer["assets"]) or "-"
+    assets = ", ".join(a["path"] for a in layer["assets"] + layer["libraries"]) or "-"
     external = f"; loads {', '.join(e['url'] for e in layer['external'])}" if layer["external"] else ""
     print(
         f"  {layer['name']:10} {len(layer['units']):5} {mb(layer['size'])} {mb(layer['compressedSize'])}"
         f" {len(layer['parts']):5}  {assets}{external}"
     )
-layers = sum(layer["compressedSize"] + sum(a["size"] for a in layer["assets"]) for layer in config["layers"])
+layers = sum(
+    layer["compressedSize"] + sum(a["size"] for a in layer["assets"] + layer["libraries"]) for layer in config["layers"]
+)
 print(f"  {'every archive and asset':28} {mb(r['compressedSize'] + layers)}")
 PY
 largest=$(find "$out" -type f -printf '%s %p\n' | sort -n | tail -n 1)

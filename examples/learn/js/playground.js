@@ -340,6 +340,11 @@ async function boot(root, wanted) {
     args: ["libplayground.so", "+RTS", "-c", "-RTS"],
     isIserv: false,
   });
+  // The compiled programs run in this dyld, and Halogen.Lazy.Dyld links
+  // further libraries into them through it (lesson 18's demo library): it
+  // fetches a library, writes it into this file system with this shim's
+  // classes, and has dyld load it.
+  globalThis.halogenDyld = { dyld, rootfs, shim };
   const run = await dyld.exportFuncs.playground(m.libdir);
   lap("start");
   compiler = { shim, rootfs, run, manifest: m, layers: new Map(loaded.map((name) => [name, Promise.resolve()])), failed, bsdtar };

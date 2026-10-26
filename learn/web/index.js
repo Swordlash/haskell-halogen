@@ -15,7 +15,7 @@
 // the build also points dyld.mjs at, so that the page and dyld share one
 // instance of the module (dyld checks the file system's objects against its
 // own classes).
-import { ConsoleStdout, File, OpenFile, PreopenDirectory, WASI } from "./browser_wasi_shim.js";
+import { ConsoleStdout, Directory, File, OpenFile, PreopenDirectory, WASI } from "./browser_wasi_shim.js";
 import { DyLDBrowserHost, main } from "./dyld.mjs";
 
 // -Wno-missed-extra-shared-lib: the RTS's package names libdl, which wasi
@@ -208,6 +208,9 @@ async function load() {
     args: ["libplayground.so", "+RTS", ...rts, "-RTS"],
     isIserv: false,
   });
+  // For Halogen.Lazy.Dyld, which links further libraries into a program
+  // through this dyld (the lazy layer's demo library).
+  globalThis.halogenDyld = { dyld, rootfs, shim: { Directory, File } };
   const run = await dyld.exportFuncs.playground(config.libdir);
   record("dyld load", performance.now() - start, measureMemory("loaded"));
 

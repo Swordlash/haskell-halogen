@@ -390,6 +390,15 @@ try {
     const text = await answer.textContent();
     return { text, drawn: Number(text.match(/\((\d+) frames drawn meanwhile\)/)?.[1]) };
   };
+  // Lesson 18's feature comes from the lazy layer's demo library, which the
+  // page fetches and dyld links into the program when it is first shown:
+  // it greets the name, waves when clicked and, in Solution.hs, when the
+  // parent tells it to, the parent hearing it each time and asking it how
+  // often; hidden and shown again it starts over.
+  const feature = (result) => ({
+    says: (text) => result.locator("p", { hasText: text }).first().waitFor({ timeout: 30000 }),
+    press: (text) => result.locator("button", { hasText: new RegExp(`^${text}$`) }).click(),
+  });
   const pageLessons = {
     "17-worker": {
       async start(result) {
@@ -401,6 +410,33 @@ try {
         const { text, drawn } = await countPrimes(result);
         assert.match(text, /^The job primes counted 5133 primes/, "Solution.hs counts with the job");
         assert.ok(drawn >= 1, `the loop is free while Worker.run counts: ${text}`);
+      },
+    },
+    "18-lazy": {
+      async start(result) {
+        const lesson = feature(result);
+        await lesson.says("Hello, Ada! I was loaded from a library of my own.");
+        await lesson.press("Wave");
+        await lesson.says("Waved 1 time.");
+        await lesson.press("Hide");
+        await lesson.says("The feature is hidden.");
+        await lesson.press("Show");
+        await lesson.says("Waved 0 times.");
+      },
+      async solution(result) {
+        const lesson = feature(result);
+        await lesson.says("Hello, Ada! I was loaded from a library of my own.");
+        await lesson.press("Wave");
+        await lesson.says("The feature has waved 1 time.");
+        await lesson.press("Wave at it");
+        await lesson.says("Waved 2 times.");
+        await lesson.says("The feature has waved 2 times.");
+        await lesson.press("Ask it");
+        await lesson.says("Asked, the feature says it has waved 2 times.");
+        await lesson.press("Hide");
+        await lesson.says("The feature is hidden.");
+        await lesson.press("Show");
+        await lesson.says("Waved 0 times.");
       },
     },
     "16-devtools": {
