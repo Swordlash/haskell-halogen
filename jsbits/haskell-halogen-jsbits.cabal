@@ -21,6 +21,8 @@ library
     build-depends: ghc-experimental
   if arch(javascript)
     js-sources: jsbits/promise.js
+  if !arch(wasm32) && !arch(javascript)
+    exposed-modules: Halogen.JSBits.Native
 
 test-suite jsbits-test
   type: exitcode-stdio-1.0

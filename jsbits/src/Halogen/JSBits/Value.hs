@@ -3,9 +3,12 @@
 
 -- | The values a binding passes, under one name on every backend. This is
 -- where the backends differ, so that the modules declaring bindings need not:
--- a 'JSVal' is the engine's value in a browser and an opaque placeholder
--- natively, a 'JSText' is a 'JSVal' holding a string in a browser and 'Text'
--- natively.
+-- a 'JSVal' is the engine's value in a browser and natively a 'Dynamic'
+-- holding whatever it was made from, a 'JSText' is a 'JSVal' holding a
+-- string in a browser and 'Text' natively.
+--
+-- Natively the two types are "Halogen.JSBits.Native"'s, which also has
+-- their constructors, for the code that builds or takes apart a value there.
 module Halogen.JSBits.Value
   ( JSVal
   , JSText
@@ -56,8 +59,9 @@ import Control.Exception (evaluate)
 import GHC.Conc (ThreadStatus (..), threadStatus)
 import GHC.Wasm.Prim (JSString (..), JSVal, freeJSVal, fromJSString, toJSString)
 #else
-import GHC.Exts (Any)
-import Unsafe.Coerce (unsafeCoerce)
+import Data.Dynamic (fromDynamic, toDyn)
+import Data.Maybe (fromMaybe, isJust)
+import Halogen.JSBits.Native (Callback (..), JSVal (..))
 #endif
 
 -- | Whether the program runs in a JavaScript engine. Natively every binding
@@ -69,14 +73,15 @@ inBrowser :: Bool
 toJSText :: Text -> JSText
 fromJSText :: JSText -> Text
 
--- | A value known to be a string, as text. Natively empty.
+-- | A value known to be a string, as text. Natively the 'Text' the value
+-- holds, and empty for a value that holds none.
 jsValText :: JSVal -> Text
 
--- | Whether the value is @null@. Natively, where nothing comes back from an
--- engine, every value is.
+-- | Whether the value is @null@. Natively, whether it is 'jsNull' (holds
+-- @()@), which every stub's result is.
 isNull :: JSVal -> Bool
 
--- | @null@; natively the placeholder.
+-- | @null@; natively a value holding @()@.
 jsNull :: JSVal
 
 -- | A number or a boolean as JavaScript holds it, for a binding that takes
@@ -90,8 +95,8 @@ toJSBool :: Bool -> JSVal
 -- conversion, so it is here: each backend keeps a 'ByteString' differently
 -- (in the wasm instance's memory, or in a JavaScript array the JavaScript
 -- backend allocates), and the only way to move many bytes at once is to know
--- which. Natively there is no array: 'toJSBytes' gives the placeholder and
--- 'fromJSBytes' no bytes.
+-- which. Natively there is no array: 'toJSBytes' gives a value holding the
+-- 'ByteString', and 'fromJSBytes' the one a value holds, or no bytes.
 toJSBytes :: ByteString -> IO JSVal
 fromJSBytes :: JSVal -> IO ByteString
 
@@ -314,29 +319,24 @@ instance Inert JSVal where inert = js_null
 #else
 inBrowser = False
 
--- | Natively a value no engine made: a placeholder, passed around and never
--- read.
-newtype JSVal = JSVal Any
-
 type JSText = Text
 
 toJSText = id
 fromJSText = id
-jsValText _ = Text.empty
-isNull _ = True
-jsNull = JSVal (unsafeCoerce ())
-toJSInt _ = jsNull
-toJSDouble _ = jsNull
-toJSBool _ = jsNull
-toJSBytes _ = pure jsNull
-fromJSBytes _ = pure ByteString.empty
+jsValText (JSVal value) = fromMaybe Text.empty (fromDynamic value)
+isNull (JSVal value) = isJust (fromDynamic value :: Maybe ())
+jsNull = JSVal (toDyn ())
+toJSInt = JSVal . toDyn
+toJSDouble = JSVal . toDyn
+toJSBool = JSVal . toDyn
+toJSBytes = pure . JSVal . toDyn
+fromJSBytes (JSVal value) = pure (fromMaybe ByteString.empty (fromDynamic value))
 
-newtype Callback = Callback (JSVal -> IO ())
-
-mkCallback = pure . Callback
+mkCallback f = pure (Callback (JSVal (toDyn f)))
 mkSyncCallback f = mkCallback (asSyncCallback . f)
 freeCallback _ = pure ()
-invokeCallback (Callback f) = f
+invokeCallback (Callback (JSVal held)) argument =
+  maybe (pure ()) ($ argument) (fromDynamic held :: Maybe (JSVal -> IO ()))
 
-instance Inert JSVal where inert = JSVal (unsafeCoerce ())
+instance Inert JSVal where inert = jsNull
 #endif

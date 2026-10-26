@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Halogen over a wire</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 72rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+      .wire { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 1.5rem; }
+      @media (max-width: 48rem) { .wire { grid-template-columns: minmax(0, 1fr); } }
+      .remote { border: 1px solid #cbd5e1; border-radius: 0.5rem; padding: 1rem; min-height: 8rem; }
+      .traffic { font-size: 0.75rem; background: #f1f5f9; padding: 0.75rem; border-radius: 0.5rem; overflow-x: auto; max-height: 32rem; white-space: pre; }
+      .board form { display: flex; gap: 0.5rem; }
+      .board input { flex: 1; font: inherit; }
+      button { font: inherit; }
+      .count { color: #64748b; }
+    </style>
+  </head>
+  <body>
+    <h1>The DOM over a wire</h1>
+    <p>
+      The board on the left is a component whose program does not touch this
+      page: it runs in <code>RemoteDOM</code>, and what it does to its DOM goes,
+      as JSON, to a client in the page that does it, while the events the page
+      hears come back to the program. Here both ends are in this page, and what
+      crosses between them is shown on the right. The same component served by
+      <code>halogen-example-live-server</code> runs natively, and every tab
+      that opens it shows one board.
+    </p>
+    <div id="app"></div>
+    <script language="javascript" src="./index.js" defer type="module"></script>
+  </body>
+</html>

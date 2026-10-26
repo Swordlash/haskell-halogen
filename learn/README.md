@@ -192,7 +192,7 @@ its own. A library two layers both need belongs in the base layer:
 build if a layer's closure reaches a unit another layer already carries, as
 two copies of one library in a session would be two libraries to dyld. Today
 no two layers share anything: hooks, router, net, elements, devtools, pixi,
-three, store and worker need only themselves beyond the base layer, lazy its two packages
+three, store, worker and live need only themselves beyond the base layer, lazy its two packages
 (`haskell-halogen-lazy` and `haskell-halogen-lazy-demo`), material also `clock` and `extra`, th its
 parsers, hspec hspec's own closure (`hspec`, `hspec-core`, `HUnit`,
 `ansi-terminal` and the rest; `QuickCheck` and its generators are in the
@@ -220,8 +220,9 @@ which loads its libraries into dyld and compiles. Three runs of
 | `store` | `haskell-halogen-store` | 1 | 0.49 MB | 0.07 MB | none | 23–25 ms | 0.9–1.7 s |
 | `worker` | `haskell-halogen-worker` | 1 | 0.20 MB | 0.04 MB | none | 20–21 ms | 7.4–9.5 s |
 | `lazy` | `haskell-halogen-lazy`, `haskell-halogen-lazy-demo` | 2 | 0.27 MB | 0.06 MB | none; `liblazy-demo.so` (64 KB), which its program fetches itself (below) | 19–27 ms | 6.2–7.2 s |
-| **all thirteen** | | 33 | 216.6 MB | 24.7 MB | 0.33 MB | 2.2–2.4 s | |
-| all but `th` | | 26 | 21.9 MB | 2.80 MB | 0.33 MB | 0.42–0.45 s | |
+| `live` | `haskell-halogen-remote` | 1 | 1.19 MB | 0.18 MB | none | 24–31 ms | 9.4–10.2 s |
+| **all fourteen** | | 34 | 217.8 MB | 24.9 MB | 0.33 MB | 2.3–2.5 s | |
+| all but `th` | | 27 | 23.1 MB | 2.98 MB | 0.33 MB | 0.41–0.47 s | |
 
 (The `hspec` row is from three later runs, on a machine other builds were
 sharing; `th` loaded in 1.6–1.8 s in them. The `elements` row is from
@@ -250,7 +251,14 @@ loads the layer's library, and clicks the canvas until Three.js has come from
 jsDelivr and the click, raycast into the scene, reaches the box, so its
 2.0–2.1 s include fetching Three.js, which is not in the layer's size. In
 those runs the first runs after `th`'s were slow again: `store`'s 6.7–8.3 s,
-`worker`'s 7.1–9.6 s and `lazy`'s 6.2–7.7 s.)
+`worker`'s 7.1–9.6 s and `lazy`'s 6.2–7.7 s. The `live` row and the two
+totals are from three runs of a rootfs with all fourteen layers, whose sizes
+the totals add up (`th`'s archive 21.9 MB in it); `th` loaded in 1.8–2.1 s.
+`live`'s first run, last of all, took 9.4–10.2 s, where `store`'s took
+6.2–6.5 s and `lazy`'s 7.3–7.7 s in the same runs, and 1.4 s in a run with
+only that layer (`LEARN_ONLY=live`): it compiles the program, loads the
+layer's library, and clicks the counter the layer's client built from the
+session's JSON.)
 `hspec`'s archive is small enough that the harness is a layer like any
 other, with `hspec` itself rather than `hspec-core` alone: `hspec-core` is
 4.1 MB of its 10.9 MB of `.so`, `haskell-lexer` 3.0 MB and `colour` 1.4 MB,
@@ -291,7 +299,9 @@ interpreted program has no binary for one to load), one job run through
 `WorkerError`; lazy, `Halogen.Lazy`'s placeholder while
 `Halogen.Lazy.Dyld` fetches `layers/lazy/liblazy-demo.so` and has dyld link it
 into the program, then the component its entry handed over, clicked and told
-to wave by its parent, which hears it each time. All pass, with no
+to wave by its parent, which hears it each time; live, a counter in `RemoteDOM` mounted into
+`#app` with `Halogen.Remote.Loopback.mountIn`, so that the layer's client builds its button there
+from the JSON the session sends, and clicked through the client. All pass, with no
 console errors. If the CDN cannot be reached from the browser, the pixi and
 three runs are skipped and say why (it was reachable here, through the proxy).
 
@@ -560,8 +570,8 @@ layer):
   layer), far from the 1 GB limit.
 - **Bandwidth per cold load**: the page, `bsdtar.wasm`, the manifest and
   `rootfs.tar.zst` are 52.0 MB; a lesson with any of the small layers adds
-  at most 3.2 MB (all twelve and material's assets; `hspec`'s is the largest,
-  1.3 MB; lesson 18 also fetches `liblazy-demo.so`, 64 KB), and the `th` lesson 21.9 MB more, 77.1 MB in all. Pages has a
+  at most 3.3 MB (all thirteen and material's assets; `hspec`'s is the largest,
+  1.3 MB; lesson 18 also fetches `liblazy-demo.so`, 64 KB), and the `th` lesson 21.9 MB more, 77.2 MB in all. Pages has a
   soft limit of 100 GB a month: about 1,810 cold loads a month without
   `th`, about 1,300 if every reader also loaded `th`. Its responses are cacheable (10 minutes, then revalidated
   with an ETag), and the tutorial keeps the archives in the Cache API under

@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>A board over a wire</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 42rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+      .board form { display: flex; gap: 0.5rem; }
+      .board input { flex: 1; font: inherit; }
+      button { font: inherit; }
+      .count { color: #64748b; }
+      #app[data-halogen-remote="disconnected"] { opacity: 0.5; }
+      #state::after { content: "connecting"; }
+      #app[data-halogen-remote="connected"] ~ #state::after { content: "connected"; }
+      #app[data-halogen-remote="disconnected"] ~ #state::after { content: "disconnected, connecting again"; }
+      #state { color: #64748b; font-size: 0.875rem; }
+    </style>
+  </head>
+  <body>
+    <h1>A board over a wire</h1>
+    <p>
+      Every tab that opens this page shows one board: the component runs in the
+      native program that served the page, a session per tab, and what it does
+      to its DOM comes here over a WebSocket. Open a second tab and post a line.
+    </p>
+    <div id="app"></div>
+    <p id="state"></p>
+    <script src="/live.js"></script>
+    <script>
+      halogen_remote_connect("/live", document.getElementById("app"));
+    </script>
+  </body>
+</html>

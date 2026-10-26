@@ -1,0 +1,157 @@
+cabal-version:      3.0
+name:               haskell-halogen-remote
+version:            0.1.0.0
+synopsis:           A component's DOM over a wire: Halogen as a LiveView
+description:
+  A component runs somewhere other than the page that shows it, and its DOM
+  operations cross a wire to a thin JavaScript client that applies them to the
+  page, whose events travel back to the component's handlers, as Phoenix
+  LiveView does. "Halogen.Remote.DOM" is one more backend of the reconciler
+  (@RemoteDOM@): it keeps a mirror of what the client has and records each
+  operation; "Halogen.Remote.Session" sends them in batches and delivers the
+  events. "Halogen.Remote.Server" serves a component over WebSockets
+  (natively), and "Halogen.Remote.Loopback" runs the same pipeline inside one
+  page, with the wire's traffic for anyone watching.
+homepage:           https://github.com/Swordlash/haskell-halogen
+license:            Apache-2.0
+license-file:       LICENSE
+author:             Mateusz Goślinowski
+maintainer:         mateusz.goslinowski@gmail.com
+category:           Web
+build-type:         Simple
+extra-doc-files:    CHANGELOG.md, README.md
+extra-source-files: jsbits/*.js
+
+flag interactive
+    description: Build the browser test suite for browser GHCi (toolchain/dev-test.sh)
+    default:     False
+    manual:      True
+
+common defaults
+  default-language: GHC2021
+  ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists -Wunused-packages
+
+  default-extensions:
+      DataKinds
+      DerivingStrategies
+      DuplicateRecordFields
+      LambdaCase
+      NamedFieldPuns
+      NoFieldSelectors
+      NoImplicitPrelude
+      OverloadedRecordDot
+      OverloadedStrings
+      RequiredTypeArguments
+      StrictData
+      TypeOperators
+
+library
+    import:           defaults
+    hs-source-dirs:   src
+    exposed-modules:
+      Halogen.Remote
+      Halogen.Remote.DOM
+      Halogen.Remote.Internal
+      Halogen.Remote.Loopback
+      Halogen.Remote.Protocol
+      Halogen.Remote.Session
+    other-modules:
+      Halogen.Remote.Client
+    build-depends:
+        base >= 4.20 && < 5,
+        aeson,
+        containers,
+        exceptions,
+        primitive,
+        protolude,
+        scientific,
+        stm,
+        text,
+        unliftio,
+        vector,
+        haskell-halogen-core,
+        haskell-halogen-jsbits
+
+    if arch(javascript)
+        js-sources:   jsbits/remote.js
+        ghc-options:  -fexpose-all-unfoldings
+
+    if arch(wasm32)
+        ghc-options:  -fexpose-all-unfoldings
+
+    -- The server is native: a program in a browser is the client's side of
+    -- a wire, not the server's.
+    if !arch(wasm32) && !arch(javascript)
+        exposed-modules: Halogen.Remote.Server
+        build-depends:
+            bytestring,
+            http-types,
+            template-haskell,
+            wai,
+            wai-websockets,
+            warp,
+            websockets
+
+-- Pure Haskell over a session whose wire is a list the test reads, so it runs
+-- natively and, under Node, on the JavaScript and WebAssembly backends (where
+-- an event crosses as a JavaScript object, parsed by the client's own
+-- function). Natively it also serves a component over a real WebSocket.
+test-suite Halogen-remote-test
+    import:           defaults
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          Test.hs
+    other-modules:
+      Test.Components
+      Test.Protocol
+      Test.Recorder
+      Test.Server
+      Test.Session
+    build-depends:
+        aeson,
+        hspec >= 2,
+        protolude,
+        row-types,
+        text,
+        haskell-halogen-core,
+        haskell-halogen-remote
+
+    if !arch(wasm32) && !arch(javascript)
+        ghc-options:   -threaded
+        build-depends:
+            base,
+            warp,
+            websockets
+
+-- The loopback in a real page: built as a reactor exporting hs_start on
+-- WebAssembly and run in headless Chromium by hspec-halogen, on both browser
+-- backends. Natively it only reports that it skipped.
+test-suite Halogen-remote-browser-test
+    import:           defaults
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          Browser.hs
+    other-modules:
+      Test.Components
+      Test.Loopback
+    build-depends:
+        protolude,
+        row-types,
+        unliftio,
+        haskell-halogen-core,
+        haskell-halogen-remote,
+        hspec-halogen
+
+    if arch(wasm32) && !flag(interactive)
+        ghc-options:
+            -no-hs-main
+            -optl-mexec-model=reactor
+            "-optl-Wl,--export=hs_start"
+
+    if flag(interactive)
+        cpp-options:  -DINTERACTIVE
+
+source-repository head
+  type:     git
+  location: https://github.com/Swordlash/haskell-halogen.git
+  subdir:   remote

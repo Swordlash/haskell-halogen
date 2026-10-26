@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+- Natively an event built from JSON has properties to read, so the handlers
+  that read their event work under the in-memory DOM as in a page:
+  `HE.onValueInput`, `HE.onValueChange`, `HE.onChecked`,
+  `HE.onSelectedIndexChange`, `Web.Event.Event.currentTarget` and
+  `KeyboardEvent.key` and `code`. `Data.Foreign` is real natively over the
+  value `haskell-halogen-jsbits` now keeps (a `Dynamic`): `readProp` reads a
+  property of an aeson `Object` the value holds, `foreignToString`,
+  `foreignToInt` and `foreignToBool` read a held `Text`, `Int` or `Bool` or
+  the matching JSON scalar, and anything else reads as before (`Nothing`,
+  empty, 0, `False`). Natively `toForeign` and `unsafeFromForeign` ask for
+  `Typeable`, and `unsafeFromForeign` of a value that holds another type
+  throws an `ErrorCall` naming both; on the browser backends nothing
+  changes. `Halogen.VDom.DOM.Monad.Native` has `event`, which makes the
+  `Event` a test fires from JSON (`N.event (object ["currentTarget" .=
+  object ["value" .= "hi"]])`), and keeps its nodes and listeners in their
+  handles' values rather than coercing the handles: `toNative` and
+  `fromNative` are now the methods of a class, `NodeHandle`, with an
+  instance for each DOM handle (`Node`, `Element`, `HTMLElement`,
+  `Document`, `HTMLDocument`, `Window`, `EventTarget`), and a test that
+  fired a listener with `unsafeCoerce ()` should fire it with an event made
+  with `event`, or with `Event (toForeign ())`.
+
+- Natively `MouseEvent.clientX` and `clientY` read the event's properties
+  too, so a click handler that asks where the click was gets the position
+  an event built from JSON says (a remote client's, a test's) rather than 0;
+  an event that does not say still reads as 0. `Data.Foreign` has
+  `foreignToNumber`, which reads a number as a `Double` on every backend
+  (natively a held `Double` or `Int`, or a JSON number).
+
 - A program can watch what its component trees do. `Halogen.Trace.subscribe`
   takes a listener, which every tree of the program then tells, as it
   happens, of each component made (`Mounted`), initialized and finalized,

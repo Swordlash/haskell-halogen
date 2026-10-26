@@ -127,7 +127,10 @@ name and waves, and for `Solution.hs` that the parent hears it, tells it to
 wave and asks it how often, and that hidden and shown again it starts over; for lesson 19,
 whose scene is drawn with Three.js, that its canvas is there and that a click at its centre, on the
 sphere, changes the colour the text under it names; for lesson 20, that the component counts and
-renames), that the page checks the code as the reader types (on lesson 20, whose
+renames; for lesson 21, whose component is sent over a wire to a client in the page, that the
+client fills the result (`data-halogen-remote`) and the wire shows the first render's operations,
+that `Start.hs`'s Add adds nothing however much is typed, and that `Solution.hs`'s input events
+carry what is typed, Add adds it, and Clear sends `remove`s), that the page checks the code as the reader types (on lesson 20, whose
 `Start.hs` has three holes: with no Compile, its holes' warnings and the types of its
 bindings are listed, a tooltip over `render` gives its type, a click in the list goes
 to the binding's line, an error typed is marked within the check's delay and goes when
@@ -189,8 +192,9 @@ args: -package haskell-halogen-hooks
   and `store`, one per package of the same name (`haskell-halogen-hooks`, ...),
   `elements`, for `haskell-halogen-custom-element`, `devtools`, for
   `haskell-halogen-devtools`, `worker`, for `haskell-halogen-worker`,
-  `hspec`, for `hspec-halogen`, and `lazy`, for `haskell-halogen-lazy` and
-  `haskell-halogen-lazy-demo` (see `learn/README.md`, "Layers").
+  `hspec`, for `hspec-halogen`, `lazy`, for `haskell-halogen-lazy` and
+  `haskell-halogen-lazy-demo`, and `live`, for `haskell-halogen-remote` (see
+  `learn/README.md`, "Layers").
   `lazy` also has a library of its own beside the archive,
   `rootfs/layers/lazy/liblazy-demo.so`, which lesson 18's program fetches
   and links into itself while it runs, with `Halogen.Lazy.Dyld`: the page
@@ -288,7 +292,11 @@ table its `Lesson` exports beside `component`) around the rest, which makes
 a pool and mounts `component pool`, and keeps the socket's `dispose` and
 `Worker.terminate pool`; in the tutorial the pool starts no worker (the
 interpreted program has no binary for one to load), and the jobs run on the
-page. A `Main.hs` may also run a
+page. Lesson 21's mounts a page component of its own into `#learn-result`, which mounts
+`component` in `RemoteDOM` with `Halogen.Remote.Loopback.mountIn` into an element of its own (the
+component's operations go to a client there as JSON, the page's events come back) and shows the
+messages as they cross in a `<pre>` under it, newest first; it keeps the page component's `dispose`,
+whose finalizer disposes of the loopback. A `Main.hs` may also run a
 spec of the lesson's instead, as lesson 13's does: `Lesson` exports `spec` beside `component`, and `main` is
 `HA.endPreviousRun` then `runBrowserTestsIn result (spec BrowserDOM)`
 (`hspec-halogen`'s `Test.Hspec.Halogen`), which runs each test in a page of

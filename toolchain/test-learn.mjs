@@ -429,7 +429,45 @@ try {
   // Lesson 20's component counts and renames; Start.hs's holes are only
   // reached by a click, so it is not clicked.
   const counted = (result, text) => result.locator("p", { hasText: text }).waitFor({ timeout: 5000 });
+  // Lesson 21's component is mounted in RemoteDOM through the loopback: the
+  // client, not the app, fills its element (data-halogen-remote says it is
+  // attached), and the wire under it shows each message as it crosses. In
+  // Start.hs the input has no handler, so what is typed reaches nothing and
+  // Add adds nothing; in Solution.hs each key sends an input event carrying
+  // the value, Add adds the item, and Clear sends a remove for each one.
+  const wired = (result) => {
+    const remote = result.locator('.lesson-remote[data-halogen-remote="attached"]');
+    const wire = result.locator(".lesson-wire");
+    return {
+      remote,
+      crossed: (text) => wire.filter({ hasText: text }).waitFor({ timeout: 5000 }),
+      items: () => remote.locator("li").allTextContents(),
+    };
+  };
   const pageLessons = {
+    "21-live": {
+      async start(result) {
+        const lesson = wired(result);
+        await lesson.remote.locator("li", { hasText: "bread" }).waitFor({ timeout: 10000 });
+        await lesson.crossed('["create",2,null,"div"]');
+        await lesson.remote.locator("input").fill("eggs");
+        await lesson.remote.locator("button", { hasText: "Add" }).click();
+        await lesson.crossed('"type":"click"');
+        await result.page().waitForTimeout(500);
+        assert.deepEqual(await lesson.items(), ["milk", "bread"], "Start.hs's Add finds the draft empty");
+      },
+      async solution(result) {
+        const lesson = wired(result);
+        await lesson.remote.locator("li", { hasText: "bread" }).waitFor({ timeout: 10000 });
+        await lesson.remote.locator("input").fill("eggs");
+        await lesson.crossed('"value":"eggs"');
+        await lesson.remote.locator("button", { hasText: "Add" }).click();
+        await lesson.remote.locator("li", { hasText: "eggs" }).waitFor({ timeout: 5000 });
+        await lesson.remote.locator("button", { hasText: "Clear" }).click();
+        await lesson.crossed('["remove",');
+        await result.page().waitForFunction((el) => el.querySelectorAll("li").length === 0, await lesson.remote.elementHandle(), { timeout: 5000 });
+      },
+    },
     "20-holes": {
       start: (result) => counted(result, "Ada has counted to 0."),
       async solution(result) {
@@ -629,14 +667,17 @@ try {
     console.log("ok  a check under way when Compile is pressed is not reported over the compile");
   }
 
-  // Back and forward.
-  const last = lessons[lessons.length - 1];
+  // Back and forward: back to the introduction the lesson the page is on
+  // was opened from, and forward to that lesson again (lesson 20 when its
+  // checks above ran, which is no longer the last lesson).
+  const here = page.url();
+  const heading = await page.locator("article h1").textContent();
   await page.goBack();
   await page.waitForURL(url);
   await page.locator(".learn-home h1").waitFor({ timeout: 5000 });
   await page.goForward();
-  await page.waitForURL(`${url}${last.slug}/`);
-  await page.locator("article h1", { hasText: last.title }).waitFor({ timeout: 5000 });
+  await page.waitForURL(here);
+  await page.locator("article h1", { hasText: heading }).waitFor({ timeout: 5000 });
   console.log("ok  back and forward");
 
   // Lesson 6's hash router, under the page's <base href>: its links and

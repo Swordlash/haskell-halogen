@@ -7,8 +7,10 @@
 // a custom element defined over the page's HTML, a Material button with its
 // CSS, a Pixi scene on a canvas, an hh quote
 // from haskell-halogen-th, an hspec-halogen spec, whose report is the
-// program's output, a store, and jobs of haskell-halogen-worker, run on the
-// page since the interpreter has no binary for a worker to load.
+// program's output, a store, jobs of haskell-halogen-worker, run on the
+// page since the interpreter has no binary for a worker to load, a component
+// from a library linked while the program runs, and one sent over the live
+// layer's wire to a client in the page.
 //
 //   npm run test-playground                 # after: npm run build-rootfs
 //   node toolchain/test-playground.mjs [dir]  # default $LEARN_ROOTFS_DIR, or dist-newstyle/wasm/learn
@@ -850,6 +852,44 @@ page = H.component (\_ -> pure "nothing heard") render [H.onAction handle]
       await page.locator("#app button", { hasText: "tell it" }).click();
       await appText(page, "Waved 2 times.");
       await appText(page, "heard 2");
+    },
+  },
+
+  // A component in RemoteDOM, through Halogen.Remote.Loopback: its DOM
+  // operations go as JSON to the layer's client in #app, which builds the
+  // button there, and the button's click comes back the same way to the
+  // component's handler, whose patch the client applies.
+  live: {
+    what: "a component sent over the live layer's wire to a client in the page, clicked through it",
+    source: String.raw`{-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE OverloadedStrings #-}
+
+module Main (main) where
+
+import Control.Monad.IO.Class (liftIO)
+import Control.Monad.State (modify)
+import Data.Text qualified as T
+import Halogen qualified as H
+import Halogen.HTML qualified as HH
+import Halogen.HTML.Events qualified as HE
+import Halogen.Remote.Loopback qualified as Loopback
+${mounting}
+
+counter :: (Monad m) => H.Component q () o m
+counter = H.component (\_ -> pure (0 :: Int)) (\n -> HH.button [HE.onClick (const ())] [HH.text ("remote clicks: " <> T.pack (show n))]) [H.onAction (\() -> modify (+ 1))]
+
+main :: IO ()
+main = runBrowserDOM $ do
+  HA.endPreviousRun
+  app <- maybe (error "the page has no #app") pure =<< HA.selectElement (QuerySelector "#app")
+  loopback <- liftIO (Loopback.mountIn app counter ())
+  HA.keepForNextRun (liftIO loopback.dispose)
+`,
+    async verify(page) {
+      await page.locator('#app[data-halogen-remote="attached"]').waitFor({ timeout: 10000 });
+      await appText(page, "remote clicks: 0");
+      await page.locator("#app button", { hasText: "remote clicks" }).click();
+      await appText(page, "remote clicks: 1");
     },
   },
 };

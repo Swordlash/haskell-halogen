@@ -13,11 +13,13 @@
 -- that is a no-op in the browser must be a no-op here too, or these tests would
 -- be verifying different behaviour from the one that ships.
 --
--- All of @Node@, @Element@, @ParentNode@, @Document@, @HTMLElement@ and
--- @EventTarget@ are newtypes over @Foreign tag@, which is @Any@ on native, and
--- the library freely 'coerce's between them. So they must all share one runtime
--- representation, which is why 'NativeNode' is a single sum-shaped record
--- rather than separate element and text types.
+-- All of @Node@, @Element@, @Document@, @HTMLElement@, @Window@ and
+-- @EventTarget@ are newtypes over @Foreign tag@, which natively is a value
+-- holding what it was made from ("Halogen.JSBits.Value"), and the library
+-- freely 'coerce's between them. So they must all hold the same thing,
+-- which is why 'NativeNode' is a single sum-shaped record rather than
+-- separate element and text types, and each of them holds one
+-- ('NodeHandle').
 --
 -- The instance is an orphan because the class lives in
 -- "Halogen.VDom.DOM.Monad.Class". Exactly one backend module is compiled into
@@ -33,8 +35,10 @@ module Halogen.VDom.DOM.Monad.Native
     -- * Constructing documents
   , newDocument
   , newElement
-  , toNative
-  , fromNative
+  , NodeHandle (..)
+
+    -- * Events
+  , event
 
     -- * Inspection
   , childNodes
@@ -48,17 +52,19 @@ module Halogen.VDom.DOM.Monad.Native
 where
 
 import Control.Exception.Safe (throwString)
+import Data.Aeson qualified as Aeson
+import Data.Foreign (toForeign, unsafeFromForeign)
 import Data.Map.Strict qualified as M
 import Data.Text qualified as T
 import Data.Text.Lazy qualified as TL
 import Data.Text.Lazy.Builder qualified as TB
 import HPrelude
+import Halogen.JSBits.Native (Callback (..))
 import Halogen.VDom.DOM.Monad.Class
 import Halogen.VDom.DOM.Monad.Mem
 import Halogen.VDom.Types
 import Numeric (floatToDigits)
 import System.IO.Unsafe (unsafePerformIO)
-import Unsafe.Coerce (unsafeCoerce)
 import Web.DOM.Internal.Types
 import Web.DOM.Internal.Types qualified as DOMTypes
 import Web.DOM.ParentNode
@@ -163,24 +169,57 @@ newNode k = do
     <*> newIORef Nothing
     <*> newIORef []
 
--- | Reinterpret one of the DOM newtypes as a node. Sound because they are all
--- @newtype X = X (Foreign X)@ and @Foreign tag@ a newtype over @Any@ on native.
-toNative :: a -> NativeNode
-toNative = unsafeCoerce
+-- | The DOM's handles that stand for a node: each holds the 'NativeNode'
+-- in its value, so taking one apart finds the node it was made from, and a
+-- handle that holds anything else (a stub's result) is reported as the
+-- mistake it is rather than read as a node.
+class NodeHandle a where
+  toNative :: a -> NativeNode
+  fromNative :: NativeNode -> a
 
-fromNative :: NativeNode -> a
-fromNative = unsafeCoerce
+instance NodeHandle Node where
+  toNative (Node value) = unsafeFromForeign value
+  fromNative = Node . toForeign
 
--- | @EventListener@ is the one DOM newtype that does not hold a node, so it
--- gets its own pair. Same reasoning: it is @Any@ underneath.
+instance NodeHandle Element where
+  toNative (Element value) = unsafeFromForeign value
+  fromNative = Element . toForeign
+
+instance NodeHandle HTMLElement where
+  toNative (HTMLElement value) = unsafeFromForeign value
+  fromNative = HTMLElement . toForeign
+
+instance NodeHandle Document where
+  toNative (Document value) = unsafeFromForeign value
+  fromNative = Document . toForeign
+
+instance NodeHandle HTMLDocument where
+  toNative (HTMLDocument value) = unsafeFromForeign value
+  fromNative = HTMLDocument . toForeign
+
+instance NodeHandle Window where
+  toNative (Window value) = unsafeFromForeign value
+  fromNative = Window . toForeign
+
+instance NodeHandle EventTypes.EventTarget where
+  toNative (EventTypes.EventTarget value) = unsafeFromForeign value
+  fromNative = EventTypes.EventTarget . toForeign
+
+-- | @EventListener@ is the one DOM handle that does not hold a node: its
+-- callback's value holds the 'Listener', which is where its identity is.
 toListener :: DOMTypes.EventListener -> Listener
-toListener = unsafeCoerce
-
-toForeignTarget :: a -> EventTypes.EventTarget
-toForeignTarget = unsafeCoerce
+toListener (DOMTypes.EventListener (Callback value)) = unsafeFromForeign value
 
 fromListener :: Listener -> DOMTypes.EventListener
-fromListener = unsafeCoerce
+fromListener = DOMTypes.EventListener . Callback . toForeign
+
+-- | An event as a browser would hand it to a listener, with the properties
+-- the JSON object has: what a test fires, so that a handler reading the
+-- event ('Halogen.HTML.Events.onValueInput' reads
+-- @currentTarget.value@) finds what it reads. Any JSON will do; one that
+-- is not an object has no properties.
+event :: Aeson.Value -> Event
+event = Event . toForeign
 
 --------------------------------------------------------------------------------
 -- Tree mutation
@@ -815,7 +854,7 @@ instance MonadDOM MemDOM where
   type DomEventTarget MemDOM = EventTypes.EventTarget
 
   elementToNode el = pure (coerce el)
-  elementToEventTarget el = pure (toForeignTarget el)
+  elementToEventTarget el = pure (fromNative (toNative el))
 
   -- The event type is not known until addEventListener; it is filled in there.
   mkEventListener f = liftIO $ do
