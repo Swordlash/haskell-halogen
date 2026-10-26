@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+Natively a value carries what it was made from, so an event built from JSON
+has properties to read. A native `JSVal` is a `Dynamic` (`newtype JSVal =
+JSVal Dynamic`, with its constructor in a module compiled only natively,
+`Halogen.JSBits.Native`): `jsNull` and every stub's result hold `()`, which
+`isNull` asks for, `toJSInt`, `toJSDouble`, `toJSBool` and `toJSBytes` hold
+what they are given, `jsValText` gives the `Text` a value holds and
+`fromJSBytes` its `ByteString`, and a value that holds something else reads as
+the stubs did (empty). A native `Callback` is a value holding its function
+(`newtype Callback = Callback JSVal`, also in `Halogen.JSBits.Native`), as on
+WebAssembly a callback is the JavaScript function, so that a backend can keep
+something of its own in one, as haskell-halogen-core's in-memory DOM keeps its
+listeners; `invokeCallback` calls a callback that holds a function and does
+nothing with one that does not. The browser backends do not change.
+
 `Halogen.JSBits.Value` has `inSyncCallback`, which says whether the calling
 thread is running the body of a callback made with `mkSyncCallback`: one
 JavaScript called, perhaps from the middle of a synchronous import the program

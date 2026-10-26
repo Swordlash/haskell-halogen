@@ -273,6 +273,7 @@ test-suite Halogen-core-test
                     Test.Hydrate
                     Test.IndexedDB
                     Test.NativeDom
+                    Test.NativeEvents
                     Test.Refs
                     Test.RenderRecovery
                     Test.Runtime

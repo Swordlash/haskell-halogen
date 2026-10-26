@@ -13,7 +13,7 @@ where
 
 import Data.Foreign
 import HPrelude
-import Halogen.JSBits (Safety (..), browserJS)
+import Halogen.JSBits (Safety (..), browserJS, inBrowser)
 import Web.Event.Internal.Types
 
 newtype EventType = EventType Text
@@ -31,9 +31,13 @@ $( browserJS
      ]
  )
 
--- | The target whose handler is running. Natively there is none.
+-- | The target whose handler is running. Natively it is the event's
+-- @currentTarget@ property, which an event made from JSON (a test's, or one
+-- a remote client sent) has and every other event lacks.
 currentTarget :: Event -> Maybe EventTarget
-currentTarget e = EventTarget <$> nullableToMaybe (js_current_target e)
+currentTarget e@(Event value)
+  | inBrowser = EventTarget <$> nullableToMaybe (js_current_target e)
+  | otherwise = EventTarget <$> readProp "currentTarget" Just value
 
 -- | Ask the browser not to take its default action for this event: not to
 -- submit the form, not to follow the link, not to scroll the page.

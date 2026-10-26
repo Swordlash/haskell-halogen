@@ -16,6 +16,7 @@ spec = xdescribe "a store tree in the in-memory DOM" $ pure ()
 
 #else
 
+import Data.Foreign (toForeign)
 import Data.IORef
 import Data.NT (type (~>) (..))
 import Data.Row (type (.==))
@@ -32,7 +33,7 @@ import Test.Connect (CounterQuery, Reported, connectedCounter)
 import Test.Fixture
 import Test.Harness (eventually)
 import Test.Hspec (Spec, describe, it, shouldBe)
-import Unsafe.Coerce (unsafeCoerce)
+import Web.Event.Event (Event (..))
 
 data Clicked = Clicked
 
@@ -117,6 +118,6 @@ elementsNamed name node = filter named <$> descendants node
 click :: N.NativeNode -> IO ()
 click node = do
   listeners <- readIORef node.listeners
-  for_ [l | l <- listeners, l.eventType == "click"] $ \l -> runMemDOM (l.fire (unsafeCoerce ()))
+  for_ [l | l <- listeners, l.eventType == "click"] $ \l -> runMemDOM (l.fire (Event (toForeign ())))
 
 #endif

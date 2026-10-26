@@ -5,13 +5,12 @@ module Data.Foreign where
 
 import GHC.Base (isTrue#, reallyUnsafePtrEquality, reallyUnsafePtrEquality#)
 import HPrelude
-import Halogen.JSBits (JSVal)
-import Unsafe.Coerce (unsafeCoerce)
 
 #if defined(javascript_HOST_ARCH)
 import GHC.Base (Int#)
 import GHC.JS.Prim hiding (JSVal)
-import Halogen.JSBits (Inert (..))
+import Halogen.JSBits (Inert (..), JSVal)
+import Unsafe.Coerce (unsafeCoerce)
 
 type Foreign tag = JSVal
 
@@ -46,7 +45,8 @@ foreignToBool :: Foreign tag -> Bool
 foreignToBool x = isTrue# (foreignToBool' x)
 #elif defined(wasm32_HOST_ARCH)
 import GHC.Wasm.Prim hiding (JSVal)
-import Halogen.JSBits (Inert (..))
+import Halogen.JSBits (Inert (..), JSVal)
+import Unsafe.Coerce (unsafeCoerce)
 
 type Foreign tag = JSVal
 
@@ -90,8 +90,24 @@ readProp key f o = f $ unsafeGetProp o (toJSString $ toS key)
 foreignToString :: Foreign tag -> Text
 foreignToString = toS . fromJSString . JSString
 #else
+import Data.Aeson qualified as Aeson
+import Data.Aeson.Key qualified as Key
+import Data.Aeson.KeyMap qualified as KeyMap
+import Control.Exception (throw)
+import Data.Dynamic (fromDynamic, toDyn)
+import Halogen.JSBits.Native (JSVal (..))
 
--- | A placeholder for what an engine would hold: a newtype over 'Any'.
+-- | What an engine would hold. Natively a 'JSVal' is a 'Data.Dynamic.Dynamic'
+-- holding what the value was made from ("Halogen.JSBits.Value"), so
+-- 'toForeign' and 'unsafeFromForeign' ask for 'Typeable' here, which the
+-- browsers' coercions do not need.
+--
+-- A value made from JSON (an aeson 'Aeson.Value', as an event a test fires
+-- or a remote client sends is) has properties: 'readProp' reads an
+-- object's, and the readers below read its scalars, so a handler that reads
+-- the event ('Halogen.HTML.Events.onValueInput' and the rest) reads it
+-- natively as in a browser. Whatever else a value holds has no properties,
+-- and reads as the stubs' answers: 'Nothing', empty, 0, 'False'.
 type Foreign tag = JSVal
 
 type Nullable tag = Maybe (Foreign tag)
@@ -99,27 +115,58 @@ type Nullable tag = Maybe (Foreign tag)
 nullableToMaybe :: Nullable tag -> Maybe (Foreign tag)
 nullableToMaybe = identity
 
-toForeign :: a -> Foreign tag
-toForeign = unsafeCoerce
+toForeign :: (Typeable a) => a -> Foreign tag
+toForeign = JSVal . toDyn
 
-unsafeFromForeign :: Foreign tag -> a
-unsafeFromForeign = unsafeCoerce
+-- | The value held, which must be of the type asked for: a value that holds
+-- something else is a mistake in the program, and is reported as one (with
+-- both types) rather than read as what it is not.
+unsafeFromForeign :: forall a tag. (Typeable a) => Foreign tag -> a
+unsafeFromForeign (JSVal held) = case fromDynamic held of
+  Just value -> value
+  Nothing ->
+    throw
+      $ ErrorCall
+      $ "Data.Foreign.unsafeFromForeign: the value holds "
+      <> show held
+      <> ", not "
+      <> show (typeRep @a)
 
 stringToForeign :: Text -> Foreign tag
 stringToForeign = toForeign
 
--- | Natively a value has no properties to read: nothing is found.
+-- | A property of a JSON object the value holds, as JavaScript's @o[key]@
+-- reads it, with @null@ read as no property, as the JavaScript backend
+-- reads it. A value that is not an object has none.
 readProp :: Text -> (Foreign tag -> Maybe a) -> Foreign tag' -> Maybe a
-readProp _ _ _ = Nothing
+readProp key f (JSVal held) = case fromDynamic held of
+  Just (Aeson.Object fields) -> case KeyMap.lookup (Key.fromText key) fields of
+    Nothing -> Nothing
+    Just Aeson.Null -> Nothing
+    Just field -> f (toForeign field)
+  _ -> Nothing
 
+-- | The text the value holds, or the JSON string; empty for anything else.
 foreignToString :: Foreign tag -> Text
-foreignToString = unsafeCoerce
+foreignToString (JSVal held)
+  | Just text <- fromDynamic held = text
+  | Just (Aeson.String text) <- fromDynamic held = text
+  | otherwise = ""
 
+-- | The number the value holds, or the JSON number, truncated as
+-- JavaScript's @|0@ truncates it; 0 for anything else.
 foreignToInt :: Foreign tag -> Int
-foreignToInt = unsafeCoerce
+foreignToInt (JSVal held)
+  | Just int <- fromDynamic held = int
+  | Just (Aeson.Number number) <- fromDynamic held = truncate number
+  | otherwise = 0
 
+-- | The boolean the value holds, or the JSON one; 'False' for anything else.
 foreignToBool :: Foreign tag -> Bool
-foreignToBool = unsafeFromForeign
+foreignToBool (JSVal held)
+  | Just b <- fromDynamic held = b
+  | Just (Aeson.Bool b) <- fromDynamic held = b
+  | otherwise = False
 #endif
 
 unsafeRefEq :: a -> a -> Bool

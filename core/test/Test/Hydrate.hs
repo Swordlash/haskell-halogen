@@ -23,6 +23,7 @@ spec = xdescribe "hydration" $ pure ()
 #else
 
 import Control.Monad.State.Class (modify, put)
+import Data.Aeson (object)
 import Data.Foldable (for_)
 import Data.IORef
 import Data.Row (Empty, type (.==))
@@ -40,7 +41,6 @@ import Halogen.VDom.Driver (hydrateUI, runUI)
 import Halogen.VDom.Types (ElemName (..))
 import Test.Hspec (Spec, describe, it)
 import Test.Utils (assertEqual, assertWith)
-import Unsafe.Coerce (unsafeCoerce)
 
 type Slots = ("child" .== H.Slot H.VoidF Void ())
 
@@ -146,7 +146,7 @@ click :: N.NativeNode -> IO ()
 click node = do
   listeners <- readIORef node.listeners
   assertWith "the element has a click listener" (any ((== "click") . (.eventType)) listeners)
-  for_ [l | l <- listeners, l.eventType == "click"] $ \l -> runMemDOM (l.fire (unsafeCoerce ()))
+  for_ [l | l <- listeners, l.eventType == "click"] $ \l -> runMemDOM (l.fire (N.event (object [])))
 
 -- | The component adopts the HTML another one left, and ends with what it
 -- renders itself.
