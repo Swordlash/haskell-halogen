@@ -72,6 +72,7 @@ test-suite Halogen-devtools-test
     -- A spec takes the monad its components run in as a type argument.
     default-extensions: RequiredTypeArguments
     other-modules:    Example.Counter
+                      Example.Forking
                       Test.Panel
     build-depends:
         base,

@@ -8,6 +8,7 @@
 -- natively.
 module Test.Trace (spec) where
 
+import Control.Exception (SomeException, try)
 import Control.Monad (void)
 import Control.Monad.State.Class (gets, modify)
 import Data.Dynamic (fromDynamic, toDyn)
@@ -97,6 +98,13 @@ counter =
     , H.onQuery (\(GetCount reply) -> gets (\c -> Just (reply c.count)))
     ]
 
+-- | A component whose render throws: its first render fails, and the tree
+-- it was to be the root of is never made.
+data Broken = Broken
+
+broken :: H.Component H.VoidF () Void IO
+broken = H.component (\() -> pure Broken) (\Broken -> error "a render that throws") []
+
 -- | A parent rendering one counter, named.
 data Parent = Parent (HS.Emitter IO ())
 
@@ -160,6 +168,18 @@ spec = describe "Halogen.Trace" $ do
         assertEqual "the child's parent" (Just root.id) child.parent
         assertWith "the child's state type is known" (fmap show child.stateType == Just "Counter")
       _ -> assertWith ("two components mounted, found " <> show tags) False
+
+  it "forgets a component whose first render throws" $ do
+    texts <- newIORef []
+    (kinds, key) <- listened $ \events -> do
+      failed <- try (AD.runUI (walking texts) broken ()) :: IO (Either SomeException (AD.HalogenSocket H.VoidF Void IO))
+      assertWith "the mount failed" (either (const True) (const False) failed)
+      evs <- readIORef events
+      pure (map (kind . (.what)) evs, [e.tag.id | e <- evs, Trace.Mounted <- [e.what]])
+    assertEqual "the events" ["Mounted", "Finalized"] kinds
+    case key of
+      [k] -> Trace.restoreState k (toDyn Broken) >>= assertEqual "not kept" False
+      _ -> assertWith ("one component mounted, found " <> show key) False
 
   it "reports nothing, and keeps nothing, while nobody listens" $ do
     texts <- newIORef []

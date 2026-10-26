@@ -47,6 +47,8 @@ import Data.Foldable (toList)
 import Data.IORef (IORef, atomicModifyIORef', atomicWriteIORef, newIORef, readIORef)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
+import Data.IntSet (IntSet)
+import Data.IntSet qualified as IntSet
 import Data.List (sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -171,6 +173,12 @@ data State = State
   , opened :: Double
   -- ^ When the panel started counting, which the log's times are from.
   , components :: IntMap Row
+  , gone :: IntSet
+  -- ^ The components finalized since the panel opened. What one of them
+  -- reports after its 'Trace.Finalized' (a fork of its ending as it is
+  -- cancelled, a finalizer changing its state) is logged but does not put
+  -- it back among the components. Ids are never reused, so the set only
+  -- grows, by one Int per component that went away.
   , logged :: Seq Entry
   -- ^ Oldest first.
   , taken :: Int
@@ -235,6 +243,7 @@ initialState () = liftIO $ do
       , stop = Nothing
       , opened
       , components = mempty
+      , gone = IntSet.empty
       , logged = Seq.empty
       , taken = 0
       , selected = Nothing
@@ -289,6 +298,10 @@ handleAction = \case
     let who = maybe ("#" <> showT key) (named . (.tag)) (IntMap.lookup key st.components)
     modify $ \s -> s {status = Just (if put' then "Put " <> who <> "'s state back." else who <> " is gone, or has another state now: nothing was put back.")}
   ClearAll -> do
+    -- What is waiting in the inbox was before the clearing: take it first,
+    -- so that the components it mounted or finalized are accounted for, and
+    -- the next refresh does not fill the cleared log with it.
+    handleAction Refresh
     now <- liftIO ((* 1000) <$> getMonotonicTime)
     modify $ \st ->
       st
@@ -305,7 +318,11 @@ absorb known st event =
   st
     { components = case event.what of
         Trace.Finalized -> IntMap.delete key st.components
+        _ | IntSet.member key st.gone -> st.components
         what -> IntMap.insert key (count what (IntMap.findWithDefault fresh key st.components)) st.components
+    , gone = case event.what of
+        Trace.Finalized -> IntSet.insert key st.gone
+        _ -> st.gone
     , logged = Seq.drop (Seq.length st.logged + 1 - logLength) (st.logged |> Entry {number = st.taken, event, shown})
     , taken = st.taken + 1
     }
@@ -411,7 +428,7 @@ entryRow :: State -> Entry -> H.ComponentHTML Action Empty m
 entryRow st Entry {event, shown} =
   HH.li
     [HP.class_ (ClassName "halogen-devtools-event"), HP.attr (AttrName "data-kind") (kindName (kindOf event.what))]
-    $ [ HH.span [HP.class_ (ClassName "halogen-devtools-time")] [HH.text (tenths (event.at - st.opened) <> " ms")]
+    $ [ HH.span [HP.class_ (ClassName "halogen-devtools-time")] [HH.text (tenths (max 0 (event.at - st.opened)) <> " ms")]
       , HH.span [HP.class_ (ClassName "halogen-devtools-who")] [HH.text (named event.tag)]
       , HH.span [HP.class_ (ClassName "halogen-devtools-what")] [HH.text (Trace.summary event.what)]
       ]

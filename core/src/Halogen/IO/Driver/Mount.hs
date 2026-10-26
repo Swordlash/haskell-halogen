@@ -213,7 +213,15 @@ runComponent tree spec parent handler input (Component info cs) = do
       }
   b <- currentBatch tree
   before <- atomicModifyIORef' b.initializers ([],)
-  renderComponent tree spec ds.selfRef
+  -- A first render that fails leaves nothing of the component behind: the
+  -- parent takes back only the children it was handed, which this one is
+  -- not yet, so the registration above is taken out here, and the trace
+  -- hears the component end as it hears any other.
+  let abandon = do
+        writeIORef ds.life Dead
+        Trace.deregister ds.tag.id
+        Trace.emit ds.tag Trace.Finalized
+  renderComponent tree spec ds.selfRef `onException` abandon
   children <- readIORef b.initializers
   let var = ds.selfRef
       initializer = do

@@ -6,10 +6,12 @@
 -- looks at.
 module Test.Panel (spec) where
 
+import Control.Concurrent (threadDelay)
 import Control.Monad (forM, replicateM_)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Example.Counter qualified as Counter
+import Example.Forking qualified as Forking
 import Halogen.DevTools qualified as DevTools
 import Halogen.JSBits (JSText, Safety (..), browserJS, toJSText)
 import Test.Hspec.Halogen
@@ -72,6 +74,35 @@ spec m = do
     outline <- find tools ".halogen-devtools-outline"
     style <- getAttribute outline "style"
     style `shouldSatisfy` maybe False (\s -> "width: " `T.isInfixOf` s && not ("width: 0.0px" `T.isInfixOf` s))
+
+  it "clears the log and the counts, what was still on its way to it included" $ runPage $ do
+    tools <- mount m DevTools.panel ()
+    ui <- mount m Counter.component ()
+    find ui "button.increment" >>= click
+    find tools "button.halogen-devtools-clear" >>= click
+    -- The panel takes its events a tenth of a second after the first of a
+    -- batch: whether the click's events had reached it before Clear or
+    -- were still on their way, nothing of them is left afterwards.
+    unsafeIOToPageM (threadDelay 300000)
+    settle
+    logged tools `shouldReturn` []
+    row <- find tools "[data-label=\"Counter\"]"
+    findIn row ".halogen-devtools-actions" >>= (`shouldHaveText` "0")
+    findIn row ".halogen-devtools-renders" >>= (`shouldHaveText` "0")
+
+  it "keeps a component that went away out of the tree, whatever it reports after" $ runPage $ do
+    tools <- mount m DevTools.panel ()
+    ui <- mount m Forking.component ()
+    _ <- find tools "[data-label=\"Worker\"]"
+    -- Taking the child out cancels its fork, whose end is reported after
+    -- the child's finalization.
+    find ui "button.remove" >>= click
+    eventually $ (length <$> findAll tools "[data-label=\"Worker\"]") `shouldReturn` 0
+    unsafeIOToPageM (threadDelay 300000)
+    settle
+    (length <$> findAll tools "[data-label=\"Worker\"]") `shouldReturn` 0
+    whats <- findAll tools ".halogen-devtools-what" >>= traverse textContent
+    whats `shouldSatisfy` any (\t -> "fork" `T.isPrefixOf` t && "ended" `T.isSuffixOf` t)
 
   it "leaves its own tree out of what it shows" $ runPage $ do
     tools <- mount m DevTools.panel ()
