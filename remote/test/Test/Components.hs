@@ -9,6 +9,7 @@ module Test.Components
   , swapping
   , form
   , guardedForm
+  , pointing
   )
 where
 
@@ -18,6 +19,7 @@ import Halogen.HTML qualified as HH
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
 import Protolude
+import Web.UIEvent.MouseEvent qualified as ME
 
 data CounterQuery a = GetCount (Int -> a)
 
@@ -143,4 +145,19 @@ guardedForm =
         [HP.id "form", HP.action "/elsewhere", HE.stoppingPropagation (HE.preventingDefault (HE.onSubmit (const Submitted)))]
         [ HH.button [HP.id "submit"] [HH.text "send"]
         , HH.span [HP.id "submitted"] [HH.text (show n)]
+        ]
+
+-- | Where the last click on its button was, as the click's handler read it.
+pointing :: forall m. (Monad m) => H.Component H.VoidF () Void m
+pointing =
+  H.component
+    (\() -> pure (Nothing :: Maybe (Double, Double)))
+    render
+    [H.onAction (put . Just)]
+  where
+    render :: Maybe (Double, Double) -> H.ComponentHTML (Double, Double) Empty m
+    render at =
+      HH.div_
+        [ HH.button [HP.id "point", HE.onClick (\e -> (ME.clientX e, ME.clientY e))] [HH.text "here"]
+        , HH.span [HP.id "where"] [HH.text (maybe "nowhere" (\(x, y) -> show x <> "," <> show y) at)]
         ]

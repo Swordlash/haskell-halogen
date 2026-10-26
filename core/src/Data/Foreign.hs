@@ -43,6 +43,9 @@ foreignToInt = fromJSInt
 
 foreignToBool :: Foreign tag -> Bool
 foreignToBool x = isTrue# (foreignToBool' x)
+
+foreign import javascript unsafe "(($1) => { return +$1; })"
+  foreignToNumber :: Foreign tag -> Double
 #elif defined(wasm32_HOST_ARCH)
 import GHC.Wasm.Prim hiding (JSVal)
 import Halogen.JSBits (Inert (..), JSVal)
@@ -65,6 +68,9 @@ foreign import javascript unsafe "$1"
 
 foreign import javascript unsafe "$1"
   foreignToBool :: Foreign tag -> Bool
+
+foreign import javascript unsafe "+$1"
+  foreignToNumber :: Foreign tag -> Double
 
 nullableToMaybe :: Nullable tag -> Maybe (Foreign tag)
 nullableToMaybe (Nullable o)
@@ -95,6 +101,7 @@ import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Control.Exception (throw)
 import Data.Dynamic (fromDynamic, toDyn)
+import Data.Scientific (toRealFloat)
 import Halogen.JSBits.Native (JSVal (..))
 
 -- | What an engine would hold. Natively a 'JSVal' is a 'Data.Dynamic.Dynamic'
@@ -167,6 +174,15 @@ foreignToBool (JSVal held)
   | Just b <- fromDynamic held = b
   | Just (Aeson.Bool b) <- fromDynamic held = b
   | otherwise = False
+
+-- | The number the value holds (a 'Double' or an 'Int'), or the JSON
+-- number, as JavaScript's numbers are all doubles; 0 for anything else.
+foreignToNumber :: Foreign tag -> Double
+foreignToNumber (JSVal held)
+  | Just double <- fromDynamic held = double
+  | Just int <- fromDynamic held = fromIntegral (int :: Int)
+  | Just (Aeson.Number number) <- fromDynamic held = toRealFloat number
+  | otherwise = 0
 #endif
 
 unsafeRefEq :: a -> a -> Bool

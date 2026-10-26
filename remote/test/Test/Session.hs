@@ -184,6 +184,15 @@ spec = describe "a session" $ do
     Session.liveNodes session `shouldReturn` nodes
     Session.dispose session
 
+  it "gives a click's handler where the click was" $ do
+    (session, wire, ops, _) <- mounted pointing
+    button <- required "button" (elementWithId ops "point")
+    listener <- required "listener" (listenerOn ops button "click")
+    Session.receive session (eventFor listener button "click" (object ["type" .= ("click" :: Text), "clientX" .= (42.5 :: Double), "clientY" .= (7 :: Int)]))
+    patch <- nextOps wire
+    [t | SetText _ t <- patch] `shouldBe` ["42.5,7.0"]
+    Session.dispose session
+
   it "runs a handler that prevents the default and stops propagation" $ do
     (session, wire, ops, _) <- mounted guardedForm
     formNode <- required "form" (elementWithId ops "form")

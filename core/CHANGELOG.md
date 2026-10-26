@@ -24,6 +24,13 @@
   fired a listener with `unsafeCoerce ()` should fire it with an event made
   with `event`, or with `Event (toForeign ())`.
 
+- Natively `MouseEvent.clientX` and `clientY` read the event's properties
+  too, so a click handler that asks where the click was gets the position
+  an event built from JSON says (a remote client's, a test's) rather than 0;
+  an event that does not say still reads as 0. `Data.Foreign` has
+  `foreignToNumber`, which reads a number as a `Double` on every backend
+  (natively a held `Double` or `Int`, or a JSON number).
+
 - A program can watch what its component trees do. `Halogen.Trace.subscribe`
   takes a listener, which every tree of the program then tells, as it
   happens, of each component made (`Mounted`), initialized and finalized,
