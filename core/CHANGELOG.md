@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- A browser that refuses its storage no longer stops the program on wasm.
+  A write past the quota, or any use of a store the browser denies the page
+  (a strict private window, storage blocked for the site), threw a
+  JavaScript exception out of a synchronous import, which the wasm runtime
+  cannot turn into a Haskell one, so it crashed, `catch` or not. Now
+  `writeStorageItem` and `removeStorageItem` throw an `IOError` the program
+  can catch, on both browser backends, and a store the page cannot read
+  reads as empty.
 - Natively an event built from JSON has properties to read, so the handlers
   that read their event work under the in-memory DOM as in a page:
   `HE.onValueInput`, `HE.onValueChange`, `HE.onChecked`,

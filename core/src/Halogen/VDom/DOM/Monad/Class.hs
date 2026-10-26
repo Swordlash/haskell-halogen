@@ -336,6 +336,11 @@ class
   -- One key at a time, rather than the store as a whole, because the store is
   -- shared: a tab that read every key, changed one and wrote them all back
   -- would undo whatever another tab had written in between.
+  --
+  -- A browser may refuse: a write past the store's quota, or any use where it
+  -- denies the page its storage. A store the page cannot read reads as empty;
+  -- a write or a removal it refuses throws an 'IOError', which the program
+  -- can catch to go on with what it has in memory.
   readStorageItem :: StorageKind -> Text -> m (Maybe Text)
   default readStorageItem :: (LiftsBrowserDOM t n m) => StorageKind -> Text -> m (Maybe Text)
   readStorageItem kind key = lift (readStorageItem kind key)
