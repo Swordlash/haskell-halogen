@@ -147,11 +147,12 @@ and wired into `test/Test.hs`.
 - `toolchain/test-learn.mjs` tests the deployed artefact rather than a component: it serves the built
   `dist-newstyle/wasm/public/learn`, the rootfs in its `rootfs/`, under `HALOGEN_BASE_PATH` as Pages
   serves it, and checks every lesson's prerendered page, the hydration, the compiler loading in the
-  page, every lesson's `Start.hs` and `Solution.hs` compiling there, back and forward, the Cache API
-  and a narrow screen (`LEARN_ROOTFS_DIR` serves another rootfs in place of the tree's).
+  page, every lesson's `Start.hs` and `Solution.hs` compiling there (two lessons at a time, on two
+  pages), back and forward, the Cache API and a narrow screen (`LEARN_ROOTFS_DIR` serves another
+  rootfs in place of the tree's).
   `toolchain/test-playground.mjs` drives `learn/`'s page on the rootfs, with a program for every
   layer. Both run in CI and `test-learn` gates the Pages deploy; the workflows install Chromium with
-  `npx playwright install --with-deps --only-shell chromium`, and the pages need the network
+  `npx playwright install --only-shell chromium`, and the pages need the network
   only for PixiJS and Three.js from jsDelivr and the Material Icons font: the tutorial bundles its
   browser_wasi_shim, and the compiler's is `learn/vendor/`'s, shipped in the rootfs.
 - `toolchain/test-worker.mjs` serves the built `examples/worker` (`dist-newstyle/wasm/public/worker`)
@@ -159,7 +160,7 @@ and wired into `test/Test.hs`.
   of the pool's workers while the page draws (it samples the component's frame counter at the
   page's own animation frames), the same count on the page drawing none, a failing job,
   `terminate`, and the page with `?workers=none`, which leaves `halogenWorker` unset and so runs
-  `Worker.run`'s fallback. CI's wasm job runs it after `test-playground`; the example bundles its
+  `Worker.run`'s fallback. CI's `learn-wasm` job runs it after `test-playground`; the example bundles its
   WASI shim (`bundle.sh`), so it needs no network.
 
 ## Architecture
@@ -330,8 +331,11 @@ restored instead from a cache keyed by its `--key`, a hash of the plan's units i
 packages it packs, our sources, the compiler and the script's inputs), runs `build-wasm-all.sh` with
 `HALOGEN_BASE_PATH` from `configure-pages` (`/haskell-halogen`), so every route's page and the
 rootfs' address are under the project site's path, gates on `npm run test-learn` and uploads
-`dist-newstyle/wasm/public/learn`. `build.yml`'s wasm job does the same on every push and pull request (with
-the repository's name as the base path), and `npm run test-playground` too. The rootfs has its own
+`dist-newstyle/wasm/public/learn`. `build.yml`'s wasm work is two jobs that run side by side:
+`test-wasm`, the test suites, and `learn-wasm`, which does what the deploy does on every push and pull
+request (with the repository's name as the base path) and runs `npm run test-playground` and
+`npm run test-worker` too. Both, and the deploy, set the toolchain and its caches up with
+`.github/actions/wasm-toolchain`. The rootfs has its own
 copies of our libraries, built in the same run: rebuild it (`npm run build-rootfs`) locally after
 changing one, as `build-wasm-all.sh` uses one already there. `rootfs.json` is described once, in
 `learn/README.md`.

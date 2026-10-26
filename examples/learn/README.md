@@ -170,8 +170,9 @@ its cache, keyed by everything it is made from:
 `HALOGEN_BASE_PATH=/haskell-halogen/` (the prerender writes it into every
 page's `<base href>`, and the page finds `rootfs/` under it), runs
 `npm run test-learn` on that tree under the same base path, and uploads it.
-The build workflow does the same on every push and pull request, and runs
-`npm run test-playground` on the rootfs as well. To try the deployed form
+The build workflow's `learn-wasm` job does the same on every push and pull
+request, and runs `npm run test-playground` on the rootfs and
+`npm run test-worker` as well. To try the deployed form
 locally:
 
 ```sh
@@ -205,7 +206,9 @@ compile, and that the code, the layer and the arguments are there and compile
 on a second visit, that a type error is
 listed at its line with the last result still mounted, that **every lesson's
 `Start.hs` compiles and its `Solution.hs` compiles with no diagnostic and
-shows something** (one line per lesson; for lesson 13, whose program runs a
+shows something** (two lessons at a time, on two pages, the second in a
+browser context of its own that loads the compiler for itself; one line per
+lesson; for lesson 13, whose program runs a
 spec, hspec's report under the editor: one failure for `Start.hs`, none for
 `Solution.hs`, and nothing left in the result; for lesson 14, whose program
 puts a page of its own around the lesson's custom element, that the element
