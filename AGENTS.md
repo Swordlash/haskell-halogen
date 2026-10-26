@@ -8,7 +8,10 @@ A port of purescript-halogen to GHC Haskell, as a multi-package cabal project: `
 (`haskell-halogen-core`, the port itself), `jsbits` (compile-time shared JavaScript embedding), `hooks` (`purescript-halogen-hooks` port), `router` (`purescript-routing-duplex` port, with the
 browser's history), `net` (the browser's networking: `fetch`, a thin binding on
 `Halogen.JSBits.Promise` that aborts its request when the waiting fiber is killed, and
-WebSocket and server-sent events, whose events arrive through `Halogen.Subscription` emitters), `tauri`
+WebSocket and server-sent events, whose events arrive through `Halogen.Subscription` emitters),
+`custom-element` (`haskell-halogen-custom-element`: a component as a custom element, a Web
+Component any page can use, its attributes and properties the component's input, its outputs
+`CustomEvent`s and its queries methods; and `onEvent` for others' custom elements), `tauri`
 (Tauri v2's IPC through its global API `window.__TAURI__`: commands with aeson JSON, events as
 emitters, the current window's events), `material`
 (Material Components bindings), `pixi` (PixiJS v8 canvas backend), `sound` (music and sound
@@ -19,7 +22,7 @@ and `clay` quasi-quoters, HTML and CSS with Haskell inside, parsed by ghc-lib-pa
 deploys: lessons as routes, each with its text, an editor and the result of compiling the reader's code
 in the page. `learn/` is no package: it is GHC itself running in a page, compiling and mounting a
 component the reader wrote (the compiler the tutorial runs on, the rootfs, and a bare page for trying it;
-its `README.md` has the rootfs, its manifest and the measurements). `hooks`, `router`, `net` (for `Halogen.Subscription`), `material`, `pixi`, `hspec-halogen` and `th` depend only on `core`; `tauri` on `core` (for `Halogen.Subscription`'s emitters) and `jsbits`; `sound` depends on none of them, only on `jsbits`. Everything builds from the root
+its `README.md` has the rootfs, its manifest and the measurements). `hooks`, `router`, `net` (for `Halogen.Subscription`), `material`, `pixi`, `hspec-halogen` and `th` depend only on `core`; `tauri` on `core` (for `Halogen.Subscription`'s emitters) and `jsbits`; `custom-element` on `core` and `jsbits`; `sound` depends on none of them, only on `jsbits`. Everything builds from the root
 `cabal.project`, so a `core` change is type-checked against every dependent and example.
 
 Every package is compiled for three targets: native GHC, the GHC JavaScript backend, and GHC
@@ -43,12 +46,12 @@ npm run test-playground         # learn/'s page on the rootfs in headless Chromi
 npm run build-js                # JS backend: build all, bundle the material example into dist/
 npm run dev -- <example>        # an example in browser GHCi, reloaded and rerun on save
 npm run dev-test -- <package>   # a package's browser test suite in browser GHCi, rerun on save
-npm run format                  # fourmolu over core, hooks, router, net, tauri, pixi, hspec-halogen, th, material/test, examples
+npm run format                  # fourmolu over core, hooks, router, net, custom-element, tauri, pixi, hspec-halogen, th, material/test, examples
 ```
 
 `core`, `hooks`, `router`, `net`, `tauri` and `sound` have test suites that run under Node (`Halogen-core-test`,
-`Halogen-hooks-test`, `Halogen-router-test`, `Halogen-net-test`, `Halogen-tauri-test`, `Halogen-sound-test`), and `material`, `net`, `tauri` and `hspec-halogen` have ones that run in a browser
-(`Halogen-material-test`, `Halogen-net-browser-test`, `Halogen-tauri-browser-test`, `hspec-halogen-test`; on wasm and JS, see below).
+`Halogen-hooks-test`, `Halogen-router-test`, `Halogen-net-test`, `Halogen-tauri-test`, `Halogen-sound-test`), and `material`, `net`, `custom-element`, `tauri` and `hspec-halogen` have ones that run in a browser
+(`Halogen-material-test`, `Halogen-net-browser-test`, `Halogen-custom-element-test`, `Halogen-tauri-browser-test`, `hspec-halogen-test`; on wasm and JS, see below).
 `Halogen-net-browser-test` fetches the files in `net/test/web/` from the runner's server, and
 what that server cannot do (a request held until the test lets it go, a body that stops halfway,
 a response echoing its request) from `net/test/web/network-double.js`, which wraps the page's

@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Halogen custom elements</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+      /* x-greeting renders into itself, so the page's CSS reaches it;
+         x-counter renders into a shadow root, which this does not reach. */
+      x-greeting p { font-style: italic; color: #166534; }
+      .controls { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+      #log { font-family: ui-monospace, monospace; }
+    </style>
+  </head>
+  <body>
+    <h1>Custom elements made with Halogen</h1>
+    <p>
+      This page is not a Halogen page. It is plain HTML, with a few lines of
+      plain JavaScript at the end. Its <code>&lt;x-greeting&gt;</code> and
+      <code>&lt;x-counter&gt;</code> are Halogen components, which
+      <code>app.wasm</code> defines as custom elements when it has loaded; the
+      page uses them as it uses any element, and knows nothing of Halogen.
+    </p>
+
+    <x-greeting name="reader"></x-greeting>
+    <x-counter id="counter" start="3"></x-counter>
+
+    <p class="controls">
+      <button id="start-ten">start at 10 (an attribute)</button>
+      <button id="step-five">count in fives (a property)</button>
+      <button id="reset">reset()</button>
+      <button id="ask">value()</button>
+      <button id="rename">greet everyone</button>
+    </p>
+    <p id="log">Waiting for app.wasm to define the elements.</p>
+
+    <script>
+      const counter = document.getElementById("counter");
+      const greeting = document.querySelector("x-greeting");
+      const log = document.getElementById("log");
+      const say = (line) => { log.textContent = line; };
+
+      // What the component raises arrives as a CustomEvent, whose detail is
+      // its JSON.
+      counter.addEventListener("count", (event) => say(`count event: ${event.detail}`));
+
+      document.getElementById("start-ten").addEventListener("click", () => counter.setAttribute("start", "10"));
+      document.getElementById("step-five").addEventListener("click", () => { counter.step = 5; });
+      // The methods are queries, and return a promise of the answer.
+      document.getElementById("reset").addEventListener("click", () => counter.reset());
+      document.getElementById("ask").addEventListener("click", async () => say(`value() answered ${await counter.value()}`));
+      document.getElementById("rename").addEventListener("click", () => greeting.setAttribute("name", "everyone"));
+
+      customElements.whenDefined("x-counter").then(() => say("The elements are defined: click the counter's buttons, or these."));
+    </script>
+    <script language="javascript" src="./index.js" defer type="module"></script>
+  </body>
+</html>

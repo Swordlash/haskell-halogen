@@ -311,14 +311,24 @@ try {
   // may leave something unused), and its solution compiles with no
   // diagnostic at all and shows something: a component in the result, or
   // what the program printed, for a lesson whose program runs a spec.
-  const runLesson = async (button) => {
+  const runLesson = async (button, check) => {
     await page.locator(button).click();
     const start = Date.now();
     await compiled();
+    const ms = Date.now() - start;
     const result = await page.locator("#learn-result").innerHTML();
     const stdout = (await page.locator(".learn-stdout").allTextContents()).join("");
+    let checked = "";
+    if (check) {
+      try {
+        await check(page.locator("#learn-result"));
+      } catch (error) {
+        checked = error.message.split("\n")[0];
+      }
+    }
     return {
-      ms: Date.now() - start,
+      ms,
+      checked,
       outcome: await page.locator(".learn-outcome").textContent(),
       errors: await page.locator(".learn-diagnostics li.learn-error").allTextContents(),
       diagnostics: await page.locator(".learn-diagnostics li").allTextContents(),
@@ -336,6 +346,42 @@ try {
     "13-testing": {
       start: { summary: /^2 examples, 1 failure$/m, lines: [/^ {2}greets by name \[✔\]$/m, /^ {2}counts clicks \[✘\]$/m, /No element matches "button\.increment"/] },
       solution: { summary: /^3 examples, 0 failures$/m, lines: [/^ {2}counts clicks \[✔\]$/m, /^ {2}greets a new name once the old one is cleared \[✔\]$/m] },
+    },
+  };
+  // The lessons whose program puts a page of its own into the result rather
+  // than mount the component there: what the page does after each compile.
+  // Lesson 14's is plain HTML around its custom element, <x-lesson>, whose
+  // shadow root Playwright's selectors go into; Start.hs dispatches no event
+  // and has no count() method, which the exercise adds.
+  const lessonPage = (result) => ({
+    counter: (text) => result.locator("x-lesson button", { hasText: text }).waitFor({ timeout: 5000 }),
+    heard: (text) => result.locator(".lesson-heard", { hasText: text }).waitFor({ timeout: 5000 }),
+    press: (what) => result.locator(`button[data-do=${what}]`).click(),
+  });
+  const pageLessons = {
+    "14-custom-element": {
+      async start(result) {
+        const lesson = lessonPage(result);
+        await lesson.counter("Apples: 0");
+        await result.locator("x-lesson button").click();
+        await lesson.counter("Apples: 1");
+        await lesson.press("rename");
+        await lesson.counter("Pears: 1");
+        await lesson.press("ask");
+        await lesson.heard("The element has no count() method.");
+      },
+      async solution(result) {
+        const lesson = lessonPage(result);
+        await lesson.counter("Apples: 0");
+        await result.locator("x-lesson button").click();
+        await lesson.heard("The page heard a count event: 1");
+        await lesson.press("rename");
+        await lesson.counter("Pears: 1");
+        await lesson.press("ask");
+        await lesson.heard("count() answered 1");
+        await lesson.press("reset");
+        await lesson.counter("Pears: 0");
+      },
     },
   };
   const reportProblems = (run, expected, file) => {
@@ -357,20 +403,22 @@ try {
   };
   for (const lesson of lessons) {
     await openLesson(lesson);
-    const start = await runLesson("button.learn-reset");
-    const solution = await runLesson("button.learn-solution");
-    const startOk = /^Compiled and ran/.test(start.outcome) && start.errors.length === 0;
-    const solutionOk = /^Compiled and ran/.test(solution.outcome) && solution.diagnostics.length === 0 && solution.shown;
+    const pageChecks = pageLessons[lesson.slug];
+    const start = await runLesson("button.learn-reset", pageChecks?.start);
+    const solution = await runLesson("button.learn-solution", pageChecks?.solution);
+    const startOk = /^Compiled and ran/.test(start.outcome) && start.errors.length === 0 && !start.checked;
+    const solutionOk = /^Compiled and ran/.test(solution.outcome) && solution.diagnostics.length === 0 && solution.shown && !solution.checked;
     const report = specLessons[lesson.slug];
     const reported = report ? reportProblems(start, report.start, "Start.hs") + reportProblems(solution, report.solution, "Solution.hs") : "";
     const problems = [
-      startOk ? "" : `; Start.hs: ${start.outcome} ${start.errors.join(" | ")}`,
-      solutionOk ? "" : `; Solution.hs: ${solution.outcome} ${solution.diagnostics.join(" | ")}${solution.shown ? "" : " (nothing shown)"}`,
+      startOk ? "" : `; Start.hs: ${start.outcome} ${start.errors.join(" | ")}${start.checked ? ` (its page: ${start.checked})` : ""}`,
+      solutionOk ? "" : `; Solution.hs: ${solution.outcome} ${solution.diagnostics.join(" | ")}${solution.shown ? "" : " (nothing shown)"}${solution.checked ? ` (its page: ${solution.checked})` : ""}`,
       reported,
     ].join("");
     const summaries = report ? ` (${[start, solution].map((run) => run.stdout.match(/^\d+ examples?, \d+ failures?$/m)?.[0] ?? "no summary").join("; then ")}, nothing left mounted)` : "";
+    const paged = pageChecks ? " (its page does what the lesson says, for each)" : "";
     const ok = startOk && solutionOk && !reported;
-    console.log(`${ok ? "ok " : "FAIL"} ${lesson.slug}: Start.hs ${seconds(start.ms)}, Solution.hs ${seconds(solution.ms)}${ok ? summaries : problems}`);
+    console.log(`${ok ? "ok " : "FAIL"} ${lesson.slug}: Start.hs ${seconds(start.ms)}, Solution.hs ${seconds(solution.ms)}${ok ? summaries + paged : problems}`);
     if (!ok) failed = true;
   }
   assert.ok(!failed, "every lesson's solution compiles and shows something");

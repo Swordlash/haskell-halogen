@@ -22,6 +22,7 @@ AI usage disclaimer: All code until tag `0.9.0` was hand-written. Any later comm
 | [hooks/](hooks/) | `haskell-halogen-hooks` | A port of `purescript-halogen-hooks`: a component as one function. |
 | [router/](router/) | `haskell-halogen-router` | Routing by the page's address: a port of `purescript-routing-duplex`, joined to the browser's history. |
 | [net/](net/) | `haskell-halogen-net` | The browser's `fetch`: a request as a value, its response and body as values, aborted when the component waiting for it goes away. |
+| [custom-element/](custom-element/) | `haskell-halogen-custom-element` | A component as a custom element (a Web Component) for any page, React's, Vue's or plain HTML: attributes and properties are its input, outputs are `CustomEvent`s, queries are methods. |
 | [tauri/](tauri/) | `haskell-halogen-tauri` | Tauri v2's IPC for an app in a Tauri webview: Rust commands with aeson JSON, events as emitters, the window's own events; inert in a plain browser. |
 | [material/](material/) | `haskell-halogen-material` | Google Material Components bindings. |
 | [pixi/](pixi/) | `haskell-halogen-pixi` | A PixiJS v8 canvas rendering backend. |
@@ -32,8 +33,8 @@ AI usage disclaimer: All code until tag `0.9.0` was hand-written. Any later comm
 | [th-plugin/](th-plugin/) | `haskell-halogen-th-plugin` | A GHC plugin that expands the quotes as a module is parsed, so every error, type errors included, is at its place in the file. |
 | [examples/](examples/) | `halogen-example-*` | One runnable browser app per library, and `learn`, the tutorial, whose code compiles in the page. |
 
-`hooks`, `router`, `material`, `pixi`, `hspec-halogen` and `th` depend on `core`, and `tauri`
-on `core` for its emitters; `net` and `sound` are independent of those runtime libraries. WASM backends also use the `jsbits`
+`hooks`, `router`, `material`, `pixi`, `hspec-halogen`, `th` and `custom-element` depend on
+`core`, and `tauri` on `core` for its emitters; `net` and `sound` are independent of those runtime libraries. WASM backends also use the `jsbits`
 compile-time helper. `th` builds natively and for WebAssembly, not with the JavaScript
 backend, which cannot build `ghc-lib-parser`. Every package builds from the one `cabal.project` at the
 repository root, so a change to
@@ -208,6 +209,31 @@ Load -> do
 `start` begins a request inside an event's dispatch (`H.liftEffect`) and gives a handle to wait
 for or abort later. A rejection (no response, or an abort) is a `Left JSError`; an HTTP error
 status is a response whose `ok` is `False`.
+
+## Custom elements
+
+`haskell-halogen-custom-element` makes a component a custom element, which a page that is not a
+Halogen app uses as it uses any element: plain HTML, React, Vue, Svelte, Astro, HTMX.
+
+```haskell
+registration <-
+  CE.define "x-counter"
+    CE.defaultDefinition
+      { input = \props -> fromMaybe 0 (CE.prop "start" props)
+      , observed = ["start"]
+      , output = \n -> Just ("count", toJSON n)
+      , methods = [CE.tellMethod "reset" (\() -> Reset)]
+      }
+    counter
+HA.keepForNextRun registration.dispose
+```
+
+Every `<x-counter>` then mounts the component in its shadow root. A change to an observed
+attribute or property reaches the component as `Receive`, as from a Halogen parent; what it
+raises is dispatched as a `CustomEvent`; `counter.reset()` sends it a query. An element disposes
+of its component when it is removed, not when it is moved, and defining the name again swaps the
+component of every element of it. `CE.onEvent` reads the `detail` of another library's element's
+events. `examples/custom-element` is a plain page driving two such elements from JavaScript.
 
 ## Tauri
 
