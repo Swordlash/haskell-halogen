@@ -106,8 +106,11 @@ data Delivery store = Delivery
   }
 
 -- | Every value the store takes from now on, in the order the updates were
--- made: an update that was overtaken by a later one before it reached this
--- subscriber is not delivered to it.
+-- made: the updates numbered after the one the store holds as the
+-- subscription is made. An update made before it whose notification is
+-- still on its way is not delivered, nor is one that a later update
+-- overtook before it reached this subscriber; what the store holds at the
+-- subscription is read with 'getStore'.
 --
 -- The subscriber is run by one thread at a time. An update that arrives
 -- while another is being handed on, from another thread or from the
@@ -117,7 +120,8 @@ data Delivery store = Delivery
 -- it sees is the newest.
 storeEmitter :: forall action store. HalogenStore action store -> HS.Emitter IO store
 storeEmitter store = HS.makeEmitter $ \push -> do
-  delivery <- newIORef Delivery {seen = 0, pending = Nothing, delivering = False}
+  current <- (.number) <$> readIORef store.value
+  delivery <- newIORef Delivery {seen = current, pending = Nothing, delivering = False}
   let -- The thread handing on gives the slot up if the subscriber throws
       -- (or is cancelled in it): an update left in the slot is then taken by
       -- the next update's thread.
