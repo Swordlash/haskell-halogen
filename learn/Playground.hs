@@ -1,3 +1,5 @@
+{-# LANGUAGE LambdaCase #-}
+
 -- | GHC itself, as a shared library the page loads with GHC's own dynamic
 -- linker (@dyld.mjs@): it compiles the program the page hands it to
 -- bytecode and runs its @Main.main@, in the page, with no server.
@@ -19,10 +21,11 @@
 --
 -- A run whose arguments hold @--learn-spans@ (ours too) marks the elements
 -- @Lesson@ builds with where they are in its source: each application of an
--- element function of "Halogen.HTML.Elements" to a literal list of
--- properties, such as @HH.button [HE.onClick (const Increment)] [...]@ at
--- line 30, column 7, gets one property more, the attribute
--- @data-learn-src="30:7"@ (see 'lessonSpans'). The tutorial passes it on
+-- element function of "Halogen.HTML.Elements" or "Halogen.Svg.Elements" to
+-- all its arguments, such as @HH.button [HE.onClick (const Increment)]
+-- [...]@ at line 30, column 7, or @HH.br_@, makes an element with one
+-- property more, the attribute @data-learn-src="30:7"@ (see 'lessonSpans').
+-- The tutorial passes it on
 -- every run, and its page reads the attribute back from the elements the
 -- program mounted, to tell the reader which line made the element under the
 -- pointer.
@@ -31,10 +34,14 @@ module Playground (playground) where
 import Control.Monad
 import Control.Monad.Trans.State.Strict (State, put, runState)
 import Data.Coerce
-import Data.Data (Data, cast, gmapM)
+import Data.Data (Data, gmapM)
 import Data.Foldable (for_, traverse_)
 import Data.IORef
-import Data.List (find, intercalate, isSuffixOf, sortOn)
+import Data.List (find, intercalate, sortOn)
+import Data.Maybe (isJust, listToMaybe)
+import Data.Traversable (for)
+import Data.Type.Equality (castWith, sym)
+import Data.Typeable (eqT)
 import GHC
 import GHC.Core.TyCo.Ppr (pprSigmaType)
 import GHC.Driver.Config.Diagnostic
@@ -234,38 +241,83 @@ reportTypes found = do
     for_ kept $ \(hash, rendered) ->
       when (hash == ms_hs_hash summary) $ liftIO $ traverse_ putStrLn rendered
 
--- | What 'lessonSpans' marks elements with: the names of the element
--- functions, and the import that brings the attribute into the module's
--- scope.
+-- | What 'lessonSpans' marks elements with: the element functions, by the
+-- modules whose imports bring them in, with the shape of each, and the
+-- imports that bring the marks' own names into the module's scope.
 data SpanMarks = SpanMarks
-  { markedElements :: OccSet
-  , marksImport :: LImportDecl GhcPs
+  { markedElements :: [([ModuleName], OccEnv Element)]
+  , marksImports :: [LImportDecl GhcPs]
   }
 
--- | The marks, found once a session. The element functions are the ones
--- "Halogen.HTML.Elements" exports, read from its interface through the
--- package databases the run has, so that they are the library's own and
--- follow it. Nothing when the module cannot be found (a run without
--- @-package haskell-halogen-core@): the run then marks nothing, and goes on.
+-- | An element function: how many arguments it takes, and whether the first
+-- is its list of properties (@div@'s and @input@'s is, @div_@'s and
+-- @element@'s is not).
+data Element = Element
+  { elementArity :: Int
+  , propertiesFirst :: Bool
+  }
+
+-- | The marks, found once a session. The element functions are what
+-- "Halogen.HTML.Elements" and "Halogen.Svg.Elements" export, read from their
+-- interfaces through the package databases the run has, so that they are
+-- the library's own and follow it, and so is the number of arguments each
+-- takes, read from its type: 2 for @div@, 1 for @div_@ and @input@, none for
+-- @br_@, 3 for @element@ ('elementOf'). An export whose type does not end in @HTML@ is
+-- not an element and is left out. A module that cannot be found (a run
+-- without @-package haskell-halogen-core@) has no elements: the run then
+-- marks nothing, and goes on.
 spanMarks :: IORef (Maybe SpanMarks) -> Ghc (Maybe SpanMarks)
 spanMarks found = do
   kept <- liftIO $ readIORef found
   case kept of
     Just marks -> pure (Just marks)
     Nothing -> handleSourceError (const (pure Nothing)) $ do
-      elementsModule <- lookupModule (mkModuleName "Halogen.HTML.Elements") Nothing
-      exports <- maybe [] modInfoExports <$> getModuleInfo elementsModule
-      decl <- parseImportDecl ("import qualified Halogen.HTML as " ++ moduleNameString spansQualifier ++ " (attr, AttrName (..))")
+      html <- elementsOf "Halogen.HTML.Elements"
+      svg <- elementsOf "Halogen.Svg.Elements"
+      core <- parseImportDecl ("import qualified Halogen.HTML.Core as " ++ moduleNameString spansQualifier ++ " (withProps, attr, AttrName (..))")
+      properties <- parseImportDecl ("import qualified Halogen.HTML.Properties as " ++ moduleNameString spansQualifier ++ " (IProp (..))")
       let marks =
             SpanMarks
               { markedElements =
-                  mkOccSet [occ | name <- exports, let occ = nameOccName name, isVarOcc occ, not ("_" `isSuffixOf` occNameString occ)]
+                  [ (map mkModuleName ["Halogen.HTML", "Halogen.HTML.Elements"], html)
+                  , ([mkModuleName "Halogen.Svg.Elements"], svg)
+                  ]
               , -- Implicit, as the Prelude's import is: GHC then never warns
                 -- of it, whatever warnings the reader asks for.
-                marksImport = noLocA decl {ideclExt = (ideclExt decl) {ideclImplicit = True}}
+                marksImports = [noLocA decl {ideclExt = (ideclExt decl) {ideclImplicit = True}} | decl <- [core, properties]]
               }
       liftIO $ writeIORef found (Just marks)
       pure (Just marks)
+  where
+    elementsOf name = do
+      elements <- lookupModule (mkModuleName name) Nothing
+      info <- getModuleInfo elements
+      arities <- for (maybe [] modInfoExports info) $ \export -> do
+        thing <- maybe (pure Nothing) (`modInfoLookupName` export) info
+        pure [(nameOccName export, element) | Just (AnId ident) <- [thing], Just element <- [elementOf (idType ident)]]
+      pure (mkOccEnv (concat arities))
+
+-- | The element a function of this type is, if it is one: how many
+-- arguments it takes before it is @HTML@, its arrows once its synonyms are
+-- expanded (@Node@ and @Leaf@ are synonyms of functions) and its @forall@s
+-- and constraints are out of the way, and whether the first is a list of
+-- @IProp@s.
+elementOf :: Type -> Maybe Element
+elementOf = go [] . expandTypeSynonyms
+  where
+    go arguments ty
+      | Just (_, inner) <- splitForAllTyCoVar_maybe ty = go arguments inner
+      | Just (flag, _, argument, result) <- splitFunTy_maybe ty =
+          go (if isVisibleFunArg flag then arguments ++ [argument] else arguments) result
+      | Just tc <- tyConAppTyCon_maybe ty
+      , named "Halogen.HTML.Core" "HTML" tc =
+          Just Element {elementArity = length arguments, propertiesFirst = any properties (take 1 arguments)}
+      | otherwise = Nothing
+    properties argument = case splitTyConApp_maybe argument of
+      Just (list, [item]) | list == listTyCon -> maybe False (named "Halogen.HTML.Properties" "IProp") (tyConAppTyCon_maybe item)
+      _ -> False
+    named home occ tc =
+      getOccString tc == occ && fmap (moduleNameString . moduleName) (nameModule_maybe (getName tc)) == Just home
 
 -- | The qualifier the marks' names are written with, which no reader's
 -- module has a reason to use.
@@ -274,36 +326,64 @@ spansQualifier = mkModuleName "Learn__Spans"
 
 -- | A plugin that rewrites @Lesson@ as GHC has parsed it, so that each
 -- element it builds says where in the source it was built. An application
--- of an element function to a literal list of properties,
+-- of an element function to all the arguments it takes,
 --
 -- > HH.button [HE.onClick (const Increment)] [HH.text "+"]
 --
 -- at line 30, column 7, becomes
 --
--- > HH.button [Learn__Spans.attr (Learn__Spans.AttrName "data-learn-src") "30:7", HE.onClick (const Increment)] [HH.text "+"]
+-- > Learn__Spans.withProps [Learn__Spans.attr Nothing (Learn__Spans.AttrName "data-learn-src") "30:7"] (HH.button [HE.onClick (const Increment)] [HH.text "+"])
 --
--- and the module gets an import of "Halogen.HTML" qualified as
--- @Learn__Spans@ (only @attr@ and @AttrName@), whatever it imports itself.
--- The rewrite is of the syntax tree, whose every other node keeps its place
--- in the source, so GHC's diagnostics still point at the reader's lines.
+-- and the module gets an import of "Halogen.HTML.Core" qualified as
+-- @Learn__Spans@ (only @withProps@, @attr@ and @AttrName@), and one of
+-- "Halogen.HTML.Properties" (only @IProp@, for the marks below), whatever it
+-- imports itself. 'Halogen.HTML.Core.withProps' adds the attribute to the
+-- element the application built, before the element's own properties, so
+-- whatever its properties are and however they are written (in a variable,
+-- a comprehension, none at all for @HH.div_@ or @HH.br_@), it gets the mark,
+-- and a property of the reader's own of the same name would win. The rewrite
+-- is of the syntax tree, whose every other node keeps its place in the
+-- source, so GHC's diagnostics still point at the reader's lines.
 --
 -- A function counts as an element when its name is one that
 -- "Halogen.HTML.Elements" exports and the module imports that name from
--- there or from "Halogen.HTML": qualified with the alias of such an import
--- (@HH.div@, for @import Halogen.HTML qualified as HH@), or unqualified when
--- such an import is not qualified-only, either way unless the import's list
--- leaves the name out. So @head [1, 2]@ is left alone in a module that
--- imports the elements qualified, and so is a function of the reader's own
--- named like an element where no import brings an element in under that
--- name. (A local binding that shadows an imported element is taken for it,
--- and GHC then reports the list's type.)
+-- there or from "Halogen.HTML", or one that "Halogen.Svg.Elements" exports
+-- and the module imports from there: qualified with the alias of such an
+-- import (@HH.div@, for @import Halogen.HTML qualified as HH@), or
+-- unqualified when such an import is not qualified-only, either way unless
+-- the import's list leaves the name out. So @head [1, 2]@ is left alone in a
+-- module that imports the elements qualified, and so is a function of the
+-- reader's own named like an element where no import brings an element in
+-- under that name. (A local binding that shadows an imported element is
+-- taken for it, and GHC then reports a type that is not @HTML@.)
 --
--- Left alone, and so without a mark: an element whose properties are not a
--- literal list (@HH.div props kids@, a list comprehension, a list joined
--- with @<>@), the @_@ variants (@HH.div_ kids@, with no list of properties
--- to add to), elements made with @HH.element@ or @HH.withKeys@, SVG's
--- ("Halogen.Svg.Elements"), and what an @hh@ quasi-quote makes, which is not
--- in the tree GHC parsed.
+-- An application is the element applied to exactly as many arguments as its
+-- type takes ('spanMarks'), in parentheses or not (@(HH.div props) kids@,
+-- @(HH.div props kids)@, and before a @$@, @(HH.p []) $ kids@), and the
+-- last of them may be given with @$@ (@HH.div_ $ map item items@,
+-- @HH.div props $ kids@, @HH.ul_ $ map item xs <> rest@), which lesson code
+-- writes as often as it writes the application itself: a run of operators
+-- is split at its @$@s, which bind less tightly than any other operator, so
+-- that each @$@ applies what is before it to all that follows, whatever the
+-- other operators in the run are (see @markOperators@). The mark is the
+-- position of the element function's name. The rewrite goes from the
+-- outside in: an element is wrapped once, and then what its arguments build
+-- is marked inside it.
+--
+-- An element applied to fewer arguments than it takes is a function yet,
+-- and wrapping it would not type. When the first of those arguments is a
+-- literal list of properties (@map (HH.li [HP.class_ c]) groups@,
+-- @HH.div [HP.id "x"] <$> kids@), the mark goes at the head of that list
+-- instead, as @Learn__Spans.IProp (Learn__Spans.attr Nothing ...)@, so the
+-- reader's own properties still come after it and win; so every element
+-- the old rule of marking literal lists reached is reached still.
+--
+-- Left alone, and so without a mark: an element applied to fewer arguments
+-- than it takes with no literal list to put the mark in (@map HH.li_
+-- items@, @HH.withKeys HH.ul@'s @HH.ul@), what is not an application of
+-- the element's name itself (@HH.div \@_@, a binding of the reader's own
+-- that stands for an element), and what an @hh@ quasi-quote makes, which is
+-- not in the tree GHC parsed.
 lessonSpans :: SpanMarks -> Plugin
 lessonSpans marks =
   defaultPlugin
@@ -319,34 +399,65 @@ lessonSpans marks =
 
 markModule :: SpanMarks -> HsParsedModule -> HsParsedModule
 markModule marks parsed =
-  parsed {hpm_module = L at (if changed then marked {hsmodImports = hsmodImports marked ++ [marksImport marks]} else marked)}
+  parsed {hpm_module = L at (if changed then marked {hsmodImports = hsmodImports marked ++ marksImports marks} else marked)}
   where
     L at lesson = hpm_module parsed
     (marked, changed) = runState (markAll lesson) False
-    imports =
+    importsOf modules =
       [ decl
       | L _ decl <- hsmodImports lesson
-      , unLoc (ideclName decl) `elem` map mkModuleName ["Halogen.HTML", "Halogen.HTML.Elements"]
+      , unLoc (ideclName decl) `elem` modules
       ]
+    elements = [(importsOf modules, shapes) | (modules, shapes) <- markedElements marks]
 
-    -- Bottom-up over the whole module, so that the elements inside an
-    -- element are marked too: every node's children first, then the node
-    -- itself if it is an expression.
-    markAll :: (Data a) => a -> State Bool a
-    markAll node = do
-      inner <- gmapM markAll node
-      maybe pure id (cast markElement) inner
+    -- Over the whole module, from the outside in: every expression is
+    -- looked at before what is inside it.
+    markAll :: forall a. (Data a) => a -> State Bool a
+    markAll node = case eqT @a @(LHsExpr GhcPs) of
+      Just same -> castWith (sym same) <$> markExpr (castWith same node)
+      Nothing -> gmapM markAll node
 
-    markElement :: LHsExpr GhcPs -> State Bool (LHsExpr GhcPs)
-    markElement e = case e of
-      L l (HsApp x f@(L _ (HsVar _ (L _ name))) (L lp props))
-        | isElement name
-        , Just (ann, items) <- literalList props
-        , RealSrcSpan from _ <- locA l -> do
-            put True
-            pure $ L l $ HsApp x f $ L lp $ ExplicitList ann (mark from : items)
-      _ -> pure e
+    markExpr :: LHsExpr GhcPs -> State Bool (LHsExpr GhcPs)
+    markExpr e = case e of
+      L _ OpApp {} -> markOperators e
+      _
+        | Just from <- application 0 e -> wrap from =<< underSpine e
+        | Just listed <- inList e -> put True >> underSpine listed
+        | otherwise -> gmapM markAll e
 
+    -- What an element's application is applied to, marked, but not the
+    -- applications of the element to fewer of its arguments it is made of
+    -- (@HH.div props@ in @HH.div props kids@), nor the parentheses around
+    -- them, which are not elements and must not be marked a second time.
+    underSpine :: LHsExpr GhcPs -> State Bool (LHsExpr GhcPs)
+    underSpine = \case
+      L l (HsApp x function argument) -> do
+        function' <- underSpine function
+        argument' <- markExpr argument
+        pure (L l (HsApp x function' argument'))
+      L l (HsPar x inner) -> L l . HsPar x <$> underSpine inner
+      other -> gmapM markAll other
+
+    -- An element applied to fewer arguments than it takes, the first of
+    -- them a literal list of properties (@HH.li [HP.class_ c]@ in @map
+    -- (HH.li [HP.class_ c]) groups@, or in @HH.div [HP.id "x"] <$> kids@):
+    -- it is a function yet, and wrapping it would not type, but its list
+    -- can take the mark as one property more, at its head, as the reader's
+    -- own come after it.
+    inList :: LHsExpr GhcPs -> Maybe (LHsExpr GhcPs)
+    inList e = do
+      (name, from, given) <- spine e
+      element <- elementNamed name
+      guard (propertiesFirst element && given >= 1 && given < elementArity element)
+      consFirst from e
+    consFirst from = \case
+      L l (HsApp x function (L lp props))
+        | L _ HsVar {} <- unparenthesised function -> do
+            (ann, items) <- literalList props
+            pure (L l (HsApp x function (L lp (ExplicitList ann (listedMark from : items)))))
+        | otherwise -> (\function' -> L l (HsApp x function' (L lp props))) <$> consFirst from function
+      L l (HsPar x inner) -> L l . HsPar x <$> consFirst from inner
+      _ -> Nothing
     -- An empty list is the constructor [], as GHC parses it, not an empty
     -- ExplicitList.
     literalList props = case props of
@@ -354,7 +465,92 @@ markModule marks parsed =
       HsVar _ (L _ name) | name == getRdrName nilDataCon -> Just (noAnn, [])
       _ -> Nothing
 
-    isElement name = rdrNameOcc name `elemOccSet` markedElements marks && any (brings name) imports
+    -- A run of operators, which GHC parses as it reads them, nested to the
+    -- left (@a $ b <> c@ is @(a $ b) <> c@ until the renamer knows the
+    -- operators' fixities), so that its inner nodes are not the expressions
+    -- the reader wrote. It is split at its @$@s instead: @$@ is infixr 0,
+    -- and no operator binds less tightly, so the @$@s nest to the right over
+    -- the stretches between them, @a $ (b <> c)@, and each stretch is a run
+    -- of its own, left as GHC parsed it for the renamer to resolve as usual.
+    -- The rebuilt run means what the reader wrote: an operator of precedence
+    -- 0 that is also infixr (@seq@) nests with @$@ the same way, and the
+    -- renamer still reassociates a stretch to the left of a @$@ that ends in
+    -- one; an infixl or infix one next to @$@ is a fixity error either way.
+    -- Each @$@ is an application when the stretch before it is an element
+    -- short of one argument, in as many parentheses as the reader put
+    -- around it (@(HH.p []) $ kids@), and the stretches on both sides are
+    -- marked inside, the element's own spine left alone (see underSpine), so in @HH.div_ $ pure $ HH.p [] $ xs <> ys@ both the @div@ and
+    -- the @p@ are. A run with no @$@ is left as it was, its operands marked.
+    markOperators :: LHsExpr GhcPs -> State Bool (LHsExpr GhcPs)
+    markOperators e = case break (isDollar . fst) rest of
+      (_, []) -> overOperands e
+      (before, (dollar, next) : after) -> do
+        let left = leftNested first before
+            right = leftNested next after
+            -- Through the parentheses a reader may put around the
+            -- element, @(HH.p []) $ kids@: underSpine then goes inside
+            -- them without taking the element for one to mark again.
+            from = application 1 (unparenthesised left)
+        left' <- if isJust from then underSpine left else markExpr left
+        right' <- markExpr right
+        let inner = L (combineLocsA left right) (OpApp noExtField left' dollar right')
+        maybe (pure inner) (`wrap` inner) from
+      where
+        (first, rest) = operatorsOf e
+        overOperands = \case
+          L l (OpApp x left operator right) -> do
+            left' <- overOperands left
+            right' <- markExpr right
+            pure (L l (OpApp x left' operator right'))
+          operand -> markExpr operand
+
+    -- A stretch of a run, nested to the left as GHC parses one. (A right
+    -- operand that is a run of its own, as the stretch after a @$@ is, is
+    -- left as it is by the renamer, which reassociates only a left one.)
+    leftNested :: LHsExpr GhcPs -> [(LHsExpr GhcPs, LHsExpr GhcPs)] -> LHsExpr GhcPs
+    leftNested = foldl' (\left (operator, right) -> L (combineLocsA left right) (OpApp noExtField left operator right))
+
+    -- The run's first operand, and each operator with the operand after it.
+    operatorsOf :: LHsExpr GhcPs -> (LHsExpr GhcPs, [(LHsExpr GhcPs, LHsExpr GhcPs)])
+    operatorsOf = \case
+      L _ (OpApp _ left operator right) ->
+        let (first, rest) = operatorsOf left
+         in (first, rest ++ [(operator, right)])
+      operand -> (operand, [])
+
+    isDollar = \case
+      L _ (HsVar _ (L _ name)) ->
+        rdrNameOcc name == mkVarOcc "$" && maybe True ((== mkModuleName "Prelude") . fst) (isQual_maybe name)
+      _ -> False
+
+    -- Where the element function of an application is, when the expression
+    -- is one, but for this many arguments more.
+    application :: Int -> LHsExpr GhcPs -> Maybe RealSrcSpan
+    application more e = do
+      (name, from, given) <- spine e
+      element <- elementNamed name
+      guard (given + more == elementArity element)
+      pure from
+
+    -- The function an expression applies, where it is, and to how many
+    -- arguments, looking through parentheses around the function of an
+    -- application (@(HH.div props) kids@) but not around the whole.
+    spine :: LHsExpr GhcPs -> Maybe (RdrName, RealSrcSpan, Int)
+    spine = \case
+      L _ (HsVar _ (L l name)) | RealSrcSpan from _ <- locA l -> Just (name, from, 0)
+      L _ (HsApp _ function _) -> (\(name, from, given) -> (name, from, given + 1)) <$> spine (unparenthesised function)
+      _ -> Nothing
+    unparenthesised = \case
+      L _ (HsPar _ inner) -> unparenthesised inner
+      other -> other
+
+    elementNamed name =
+      listToMaybe
+        [ element
+        | (imports, shapes) <- elements
+        , Just element <- [lookupOccEnv shapes (rdrNameOcc name)]
+        , any (brings name) imports
+        ]
     brings name decl =
       lists (rdrNameOcc name) decl && case isQual_maybe name of
         Just (qualifier, _) -> qualifier == maybe (unLoc (ideclName decl)) unLoc (ideclAs decl)
@@ -365,10 +561,29 @@ markModule marks parsed =
       Just (EverythingBut, L _ entries) -> occ `notElem` named entries
     named entries = [rdrNameOcc n | L _ entry <- entries, n <- ieNames entry]
 
+    -- The wrapper's own nodes are marked as generated code, which GHC
+    -- reports nothing at: no error is placed at them, and an error inside
+    -- the wrapped expression, which keeps its own place, is not said to be
+    -- in an argument of withProps.
+    wrap from inner = do
+      put True
+      pure
+        $ generated
+        $ HsApp
+          noExtField
+          (generated (HsApp noExtField (generated (HsVar noExtField (generated (qualified (mkVarOcc "withProps"))))) (nlList [mark from])))
+          (generated (gHsPar inner))
+    generated :: (NoAnn ann) => e -> GenLocated (EpAnn ann) e
+    generated = L (noAnnSrcSpan generatedSrcSpan)
+    -- The same attribute as an indexed property, for a list of them.
+    listedMark from = nlHsApp (nlHsVar (qualified (mkDataOcc "IProp"))) (nlHsPar (mark from))
     mark from =
-      nlHsApp
-        (nlHsApp (nlHsVar (qualified (mkVarOcc "attr"))) (nlHsPar (nlHsApp (nlHsVar (qualified (mkDataOcc "AttrName"))) (string "data-learn-src"))))
-        (string (show (srcSpanStartLine from) ++ ":" ++ show (srcSpanStartCol from)))
+      nlHsApps
+        (qualified (mkVarOcc "attr"))
+        [ nlHsVar (getRdrName nothingDataCon)
+        , nlHsPar (nlHsApp (nlHsVar (qualified (mkDataOcc "AttrName"))) (string "data-learn-src"))
+        , string (show (srcSpanStartLine from) ++ ":" ++ show (srcSpanStartCol from))
+        ]
     qualified = mkRdrQual spansQualifier
     -- A string literal as OverloadedStrings reads one, so that it is the
     -- Text the attribute takes whether or not the module has the extension.

@@ -94,37 +94,107 @@ didNotCompile output =
     || "Please report this as a GHC bug" `T.isInfixOf` output
     || "panic! (the 'impossible' happened)" `T.isInfixOf` output
 
--- | What GHC wrote, without the property the playground adds to each element
--- of the reader's code (@learn\/Playground.hs@'s @lessonSpans@). GHC knows
--- the code it compiled, mark and all, and quotes it so where a message shows
--- the code around an error:
+-- | What GHC wrote, without the wrapper the playground puts around each
+-- element of the reader's code (@learn\/Playground.hs@'s @lessonSpans@).
+-- GHC knows the code it compiled, marks and all, and quotes it where a
+-- message shows the code around an error:
 --
--- > In the first argument of `HH.p', namely
--- >   `[Learn__Spans.attr
--- >       (Learn__Spans.AttrName "data-learn-src") "17:11",
--- >     HP.disabled "yes"]'
+-- > In the first argument of `HH.div_', namely
+-- >   `[Learn__Spans.withProps
+-- >       [Learn__Spans.attr
+-- >          Nothing (Learn__Spans.AttrName "data-learn-src") "14:11"]
+-- >       (HH.p
+-- >          [HP.disabled "yes"]
+-- >          [Learn__Spans.withProps [...] (HH.b_ [...])])]'
 --
--- which reads here as the reader wrote it, @`[HP.disabled "yes"]'@. GHC
--- breaks a long expression over lines, at the spaces between its parts and
--- after its commas, so the mark is found whatever space is between its
--- parts, and the comma after it goes with it, and the space after that. The
--- lines GHC broke stay as they were.
+-- which reads here as the reader wrote it, @`[HH.p [HP.disabled "yes"]
+-- [HH.b_ [...]]]'@ but for the lines GHC broke, which stay as they were.
+-- A mark is @Learn__Spans.withProps@, its list (or what GHC shortens a list
+-- deep in an expression to, @[...]@, or a whole argument, @...@), and the
+-- expression it wraps, in parentheses; it goes with the space between its
+-- parts, wherever GHC broke the lines, and the parentheses go with it, but
+-- what is inside them stays (and has its own marks taken out). The closing
+-- parenthesis is the one that matches, not one in a string literal or a
+-- character; when GHC's message does not close it, the parenthesis stays.
+--
+-- An element applied to fewer arguments than it takes (@HH.li [...]@ in
+-- @map (HH.li [...]) groups@) has its mark as the first of its literal
+-- list of properties instead, @Learn__Spans.IProp (Learn__Spans.attr
+-- ...)@, which goes with the comma after it and the space after that.
+--
+-- A name that only starts like a mark, or one not followed by what a mark
+-- is made of, is left as it was.
 withoutMarks :: Text -> Text
-withoutMarks t = case T.breakOn markStart t of
-  (before, rest)
-    | T.null rest -> before
-    | Just after <- markEnd (T.drop (T.length markStart) rest) -> before <> withoutMarks after
-    | otherwise -> before <> markStart <> withoutMarks (T.drop (T.length markStart) rest)
+withoutMarks = removing "Learn__Spans.withProps" unwrap . removing "Learn__Spans.IProp" unlist
   where
-    markStart = "Learn__Spans.attr"
-    markEnd s = do
-      s1 <- T.stripPrefix "(Learn__Spans.AttrName" (T.stripStart s)
-      s2 <- T.stripPrefix "\"data-learn-src\")" (T.stripStart s1)
-      s3 <- T.stripPrefix "\"" (T.stripStart s2)
-      let (position, s4) = T.span (\c -> isDigit c || c == ':') s3
-      guard (not (T.null position))
-      s5 <- T.stripPrefix "\"" s4
-      pure (maybe s5 T.stripStart (T.stripPrefix "," s5))
+    unwrap s = do
+      afterSpace <- T.stripPrefix " " s <|> T.stripPrefix "\n" s
+      afterList <- T.stripStart <$> markList (T.stripStart afterSpace)
+      pure $ fromMaybe afterList $ do
+        inside <- T.stripPrefix "(" afterList
+        end <- closing inside
+        pure (T.take end inside <> T.drop (end + 1) inside)
+    markList s = case T.stripPrefix "[" s of
+      Just inside -> do
+        end <- closingBracket inside
+        let properties = T.strip (T.take end inside)
+        guard (properties == "..." || "Learn__Spans.attr" `T.isPrefixOf` properties)
+        pure (T.drop (end + 1) inside)
+      Nothing -> T.stripPrefix "..." s
+    unlist s = do
+      afterSpace <- T.stripPrefix " " s <|> T.stripPrefix "\n" s
+      let start = T.stripStart afterSpace
+      afterMark <- case T.stripPrefix "(" start of
+        Just inside -> do
+          end <- closing inside
+          let attribute = T.strip (T.take end inside)
+          guard (attribute == "..." || "Learn__Spans.attr" `T.isPrefixOf` attribute)
+          pure (T.drop (end + 1) inside)
+        Nothing -> T.stripPrefix "..." start
+      pure (maybe afterMark T.stripStart (T.stripPrefix "," afterMark))
+
+-- | The text with each mark that starts with this name taken out, as the
+-- function says what is left once the name and the rest of one are gone
+-- (given what follows the name), or that what follows is not the rest of
+-- one, and the name stays.
+removing :: Text -> (Text -> Maybe Text) -> Text -> Text
+removing name unmark = go
+  where
+    go t = case T.breakOn name t of
+      (before, rest)
+        | T.null rest -> before
+        | Just after <- unmark (T.drop (T.length name) rest) -> before <> go after
+        | otherwise -> before <> name <> go (T.drop (T.length name) rest)
+
+-- | Where in the text the parenthesis that closes one just before it is.
+closing :: Text -> Maybe Int
+closing = matching '(' ')'
+
+-- | Where in the text the bracket that closes one just before it is.
+closingBracket :: Text -> Maybe Int
+closingBracket = matching '[' ']'
+
+-- | The offset of the closing character that matches an opening one just
+-- before the text, past the ones nested in it and those in a string
+-- literal (with its escapes) or a character literal (@'('@).
+matching :: Char -> Char -> Text -> Maybe Int
+matching open close = go (0 :: Int) 0
+  where
+    go depth at s = case T.uncons s of
+      Nothing -> Nothing
+      Just (c, rest)
+        | c == close -> if depth == 0 then Just at else go (depth - 1) (at + 1) rest
+        | c == open -> go (depth + 1) (at + 1) rest
+        | c == '"' -> let n = stringLength rest in go depth (at + 1 + n) (T.drop n rest)
+        | c == '\'', Just (quoted, rest') <- T.uncons rest, quoted `elem` ['(', ')', '[', ']', '"'], "'" `T.isPrefixOf` rest' -> go depth (at + 3) (T.drop 2 rest)
+        | otherwise -> go depth (at + 1) rest
+    -- The characters of a string literal after its opening quote, its
+    -- closing one included.
+    stringLength s = case T.uncons s of
+      Nothing -> 0
+      Just ('"', _) -> 1
+      Just ('\\', rest) -> maybe 1 ((2 +) . stringLength . snd) (T.uncons rest)
+      Just (_, rest) -> 1 + stringLength rest
 
 -- | A location line: the diagnostic it starts (its message still empty),
 -- and what follows the severity on the line, without GHC's codes.

@@ -40,6 +40,30 @@ element ns en props htmls = HTML $ VDom.Elem ns en (map (fmap Action) props) (fm
 keyed :: forall w i. Maybe VDom.Namespace -> VDom.ElemName -> [Prop i] -> [(Text, HTML w i)] -> HTML w i
 keyed ns name props children = HTML $ VDom.Keyed ns name (map (fmap Action) props) (map (second unHTML) children)
 
+-- | Gives the element a piece of HTML is more properties, before its own.
+--
+-- Of two properties with the same name (two attributes @title@, two
+-- handlers of @click@), the reconciler keeps the last
+-- ("Halogen.VDom.DOM.Prop"), so the element's own win over these: this adds
+-- what the element does not say, and never changes what it does. That is
+-- what makes it safe to apply to HTML someone else built, which is what it
+-- is for: the tutorial marks each element of the reader's code with where it
+-- was built by wrapping the element's whole application in it, whatever its
+-- properties are or however they are written.
+--
+-- A text node and a widget (a slot) have no properties and are left as they
+-- are. A grafted piece ('VDom.Grafted') is grafted first, so that the
+-- properties go on the element under it.
+withProps :: forall w i. [Prop i] -> HTML w i -> HTML w i
+withProps extra (HTML vdom) = HTML (go vdom)
+  where
+    added = map (fmap Action) extra
+    go = \case
+      VDom.Elem ns name props children -> VDom.Elem ns name (added <> props) children
+      VDom.Keyed ns name props children -> VDom.Keyed ns name (added <> props) children
+      VDom.Grafted graft -> go (VDom.runGraft graft)
+      other -> other
+
 -- | Create a HTML property.
 prop :: forall value i. (IsProp value) => PropName value -> value -> Prop i
 prop name = Property name . toPropValue
