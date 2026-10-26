@@ -23,6 +23,8 @@ function halogen_three_new_holder() {
     gesture: {},
     raycaster: null,
     pointer: null,
+    // Scratch for the depth of a hit.
+    depth: null,
     // The mesh the pointer went down on, for a click.
     down: null,
     // The objects under the pointer (the mesh hit and its ancestors), and
@@ -43,6 +45,7 @@ function halogen_three_initialize(holder, moduleUrl, canvas, done) {
       holder.scene = new three.Scene();
       holder.raycaster = new three.Raycaster();
       holder.pointer = new three.Vector2();
+      holder.depth = new three.Vector3();
       // What a mesh is made of before its props say, never drawn: shared,
       // and so never disposed of with a mesh.
       holder.emptyGeometry = new three.BufferGeometry();
@@ -309,12 +312,26 @@ function halogen_three_hit(holder, event) {
   var y = 1 - ((event.clientY - rect.top) / rect.height) * 2;
   if (x < -1 || x > 1 || y < -1 || y > 1) return null;
   holder.pointer.set(x, y);
+  // The camera's matrices are brought up to date at a draw; a pointer event
+  // between a camera move and its frame casts from where the camera is now.
+  holder.camera.updateMatrixWorld();
   holder.raycaster.setFromCamera(holder.pointer, holder.camera);
   var hits = holder.raycaster.intersectObjects(holder.scene.children, true);
   for (var i = 0; i < hits.length; i++) {
-    if (hits[i].object.isMesh && halogen_three_shown(hits[i].object)) return hits[i];
+    if (hits[i].object.isMesh && halogen_three_shown(hits[i].object) && halogen_three_in_view(holder, hits[i])) return hits[i];
   }
   return null;
+}
+
+// Whether a hit is between the camera's near and far planes: the raycaster
+// casts from the camera's position to infinity whatever the camera clips,
+// so a mesh nearer than the near plane (or beyond the far one), which is not
+// drawn, could otherwise take a click from the mesh drawn behind it. The
+// depth is the point's distance along the view axis, as the planes are set,
+// for either kind of camera.
+function halogen_three_in_view(holder, hit) {
+  var depth = -holder.depth.copy(hit.point).applyMatrix4(holder.camera.matrixWorldInverse).z;
+  return depth >= holder.camera.near && depth <= holder.camera.far;
 }
 
 // Three.js's raycaster does not ask whether an object is shown.

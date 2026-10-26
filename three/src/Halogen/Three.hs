@@ -337,33 +337,34 @@ installInteraction runtime@Runtime {holder, camera, drag, swallowClick} = do
     pointer <- FFI.pointerId event
     dragging <- readIORef drag
     for_ dragging $ \d -> when (d.pointer == pointer) $ do
+      -- A view that took the orbit away mid-drag (one that put the camera
+      -- somewhere, say) ends the drag where it is: the pointer, still
+      -- down, turns the camera no further.
+      orbiting <- maybe False (.orbit) <$> currentInteraction runtime
       here <- clientPoint event
-      if not (d.going || far d.start here)
-        then writeIORef drag (Just d {seen = here})
-        else do
-          -- Past the slop, the first move catches up from where the
-          -- pointer went down. A full drag across the canvas's height turns
-          -- the camera once around, as OrbitControls do.
-          let (fromX, fromY) = if d.going then d.seen else d.start
-              (toX, toY) = here
-          height <- FFI.canvasHeight holder
-          current <- readIORef camera
-          let turn = if height > 0 then 2 * pi / height else 0
-              next = orbitBy (-((toX - fromX) * turn)) (-((toY - fromY) * turn)) current
-          writeIORef drag (Just d {seen = here, going = True, moved = d.moved || next /= current})
-          when (next /= current) $ moveCamera runtime next
+      if not orbiting
+        then endDrag d
+        else
+          if not (d.going || far d.start here)
+            then writeIORef drag (Just d {seen = here})
+            else do
+              -- Past the slop, the first move catches up from where the
+              -- pointer went down. A full drag across the canvas's height
+              -- turns the camera once around, as OrbitControls do.
+              let (fromX, fromY) = if d.going then d.seen else d.start
+                  (toX, toY) = here
+              height <- FFI.canvasHeight holder
+              current <- readIORef camera
+              let turn = if height > 0 then 2 * pi / height else 0
+                  next = orbitBy (-((toX - fromX) * turn)) (-((toY - fromY) * turn)) current
+              writeIORef drag (Just d {seen = here, going = True, moved = d.moved || next /= current})
+              when (next /= current) $ moveCamera runtime next
   FFI.onGesture holder "move" move
 
   up <- registerPermanent runtime $ \event -> do
     pointer <- FFI.pointerId event
     dragging <- readIORef drag
-    for_ dragging $ \d -> when (d.pointer == pointer) $ do
-      writeIORef drag Nothing
-      -- The release of a drag that turned the camera is no click, and the
-      -- camera is reported once, as the drag ends.
-      when d.moved $ do
-        writeIORef swallowClick True
-        readIORef camera >>= runtime.emit . CameraMoved
+    for_ dragging $ \d -> when (d.pointer == pointer) $ endDrag d
   FFI.onGesture holder "up" up
 
   -- The wheel raises an event a notch, so the camera is reported once the
@@ -385,6 +386,13 @@ installInteraction runtime@Runtime {holder, camera, drag, swallowClick} = do
   where
     clientPoint event = (,) <$> FFI.clientX event <*> FFI.clientY event
     far (x0, y0) (x1, y1) = sqrt ((x1 - x0) ^ (2 :: Int) + (y1 - y0) ^ (2 :: Int)) > slop
+    -- The end of a drag that turned the camera is no click, and the camera
+    -- is reported once, as the drag ends.
+    endDrag d = do
+      writeIORef drag Nothing
+      when d.moved $ do
+        writeIORef swallowClick True
+        readIORef camera >>= runtime.emit . CameraMoved
 
 ----------------------------------------------------------------------
 -- Teardown

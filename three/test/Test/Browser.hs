@@ -18,7 +18,7 @@ spec m = do
     Page.live `shouldReturn` 1
     eventually (Page.colorOf Scene.boxName `shouldReturn` Just Scene.firstColor)
 
-  it "hands a click on the box to its handler, and the parent hears it" $ runPage $ do
+  it "hands a click on the box to its handler, past a speck the camera clips, and the parent hears it" $ runPage $ do
     ui <- mountScene m
     find ui "canvas" >>= click
     find ui ".heard" >>= (`shouldHaveText` "clicks: 1, moves: 0")

@@ -14,10 +14,12 @@ A mesh's geometry and material are props of its node: a change of colour
 patches the material, a change of shape replaces the geometry, and whatever is
 replaced or taken out is disposed of, since Three.js keeps GPU resources until
 told. Pointer events are raycast from the canvas into the scene and handed to
-the nearest mesh, or to the nearest of its ancestors listening; a drag turns
-the camera about its target and the wheel zooms, and `CameraMoved` reports the
-camera once the gesture is over. The scene is drawn on demand, once in the
-frame after a change, and follows its parent's size.
+the nearest mesh the camera shows (one it clips, nearer than its near plane or
+beyond its far one, is passed over), or to the nearest of its ancestors
+listening; a drag turns the camera about its target and the wheel zooms, and
+`CameraMoved` reports the camera once the gesture is over. A view that takes
+the orbit away ends a drag under way where it is. The scene is drawn on
+demand, once in the frame after a change, and follows its parent's size.
 
 Three.js is imported from jsDelivr (version 0.186.1, its single-file ES module
 build) when a scene mounts, unless the `Config` names another module.

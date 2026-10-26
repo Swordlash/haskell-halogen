@@ -1,6 +1,7 @@
--- | A scene of one box at the origin, facing the default camera, in a
--- component that counts what the scene raises and can recolour the box or
--- take it away.
+-- | A scene of one box at the origin, facing the default camera, with a
+-- speck between the camera and its near plane in the way, in a component
+-- that counts what the scene raises and can recolour the box or take it
+-- away.
 module Example.Scene (component, Query (..), Heard (..), boxName, firstColor, secondColor) where
 
 import Clay qualified as C
@@ -58,8 +59,19 @@ component config =
         Three.defaultCamera
         Three.defaultInteraction
         ( TE.ambientLight 0xffffff 1
+            : TE.mesh (Three.Box 0.02 0.02 0.02) (Three.basic 0x000000) [TP.position speck, TP.onClick (const Nothing)]
             : [TE.mesh (Three.Box 1 1 1) (Three.basic st.color) [TP.name boxName, TP.onClick (const (Just ()))] | st.present]
         )
+
+    -- A speck on the camera's line of sight to the box, nearer to the camera
+    -- than its near plane: it is never drawn, so a click through it is a
+    -- click on the box. It listens so that a click picked on it by mistake
+    -- would be its, not the box's.
+    speck :: Three.Vec3
+    speck =
+      let Three.Vec3 x y z = Three.defaultCamera.position
+          k = 1 - 0.05 / sqrt (x * x + y * y + z * z)
+       in Three.Vec3 (k * x) (k * y) (k * z)
 
     handleAction :: Action -> H.HalogenM State Action Slots o m ()
     handleAction = \case
