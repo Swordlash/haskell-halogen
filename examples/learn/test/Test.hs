@@ -1,11 +1,12 @@
 -- | What the tutorial reads natively: the Markdown of a lesson's text
 -- ("Learn.Markdown"), read at compile time, so that what it gets wrong
 -- fails here rather than shows on a page, and GHC's output
--- ("Learn.Diagnostics").
+-- ("Learn.Diagnostics", "Learn.Types").
 module Main (main) where
 
 import Learn.Diagnostics (didNotCompile)
 import Learn.Markdown (Block (..), Inline (..), parseInlines, parseMarkdown)
+import Learn.Types (Binding (..), displayName, splitTypes)
 import Protolude
 import Test.Hspec (Spec, describe, hspec, it, shouldBe, shouldSatisfy)
 
@@ -13,6 +14,7 @@ main :: IO ()
 main = hspec $ do
   markdown
   diagnostics
+  types
 
 diagnostics :: Spec
 diagnostics = describe "Learn.Diagnostics" $ do
@@ -33,6 +35,29 @@ diagnostics = describe "Learn.Diagnostics" $ do
   it "does not read a warning, or the program's own failure, as one" $ do
     didNotCompile "/tmp/Lesson.hs:3:1: warning: [GHC-40910] [-Wunused-top-binds]\n    Defined but not used: `x'\n" `shouldBe` False
     didNotCompile "<interactive>: boom\nCallStack (from HasCallStack):\n  error, called at /tmp/Lesson.hs:12:5 in main:Lesson\n" `shouldBe` False
+
+types :: Spec
+types = describe "Learn.Types" $ do
+  it "takes the bindings out of what the program wrote, and leaves the rest as it was" $
+    splitTypes
+      ( unlines
+          [ "learn-type\t12\t1\trender\tState -> HH.HTML w Action"
+          , "learn-type\t30\t3\t<+>\tInt -> Int -> Int"
+          , "Hello"
+          , ""
+          , "learn-type: not one of them"
+          ]
+      )
+      `shouldBe` (
+                   [ Binding {line = 12, column = 1, name = "render", type_ = "State -> HH.HTML w Action"}
+                   , Binding {line = 30, column = 3, name = "<+>", type_ = "Int -> Int -> Int"}
+                   ]
+                 , "Hello\n\nlearn-type: not one of them\n"
+                 )
+  it "keeps a line whose position is not a number" $
+    splitTypes "learn-type\tx\t1\tf\tInt" `shouldBe` ([], "learn-type\tx\t1\tf\tInt")
+  it "puts an operator in parentheses" $
+    map displayName [Binding 1 1 "<+>" "Int", Binding 1 1 "_x" "Int", Binding 1 1 "x'" "Int"] `shouldBe` ["(<+>)", "_x", "x'"]
 
 markdown :: Spec
 markdown = describe "Learn.Markdown" $ do

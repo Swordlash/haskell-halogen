@@ -70,6 +70,7 @@ library
       Learn.Lessons.Embed
       Learn.Markdown
       Learn.Route
+      Learn.Types
       Learn.View
 
   if arch(javascript)
@@ -102,6 +103,7 @@ executable halogen-example-learn
           Learn.Lessons.Embed
           Learn.Markdown
           Learn.Route
+          Learn.Types
           Learn.View
       build-depends:
           aeson,

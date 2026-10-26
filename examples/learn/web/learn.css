@@ -275,6 +275,56 @@ span.learn-location {
   font-size: 0.85rem;
 }
 
+/* The live check: what it did, and the types of the module's bindings. */
+
+.learn-check {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.learn-bindings h2 {
+  margin: 0 0 4px;
+  font-size: 0.9rem;
+}
+
+.learn-bindings p {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.learn-bindings ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+button.learn-binding {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  text-align: left;
+  font-size: 0.85rem;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+button.learn-binding code {
+  background: none;
+  border: 0;
+  padding: 0;
+}
+
+button.learn-binding:hover code,
+button.learn-binding:focus-visible code {
+  text-decoration: underline;
+}
+
 .learn-error {
   color: var(--error);
 }

@@ -1,6 +1,7 @@
 // The code editor: CodeMirror 6 with its legacy Haskell mode, line numbers,
-// GHC's diagnostics as lint markers, Ctrl/Cmd+Enter to compile and Tab for
-// two spaces.
+// GHC's diagnostics as lint markers, the types of the module's top-level
+// bindings as tooltips over their names, Ctrl/Cmd+Enter to compile and Tab
+// for two spaces.
 //
 // Tab is the editor's, so it does not move the focus on, as it does
 // everywhere else: CodeMirror's own way out is kept (its tab-focus mode, see
@@ -12,12 +13,13 @@
 // it empty and never patches inside it) and talks to the editor only through
 // these functions; the editor tells the app what happens through one callback,
 // with a JSON string: {"type":"change","text":...} or {"type":"compile"}.
-import { Compartment, EditorState } from "@codemirror/state";
+import { Compartment, EditorState, StateEffect, StateField } from "@codemirror/state";
 import {
   EditorView,
   drawSelection,
   highlightActiveLine,
   highlightActiveLineGutter,
+  hoverTooltip,
   keymap,
   lineNumbers,
 } from "@codemirror/view";
@@ -34,6 +36,52 @@ const theme = EditorView.theme({
   ".cm-activeLine": { background: "var(--active-line)" },
   ".cm-activeLineGutter": { background: "var(--active-line)" },
   "&.cm-focused": { outline: "none" },
+  ".cm-tooltip": { background: "var(--panel)", color: "var(--fg)", border: "1px solid var(--border)" },
+  ".cm-learn-type": { fontFamily: "var(--mono)", padding: "2px 6px", whiteSpace: "pre-wrap", maxWidth: "70ch" },
+});
+
+// The types the app last gave (showTypes), by name: what the tooltips say.
+const setTypes = StateEffect.define();
+const types = StateField.define({
+  create: () => new Map(),
+  update(value, transaction) {
+    for (const effect of transaction.effects) if (effect.is(setTypes)) value = effect.value;
+    return value;
+  },
+});
+
+// A Haskell name's characters: what the word under the pointer is made of.
+const nameChar = /[\p{L}\p{N}_']/u;
+
+// Over a name that is one of the bindings', its type. The name is found by
+// its characters rather than by CodeMirror's words, which end at a prime
+// (x'). A name right after a dot is a qualified one (H.component) or a
+// record's field (st.count), neither of them the module's own binding, and
+// shows nothing; a local binding that has the name of a top-level one shows
+// the top-level one's type, which the tooltip cannot tell from it.
+const typeTooltip = hoverTooltip((view, pos) => {
+  const known = view.state.field(types);
+  if (known.size === 0) return null;
+  const line = view.state.doc.lineAt(pos);
+  const text = line.text;
+  let from = pos - line.from;
+  let to = from;
+  while (from > 0 && nameChar.test(text[from - 1])) from--;
+  while (to < text.length && nameChar.test(text[to])) to++;
+  if (from === to || text[from - 1] === ".") return null;
+  const binding = known.get(text.slice(from, to));
+  if (!binding) return null;
+  return {
+    pos: line.from + from,
+    end: line.from + to,
+    above: true,
+    create() {
+      const dom = document.createElement("div");
+      dom.className = "cm-learn-type";
+      dom.textContent = `${binding.name} :: ${binding.type}`;
+      return { dom };
+    },
+  };
 });
 
 export function create(parent, text, readOnly, onEvent) {
@@ -60,6 +108,8 @@ export function create(parent, text, readOnly, onEvent) {
         StreamLanguage.define(haskell),
         syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
         lintGutter(),
+        types,
+        typeTooltip,
         theme,
         editable.of([EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)]),
         keymap.of([
@@ -130,6 +180,12 @@ export function showDiagnostics(view, diagnostics) {
     return { from, to: Math.max(to, from), severity: d.severity === "warning" ? "warning" : "error", message: d.message };
   });
   view.dispatch(setDiagnostics(view.state, marks));
+}
+
+// The module's top-level bindings, as [{line, column, name, type}], in
+// place of those given before: the tooltips' types.
+export function showTypes(view, bindings) {
+  view.dispatch({ effects: setTypes.of(new Map(bindings.map((b) => [b.name, b]))) });
 }
 
 export function goto(view, line, column) {
