@@ -99,6 +99,7 @@ module Halogen.CustomElement
   )
 where
 
+import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar, withMVar)
 import Control.Exception (SomeException, displayException, mask, onException, throwIO, try)
 import Control.Monad (join, unless, void, when, (>=>))
@@ -253,7 +254,7 @@ define name definition component = withRunInIO $ \run -> do
   -- The definition this one takes over goes first, its elements' components
   -- with it.
   previous <- atomicModifyIORef' registry (\r -> (Map.delete name r, Map.lookup name r))
-  for_ previous $ \(_, disposePrevious, freePrevious) -> disposePrevious >> freePrevious
+  for_ previous snd
   -- The token comes from the page's registry, not from this program: two
   -- programs in one page (the tutorial's app and the program it compiled,
   -- or a run of browser GHCi after another) share the registry, and a
@@ -290,7 +291,7 @@ define name definition component = withRunInIO $ \run -> do
   -- program it compiled, a run of browser GHCi after another) defines the
   -- name: that program cannot see this one's registry. The callback is not
   -- freed with the others, since it may be the one running then; it is
-  -- freed when this program defines the name again.
+  -- freed a moment later, from a thread of its own (see disposeAll).
   disposeRef <- newIORef (pure ())
   onDispose <- mkSyncCallback (\_ -> join (readIORef disposeRef))
   let callbacks = [onConnect, onChange, onDisconnect, onMethod]
@@ -317,11 +318,17 @@ define name definition component = withRunInIO $ \run -> do
         already <- atomicModifyIORef' disposed (True,)
         unless already $ do
           js_inert (toJSText name) token
-          atomicModifyIORef' registry (\r -> (Map.update (\entry@(t, _, _) -> if t == token then Nothing else Just entry) name r, ()))
+          atomicModifyIORef' registry (\r -> (Map.update (\entry -> if fst entry == token then Nothing else Just entry) name r, ()))
           atomicModifyIORef' instances (IntMap.empty,) >>= traverse_ disposeInstance
           traverse_ freeCallback callbacks
+          -- Freed once whatever called this has returned: when the page's
+          -- registry disposes of this definition for another program, the
+          -- caller is onDispose itself, which must not go away under its
+          -- own call. A thread that first waits yields to the page, so the
+          -- call is over by the time it frees.
+          void (forkIO (threadDelay 10000 >> freeCallback onDispose))
   writeIORef disposeRef disposeAll
-  atomicModifyIORef' registry (\r -> (Map.insert name (token, disposeAll, freeCallback onDispose) r, ()))
+  atomicModifyIORef' registry (\r -> (Map.insert name (token, disposeAll) r, ()))
   -- An element already on the page that fails to mount (its component's
   -- initialState threw, say) fails the definition: the elements mounted
   -- before it, the callbacks and the name's hooks go with it, so that a
@@ -331,12 +338,11 @@ define name definition component = withRunInIO $ \run -> do
   pure Registration {dispose = liftIO disposeAll}
 
 -- | The names defined in this program, each with the token of its current
--- definition, how to dispose of it, and how to free the callback the page
--- disposes of it through. The page's registry has that callback too, for
--- another program defining the name; this one is for the same program
--- defining it again, which disposes of the last definition before the
--- page is asked, and may then free the callback, which is not running.
-registry :: IORef (Map Text (Int, IO (), IO ()))
+-- definition and how to dispose of it: what the same program defining a
+-- name again disposes of before it asks the page. (The page's registry
+-- keeps a callback for the same purpose, for another program defining
+-- the name.)
+registry :: IORef (Map Text (Int, IO ()))
 registry = unsafePerformIO (newIORef Map.empty)
 {-# NOINLINE registry #-}
 
