@@ -27,8 +27,16 @@
 // sign are a trigraph, which the C compiler warns of.
 function halogen_custom_element_registry() {
   const key = Symbol.for("haskell-halogen-custom-element");
-  if (!globalThis[key]) globalThis[key] = { entries: new Map(), nextId: 1 };
+  if (!globalThis[key]) globalThis[key] = { entries: new Map(), nextId: 1, nextToken: 1 };
   return globalThis[key];
+}
+
+// Each definition's number, which inert checks against the entry's: it is
+// the page's, so that two Haskell programs in one page (the tutorial's app
+// and the program it compiled, browser GHCi's runs) cannot give two
+// definitions one number.
+function halogen_custom_element_fresh_token() {
+  return halogen_custom_element_registry().nextToken++;
 }
 
 // What this file keeps on an element: its number, the properties set on it,

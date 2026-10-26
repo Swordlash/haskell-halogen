@@ -134,6 +134,7 @@ import Web.Event.Internal.Types (Event (..))
 $( browserJS
      ["jsbits/custom-element.js"]
      [ ("js_define", "halogen_custom_element_define", Unsafe, [t|JSText -> Int -> JSText -> JSText -> Int -> JSText -> Callback -> Callback -> Callback -> Callback -> IO JSVal|])
+     , ("js_fresh_token", "halogen_custom_element_fresh_token", Unsafe, [t|IO Int|])
      , ("js_inert", "halogen_custom_element_inert", Unsafe, [t|JSText -> Int -> IO ()|])
      , ("js_instance_id", "halogen_custom_element_instance_id", Unsafe, [t|JSVal -> IO Int|])
      , ("js_mount_point", "halogen_custom_element_mount_point", Unsafe, [t|JSVal -> IO JSVal|])
@@ -253,7 +254,11 @@ define name definition component = withRunInIO $ \run -> do
   -- with it.
   previous <- atomicModifyIORef' registry (\r -> (Map.delete name r, Map.lookup name r))
   for_ previous snd
-  token <- atomicModifyIORef' tokens (\n -> (n + 1, n))
+  -- The token comes from the page's registry, not from this program: two
+  -- programs in one page (the tutorial's app and the program it compiled,
+  -- or a run of browser GHCi after another) share the registry, and a
+  -- disposal of one's registration must not be taken for the other's.
+  token <- js_fresh_token
   instances <- newIORef IntMap.empty
   let mountElement element = do
         key <- js_instance_id element
@@ -323,12 +328,6 @@ define name definition component = withRunInIO $ \run -> do
 registry :: IORef (Map Text (Int, IO ()))
 registry = unsafePerformIO (newIORef Map.empty)
 {-# NOINLINE registry #-}
-
--- | Each definition's number, so that the page's registry can tell whether
--- a disposal is of the definition it has or of one taken over since.
-tokens :: IORef Int
-tokens = unsafePerformIO (newIORef 0)
-{-# NOINLINE tokens #-}
 
 -- | What the browser would say of the name, as it would say it: a name it
 -- would not take is a @SyntaxError@. The browser has a few more rules (a
