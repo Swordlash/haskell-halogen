@@ -60,6 +60,7 @@ walking probe =
     , AD.removeChild = \_ -> pure ()
     , AD.dispose = \_ -> pure ()
     , AD.sameElement = \_ _ -> pure False
+    , AD.rootNode = \_ -> pure Nothing
     }
   where
     render

@@ -79,7 +79,10 @@ spec, hspec's report under the editor: one failure for `Start.hs`, none for
 `Solution.hs`, and nothing left in the result; for lesson 14, whose program
 puts a page of its own around the lesson's custom element, that the element
 and the page's buttons do what the text says, before the exercise and after
-it), that back, forward, a second visit
+it; for lesson 16, whose program opens `Halogen.DevTools`' panel under the
+component, that the panel lists the component and counts a click, and that
+its count of renders climbs every second for `Start.hs` and not for
+`Solution.hs`), that back, forward, a second visit
 (from the cache) and Reset work, that a narrow screen downloads nothing large
 until asked, that a failed load can be retried and loads from a manifest
 without a version or sizes too, and that nothing is logged as an error.
@@ -134,8 +137,9 @@ args: -package haskell-halogen-hooks
   lesson needs it and passes its package database to GHC (`-package-db`).
   The rootfs has `hooks`, `router`, `net`, `material`, `pixi`, `th` and
   `store`, one per package of the same name (`haskell-halogen-hooks`, ...),
-  `elements`, for `haskell-halogen-custom-element`, and `hspec`, for
-  `hspec-halogen` (see `learn/README.md`, "Layers").
+  `elements`, for `haskell-halogen-custom-element`, `devtools`, for
+  `haskell-halogen-devtools`, and `hspec`, for `hspec-halogen` (see
+  `learn/README.md`, "Layers").
 - `args` (optional): further GHC arguments, separated by spaces, after the
   ones every compile has (`-package haskell-halogen-core
   -Wno-missed-extra-shared-lib -i/tmp`). A layer's package still has to be
@@ -216,7 +220,11 @@ into `#learn-result`, and `HA.keepForNextRun` with whatever ends what it
 started. Lesson 14's puts plain HTML and a script into `#learn-result`
 rather than mount there, defines a custom element over it from the
 `definition` its `Lesson` exports beside `component`, and keeps the
-registration's `dispose` and the HTML's removal. A `Main.hs` may also run a
+registration's `dispose` and the HTML's removal. Lesson 16's puts two
+elements into `#learn-result`, opens `Halogen.DevTools`' panel in the second
+(after `DevTools.showing @State`, which is why its `Lesson` exports `State`
+beside `component`) and then mounts the component in the first, and keeps
+both sockets' `dispose` and the elements' removal. A `Main.hs` may also run a
 spec of the lesson's instead, as lesson 13's does: `Lesson` exports `spec` beside `component`, and `main` is
 `HA.endPreviousRun` then `runBrowserTestsIn result (spec BrowserDOM)`
 (`hspec-halogen`'s `Test.Hspec.Halogen`), which runs each test in a page of

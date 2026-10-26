@@ -10,6 +10,7 @@ import Control.Monad.State (modify)
 import Data.Row (Empty, type (.+), type (.==))
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Typeable (Typeable)
 import Data.Void (Void)
 import Halogen qualified as H
 import Halogen.HTML qualified as HH
@@ -30,8 +31,10 @@ reduce store Increment = store {count = store.count + 1}
 reduce store (Rename new) = store {name = new}
 
 -- Shows the part of the store it is connected to, and how many times it
--- was rendered again because that part changed.
-display :: forall a q o m. (MonadIO m) => Text -> (a -> Text) -> H.Component q (Store.Connected a ()) o m
+-- was rendered again because that part changed. Its state holds a value of
+-- the type a, and a component's state must be Typeable (Halogen's trace
+-- names a component after its state's type), hence the constraint.
+display :: forall a q o m. (Typeable a, MonadIO m) => Text -> (a -> Text) -> H.Component q (Store.Connected a ()) o m
 display label toText =
   H.component initialState render [H.onReceive receive]
   where

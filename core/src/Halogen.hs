@@ -10,7 +10,7 @@ module Halogen
 where
 
 import HPrelude
-import Halogen.Component (Component (..), ComponentSlot, ComponentSlotBox, ComponentSpec' (..), EvalSpec (..), Handler, componentSlot, componentSpec, defaultEval, hoist, mkComponent, mkEval, onAction, onFinalize, onInitialize, onQuery, onReceive)
+import Halogen.Component (Component (..), ComponentInfo (..), ComponentSlot, ComponentSlotBox, ComponentSpec' (..), EvalSpec (..), Handler, componentSlot, componentSpec, defaultEval, hoist, mkComponent, mkEval, named, onAction, onFinalize, onInitialize, onQuery, onReceive)
 import Halogen.Data.Slot (Slot, VoidF)
 import Halogen.HTML (ComponentHTML)
 import Halogen.HTML.Core (AttrName (..), ClassName (..), ElemName (..), HTML, Namespace (..), PropName (..))
@@ -30,7 +30,8 @@ import Halogen.Query (ForkId, HalogenF (..), HalogenM (..), HalogenQ (..), RefLa
 -- messages with one function.
 component
   :: forall state query action slots input output m
-   . (input -> m state)
+   . (Typeable state)
+  => (input -> m state)
   -> (state -> HTML (ComponentSlot slots m action) action)
   -> [Handler state query action slots input output m]
   -> Component query input output m

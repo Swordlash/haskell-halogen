@@ -25,6 +25,7 @@ import Test.Runtime qualified as Runtime
 import Test.Static qualified as Static
 import Test.Storage qualified as Storage
 import Test.SvgAttributes qualified as SvgAttributes
+import Test.Trace qualified as Trace
 import Test.WindowEvents qualified as WindowEvents
 
 main :: IO ()
@@ -49,4 +50,5 @@ main = hspec $ do
   Static.spec
   Storage.spec
   SvgAttributes.spec
+  Trace.spec
   WindowEvents.spec

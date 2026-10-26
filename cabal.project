@@ -9,6 +9,7 @@ packages:
   store
   net
   custom-element
+  devtools
   tauri
   hspec-halogen
   th

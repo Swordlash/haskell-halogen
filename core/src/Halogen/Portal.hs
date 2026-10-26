@@ -73,7 +73,10 @@ wrapper
    . (MonadIO m)
   => H.Component (Query input query) (State query input output m) output m
 wrapper =
-  H.mkComponent
+  -- The state holds the child component, whose types are the caller's, so
+  -- it is not 'Typeable': the trace counts what the wrapper does without
+  -- carrying its states.
+  H.Component H.ComponentInfo {label = "Halogen.Portal.wrapper", stateType = Nothing}
     $ H.ComponentSpec
       { initialState = pure
       , render
@@ -107,7 +110,8 @@ component
    . (MonadBrowserDOM m, MonadUnliftIO m)
   => H.Component q (Input q i o m) o m
 component =
-  H.mkComponent
+  -- Not 'Typeable' either: see 'wrapper'.
+  H.Component H.ComponentInfo {label = "Halogen.Portal", stateType = Nothing}
     $ H.ComponentSpec
       { initialState = \Input {..} -> pure State {socket = Nothing, ..}
       , render

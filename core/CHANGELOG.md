@@ -2,6 +2,47 @@
 
 ## Unreleased
 
+- A program can watch what its component trees do. `Halogen.Trace.subscribe`
+  takes a listener, which every tree of the program then tells, as it
+  happens, of each component made (`Mounted`), initialized and finalized,
+  each render and how long it took, each action handled, state change,
+  query answered and output raised, and each subscription and fork. An
+  event says which component it is about with a `Tag`: an id unique in the
+  program, the parent's id, and a label, which is the name of the state's
+  type (`Example.Counter.State`) unless `H.named "Counter"` gives the
+  component another. A state change carries the new state as a `Dynamic`,
+  and `Trace.restoreState` puts such a state back into its component, which
+  renders it as a `put` would; `Trace.rootNode` finds the DOM node a
+  component stands for on the page. With no listener the driver builds no
+  event and keeps no registry of components, so a program that does not
+  listen pays a read of a reference at each place it would report from.
+  Only components made while someone listens can be restored or found:
+  listen before mounting. `haskell-halogen-devtools` shows the trace in a
+  panel over the page, and `hspec-halogen` prints its last events when a
+  test fails.
+
+- `H.mkComponent` and `H.component` ask for `Typeable` of the component's
+  state, for the label and for the states a trace carries. A state declared
+  with `data` or `newtype` has it already; a component whose state's type
+  has a type variable in it (`H.Component q (Form a) o m` with a
+  `State a`) needs `Typeable a` in its signature. A state that mentions the
+  component's monad (one that keeps an `m` action, a component, or HTML of
+  `m`'s) cannot reasonably ask for `Typeable m`: build such a component
+  with the constructor instead, `H.Component H.ComponentInfo {label =
+  "Widget", stateType = Nothing} (H.componentSpec initialState render &
+  H.onAction handleAction)`, and the trace counts what it does without
+  carrying its states. `Halogen.Portal`, `Halogen.Canvas`, material's lists
+  and tabs, custom elements' wrappers and hooks components are built so.
+  The action's type is not asked for, so a component that handles no
+  action still compiles as it did. `Halogen.Component.Debounced`'s two
+  functions ask for `Typeable` of the state too. Code that matches or
+  builds the `Component` constructor gets its first field, the
+  `ComponentInfo`, and `H.hoist` keeps it.
+
+- `Halogen.IO.Driver.RenderSpec` has a field `rootNode`, the DOM node that
+  stands for a component's rendering (for `Trace.rootNode`): a render spec
+  of one's own whose output is not the DOM's gives `\_ -> pure Nothing`.
+
 - A component is built from its handlers: `H.component initialState render
   [H.onAction handleAction, H.onInitialize start]`, with `H.onQuery`,
   `H.onFinalize` and `H.onReceive` for the rest, in any order. Each

@@ -2,6 +2,12 @@
 
 ## 0.1.0.0 -- unreleased
 
+* In core's trace (`Halogen.Trace`, and what `haskell-halogen-devtools`
+  shows), a hooks component is labelled with the module that called
+  `Hooks.component`, which now has a `HasCallStack` constraint for that:
+  its state is the hooks' own and its type would say nothing of the
+  component. `H.named` gives it another label. Its states are counted but
+  not carried, since they are not `Typeable`.
 * `Halogen.Hooks.Extra.Actions.Events` says when its `preventDefault` and
   `stopPropagation` are too late (an event that arrives while the tree is
   busy has its handler run after the browser has acted on it) and points

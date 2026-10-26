@@ -17,6 +17,7 @@ where
 import Control.Applicative.Free.Fast (runAp)
 import Control.Exception (throwIO)
 import Control.Monad.Free.Church (foldF)
+import Data.Dynamic (Dynamic (..))
 import Data.Foreign
 import Data.Functor.Coyoneda
 import Data.IntMap.Strict qualified as IntMap
@@ -31,6 +32,7 @@ import Halogen.Query.HalogenM hiding (fork, join, kill, query, unsubscribe)
 import Halogen.Query.HalogenQ qualified as HQ
 import Halogen.Query.Input qualified as Input
 import Halogen.Subscription qualified as HS
+import Halogen.Trace.Internal qualified as Trace
 
 -- | Thrown by the runner 'withRunInIO' hands out when the component went
 -- away before the program it was given could finish.
@@ -67,11 +69,12 @@ evalM var (HalogenM hm) = foldF go hm
         when (life == Alive) $ do
           sub <- HS.subscribe (fes sid) $ \act -> enterCallback ds.tree.loop (launchAction var act)
           modifyIORef' ds.subscriptions (M.insert sid sub)
+          Trace.emit ds.tag (Trace.Subscribed sid)
         pure (k sid)
       Unsubscribe sid next -> sync $ do
         ds <- readIORef var
         sub <- atomicModifyIORef' ds.subscriptions (\subs -> (M.delete sid subs, M.lookup sid subs))
-        traverse_ HS.unsubscribe sub
+        for_ sub $ \s -> HS.unsubscribe s >> Trace.emit ds.tag (Trace.Unsubscribed sid)
         pure next
       Lift aff -> do
         ds <- sync (readIORef var)
@@ -96,6 +99,7 @@ evalM var (HalogenM hm) = foldF go hm
       Raise o a -> sync $ do
         ds <- readIORef var
         handler <- readIORef ds.handlerRef
+        Trace.emit ds.tag Trace.Raised
         queueOrRun ds.pendingOuts (handler o)
         pure a
       Par (HalogenAp p) -> sequentialTurn $ runAp (ParTurn . evalM var) p
@@ -106,12 +110,13 @@ evalM var (HalogenM hm) = foldF go hm
           fid <- fresh ForkId ds
           -- Registered before it starts: it may end, and strike itself off,
           -- before 'launchOwned' returns.
+          Trace.emit ds.tag (Trace.Forked fid)
           launchOwned
             var
             (fiberClosingOk me)
             (\fb -> modifyIORef' ds.forks (M.insert fid fb))
             (evalM var hmu)
-            (\outcome -> modifyIORef' ds.forks (M.delete fid) >> report "A fork" outcome)
+            (\outcome -> modifyIORef' ds.forks (M.delete fid) >> Trace.emit ds.tag (Trace.ForkEnded fid) >> report "A fork" outcome)
           pure (k fid)
       Join fid a -> do
         ds <- sync (readIORef var)
@@ -128,7 +133,8 @@ evalM var (HalogenM hm) = foldF go hm
         pure a
       Kill fid a -> sync $ do
         ds <- readIORef var
-        traverse_ cancelFiber . M.lookup fid =<< readIORef ds.forks
+        running <- M.lookup fid <$> readIORef ds.forks
+        for_ running $ \fb -> Trace.emit ds.tag (Trace.Killed fid) >> cancelFiber fb
         pure a
       Throw e -> throwTurn e
       Catch body handler k -> k <$> catchTurn (evalM var body) (evalM var . handler)
@@ -147,6 +153,7 @@ evalM var (HalogenM hm) = foldF go hm
           | unsafeRefEq state state' -> pure a
           | otherwise -> do
               writeIORef var ds {state = state'}
+              Trace.emit ds.tag (Trace.StateChanged (stateDynamic ds.info state'))
               -- Rendered before the program goes on, so that what it reads
               -- next (a ref, say) is the new state's.
               a <$ treeRender ds.tree var
@@ -168,6 +175,7 @@ queryChild var q = suspend $ \resume -> do
 evalQ :: IORef (DriverState m r s f act ps i o) -> f a -> Turn (Maybe a)
 evalQ var q = do
   ds <- sync (readIORef var)
+  sync (Trace.emit ds.tag Trace.Queried)
   evalM var (runNT ds.component.eval (HQ.Query (Just <$> liftCoyoneda q) (const Nothing)))
 
 -- | Start a program as a fiber of the component: it runs until it first
@@ -200,6 +208,7 @@ launchOwned var closingOk register program outcome = do
 launchAction :: IORef (DriverState m r s f act ps i o) -> act -> IO ()
 launchAction var act = do
   ds <- readIORef var
+  Trace.emit ds.tag Trace.Action
   launchOwned var False (const pass) (evalM var (runNT ds.component.eval (HQ.Action act ()))) (report "An action")
 
 -- | A program no component owns: the lifecycle work of a render
@@ -236,6 +245,10 @@ report :: Text -> Outcome a -> IO ()
 report what = \case
   Failed e -> hPutStrLn stderr ("Halogen: " <> what <> " failed: " <> show e)
   _ -> pass
+
+-- | A state as the trace carries it, when its type is known.
+stateDynamic :: ComponentInfo s -> s -> Maybe Dynamic
+stateDynamic info s = (`Dynamic` s) <$> info.stateType
 
 fresh :: (Int -> a) -> DriverState m r s f act ps i o -> IO a
 fresh f ds = atomicModifyIORef' ds.fresh (\i -> (i + 1, f i))

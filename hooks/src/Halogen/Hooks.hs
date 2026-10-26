@@ -113,7 +113,8 @@ module Halogen.Hooks
   )
 where
 
-import Halogen.Component (Component, ComponentSpec' (..), mkComponent)
+import GHC.Stack (srcLocModule)
+import Halogen.Component (Component (..), ComponentInfo (..), ComponentSpec' (..))
 import Halogen.Hooks.Internal.Eval (HookState (..), evalHook, initialHookState)
 import Halogen.Hooks.Internal.Hook
 import Halogen.Hooks.Internal.HookM
@@ -135,18 +136,28 @@ import Protolude hiding (fmap, get, gets, modify, pure, put, return, state, void
 -- belong to it alone: see 'StateId'. Writing one changes nothing about how a
 -- component is written, but a handle that leaves the component — raised as an
 -- output, kept in a ref that outlives it — no longer type-checks.
+--
+-- In the trace ("Halogen.Trace", and what "Halogen.DevTools" shows) the
+-- component is labelled with the module that called this, since its state
+-- is the hooks' own and says nothing of it; 'Halogen.named' gives it another
+-- label. Its states are not carried (they are not 'Typeable'), only counted.
 component
   :: forall slots q input output m hooks
-   . (MonadIO m, AtMostOneQuery hooks)
+   . (HasCallStack, MonadIO m, AtMostOneQuery hooks)
   => (forall scope. HookFn scope q input slots output m hooks)
   -> Component q input output m
 component hookFn =
-  mkComponent
+  Component
+    ComponentInfo {label = caller, stateType = Nothing}
     ComponentSpec
       { initialState = initialHookState (hookFn @ComponentScope)
       , render = \st -> st.result
       , eval = evalHook
       }
+  where
+    caller = case getCallStack callStack of
+      (_, at) : _ -> toS (srcLocModule at)
+      [] -> "Halogen.Hooks"
 
 -- | The scope every component's state handles are run at.
 --

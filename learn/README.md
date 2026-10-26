@@ -180,8 +180,8 @@ its own. A library two layers both need belongs in the base layer:
 `learn-inject.py` is given the other layers' DBs (`--taken`) and stops the
 build if a layer's closure reaches a unit another layer already carries, as
 two copies of one library in a session would be two libraries to dyld. Today
-no two layers share anything: hooks, router, net, elements, pixi and store
-need only themselves beyond the base layer, material also `clock` and `extra`, th its
+no two layers share anything: hooks, router, net, elements, devtools, pixi and
+store need only themselves beyond the base layer, material also `clock` and `extra`, th its
 parsers, hspec hspec's own closure (`hspec`, `hspec-core`, `HUnit`,
 `ansi-terminal` and the rest; `QuickCheck` and its generators are in the
 base layer already), none of it a boot package the script trims.
@@ -199,19 +199,23 @@ which loads its libraries into dyld and compiles. Three runs of
 | `router` | `haskell-halogen-router` | 1 | 0.88 MB | 0.14 MB | none | 22–23 ms | 2.8–3.5 s |
 | `net` | `haskell-halogen-net` | 1 | 0.68 MB | 0.11 MB | none | 21–29 ms | 0.6–0.8 s |
 | `elements` | `haskell-halogen-custom-element` | 1 | 0.43 MB | 0.08 MB | none | 22–25 ms | 0.5–0.7 s |
+| `devtools` | `haskell-halogen-devtools` | 1 | 0.71 MB | 0.11 MB | none | 23–24 ms | 1.2–1.5 s |
 | `material` | `haskell-halogen-material` (+ `clock`, `extra`) | 3 | 2.58 MB | 0.36 MB | `material.js` 127 KB, `material.css` 206 KB; the Material Icons font from fonts.gstatic.com | 56–65 ms | 0.7–1.3 s |
 | `pixi` | `haskell-halogen-pixi` | 1 | 0.97 MB | 0.15 MB | none; PixiJS 8.20.1 from jsDelivr (0.8 MB), which the library imports itself | 27–31 ms | 1.4–1.6 s |
 | `th` | `haskell-halogen-th` (+ `ghc-lib-parser`, `megaparsec`, `parser-combinators`, `tagsoup`, `css-syntax`, `case-insensitive`) | 7 | 194.7 MB | 21.4 MB | none | 2.1–3.9 s | 8.0–12.0 s |
 | `hspec` | `hspec-halogen` (+ `hspec`, `hspec-core`, `hspec-expectations`, `hspec-discover`, `HUnit`, `quickcheck-io`, `ansi-terminal`, `ansi-terminal-types`, `colour`, `call-stack`, `haskell-lexer`) | 12 | 12.6 MB | 1.34 MB | none | 98–100 ms | 3.6–4.1 s |
 | `store` | `haskell-halogen-store` | 1 | 0.49 MB | 0.07 MB | none | 23–25 ms | 0.9–1.7 s |
-| **all nine** | | 28 | 214.2 MB | 24.3 MB | 0.33 MB | 2.0–2.3 s | |
-| all but `th` | | 21 | 19.5 MB | 2.38 MB | 0.33 MB | 0.30–0.31 s | |
+| **all ten** | | 29 | 214.9 MB | 24.4 MB | 0.33 MB | 1.9–2.3 s | |
+| all but `th` | | 22 | 20.3 MB | 2.49 MB | 0.33 MB | 0.30–0.32 s | |
 
 (The `hspec` row is from three later runs, on a machine other builds were
-sharing; `th` loaded in 1.6–1.8 s in them. The `elements` row is from three runs later again, of a rootfs in which
-`th`'s archive was 21.9 MB and `material`'s 2.61 MB uncompressed, and `th`
-loaded in 1.5–1.8 s; the `store` row and the two totals from three runs of
-the same rootfs with `store` added, in which `th` loaded in 1.7–2.0 s.)
+sharing; `th` loaded in 1.6–1.8 s in them. The `elements` row is from
+three runs later again, of a rootfs in which `th`'s archive was 21.9 MB and
+`material`'s 2.61 MB uncompressed, and `th` loaded in 1.5–1.8 s. The
+`store` and `devtools` rows are each from three runs of a rootfs with that
+layer added to the eight before it, in which `th` loaded in 1.6–2.0 s; the
+two totals are those runs' totals with the other row's sizes added, and
+their loads span both.)
 `hspec`'s archive is small enough that the harness is a layer like any
 other, with `hspec` itself rather than `hspec-core` alone: `hspec-core` is
 4.1 MB of its 10.9 MB of `.so`, `haskell-lexer` 3.0 MB and `colour` 1.4 MB,
@@ -229,7 +233,10 @@ runs: hooks, a `Hooks.useState` counter, clicked; router, a
 test's server serves, its text shown; elements, a
 `Halogen.CustomElement.define` over HTML already in `#app`, the element's
 shadow root then showing its component, which hears the attribute the page
-sets afterwards, and the HTML taken out again when the next run starts; material, `Halogen.Material.Button`
+sets afterwards, and the HTML taken out again when the next run starts;
+devtools, `Halogen.DevTools.open`'s panel over the page, then a counter in
+`#app`, which the panel lists under its name and whose click it counts;
+material, `Halogen.Material.Button`
 mounted, its ripple attached by `material.js` (`mdc-ripple-upgraded`), its
 colour from `material.css`, clicked; pixi, a rectangle on a Pixi canvas
 (PixiJS from the CDN), tapped until the tap reaches the scene (Pixi
@@ -526,7 +533,8 @@ It proves:
 - Every package of the project a lesson would use works from a layer loaded
   on demand, after runs without it: hooks, router, net, elements (a custom
   element whose class's callbacks call into the interpreted program's
-  component), material (with its
+  component), devtools (a panel listening to the interpreted program's
+  trace), material (with its
   CSS and JavaScript on the page), pixi (PixiJS from its CDN), th, whose
   quasi-quoter runs ghc-lib-parser inside the page's GHC, store (a tree run
   through `runStoreT`, whose interpreted components share one store), and

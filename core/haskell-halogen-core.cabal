@@ -161,6 +161,7 @@ library
       Halogen.Subscription
 
       Halogen.Portal
+      Halogen.Trace
 
       Halogen.Svg.Attributes
       Halogen.Svg.Elements
@@ -201,6 +202,7 @@ library
     other-modules:
       HPrelude
       Halogen.IO.Driver.Mount
+      Halogen.Trace.Internal
     
     hs-source-dirs:   src
 
@@ -277,6 +279,7 @@ test-suite Halogen-core-test
                     Test.Static
                     Test.Storage
                     Test.SvgAttributes
+                    Test.Trace
                     Test.Utils
                     Test.WindowEvents
 

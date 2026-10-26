@@ -52,14 +52,15 @@ connect
   -> H.Component query (Connected context input) output m
   -> H.Component query input output m
 connect selector inner =
-  H.component
-    initialState
-    render
-    [ H.onInitialize initialize
-    , H.onAction handleAction
-    , H.onReceive (handleAction . Receive)
-    , H.onQuery (H.query "inner" ())
-    ]
+  -- Its state holds the context and the input, of any types: asking for
+  -- 'Typeable' of them would ask every connected component's for it, so the
+  -- trace counts what the wrapper does without carrying its states.
+  H.Component H.ComponentInfo {label = "Halogen.Store.connect", stateType = Nothing} $
+    H.componentSpec initialState render
+      & H.onInitialize initialize
+      & H.onAction handleAction
+      & H.onReceive (handleAction . Receive)
+      & H.onQuery (H.query "inner" ())
   where
     initialState :: input -> m (Connected context input)
     initialState input = do

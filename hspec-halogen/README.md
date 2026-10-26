@@ -329,6 +329,31 @@ how it went.
   eventually $ getProperty input "value" `shouldReturn` "saved"
   ```
 
+### What the tree did
+
+While a test runs, its page keeps the last 50 events of core's trace
+(`Halogen.Trace`): what the components it mounted did, from their mounting
+on. A test that fails prints them after its own message, oldest first, with
+the time since the test started, the component's label (its state's type,
+or what `H.named` called it) and id, and what happened:
+
+```
+expected text "2", found "1"
+
+What the tree did (the last 50 events, oldest first):
+    0.4 ms  Counter#7  mounted
+    0.5 ms  Counter#7  rendered in 0.1 ms
+    0.5 ms  Counter#7  initialized
+   12.3 ms  Counter#7  action
+   12.9 ms  Counter#7  state changed
+   13.0 ms  Counter#7  rendered in 0.4 ms
+```
+
+So a failure says whether the click arrived, whether the state changed and
+whether the change rendered, not only what was expected. A failure of the
+`shouldBe` kind prints the section before what was expected and what came.
+Nothing is kept for a passing test, and nothing at all while no test runs.
+
 ### Parallel tests
 
 A page has one mouse, one keyboard and one focused element, so pages open one

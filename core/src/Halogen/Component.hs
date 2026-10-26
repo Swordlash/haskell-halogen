@@ -3,6 +3,7 @@ module Halogen.Component where
 import Data.Functor.Coyoneda (Coyoneda (..))
 import Data.NT
 import Data.Row (HasType, Row)
+import Data.Typeable qualified as Typeable
 import HPrelude hiding (get)
 import Halogen.Data.Slot hiding (pop)
 import Halogen.Data.Slot qualified as Slot
@@ -12,6 +13,8 @@ import Halogen.Query.HalogenM qualified as HM
 import Halogen.Query.HalogenQ
 import Halogen.VDom.Thunk hiding (hoist)
 import Halogen.VDom.Thunk qualified as Thunk
+import Text.Show (showsPrec)
+import Type.Reflection (SomeTypeRep (..), tyConModule, tyConName, tyConPackage)
 
 data ComponentSlotBox slots m msg = forall query input output. ComponentSlotBox
   { get :: forall slot. SlotStorage slots slot -> Maybe (slot query output)
@@ -42,12 +45,64 @@ data ComponentSpec' state query action slots input output m n = ComponentSpec
 type ComponentSpec state query action slots input output m =
   ComponentSpec' state query action slots input output m (HalogenM state action slots output m)
 
+-- | A component: its spec, with what "Halogen.Trace" shows of it.
 data Component query input output m
   = forall model msg slots.
-    Component (ComponentSpec model query msg slots input output m)
+    Component (ComponentInfo model) (ComponentSpec model query msg slots input output m)
 
-mkComponent :: forall state query action slots input output m. ComponentSpec state query action slots input output m -> Component query input output m
-mkComponent = Component
+-- | What "Halogen.Trace" knows of a component besides its spec: the label
+-- it is shown under, and the type of its state, when it is 'Typeable'. With
+-- the type, a trace can carry the component's states (and put an earlier one
+-- back, 'Halogen.Trace.restoreState'); without it the trace still counts
+-- what the component does.
+--
+-- 'mkComponent' fills it in. A component whose state cannot be 'Typeable'
+-- (one that keeps an @m@ action, or something of a type variable's, in its
+-- state, as "Halogen.Portal" does) is built with the constructor and
+-- @stateType = Nothing@ instead:
+--
+-- > H.Component H.ComponentInfo {label = "Widget", stateType = Nothing} (H.componentSpec initialState render & H.onAction handleAction)
+data ComponentInfo state = ComponentInfo
+  { label :: Text
+  , stateType :: Maybe (TypeRep state)
+  }
+
+-- | A component from its spec. Its state's type must be 'Typeable', which
+-- every type declared with @data@ or @newtype@ is: the trace
+-- ("Halogen.Trace") labels the component with the type's name and carries
+-- its states. A state whose type mentions a type variable needs the
+-- constraint passed on, or, for one that mentions @m@, see 'ComponentInfo'.
+--
+-- The action's type is not asked for: a component that handles no action
+-- leaves it ambiguous, which a constraint on it would not allow.
+mkComponent
+  :: forall state query action slots input output m
+   . (Typeable state)
+  => ComponentSpec state query action slots input output m
+  -> Component query input output m
+mkComponent =
+  Component
+    ComponentInfo
+      { label = typeLabel (typeRep @state)
+      , stateType = Just (typeRep @state)
+      }
+
+-- | The component, labelled in the trace ("Halogen.Trace", and what
+-- "Halogen.DevTools" shows) with this rather than its state's type: for
+-- two components that share a state type, or one whose type says little
+-- (a hooks component's).
+named :: forall query input output m. Text -> Component query input output m -> Component query input output m
+named label (Component info spec) = Component info {label} spec
+
+-- | A type's name as a label: qualified with its module (@Example.Counter.State@),
+-- except for base's own types, which read as they are written (@Int@,
+-- @Maybe Text@).
+typeLabel :: TypeRep a -> Text
+typeLabel rep
+  | tyConPackage con `elem` ["base", "ghc-prim", "ghc-internal"] = show rep
+  | otherwise = toS (tyConModule con) <> "." <> toS (tyConName con) <> foldMap ((" " <>) . toS . ($ "") . showsPrec 11) args
+  where
+    (con, args) = Typeable.splitTyConApp (SomeTypeRep rep)
 
 -- | Constructs a ComponentSlot
 -- |
@@ -87,8 +142,8 @@ hoist
   => (m ~> m')
   -> Component query input output m
   -> Component query input output m'
-hoist nat (Component ComponentSpec {render, eval, initialState}) =
-  Component
+hoist nat (Component info ComponentSpec {render, eval, initialState}) =
+  Component info
     $ ComponentSpec
       { initialState = runNT nat . initialState
       , render = first (hoistSlot nat) . render

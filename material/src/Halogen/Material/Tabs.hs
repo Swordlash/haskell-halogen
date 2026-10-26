@@ -87,18 +87,21 @@ tabsComponent
    . (MonadMaterial m, MonadUUID m)
   => H.Component (TabsQuery slots q) (TabsSpec slots i m) (TabsOutput i) m
 tabsComponent =
-  H.component
-    ( \TabsSpec {..} -> do
-        ref <- H.newRefLabel "tab-bar"
-        pure TabsState {mdcTabBar = Nothing, ..}
-    )
-    render
-    [ H.onAction handleAction
-    , H.onQuery handleQuery
-    , H.onInitialize (handleAction Initialize)
-    , H.onReceive (\TabsSpec {tabs, extraStyle} -> handleAction (Receive tabs extraStyle))
-    , H.onFinalize (handleAction Finalize)
-    ]
+  -- The state holds HTML of the caller's @m@, which is not 'Typeable' for a
+  -- polymorphic @m@: the trace counts what the tabs do without carrying
+  -- their states.
+  H.Component H.ComponentInfo {label = "Halogen.Material.Tabs", stateType = Nothing}
+    $ H.componentSpec
+      ( \TabsSpec {..} -> do
+          ref <- H.newRefLabel "tab-bar"
+          pure TabsState {mdcTabBar = Nothing, ..}
+      )
+      render
+    & H.onAction handleAction
+    & H.onQuery handleQuery
+    & H.onInitialize (handleAction Initialize)
+    & H.onReceive (\TabsSpec {tabs, extraStyle} -> handleAction (Receive tabs extraStyle))
+    & H.onFinalize (handleAction Finalize)
   where
     render TabsState {..} =
       HH.div

@@ -313,6 +313,46 @@ main = runBrowserDOM $ do
     },
   },
 
+  // Halogen.DevTools' panel, opened over the page before a counter is
+  // mounted in #app: it lists the counter under its name, and counts its
+  // click. The run ends with the panel closed and its element gone.
+  devtools: {
+    what: "the DevTools panel from the devtools layer, over the page, counting a click",
+    source: String.raw`{-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE OverloadedStrings #-}
+
+module Main (main) where
+
+import Control.Monad.State (modify)
+import Data.Text qualified as T
+import Halogen qualified as H
+import Halogen.DevTools qualified as DevTools
+import Halogen.HTML qualified as HH
+import Halogen.HTML.Events qualified as HE
+${mounting}
+
+counter :: H.Component q () o BrowserDOM
+counter =
+  H.named "Counter" $
+    H.component (\_ -> pure (0 :: Int)) (\n -> HH.button [HE.onClick (const ())] [HH.text ("Counted " <> T.pack (show n))]) [H.onAction (\() -> modify (+ 1))]
+
+main :: IO ()
+main = runBrowserDOM $ do
+  HA.endPreviousRun
+  app <- maybe (error "the page has no #app") pure =<< HA.selectElement (QuerySelector "#app")
+  tools <- DevTools.open
+  socket <- runUI counter () app
+  HA.keepForNextRun (socket.dispose >> tools.dispose)
+`,
+    async verify(page) {
+      const row = page.locator('.halogen-devtools [data-label="Counter"]');
+      await row.waitFor({ timeout: 10000 });
+      await page.locator("#app button", { hasText: "Counted 0" }).click();
+      await page.locator("#app button", { hasText: "Counted 1" }).waitFor({ timeout: 10000 });
+      await row.locator(".halogen-devtools-actions", { hasText: /^1$/ }).waitFor({ timeout: 10000 });
+    },
+  },
+
   // A Material button, whose ripple is material.js's and whose look is
   // material.css's.
   material: {

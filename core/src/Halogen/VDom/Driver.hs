@@ -268,6 +268,7 @@ renderSpecWith adoption document container =
     , removeChild
     , dispose = removeChild
     , sameElement = \a b -> join (DOM.sameNode <$> DOM.elementToNode a <*> DOM.elementToNode b)
+    , rootNode = \RenderState {shown} -> Just <$> readIORef shown
     }
   where
     render

@@ -21,7 +21,8 @@ import System.IO.Unsafe (unsafePerformIO)
 
 unsafeMkDebouncedComponent
   :: forall state query action slots input output m
-   . NominalDiffTime
+   . (Typeable state)
+  => NominalDiffTime
   -> ComponentSpec' state query action slots input output m (DelayedStateT state (HalogenM state action slots output m))
   -> Component query input output m
 unsafeMkDebouncedComponent timeout cs = do
@@ -29,7 +30,8 @@ unsafeMkDebouncedComponent timeout cs = do
 
 mkDebouncedComponent'
   :: forall state query action slots input output m
-   . Delayer state
+   . (Typeable state)
+  => Delayer state
   -> ComponentSpec' state query action slots input output m (DelayedStateT state (HalogenM state action slots output m))
   -> Component query input output m
 mkDebouncedComponent' delayer ComponentSpec {..} =

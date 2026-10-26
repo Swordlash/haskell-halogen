@@ -110,6 +110,7 @@ import Data.Aeson.Types (parseJSON, parseMaybe)
 import Data.ByteString.Lazy qualified as Lazy
 import Data.Char (isAsciiLower, isAsciiUpper)
 import Data.Foldable (for_, traverse_)
+import Data.Function ((&))
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict (Map)
@@ -405,7 +406,14 @@ type Inner query output = ("element" .== H.Slot query output ())
 -- returns, one raised in the component's @Initialize@ included, which a
 -- subscription made after 'runUI' returned would have missed.
 wrapper :: forall query input output m. (MonadIO m) => (output -> IO ()) -> H.Component query input output m -> H.Component (Wrapped query input) input output m
-wrapper dispatch inner = H.component pure render [H.onAction (H.liftEffect . liftIO . dispatch), H.onQuery answer]
+wrapper dispatch inner =
+  -- Its state is the definition's input, of any type: asking for 'Typeable'
+  -- of it would ask every definition for it, so the trace counts what the
+  -- wrapper does without carrying its states.
+  H.Component H.ComponentInfo {label = "Halogen.CustomElement.wrapper", stateType = Nothing} $
+    H.componentSpec pure render
+      & H.onAction (H.liftEffect . liftIO . dispatch)
+      & H.onQuery answer
   where
     render :: input -> H.ComponentHTML output (Inner query output) m
     render current = HH.slot "element" () inner current id

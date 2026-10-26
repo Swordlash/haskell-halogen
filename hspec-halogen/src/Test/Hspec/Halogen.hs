@@ -128,16 +128,19 @@ where
 import Control.Monad.Fail qualified as Fail
 import Data.Coerce (coerce)
 import Data.IORef (IORef, atomicModifyIORef', atomicWriteIORef, modifyIORef', newIORef, readIORef)
+import Data.Sequence qualified as Seq
 import Data.Text qualified as T
 import Data.Unique (Unique, newUnique)
+import GHC.Clock (getMonotonicTime)
 import Halogen.Component (Component)
 import Halogen.IO.Driver (HalogenSocket (..))
 import Halogen.Subscription qualified as HS
+import Halogen.Trace qualified as Trace
 import Protolude hiding (find)
 import System.Environment (withArgs)
 import System.IO (BufferMode (..), hFlush, hSetBuffering)
 import System.IO.Unsafe (unsafePerformIO)
-import Test.HUnit.Lang (assertFailure)
+import Test.HUnit.Lang (FailureReason (..), HUnitFailure (..), assertFailure)
 import Test.Hspec (Spec, SpecWith, context, describe, it, parallel, sequential, specify, xit)
 import Test.Hspec qualified as Hspec
 import Test.Hspec.Halogen.Internal.Monad (MonadBrowserTest (..))
@@ -222,6 +225,11 @@ data PageEnv = PageEnv
 -- when the test ends, pass or fail. The page is a container at the end of the
 -- body, or of the element 'runBrowserTestsIn' was given.
 --
+-- While the test runs, the last 50 events of the components it mounted are
+-- kept ("Halogen.Trace"), and an expectation that fails says what they were,
+-- oldest first, after its own message: what the tree did up to the failure,
+-- not only what was expected of it.
+--
 -- The @forall s@ keeps what the test finds and mounts inside it, as @runST@
 -- keeps an @STRef@. Only one page is open at a time -- the browser has one
 -- mouse, one keyboard and one focused element to share -- so a test waits
@@ -234,9 +242,10 @@ runPage (PageM test) = do
   when (holder == Just me) $
     panic "hspec-halogen: runPage inside runPage; a test works in one page"
   withMVar pageLock $ \() ->
-    bracket open close $ \env -> do
-      atomicWriteIORef pageHolder (Just me)
-      runReaderT test env
+    withTimeline $ \timeline ->
+      bracket open close $ \env -> do
+        atomicWriteIORef pageHolder (Just me)
+        runReaderT test env `catch` \failure -> throwIO =<< withEvents timeline failure
   where
     open = PageEnv <$> (maybe Page.createContainer Page.createRootIn =<< readIORef pagesIn) <*> newIORef []
     close env = do
@@ -253,6 +262,63 @@ unsafeIOToPageM = PageM . lift
 
 pageEnv :: PageM s PageEnv
 pageEnv = PageM ask
+
+-- | The events of a test's trees, as many as a failure shows, and when the
+-- test started.
+data Timeline = Timeline
+  { started :: Double
+  , events :: IORef (Seq Trace.Event)
+  }
+
+-- | How many events a failure shows.
+timelineLength :: Int
+timelineLength = 50
+
+-- | Keep the last events of the trees while the body runs.
+withTimeline :: (Timeline -> IO a) -> IO a
+withTimeline body = do
+  started <- (* 1000) <$> getMonotonicTime
+  events <- newIORef Seq.empty
+  let keep event = atomicModifyIORef' events $ \kept ->
+        (Seq.drop (Seq.length kept + 1 - timelineLength) (kept Seq.|> event), ())
+  bracket (Trace.subscribe keep) identity $ \_ -> body Timeline {started, events}
+
+-- | The failure, with what the trees did before it.
+withEvents :: Timeline -> HUnitFailure -> IO HUnitFailure
+withEvents timeline (HUnitFailure location reason) = do
+  kept <- toList <$> readIORef timeline.events
+  pure $ HUnitFailure location $ case timelineText timeline.started kept of
+    Nothing -> reason
+    Just section -> case reason of
+      Reason message -> Reason (message <> "\n\n" <> section)
+      -- hspec prints the preface above what was expected and what came, so
+      -- the events are there too, before the outcome they led to.
+      ExpectedButGot preface expected actual ->
+        ExpectedButGot (Just (maybe "" (<> "\n\n") preface <> section)) expected actual
+
+-- | The section a failure gets, one line per event, oldest first, with its
+-- time since the test started; 'Nothing' for no events.
+--
+-- > What the tree did (the last 50 events, oldest first):
+-- >    12.3 ms  Counter#3  action
+-- >    12.9 ms  Counter#3  state changed
+-- >    13.0 ms  Counter#3  rendered in 0.4 ms
+timelineText :: Double -> [Trace.Event] -> Maybe [Char]
+timelineText _ [] = Nothing
+timelineText started events =
+  Just . toS . T.intercalate "\n" $
+    ("What the tree did (the last " <> show timelineLength <> " events, oldest first):")
+      : map line events
+  where
+    line event =
+      T.justifyRight 7 ' ' (tenths (event.at - started))
+        <> " ms  "
+        <> event.tag.label
+        <> "#"
+        <> show event.tag.id
+        <> "  "
+        <> Trace.summary event.what
+    tenths ms = let (whole, part) = (round (ms * 10) :: Integer) `quotRem` 10 in show whole <> "." <> show part
 
 pageLock :: MVar ()
 pageLock = unsafePerformIO (newMVar ())
