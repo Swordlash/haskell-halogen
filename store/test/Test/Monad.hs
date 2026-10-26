@@ -92,3 +92,21 @@ spec = describe "Halogen.Store.Monad" $ do
     counts <- reverse <$> readIORef seen
     and (zipWith (<) counts (drop 1 counts)) `shouldBe` True
     lastMay counts `shouldBe` Just (threads * each)
+
+  -- The thread handing the first update on is cancelled while the
+  -- subscriber is at it. The next update must still reach the subscriber:
+  -- the cancelled thread gave the subscription up on its way out.
+  it "hands a subscriber the next update after the thread handing one on was cancelled" $ do
+    store <- Store.newHalogenStore initialStore reducer
+    seen <- newIORef []
+    inFirst <- newEmptyMVar
+    ended <- newEmptyMVar
+    _ <- HS.subscribe (Store.storeEmitter store) $ \s -> do
+      when (s.count == 1) $ putMVar inFirst () >> threadDelay 10000000
+      modifyIORef' seen (<> [s.count])
+    handing <- forkIO $ runIn store (Store.updateStore Increment) `finally` putMVar ended ()
+    takeMVar inFirst
+    killThread handing
+    takeMVar ended
+    runIn store (Store.updateStore Increment)
+    readIORef seen >>= (`shouldBe` [2])

@@ -118,22 +118,29 @@ data Delivery store = Delivery
 storeEmitter :: forall action store. HalogenStore action store -> HS.Emitter IO store
 storeEmitter store = HS.makeEmitter $ \push -> do
   delivery <- newIORef Delivery {seen = 0, pending = Nothing, delivering = False}
-  let stop = atomicModifyIORef' delivery (\d -> (d {delivering = False}, ()))
-      deliver = do
+  let -- The thread handing on gives the slot up if the subscriber throws
+      -- (or is cancelled in it): an update left in the slot is then taken by
+      -- the next update's thread.
+      stop = atomicModifyIORef' delivery (\d -> (d {delivering = False}, ()))
+      deliver restore = do
         next <- atomicModifyIORef' delivery $ \d -> case d.pending of
           Nothing -> (d {delivering = False}, Nothing)
           Just update -> (d {seen = update.number, pending = Nothing}, Just update)
         for_ next $ \update -> do
-          push update.value `onException` stop
-          deliver
-  subscription <- HS.subscribe store.updates $ \update -> do
+          restore (push update.value) `onException` stop
+          deliver restore
+  -- Asynchronous exceptions are masked from taking the slot to giving it
+  -- up, and let through only for the subscriber itself, with the caller's
+  -- masking state: a thread cancelled between the two would otherwise
+  -- leave the slot taken, and the subscription would hear nothing more.
+  subscription <- HS.subscribe store.updates $ \update -> mask $ \restore -> do
     mine <- atomicModifyIORef' delivery $ \d ->
       let newer = update.number > d.seen && all ((update.number >) . (.number)) d.pending
           queued = if newer then d {pending = Just update} else d
        in if queued.delivering || isNothing queued.pending
             then (queued, False)
             else (queued {delivering = True}, True)
-    when mine deliver
+    when mine (deliver restore)
   pure (HS.unsubscribe subscription)
 
 -- | The application's monad with a store in it: a component in
