@@ -109,7 +109,13 @@ open = do
   bodyNode <- elementToNode (coerce body :: Element)
   appendChild hostNode bodyNode
   H.HalogenSocket {H.query = ask, H.messages, H.dispose} <- runUI panel () (coerce host :: HTMLElement)
-  pure H.HalogenSocket {H.query = ask, H.messages, H.dispose = dispose >> removeChild hostNode bodyNode}
+  -- Closing twice is harmless, as the tree's own dispose is: a program may
+  -- close the panel itself and have passed its dispose to keepForNextRun.
+  closed <- liftIO (newIORef False)
+  let close = do
+        already <- liftIO (atomicModifyIORef' closed (True,))
+        unless already (dispose >> removeChild hostNode bodyNode)
+  pure H.HalogenSocket {H.query = ask, H.messages, H.dispose = close}
   where
     docked = "position: fixed; right: 0.5rem; bottom: 0.5rem; z-index: 2147483000; width: min(34rem, calc(100vw - 1rem)); max-height: 60vh; overflow: auto; box-shadow: 0 0.25rem 1rem rgb(0 0 0 / 30%);"
 
@@ -162,6 +168,10 @@ showers = unsafePerformIO (newIORef mempty)
 -- later.
 data Inbox = Inbox
   { events :: IORef (Seq Trace.Event)
+  , ended :: IORef IntSet
+  -- ^ The components finalized since the panel last took the inbox. The
+  -- inbox drops its oldest events when it is full, and a finalization
+  -- dropped with them must still take its component out of the tree.
   , scheduled :: IORef Bool
   , arrived :: HS.Subscribe IO ()
   }
@@ -234,12 +244,13 @@ inboxLength = 5000
 initialState :: (MonadIO m) => () -> m State
 initialState () = liftIO $ do
   events <- newIORef Seq.empty
+  ended <- newIORef IntSet.empty
   scheduled <- newIORef False
   arrived <- HS.create
   opened <- (* 1000) <$> getMonotonicTime
   pure
     State
-      { inbox = Inbox {events, scheduled, arrived}
+      { inbox = Inbox {events, ended, scheduled, arrived}
       , stop = Nothing
       , opened
       , components = mempty
@@ -269,6 +280,9 @@ listen :: Inbox -> Trace.Event -> IO ()
 listen inbox event = unless (event.tag.stateType == Just panelType) $ do
   atomicModifyIORef' inbox.events $ \kept ->
     (Seq.drop (Seq.length kept + 1 - inboxLength) (kept |> event), ())
+  case event.what of
+    Trace.Finalized -> atomicModifyIORef' inbox.ended (\ids -> (IntSet.insert event.tag.id ids, ()))
+    _ -> pure ()
   already <- atomicModifyIORef' inbox.scheduled (True,)
   unless already $ void $ forkIO $ do
     threadDelay 100000
@@ -284,8 +298,12 @@ handleAction :: (MonadIO m) => Action -> H.HalogenM State Action Empty Void m ()
 handleAction = \case
   Refresh -> do
     inbox <- gets (.inbox)
-    (new, known) <- H.liftEffect . liftIO $ (,) <$> atomicModifyIORef' inbox.events (Seq.empty,) <*> readIORef showers
-    modify $ \st -> foldl (absorb known) st new
+    (new, ended, known) <-
+      H.liftEffect . liftIO $
+        (,,) <$> atomicModifyIORef' inbox.events (Seq.empty,) <*> atomicModifyIORef' inbox.ended (IntSet.empty,) <*> readIORef showers
+    modify $ \st ->
+      let taken = foldl (absorb known) st new
+       in taken {components = IntMap.withoutKeys taken.components ended, gone = IntSet.union taken.gone ended}
   Select key -> modify $ \st -> st {selected = if st.selected == Just key then Nothing else Just key}
   Narrow k -> modify $ \st -> st {kind = k}
   Hover key -> do
