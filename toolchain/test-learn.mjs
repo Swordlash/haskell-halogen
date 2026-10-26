@@ -21,8 +21,9 @@
 // the line its code is on after edits since the compile, and
 // no mark shows in what GHC says; the playground's page is prerendered, takes
 // lesson 2's code from its Open in playground (with localStorage refusing
-// writes), compiles its template, loads
-// the store layer when it is checked, and keeps all that for the next visit;
+// writes), compiles its template, whose every element Source marks (its
+// HH.p_ paragraph outlined at its line and column), loads the store layer
+// when it is checked, and keeps all that for the next visit;
 // every lesson in examples/learn/lessons compiles its Solution.hs without a
 // diagnostic and shows something (one line per lesson, which is how a new
 // lesson is checked); an error GHC throws rather than reports is still a
@@ -44,6 +45,7 @@
 // alone, and can be retried; nothing is logged as an error; and nothing is
 // loaded from another site but what a layer loads itself.
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { lstat, readFile, readdir, stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
@@ -105,6 +107,15 @@ for (const slug of (await readdir(lessonsDir)).sort()) {
   });
 }
 assert.ok(lessons.length >= 2, "at least the two first lessons");
+
+// The playground's template, as Learn.Playground writes it: one Haskell
+// string literal a line, which reads as JSON.
+const templateLines = (() => {
+  const source = readFileSync(resolve("examples/learn/src/Learn/Playground.hs"), "utf8");
+  const list = source.slice(source.indexOf("template =")).match(/T\.unlines\s*(\[[\s\S]*?)\n\s*\]/)[1];
+  return [...list.matchAll(/^\s*[[,] ("(?:[^"\\]|\\.)*")\s*$/gm)].map((m) => JSON.parse(m[1]));
+})();
+assert.ok(templateLines.some((l) => l.includes("HH.p_ [HH.text (\"Clicks: \"")), "the playground's template has its Clicks: paragraph");
 
 // A program for the playground that needs the store layer's package: it
 // imports one of its modules, and shows that it compiled.
@@ -450,6 +461,31 @@ try {
   await page.locator("#learn-result p", { hasText: "Clicks: 2" }).waitFor({ timeout: 5000 });
   assert.equal(await page.evaluate(() => localStorage.getItem("learn:playground:code")), null, "Reset forgets the playground's code");
   console.log("ok  the playground's template compiles and counts");
+  // Source on the template, whose elements are written with HH.div_ and
+  // HH.p_, with no list of properties: each carries where it was built all
+  // the same, and hovering the Clicks: paragraph outlines it, labelled with
+  // its line and column, and marks its line.
+  const clicksLine = templateLines.findIndex((l) => l.includes("HH.p_ [HH.text (\"Clicks: \"")) + 1;
+  const clicksColumn = templateLines[clicksLine - 1].indexOf("HH.p_") + 1;
+  const divLine = templateLines.findIndex((l) => l.trim() === "HH.div_") + 1;
+  const clicks = page.locator("#learn-result p", { hasText: "Clicks: 2" });
+  assert.equal(await clicks.getAttribute("data-learn-src"), `${clicksLine}:${clicksColumn}`, "the Clicks: paragraph carries where it was built");
+  assert.equal(
+    await page.locator("#learn-result [data-learn-src]").first().getAttribute("data-learn-src"),
+    `${divLine}:${templateLines[divLine - 1].indexOf("HH.div_") + 1}`,
+    "the template's HH.div_ carries where it was built",
+  );
+  assert.equal(await page.locator("#learn-result [data-learn-src]").count(), 3, "the template's div, button and paragraph are each marked");
+  await page.locator("button.learn-source:not([disabled])").click();
+  await page.locator('button.learn-source[aria-pressed="true"]').waitFor({ timeout: 5000 });
+  await clicks.hover();
+  await outlined(page, clicks);
+  assert.equal(await page.locator(".learn-source-label").textContent(), `Lesson.hs:${clicksLine}:${clicksColumn}`, "the outline says where the paragraph was built");
+  await page.locator(".learn-editor .cm-line.learn-source-line", { hasText: 'HH.p_ [HH.text ("Clicks: "' }).waitFor({ timeout: 5000 });
+  await page.mouse.move(5, 5);
+  await page.locator("button.learn-source").click();
+  await page.locator('button.learn-source[aria-pressed="false"]').waitFor({ timeout: 5000 });
+  console.log(`ok  Source on the playground's template: its HH.p_ paragraph is outlined as Lesson.hs:${clicksLine}:${clicksColumn} and its line marked, and its div, button and paragraph are all marked`);
   if (manifest.layers.some((layer) => layer.name === "store")) {
     // The layer's archive is held until the progress line has shown, which
     // a local server would otherwise make too short to see.

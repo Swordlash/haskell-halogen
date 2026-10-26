@@ -71,41 +71,61 @@ diagnostics = describe "Learn.Diagnostics" $ do
   it "does not read a warning, or the program's own failure, as one" $ do
     didNotCompile "/tmp/Lesson.hs:3:1: warning: [GHC-40910] [-Wunused-top-binds]\n    Defined but not used: `x'\n" `shouldBe` False
     didNotCompile "<interactive>: boom\nCallStack (from HasCallStack):\n  error, called at /tmp/Lesson.hs:12:5 in main:Lesson\n" `shouldBe` False
-  -- What GHC 9.14 wrote for a Lesson with --learn-spans, the mark broken
-  -- over lines as GHC printed it.
+  -- What GHC 9.14 wrote for a Lesson with --learn-spans (at the
+  -- playground's path), the marks broken over lines as GHC printed them, an
+  -- element marked inside a marked one, and the lists GHC shortened.
   it "takes the playground's marks out of what GHC quotes of the code" $
     withoutMarks
       ( unlines
-          [ "/tmp/Lesson.hs:17:17: error: [GHC-64725]"
+          [ "/tmp/Lesson.hs:14:17: error: [GHC-64725]"
           , "    * No such field: \"disabled\""
           , "    * In the expression: HP.disabled \"yes\""
-          , "      In the first argument of `HH.p', namely"
-          , "        `[Learn__Spans.attr"
-          , "            (Learn__Spans.AttrName \"data-learn-src\") \"17:11\","
-          , "          HP.disabled \"yes\"]'"
-          , "      In the expression:"
-          , "        HH.p"
-          , "          [Learn__Spans.attr"
-          , "             (Learn__Spans.AttrName \"data-learn-src\") \"17:11\","
-          , "           HP.disabled \"yes\"]"
-          , "          [HH.text \"p\"]"
+          , "      In the first argument of `HH.p', namely `[HP.disabled \"yes\"]'"
+          , "      In the first argument of `HH.div_', namely"
+          , "        `[Learn__Spans.withProps"
+          , "            [Learn__Spans.attr"
+          , "               Nothing (Learn__Spans.AttrName \"data-learn-src\") \"14:11\"]"
+          , "            (HH.p"
+          , "               [HP.disabled \"yes\"]"
+          , "               [Learn__Spans.withProps [...] (HH.b_ [...]),"
+          , "                Learn__Spans.withProps [...] (HH.br_)])]'"
           ]
       )
       `shouldBe` unlines
-        [ "/tmp/Lesson.hs:17:17: error: [GHC-64725]"
+        [ "/tmp/Lesson.hs:14:17: error: [GHC-64725]"
         , "    * No such field: \"disabled\""
         , "    * In the expression: HP.disabled \"yes\""
-        , "      In the first argument of `HH.p', namely"
-        , "        `[HP.disabled \"yes\"]'"
-        , "      In the expression:"
-        , "        HH.p"
-        , "          [HP.disabled \"yes\"]"
-        , "          [HH.text \"p\"]"
+        , "      In the first argument of `HH.p', namely `[HP.disabled \"yes\"]'"
+        , "      In the first argument of `HH.div_', namely"
+        , "        `[HH.p"
+        , "               [HP.disabled \"yes\"]"
+        , "               [HH.b_ [...],"
+        , "                HH.br_]]'"
         ]
-  it "leaves an empty list of properties empty, and anything else as it was" $ do
-    withoutMarks "In the expression: HH.p [Learn__Spans.attr (Learn__Spans.AttrName \"data-learn-src\") \"3:5\"] []"
-      `shouldBe` "In the expression: HH.p [] []"
-    withoutMarks "Not in scope: Learn__Spans.attrs" `shouldBe` "Not in scope: Learn__Spans.attrs"
+  it "takes out a mark GHC shortened to ..., and leaves its own ... and .... as they were" $
+    withoutMarks
+      ( unlines
+          [ "                render ()"
+          , "                  = Learn__Spans.withProps"
+          , "                      [Learn__Spans.attr"
+          , "                         Nothing (Learn__Spans.AttrName \"data-learn-src\") \"18:7\"]"
+          , "                      (HH.div [HP.id \"root\"] [Learn__Spans.withProps ... (p_ ...), ....])"
+          , "                ...."
+          ]
+      )
+      `shouldBe` unlines
+        [ "                render ()"
+        , "                  = HH.div [HP.id \"root\"] [p_ ..., ....]"
+        , "                ...."
+        ]
+  it "matches the parenthesis past those in strings and characters, and leaves anything else as it was" $ do
+    withoutMarks "In the expression: Learn__Spans.withProps [...] (HH.text \"a) (\\\" ]\" <> f ')') <> x"
+      `shouldBe` "In the expression: HH.text \"a) (\\\" ]\" <> f ')' <> x"
+    withoutMarks "In the expression: Learn__Spans.withProps [Learn__Spans.attr Nothing (Learn__Spans.AttrName \"data-learn-src\") \"3:5\"] HH.br_"
+      `shouldBe` "In the expression: HH.br_"
+    withoutMarks "Not in scope: Learn__Spans.withPropsy" `shouldBe` "Not in scope: Learn__Spans.withPropsy"
+    withoutMarks "Learn__Spans.withProps [x] (y)" `shouldBe` "Learn__Spans.withProps [x] (y)"
+    withoutMarks "Learn__Spans.withProps [...] (HH.p [" `shouldBe` "(HH.p ["
 
 types :: Spec
 types = describe "Learn.Types" $ do
