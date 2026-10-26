@@ -52,6 +52,13 @@ spec m = do
     click button
     eventually $ logged tools `shouldReturn` ["state changed"]
 
+  it "keeps as many events as its settings say, the newest" $ runPage $ do
+    tools <- mount m (DevTools.panelWith DevTools.defaultSettings {DevTools.logLength = 3}) ()
+    ui <- mount m Counter.component ()
+    replicateM_ 3 (find ui "button.increment" >>= click)
+    -- The last click's render and state change, and the action before them.
+    eventually $ logged tools `shouldReturn` ["rendered", "state changed", "action"]
+
   it "puts an earlier state back, for a type it was told how to show" $ runPage $ do
     unsafeIOToPageM (DevTools.showing @Counter.State)
     tools <- mount m DevTools.panel ()

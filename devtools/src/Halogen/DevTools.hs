@@ -4,8 +4,9 @@
 -- | A panel over the page that shows what the program's components do, as
 -- they do it: the tree of components, with their labels and ids and how
 -- often each has rendered, handled an action and changed its state; a log
--- of the last 200 events, which can be narrowed to one component or one
--- kind of event; the element a component rendered outlined on the page when
+-- of the last events (200, unless 'Settings' say otherwise), which can be
+-- narrowed to one component or one kind of event; the element a component
+-- rendered outlined on the page when
 -- its row is hovered; and, for a component whose state the panel can show,
 -- each state it went through, with a button that puts it back.
 --
@@ -31,6 +32,13 @@ module Halogen.DevTools
   , openIn
   , panel
   , Query (..)
+
+    -- * How much it keeps
+  , Settings (..)
+  , defaultSettings
+  , openWith
+  , openInWith
+  , panelWith
 
     -- * States
   , showing
@@ -100,7 +108,11 @@ data Query a = Clear a
 -- element away and stops listening; under @npm run dev@, pass it to
 -- 'Halogen.IO.Util.keepForNextRun'.
 open :: (MonadBrowserDOM m, MonadUnliftIO m) => m (H.HalogenSocket Query Void m)
-open = do
+open = openWith defaultSettings
+
+-- | 'open', with the panel keeping as much as these settings say.
+openWith :: (MonadBrowserDOM m, MonadUnliftIO m) => Settings -> m (H.HalogenSocket Query Void m)
+openWith settings = do
   body <- awaitBody
   doc <- toDocument <$> (document =<< window)
   host <- createElement Nothing (ElemName "div") doc
@@ -108,7 +120,7 @@ open = do
   hostNode <- elementToNode host
   bodyNode <- elementToNode (coerce body :: Element)
   appendChild hostNode bodyNode
-  H.HalogenSocket {H.query = ask, H.messages, H.dispose} <- runUI panel () (coerce host :: HTMLElement)
+  H.HalogenSocket {H.query = ask, H.messages, H.dispose} <- runUI (panelWith settings) () (coerce host :: HTMLElement)
   -- Closing twice is harmless, as the tree's own dispose is: a program may
   -- close the panel itself and have passed its dispose to keepForNextRun.
   closed <- liftIO (newIORef False)
@@ -123,16 +135,24 @@ open = do
 -- application rather than over it, as the tutorial puts it under a lesson's
 -- result.
 openIn :: (MonadBrowserDOM m, MonadUnliftIO m) => HTMLElement -> m (H.HalogenSocket Query Void m)
-openIn = runUI panel ()
+openIn = openInWith defaultSettings
+
+-- | 'openIn', with the panel keeping as much as these settings say.
+openInWith :: (MonadBrowserDOM m, MonadUnliftIO m) => Settings -> HTMLElement -> m (H.HalogenSocket Query Void m)
+openInWith settings = runUI (panelWith settings) ()
 
 -- | The panel as a component, for a program that mounts it itself, as a
 -- test does. It starts listening as it is initialized, and stops as it is
 -- finalized.
 panel :: (MonadIO m) => H.Component Query () Void m
-panel =
+panel = panelWith defaultSettings
+
+-- | 'panel', keeping as much as these settings say.
+panelWith :: (MonadIO m) => Settings -> H.Component Query () Void m
+panelWith settings =
   H.named "DevTools" $
     H.component
-      initialState
+      (initialState settings)
       render
       [ H.onInitialize initialize
       , H.onFinalize (gets (.stop) >>= H.liftEffect . liftIO . sequence_)
@@ -174,10 +194,13 @@ data Inbox = Inbox
   -- dropped with them must still take its component out of the tree.
   , scheduled :: IORef Bool
   , arrived :: HS.Subscribe IO ()
+  , keep :: Int
+  -- ^ 'Settings'' @inboxLength@.
   }
 
 data State = State
-  { inbox :: Inbox
+  { settings :: Settings
+  , inbox :: Inbox
   , stop :: Maybe (IO ())
   -- ^ How to stop listening, once listening.
   , opened :: Double
@@ -235,14 +258,27 @@ data Action
   | ClearAll
   | ToggleHidden
 
--- | How many events the log keeps, and how many the inbox keeps for a panel
--- that has not taken them yet.
-logLength, inboxLength :: Int
-logLength = 200
-inboxLength = 5000
+-- | How much the panel keeps. Both are bounds on memory: nothing the panel
+-- holds grows past them, however long the program runs.
+data Settings = Settings
+  { logLength :: Int
+  -- ^ How many events the log keeps; the oldest go as more come. An entry
+  -- holds its event, a state change's new state with it, so this is also
+  -- how many states back the panel can put a component.
+  , inboxLength :: Int
+  -- ^ How many events the listener keeps for the panel between two of its
+  -- refreshes, which are at most a tenth of a second apart; more than that
+  -- in between and the oldest are dropped before the panel sees them (a
+  -- component that goes away in a dropped event still leaves the tree).
+  }
+  deriving stock (Eq, Show)
 
-initialState :: (MonadIO m) => () -> m State
-initialState () = liftIO $ do
+-- | A log of 200 events, and an inbox of 5000.
+defaultSettings :: Settings
+defaultSettings = Settings {logLength = 200, inboxLength = 5000}
+
+initialState :: (MonadIO m) => Settings -> () -> m State
+initialState settings () = liftIO $ do
   events <- newIORef Seq.empty
   ended <- newIORef IntSet.empty
   scheduled <- newIORef False
@@ -250,7 +286,8 @@ initialState () = liftIO $ do
   opened <- (* 1000) <$> getMonotonicTime
   pure
     State
-      { inbox = Inbox {events, ended, scheduled, arrived}
+      { settings
+      , inbox = Inbox {events, ended, scheduled, arrived, keep = settings.inboxLength}
       , stop = Nothing
       , opened
       , components = mempty
@@ -279,7 +316,7 @@ initialize = do
 listen :: Inbox -> Trace.Event -> IO ()
 listen inbox event = unless (event.tag.stateType == Just panelType) $ do
   atomicModifyIORef' inbox.events $ \kept ->
-    (Seq.drop (Seq.length kept + 1 - inboxLength) (kept |> event), ())
+    (Seq.drop (Seq.length kept + 1 - inbox.keep) (kept |> event), ())
   case event.what of
     Trace.Finalized -> atomicModifyIORef' inbox.ended (\ids -> (IntSet.insert event.tag.id ids, ()))
     _ -> pure ()
@@ -341,7 +378,7 @@ absorb known st event =
     , gone = case event.what of
         Trace.Finalized -> IntSet.insert key st.gone
         _ -> st.gone
-    , logged = Seq.drop (Seq.length st.logged + 1 - logLength) (st.logged |> Entry {number = st.taken, event, shown})
+    , logged = Seq.drop (Seq.length st.logged + 1 - st.settings.logLength) (st.logged |> Entry {number = st.taken, event, shown})
     , taken = st.taken + 1
     }
   where
