@@ -16,6 +16,13 @@
 // printed), with the manifest's version and sizes and so without a HEAD
 // request; the first two lessons compile and run as their text says, and a
 // type error is reported at its line with the last result still showing;
+// Source on lesson 2 outlines what the pointer and the editor's cursor are
+// on, marks its line and goes there on a click the program does not get, at
+// the line its code is on after edits since the compile, and
+// no mark shows in what GHC says; the playground's page is prerendered, takes
+// lesson 2's code from its Open in playground (with localStorage refusing
+// writes), compiles its template, loads
+// the store layer when it is checked, and keeps all that for the next visit;
 // every lesson in examples/learn/lessons compiles its Solution.hs without a
 // diagnostic and shows something (one line per lesson, which is how a new
 // lesson is checked); an error GHC throws rather than reports is still a
@@ -99,6 +106,21 @@ for (const slug of (await readdir(lessonsDir)).sort()) {
 }
 assert.ok(lessons.length >= 2, "at least the two first lessons");
 
+// A program for the playground that needs the store layer's package: it
+// imports one of its modules, and shows that it compiled.
+const storeProgram = `{-# LANGUAGE OverloadedStrings #-}
+
+module Lesson (component) where
+
+import Control.Monad.IO.Class (MonadIO)
+import Halogen qualified as H
+import Halogen.HTML qualified as HH
+import Halogen.Store.Monad ()
+
+component :: forall q o m. (MonadIO m) => H.Component q () o m
+component = H.component (\\_ -> pure ()) (\\_ -> HH.p_ [HH.text "The store's package is here."]) []
+`;
+
 const types = {
   ".html": "text/html",
   ".js": "text/javascript",
@@ -162,7 +184,14 @@ try {
   }
   const home = await (await fetch(url)).text();
   for (const lesson of lessons) assert.ok(home.includes(`href="${base}${lesson.slug}/"`), `the introduction links ${lesson.slug}`);
-  console.log(`ok  every page is prerendered (${lessons.length} lessons and the introduction)`);
+  assert.ok(home.includes(`href="${base}playground/"`), "the introduction links the playground");
+  const playgroundPage = await fetch(`${url}playground/`);
+  assert.equal(playgroundPage.status, 200, "playground: status");
+  const playgroundHtml = await playgroundPage.text();
+  assert.ok(playgroundHtml.includes("<h1>Playground</h1>"), "playground: its heading in the page");
+  assert.ok(playgroundHtml.includes(`<base href="${base}">`), "playground: the base path");
+  assert.ok(playgroundHtml.includes('id="learn-result"'), "playground: the result's element");
+  console.log(`ok  every page is prerendered (${lessons.length} lessons, the playground and the introduction)`);
 
   const context = await browser.newContext({ viewport: { width: 1400, height: 900 } });
   const page = await context.newPage();
@@ -263,6 +292,90 @@ try {
   await page.locator("#learn-result p", { hasText: "Count: 2" }).waitFor({ timeout: 5000 });
   console.log("ok  lesson 2 via Next: the counter counts to 2");
 
+  // Source, on lesson 2's counter: every element the code built carries
+  // where it was built; hovering the + button outlines it, labelled with
+  // that, and marks its line in the editor; a click goes to the line, and
+  // the program does not count it; the editor's cursor outlines the element
+  // its line made; off, the outline goes and a click counts again.
+  const solutionLines = lessons[1].solution.split("\n");
+  const plusLine = solutionLines.findIndex((l) => l.includes("Increment)] [HH.text")) + 1;
+  const plusColumn = solutionLines[plusLine - 1].indexOf("HH.button") + 1;
+  assert.ok(plusLine > 0 && plusColumn > 0, "lesson 2's solution has its + button on a line of its own");
+  assert.equal(await plus.getAttribute("data-learn-src"), `${plusLine}:${plusColumn}`, "the + button carries where it was built");
+  const minus = page.locator("#learn-result button", { hasText: /^-$/ });
+  await page.locator("button.learn-source:not([disabled])").click();
+  await page.locator('button.learn-source[aria-pressed="true"]').waitFor({ timeout: 5000 });
+  await plus.hover();
+  await outlined(page, plus);
+  assert.equal(await page.locator(".learn-source-label").textContent(), `Lesson.hs:${plusLine}:${plusColumn}`, "the outline says where");
+  await page.locator(".learn-editor .cm-line.learn-source-line", { hasText: 'Increment)] [HH.text "+"]' }).waitFor({ timeout: 5000 });
+  await plus.click();
+  assert.match(await page.locator(".cm-activeLine").textContent(), /Increment\)\] \[HH\.text "\+"\]/, "a click goes to the element's line");
+  await page.waitForTimeout(500);
+  await page.locator("#learn-result p", { hasText: "Count: 2" }).waitFor({ timeout: 1000 });
+  // The pointer off the result: the cursor, at the + button's position
+  // now, outlines it; a line up, the - button's.
+  await page.mouse.move(5, 5);
+  await outlined(page, plus);
+  assert.equal(await page.locator(".learn-editor .cm-line.learn-source-line").count(), 0, "the pointer gone, no line is marked for it");
+  await page.keyboard.press("ArrowUp");
+  await outlined(page, minus);
+  // Edits since the compile: the marks are where the code was compiled,
+  // and the editor maps them through its changes. Two lines added at the
+  // top move the + button's line two down: hovering it labels and marks
+  // that line, a click goes there, and the cursor there outlines it; taken
+  // out again, it is back at its line. Its code deleted, it has none.
+  const sourceLine = page.locator(".learn-editor .cm-line.learn-source-line");
+  const label = page.locator(".learn-source-label");
+  const activeLine = page.locator(".learn-editor .cm-lineNumbers .cm-activeLineGutter");
+  const plusAt = async (line, what) => {
+    await page.mouse.move(5, 5);
+    await plus.hover();
+    await outlined(page, plus);
+    assert.equal(await label.textContent(), `Lesson.hs:${line}:${plusColumn}`, `the outline says where, ${what}`);
+    await sourceLine.filter({ hasText: 'Increment)] [HH.text "+"]' }).waitFor({ timeout: 5000 });
+    assert.equal(await sourceLine.count(), 1, `one line is marked, ${what}`);
+    await plus.click();
+    await page.waitForFunction((n) => document.querySelector(".learn-editor .cm-lineNumbers .cm-activeLineGutter")?.textContent === String(n), line, { timeout: 5000 });
+    assert.match(await page.locator(".cm-activeLine").textContent(), /Increment\)\] \[HH\.text "\+"\]/, `a click goes to the element's line, ${what}`);
+  };
+  await page.keyboard.press("ControlOrMeta+Home");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Enter");
+  await plusAt(plusLine + 2, "two lines added above");
+  await page.mouse.move(5, 5);
+  await outlined(page, plus);
+  await page.keyboard.press("ArrowUp");
+  await outlined(page, minus);
+  await page.keyboard.press("ControlOrMeta+Home");
+  await page.keyboard.press("Delete");
+  await page.keyboard.press("Delete");
+  await plusAt(plusLine, "the two lines taken out");
+  // The + button's code deleted (from its indentation to the end of its
+  // line): no line to mark or go to.
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Shift+End");
+  await page.keyboard.press("Backspace");
+  await page.keyboard.press("ControlOrMeta+Home");
+  await page.mouse.move(5, 5);
+  await plus.hover();
+  await outlined(page, plus);
+  assert.equal(await label.textContent(), "Lesson.hs: deleted since the compile", "an element whose code is gone says so");
+  assert.equal(await sourceLine.count(), 0, "an element whose code is gone marks no line");
+  await plus.click();
+  await page.waitForTimeout(300);
+  assert.equal(await activeLine.textContent(), "1", "a click on an element whose code is gone goes nowhere");
+  await page.locator("#learn-result p", { hasText: "Count: 2" }).waitFor({ timeout: 1000 });
+  console.log(`ok  Source follows edits: two lines added above move the + button's line to ${plusLine + 2}, taken out it is back at ${plusLine}, and with its code deleted it has no line`);
+  await page.locator("button.learn-source").click();
+  await page.locator('button.learn-source[aria-pressed="false"]').waitFor({ timeout: 5000 });
+  assert.equal(await page.locator(".learn-source-box").count(), 0, "off, the outline goes");
+  await plus.click();
+  await page.locator("#learn-result p", { hasText: "Count: 3" }).waitFor({ timeout: 5000 });
+  await minus.click();
+  await page.locator("#learn-result p", { hasText: "Count: 2" }).waitFor({ timeout: 5000 });
+  console.log(`ok  Source on lesson 2: the + button is outlined as Lesson.hs:${plusLine}:${plusColumn} and its line marked, a click goes there uncounted, the cursor outlines its line's element, and off a click counts`);
+
   // A type error: reported at its line, marked in the editor, and the last
   // result stays on the page.
   // A number where HH.text wants text: there is no Num Text.
@@ -279,7 +392,85 @@ try {
   await page.locator("#learn-result p", { hasText: "Count: 2" }).waitFor({ timeout: 1000 });
   await diagnostic.locator("button.learn-location").click();
   assert.match(await page.locator(".cm-activeLine").textContent(), /HH\.text 42/, "clicking the diagnostic moves the cursor to its line");
+  // GHC quotes the code it compiled, Source's marks and all; the page takes
+  // them out of what it shows.
+  const said = (await page.locator(".learn-diagnostics").textContent()) + (await page.locator(".learn-stderr").textContent());
+  assert.ok(!said.includes("Learn__Spans"), `no mark in what GHC is shown to say: ${said}`);
   console.log(`ok  a type error is reported at ${where.trim()}, and the counter is still there`);
+
+  // The playground, from lesson 2: Open in playground takes the lesson's
+  // code there, with the lesson's layers (none) and arguments, and it
+  // compiles as it is; Source works there too; Reset puts the template back,
+  // which compiles and counts; and checking the store layer loads it, says
+  // so by its checkbox, and lets a program importing Halogen.Store compile.
+  await page.locator("button.learn-solution").click();
+  await page.waitForFunction(() => document.querySelector(".learn-editor .cm-content").innerText.includes("subtract 1"));
+  // With localStorage refusing every write (full, or denied) and holding
+  // the playground's code from before: the hand-off does not go through it,
+  // so the playground opens with the lesson's code all the same.
+  const keptBefore = "module Lesson where -- kept before";
+  await page.evaluate((kept) => {
+    localStorage.setItem("learn:playground:code", kept);
+    const setItem = Storage.prototype.setItem;
+    window.learnSetItem = setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (this === localStorage) throw new DOMException("The quota has been exceeded.", "QuotaExceededError");
+      return setItem.call(this, key, value);
+    };
+  }, keptBefore);
+  await page.locator("button.learn-open-playground").click();
+  await page.waitForURL(`${url}playground/`);
+  await page.locator("article h1", { hasText: /^Playground$/ }).waitFor({ timeout: 5000 });
+  assert.equal(await page.evaluate(() => window.learnNoReload), 1, "the hand-off does not reload the page");
+  await page.locator(".learn-editor .cm-editor").waitFor({ timeout: 5000 });
+  const handedText = await page.locator(".learn-editor .cm-content").textContent();
+  assert.ok(handedText.includes("modify (subtract 1)") && !handedText.includes("kept before"), "the playground opens with lesson 2's code, though localStorage refused it");
+  assert.equal(await page.evaluate(() => localStorage.getItem("learn:playground:code")), keptBefore, "localStorage did refuse the write");
+  await page.evaluate(() => {
+    Storage.prototype.setItem = window.learnSetItem;
+  });
+  await page.locator("button.learn-compile:not([disabled])").waitFor({ timeout: 120000 });
+  assert.match(await compile("lesson 2's code, in the playground"), /^Compiled and ran/);
+  const handedPlus = page.locator("#learn-result button", { hasText: /^\+$/ });
+  await handedPlus.click();
+  await page.locator("#learn-result p", { hasText: "Count: 1" }).waitFor({ timeout: 5000 });
+  console.log("ok  Open in playground takes lesson 2's code to the playground, though localStorage refuses every write, and it compiles and counts there");
+  await page.locator("button.learn-source:not([disabled])").click();
+  await handedPlus.hover();
+  await outlined(page, handedPlus);
+  await page.locator("button.learn-source").click();
+  await page.locator('button.learn-source[aria-pressed="false"]').waitFor({ timeout: 5000 });
+  console.log("ok  Source outlines what the pointer is over in the playground too");
+  await page.locator("button.learn-reset").click();
+  await page.waitForFunction(() => document.querySelector(".learn-editor .cm-content").innerText.includes("Click me"));
+  assert.match(await compile("the playground's template"), /^Compiled and ran/);
+  const clickMe = page.locator("#learn-result button", { hasText: "Click me" });
+  await clickMe.click();
+  await clickMe.click();
+  await page.locator("#learn-result p", { hasText: "Clicks: 2" }).waitFor({ timeout: 5000 });
+  assert.equal(await page.evaluate(() => localStorage.getItem("learn:playground:code")), null, "Reset forgets the playground's code");
+  console.log("ok  the playground's template compiles and counts");
+  if (manifest.layers.some((layer) => layer.name === "store")) {
+    // The layer's archive is held until the progress line has shown, which
+    // a local server would otherwise make too short to see.
+    let releaseStore;
+    const storeHeld = new Promise((resolve) => (releaseStore = resolve));
+    const storeArchive = /layers\/store[^/]*\.tar\.zst/;
+    await page.route(storeArchive, async (route) => {
+      await storeHeld;
+      await route.continue();
+    });
+    await page.locator('.learn-layers input[value="store"]').check();
+    await page.locator(".learn-compiler", { hasText: "Loading the layers you checked" }).waitFor({ timeout: 20000 });
+    releaseStore();
+    await page.locator(".learn-layer", { hasText: "store" }).locator(".learn-layer-note", { hasText: "loaded" }).waitFor({ timeout: 60000 });
+    await page.unroute(storeArchive);
+    await page.locator("#learn-extra-args").fill("-fdefer-typed-holes");
+    await setEditor(page, storeProgram);
+    assert.match(await compile("a program importing Halogen.Store, in the playground"), /^Compiled and ran/);
+    await page.locator("#learn-result p", { hasText: "The store's package is here." }).waitFor({ timeout: 5000 });
+    console.log("ok  checking the store layer loads it, and a program importing Halogen.Store compiles");
+  }
 
   // Leaving a lesson while its layer is still downloading: the lesson the
   // reader arrives at gets its own layer once that download ends, and
@@ -737,11 +928,18 @@ try {
     console.log("ok  lesson 15's connected views render again only for their own part of the store");
   }
 
-  // Tab indents in the editor, and Escape then Tab leaves it.
-  await page.locator(".learn-editor .cm-content").click();
-  const typed = await page.evaluate(() => document.querySelector(".learn-editor .cm-content").innerText.length);
+  // Tab indents in the editor, and Escape then Tab leaves it. The click is
+  // on the module's header line, so that the two spaces are counted in a
+  // line that has text (an empty line's text changes by one, its line break
+  // giving way to the spaces), wherever the layout puts the editor.
+  const headerLine = page.locator(".learn-editor .cm-line", { hasText: /^module Lesson/ });
+  await headerLine.click();
+  const typed = (await headerLine.textContent()).length;
   await page.keyboard.press("Tab");
-  await page.waitForFunction((n) => document.querySelector(".learn-editor .cm-content").innerText.length === n + 2, typed);
+  await page.waitForFunction(
+    (n) => [...document.querySelectorAll(".learn-editor .cm-line")].some((l) => l.textContent.includes("module Lesson") && l.textContent.length === n + 2),
+    typed,
+  );
   assert.ok(await page.evaluate(() => !!document.activeElement.closest(".cm-editor")), "Tab stays in the editor");
   await page.keyboard.press("Escape");
   await page.keyboard.press("Tab");
@@ -767,6 +965,20 @@ try {
   await again.waitForFunction(() => !document.querySelector(".learn-editor .cm-content")?.textContent.includes("subtract"));
   assert.equal(await again.evaluate(() => localStorage.getItem("learn:02-counter")), null, "Reset forgets the reader's code");
   console.log("ok  Reset brings back Start.hs and forgets the saved code");
+  // The playground's code, its layer and its arguments are kept for the
+  // next visit too, and compile as they were.
+  if (manifest.layers.some((layer) => layer.name === "store")) {
+    await again.locator("a.learn-to-playground").first().click();
+    await again.waitForURL(`${url}playground/`);
+    await again.locator(".learn-editor .cm-editor").waitFor({ timeout: 5000 });
+    assert.ok((await again.locator(".learn-editor .cm-content").textContent()).includes("import Halogen.Store.Monad ()"), "the playground's code on a second visit");
+    await again.locator('.learn-layers input[value="store"]:checked').waitFor({ timeout: 10000 });
+    assert.equal(await again.locator("#learn-extra-args").inputValue(), "-fdefer-typed-holes", "the extra arguments on a second visit");
+    await again.locator("button.learn-compile:not([disabled])").waitFor({ timeout: 120000 });
+    await again.locator("button.learn-compile").click();
+    await again.locator("#learn-result p", { hasText: "The store's package is here." }).waitFor({ timeout: 120000 });
+    console.log("ok  the playground's code, its checked layer and its arguments are kept for the next visit, and compile");
+  }
   await context.close();
 
   // A narrow screen downloads nothing large until asked.
@@ -913,6 +1125,22 @@ async function untilReady(page, since) {
     if (status.includes("in your browser")) return;
     assert.ok(Date.now() < deadline, `the compiler loads (last: ${status})`);
   }
+}
+
+// Wait for the Source mode's box to be shown over the element.
+async function outlined(page, target) {
+  const element = await target.elementHandle();
+  await page.waitForFunction(
+    (el) => {
+      const box = document.querySelector(".learn-source-box");
+      if (!box || box.hidden) return false;
+      const a = box.getBoundingClientRect();
+      const b = el.getBoundingClientRect();
+      return ["left", "top", "width", "height"].every((side) => Math.abs(a[side] - b[side]) < 1);
+    },
+    element,
+    { timeout: 5000 },
+  );
 }
 
 function escapeHtml(text) {

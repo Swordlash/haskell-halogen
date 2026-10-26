@@ -20,7 +20,7 @@ The first message holds the first render, after a `["clear"]` that empties the p
 ["listen", 4, "click", 1]
 ```
 
-A node is a number both ends agree on: node 2 is the `div`, 3 the input. `insert` puts a child at an index among a parent's children, and `listen` asks the page to tell the program when the button, node 4, is clicked, for its listener 1. Click Add: a message goes the other way, `{"listener": 1, "node": 4, "type": "click", "event": {...}}`, the program runs the button's handler, and a render sends back only what changed. With nothing typed, nothing changes, and no message comes back at all.
+(The `attr` operations setting `data-learn-src` are this tutorial's: it marks each element of your code with the line that built it, for its Source button.) A node is a number both ends agree on: node 2 is the `div`, 3 the input. `insert` puts a child at an index among a parent's children, and `listen` asks the page to tell the program when the button, node 4, is clicked, for its listener 1. Click Add: a message goes the other way, `{"listener": 1, "node": 4, "type": "click", "event": {...}}`, the program runs the button's handler, and a render sends back only what changed. With nothing typed, nothing changes, and no message comes back at all.
 
 ## The exercise
 

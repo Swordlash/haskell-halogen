@@ -1,11 +1,16 @@
 -- | What the tutorial reads natively: the Markdown of a lesson's text
 -- ("Learn.Markdown"), read at compile time, so that what it gets wrong
--- fails here rather than shows on a page, and GHC's output
--- ("Learn.Diagnostics", "Learn.Types").
+-- fails here rather than shows on a page, GHC's output
+-- ("Learn.Diagnostics", "Learn.Types"), and the playground's addresses and
+-- arguments ("Learn.Route", "Learn.Playground").
 module Main (main) where
 
-import Learn.Diagnostics (didNotCompile)
+import Halogen.Router.Duplex qualified as Duplex
+import Learn.Diagnostics (didNotCompile, withoutMarks)
+import Learn.Lesson (parseDirectoryName)
 import Learn.Markdown (Block (..), Inline (..), parseInlines, parseMarkdown)
+import Learn.Playground (Handoff (..), Kept (..), Opening (..), opening, packageArgs, readLayers, showLayers, withoutPackages)
+import Learn.Route (Route (..), route)
 import Learn.Types (Binding (..), displayName, splitTypes)
 import Protolude
 import Test.Hspec (Spec, describe, hspec, it, shouldBe, shouldSatisfy)
@@ -15,6 +20,37 @@ main = hspec $ do
   markdown
   diagnostics
   types
+  playground
+
+playground :: Spec
+playground = describe "Learn.Playground" $ do
+  it "is at playground/, which is no lesson's address" $ do
+    rightToMaybe (Duplex.parse route "/playground/") `shouldBe` Just Playground
+    Duplex.print route Playground `shouldBe` "/playground/"
+    rightToMaybe (Duplex.parse route "/02-counter/") `shouldBe` Just (LessonPage "02-counter")
+    -- A lesson's directory, its slug, starts with its number.
+    parseDirectoryName "playground" `shouldSatisfy` isLeft
+  it "names each package of the layers checked once, but the base layer's" $
+    packageArgs
+      ["haskell-halogen-jsbits", "haskell-halogen-core"]
+      [("hooks", ["haskell-halogen-hooks"]), ("lazy", ["haskell-halogen-lazy", "haskell-halogen-lazy-demo"]), ("odd", ["haskell-halogen-core", "haskell-halogen-hooks"])]
+      ["lazy", "odd", "hooks"]
+      `shouldBe` ["-package", "haskell-halogen-hooks", "-package", "haskell-halogen-lazy", "-package", "haskell-halogen-lazy-demo"]
+  it "takes a lesson's code, its layers, and its arguments but for the -package flags its layers give" $ do
+    let handoff = Handoff {code = "module Lesson where\n", layers = ["lazy"], args = ["-package", "haskell-halogen-lazy", "-fdefer-typed-holes", "-package", "haskell-halogen-lazy-demo"]}
+    opening (Just handoff) (Kept Nothing Nothing Nothing) `shouldBe` Opening {code = Just "module Lesson where\n", layers = ["lazy"], extra = "-fdefer-typed-holes"}
+    withoutPackages ["-package"] `shouldBe` ["-package"]
+  -- What was kept is what the storage has: a write it refused leaves the
+  -- playground's earlier code there, which a hand-off must win over.
+  it "opens with a hand-off over what was kept, and with what was kept, if anything, without one" $ do
+    let handoff = Handoff {code = "module Lesson where -- the lesson's\n", layers = [], args = []}
+        kept = Kept {code = Just "module Lesson where -- kept before\n", layers = Just "store,hooks", args = Just "-Wall"}
+    opening (Just handoff) kept `shouldBe` Opening {code = Just handoff.code, layers = [], extra = ""}
+    opening Nothing kept `shouldBe` Opening {code = kept.code, layers = ["store", "hooks"], extra = "-Wall"}
+    opening Nothing (Kept Nothing Nothing Nothing) `shouldBe` Opening {code = Nothing, layers = [], extra = ""}
+  it "keeps the layers as it reads them" $ do
+    readLayers (showLayers ["store", "hooks"]) `shouldBe` ["store", "hooks"]
+    readLayers "" `shouldBe` []
 
 diagnostics :: Spec
 diagnostics = describe "Learn.Diagnostics" $ do
@@ -35,6 +71,41 @@ diagnostics = describe "Learn.Diagnostics" $ do
   it "does not read a warning, or the program's own failure, as one" $ do
     didNotCompile "/tmp/Lesson.hs:3:1: warning: [GHC-40910] [-Wunused-top-binds]\n    Defined but not used: `x'\n" `shouldBe` False
     didNotCompile "<interactive>: boom\nCallStack (from HasCallStack):\n  error, called at /tmp/Lesson.hs:12:5 in main:Lesson\n" `shouldBe` False
+  -- What GHC 9.14 wrote for a Lesson with --learn-spans, the mark broken
+  -- over lines as GHC printed it.
+  it "takes the playground's marks out of what GHC quotes of the code" $
+    withoutMarks
+      ( unlines
+          [ "/tmp/Lesson.hs:17:17: error: [GHC-64725]"
+          , "    * No such field: \"disabled\""
+          , "    * In the expression: HP.disabled \"yes\""
+          , "      In the first argument of `HH.p', namely"
+          , "        `[Learn__Spans.attr"
+          , "            (Learn__Spans.AttrName \"data-learn-src\") \"17:11\","
+          , "          HP.disabled \"yes\"]'"
+          , "      In the expression:"
+          , "        HH.p"
+          , "          [Learn__Spans.attr"
+          , "             (Learn__Spans.AttrName \"data-learn-src\") \"17:11\","
+          , "           HP.disabled \"yes\"]"
+          , "          [HH.text \"p\"]"
+          ]
+      )
+      `shouldBe` unlines
+        [ "/tmp/Lesson.hs:17:17: error: [GHC-64725]"
+        , "    * No such field: \"disabled\""
+        , "    * In the expression: HP.disabled \"yes\""
+        , "      In the first argument of `HH.p', namely"
+        , "        `[HP.disabled \"yes\"]'"
+        , "      In the expression:"
+        , "        HH.p"
+        , "          [HP.disabled \"yes\"]"
+        , "          [HH.text \"p\"]"
+        ]
+  it "leaves an empty list of properties empty, and anything else as it was" $ do
+    withoutMarks "In the expression: HH.p [Learn__Spans.attr (Learn__Spans.AttrName \"data-learn-src\") \"3:5\"] []"
+      `shouldBe` "In the expression: HH.p [] []"
+    withoutMarks "Not in scope: Learn__Spans.attrs" `shouldBe` "Not in scope: Learn__Spans.attrs"
 
 types :: Spec
 types = describe "Learn.Types" $ do

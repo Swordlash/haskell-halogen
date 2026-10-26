@@ -4,12 +4,13 @@ A tutorial for haskell-halogen whose code compiles in the browser. Each lesson
 is a page with its text, a code editor and a Compile button; GHC itself,
 compiled to WebAssembly (the playground of [`learn/`](../../learn/README.md)),
 compiles the reader's module in the page and mounts the component it defines
-beside the text, with no server behind it.
+beside the text, with no server behind it. Its playground, `/playground/`, is
+the same compiler with no lesson around it.
 
 ## How it works
 
 The page is a Halogen application (`src/Learn/App.hs`) with a route per
-lesson, through `haskell-halogen-router`. The build renders every route's page
+lesson and one for the playground, through `haskell-halogen-router`. The build renders every route's page
 natively (`Prerender.hs`, under the site's base path), so a lesson's text is on
 the page before any WebAssembly has arrived; `app.wasm` then adopts that page
 (`hydrateUI`) and starts the compiler in the background. The compiler is the
@@ -62,6 +63,75 @@ constructor, a record field, a class's or an instance's methods. A name
 right after a dot, qualified or a record's field, shows no tooltip, and a
 local name that is also a top-level one shows the top-level one's type.
 
+**Source.** Every compile and check passes the playground `--learn-spans`
+(`js/playground.js`), so every element the reader's code builds carries
+`data-learn-src="<line>:<column>"`, where in `Lesson.hs` the element
+function was applied (`learn/README.md` says how the parser plugin does
+it). The Source toggle above the result, enabled once a compile has mounted
+something, reads them back (`js/source.js`): while it is on, the element
+under the pointer is outlined by a box fixed over its rectangle, labelled
+with its position, and its line is marked in the editor (`js/editor.js`'s
+`showSource`); a click on it moves the editor's cursor there, and is stopped
+in the capture phase, so the program does not see it; and the editor tells
+the app where its cursor is (`setSourceMode`, a `cursor` event sent only
+while Source is on), which outlines the element whose position that is, or
+the one that starts last on the cursor's line before it. A new compile
+leaves Source on, over the new elements. Positions follow the reader's edits
+until the next compile: the marks are where the code was when it compiled,
+and the editor keeps that text and every change since (`compileText`, and
+`compiled` once the compile has mounted), so a mark is labelled, marked and
+gone to where its code is now (two lines added at the top move the button's
+line two down), the cursor's position is taken back to the compiled code
+before an element is matched to it, and an element whose code has been
+deleted since says so on its label and has no line. GHC's messages quote
+the code they compiled, marks and all; `Learn.Diagnostics.withoutMarks`
+takes the marks out of a run's stderr before the page reads it. What gets a mark: an
+application of an element function of `Halogen.HTML.Elements`, qualified or
+not as the module imports it, to a literal list of properties (`HH.div
+[HP.id "x"] [...]`, `HH.input []`). What does not: an element whose
+properties are not written as a list in place (a list in a variable, a
+comprehension, `props <> more`), the `_` variants (`HH.div_ kids`, which
+have no list to add to), `HH.element` and `HH.withKeys`, SVG's elements
+(`Halogen.Svg.Elements`), and what an `hh` quasi-quote makes; pointing at one
+of those outlines the nearest marked element around it. The marks are
+ordinary attributes, there whether or not Source is on: a test that lists an
+element's attributes sees them, lesson 12's hydration patches them onto the
+prerendered HTML, and lesson 21's wire carries them as `attr` operations.
+
+**The playground.** `/playground/` (`Learn.Route`'s `Playground`, which no
+lesson can shadow: a lesson's slug starts with its two digits) is the same
+page with the lesson's text replaced by a narrow panel: a checkbox for each
+layer of the manifest (its name, its packages, and what it downloads, or
+"loaded"), a field for extra GHC arguments, and a link back to the lessons.
+The code is a module `Lesson` as a lesson's is, mounted by the default
+wrapper; Reset puts back its template (`Learn.Playground.template`, a
+counter). A compile passes `-package` for each package of each layer checked
+(the manifest's `packages`, which `js/playground.js`'s `describe` hands the
+app, but for the base layer's), then the extra arguments; checking a layer
+loads it as a lesson's are loaded on arrival, with the same progress line.
+The code, the layers and the arguments are kept in `localStorage`
+(`learn:playground:code`, `learn:playground:layers`,
+`learn:playground:args`) on every change, and the code's entry is removed
+once it is the template again. Every lesson's toolbar has **Open in
+playground**, which hands the editor's text, the lesson's layers and its
+arguments to the playground and goes there; the hand-off is held in the
+app's state, not the browser's storage, since the playground is entered
+without a page load and a store may refuse a write (full, or denied). The
+playground opens with a hand-off before what it kept
+(`Learn.Playground.opening`), takes it, puts its code in the editor as it is
+and keeps it as the reader's as far as the browser lets it, checks its
+layers, and puts its arguments but the `-package` flags (which name the
+layers' packages, as a lesson's header must) in the extra field: lesson
+20's `-fdefer-typed-holes`.
+What does not come with it is a lesson's own `Main.hs` (lessons 6, 12 to 17
+and 21): the playground mounts `component` with the default wrapper, so a
+component that needs the program around it (lesson 15's store, lesson 17's
+pool, lesson 6's router as its input) does not compile there as it is, and
+a lesson's spec (13) or page (14, 16, 21) is not run.
+The introduction links it above the list of lessons, every lesson's bottom
+pager has a Playground link between Previous and Next, and the playground's
+has one back to the lessons.
+
 On a screen under 900 pixels wide the compiler is not loaded by itself (it is
 a 63 MB download and takes 1.2 GB of memory once running): the lesson and its
 code are there to read, and a button loads the compiler anyway.
@@ -107,7 +177,20 @@ for), and checks that every lesson's page arrives with its heading in it,
 that the page is adopted and the compiler loads (printing how long each step
 took) with no `HEAD` request, the manifest giving the version and the sizes,
 that the first two lessons do what their text says (and lesson 15's
-connected views render again only for their own part of the store), that a type error is
+connected views render again only for their own part of the store), that
+Source on lesson 2 outlines the button under the pointer at the position it
+was built at, marks its line, goes there on a click the counter does not
+count, outlines what the editor's cursor is on, does all that at the line
+the code has moved to when two lines are added above it and taken out
+again, gives an element whose code is deleted no line, and once off lets a
+click count again, that the playground's page is prerendered and linked from the
+introduction, that lesson 2's Open in playground arrives there with its code
+when `localStorage` refuses every write,
+which compiles and counts, with Source working there too, that the template
+compiles and counts, that checking `store` shows the progress line and then
+"loaded" by its checkbox and lets a program importing `Halogen.Store`
+compile, and that the code, the layer and the arguments are there and compile
+on a second visit, that a type error is
 listed at its line with the last result still mounted, that **every lesson's
 `Start.hs` compiles and its `Solution.hs` compiles with no diagnostic and
 shows something** (one line per lesson; for lesson 13, whose program runs a

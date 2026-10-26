@@ -13,6 +13,8 @@
   --error: #b42318;
   --warning: #9a6700;
   --active-line: rgba(59, 91, 219, 0.06);
+  --source-line: rgba(59, 91, 219, 0.18);
+  --source-fill: rgba(59, 91, 219, 0.12);
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 }
 
@@ -27,6 +29,8 @@
     --error: #ff9b8f;
     --warning: #f0c060;
     --active-line: rgba(142, 164, 255, 0.08);
+    --source-line: rgba(142, 164, 255, 0.22);
+    --source-fill: rgba(142, 164, 255, 0.16);
   }
 }
 
@@ -198,6 +202,58 @@ button.learn-retry {
 .learn-pager-bottom {
   margin: 2em 0 1em;
   justify-content: space-between;
+}
+
+/* The playground: a narrow panel in place of the text, with the layers to
+   check and the arguments to add. */
+
+.learn-lesson.learn-playground {
+  grid-template-columns: minmax(0, 0.65fr) minmax(0, 1.3fr) minmax(0, 1fr);
+}
+
+.learn-layers {
+  margin: 1em 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.learn-layers legend {
+  padding: 0 4px;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.learn-layers ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.learn-layer {
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.learn-extra label {
+  display: block;
+  font-size: 0.9rem;
+  margin-bottom: 4px;
+}
+
+.learn-extra-args {
+  width: 100%;
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
 }
 
 .learn-code,
@@ -393,6 +449,43 @@ button.learn-binding:focus-visible code {
   cursor: pointer;
   color: var(--muted);
   font-size: 0.85rem;
+}
+
+/* The Source mode (js/source.js): the toggle, pressed while it is on, and the
+   box over the element under the pointer, fixed over its rectangle, with
+   where it was built at its top left corner. The box takes no pointer
+   events, so the element under it is still the one pointed at. */
+
+button.learn-source[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+}
+
+.learn-result.learn-sourcing {
+  cursor: crosshair;
+}
+
+.learn-source-box {
+  position: fixed;
+  z-index: 1000;
+  pointer-events: none;
+  outline: 2px solid var(--accent);
+  background: var(--source-fill);
+  border-radius: 2px;
+}
+
+.learn-source-label {
+  position: absolute;
+  left: -2px;
+  bottom: 100%;
+  margin-bottom: 2px;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--accent);
+  color: var(--bg);
+  font: 11px/1.6 var(--mono);
+  white-space: nowrap;
 }
 
 /* One column. */

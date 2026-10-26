@@ -53,11 +53,14 @@ main = do
 withBase :: Text -> Text -> Text
 withBase base = T.replace "<head>" ("<head>\n    <base href=\"" <> escape base <> "\">")
 
--- | A lesson's page is titled after it.
+-- | A lesson's page is titled after it, and the playground's is too.
 withTitle :: Route -> Text -> Text
-withTitle r = case lessonOf r of
-  Nothing -> identity
-  Just lesson -> T.replace "<title>Learn Halogen</title>" ("<title>" <> escape (show lesson.number <> ". " <> lesson.title) <> " — Learn Halogen</title>")
+withTitle r = case (r, lessonOf r) of
+  (_, Just lesson) -> titled (show lesson.number <> ". " <> lesson.title)
+  (Playground, _) -> titled "Playground"
+  _ -> identity
+  where
+    titled title = T.replace "<title>Learn Halogen</title>" ("<title>" <> escape title <> " — Learn Halogen</title>")
 
 -- | Text as it is written in an attribute's value in double quotes or in an
 -- element's text: a title may hold a @<@ or an @&@ (\"Forms & inputs\"), and

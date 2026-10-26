@@ -4,28 +4,62 @@
 // calls these by name; the wasm backend embeds it into its JSFFI module
 // (Halogen.JSBits).
 
+// A store can refuse: a write past its quota, and any use at all where the
+// browser denies the page its storage (a strict private window, storage
+// blocked for the site), where even reading globalThis.localStorage throws.
+// A JavaScript exception out of a synchronous import takes the wasm runtime
+// down with it, since it cannot be caught as a Haskell exception there, so
+// these catch their own: a read, the length and a key give what an empty
+// store would, and a write and a removal give the error's message, or null
+// when they did their work, for the Haskell side to throw.
 function js_storage_of(kind) {
   return kind === "local" ? globalThis.localStorage : globalThis.sessionStorage;
 }
 
+function js_storage_failure(error) {
+  return String(error && error.message ? error.message : error);
+}
+
 function js_storage_read(kind, key) {
-  return js_storage_of(kind).getItem(key);
+  try {
+    return js_storage_of(kind).getItem(key);
+  } catch (error) {
+    return null;
+  }
 }
 
 function js_storage_write(kind, key, value) {
-  js_storage_of(kind).setItem(key, value);
+  try {
+    js_storage_of(kind).setItem(key, value);
+    return null;
+  } catch (error) {
+    return js_storage_failure(error);
+  }
 }
 
 function js_storage_remove(kind, key) {
-  js_storage_of(kind).removeItem(key);
+  try {
+    js_storage_of(kind).removeItem(key);
+    return null;
+  } catch (error) {
+    return js_storage_failure(error);
+  }
 }
 
 function js_storage_length(kind) {
-  return js_storage_of(kind).length;
+  try {
+    return js_storage_of(kind).length;
+  } catch (error) {
+    return 0;
+  }
 }
 
 function js_storage_key(kind, index) {
-  return js_storage_of(kind).key(index);
+  try {
+    return js_storage_of(kind).key(index);
+  } catch (error) {
+    return null;
+  }
 }
 
 function js_window_inner_width(window) {

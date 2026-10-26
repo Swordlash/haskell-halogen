@@ -69,6 +69,7 @@ library
       Learn.Lessons
       Learn.Lessons.Embed
       Learn.Markdown
+      Learn.Playground
       Learn.Route
       Learn.Types
       Learn.View
@@ -102,6 +103,7 @@ executable halogen-example-learn
           Learn.Lessons
           Learn.Lessons.Embed
           Learn.Markdown
+          Learn.Playground
           Learn.Route
           Learn.Types
           Learn.View
@@ -146,6 +148,7 @@ test-suite Halogen-learn-test
     build-depends:
         hspec >= 2,
         protolude,
+        haskell-halogen-router,
         halogen-example-learn
 
 -- Every route's page, with the tutorial already rendered into it, written

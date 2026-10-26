@@ -99,14 +99,16 @@ export function manifest(root) {
   return manifests.get(base);
 }
 
-// The manifest as the page shows it: the GHC version and what each archive
-// downloads.
+// The manifest as the page shows it: the GHC version, what each archive
+// downloads, and the packages in each, which the playground names with
+// -package for the layers the reader checks.
 export async function describe(root) {
   const m = await manifest(root);
   return {
     ghc: m.ghc,
     base: m.archive.size,
-    layers: m.layers.map((layer) => ({ name: layer.name, size: layer.size })),
+    basePackages: m.rootfs?.packages ?? [],
+    layers: m.layers.map((layer) => ({ name: layer.name, size: layer.size, packages: layer.packages ?? [] })),
   };
 }
 
@@ -430,8 +432,12 @@ function enqueue(job) {
 // end, compiled when GHC got as far as running it. Before what the program
 // writes, stdout has a learn-type line for each of Lesson's top-level
 // bindings (learn/Playground.hs), which the app takes out (Learn.Types).
+//
+// Every compile and check has the playground mark the elements of Lesson
+// with where they were built (--learn-spans): the result's elements carry
+// data-learn-src, which the Source mode reads (source.js).
 export function compile(request) {
-  return enqueue(() => run(request, []));
+  return enqueue(() => run(request, ["--learn-spans"]));
 }
 
 // Typecheck, and nothing more, as the reader types: the same request and the
@@ -439,9 +445,12 @@ export function compile(request) {
 // compiles with -fno-code and runs nothing. Then ok and compiled both say
 // whether it typechecked, and stdout has only the learn-type lines. A check
 // waits for a compile under way, as a compile asked for meanwhile waits for
-// the check: the results come in the order they were asked for.
+// the check: the results come in the order they were asked for. A check
+// marks the elements too, though nothing reads them, so that GHC compiles
+// Lesson the same way for both, and its recompilation check holds between
+// them.
 export function check(request) {
-  return enqueue(() => run(request, ["--learn-check"]));
+  return enqueue(() => run(request, ["--learn-check", "--learn-spans"]));
 }
 
 async function run(request, flags) {

@@ -28,7 +28,8 @@ function halogen_learn_scroll_to_top() {
   globalThis.scrollTo(0, 0);
 }
 
-// A JSON string: {"ghc":..., "base":bytes|null, "layers":[{"name":..., "size":...}]}.
+// A JSON string: {"ghc":..., "base":bytes|null, "basePackages":[...],
+// "layers":[{"name":..., "size":..., "packages":[...]}]}.
 function halogen_learn_describe(root) {
   return halogen_learn_api()
     .playground.describe(root)
@@ -70,6 +71,14 @@ function halogen_learn_editor_text(view) {
   return halogen_learn_api().editor.text(view);
 }
 
+function halogen_learn_editor_compile_text(view) {
+  return halogen_learn_api().editor.compileText(view);
+}
+
+function halogen_learn_editor_compiled(view) {
+  halogen_learn_api().editor.compiled(view);
+}
+
 function halogen_learn_editor_set_text(view, text) {
   halogen_learn_api().editor.setText(view, text);
 }
@@ -90,6 +99,30 @@ function halogen_learn_editor_goto(view, line, column) {
   halogen_learn_api().editor.goto(view, line, column);
 }
 
+function halogen_learn_editor_show_source(view, line) {
+  halogen_learn_api().editor.showSource(view, line);
+}
+
+function halogen_learn_editor_source_mode(view, on) {
+  halogen_learn_api().editor.setSourceMode(view, on);
+}
+
 function halogen_learn_editor_destroy(view) {
   halogen_learn_api().editor.destroy(view);
+}
+
+// The Source mode's outline over the result's element; onEvent gets a JSON
+// string for each thing the reader does there (see source.js). The editor
+// takes the marks' positions to where their code is now.
+function halogen_learn_source_start(result, view, onEvent) {
+  const api = halogen_learn_api();
+  return api.source.start(result, api.editor.positions(view), (event) => onEvent(event));
+}
+
+function halogen_learn_source_outline(handle, line, column) {
+  halogen_learn_api().source.outline(handle, line, column);
+}
+
+function halogen_learn_source_stop(handle) {
+  halogen_learn_api().source.stop(handle);
 }

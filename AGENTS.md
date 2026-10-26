@@ -310,7 +310,13 @@ compiled program are two runtimes on one page. GHC's stderr is parsed into diagn
 (`Learn.Diagnostics`) for the list under the CodeMirror editor and its lint markers. As the reader
 types, the page also checks the code (the playground's `--learn-check`: `-fno-code`, nothing run) a
 moment after the last key, and every compile or check reports the types of `Lesson`'s top-level
-bindings as `learn-type` lines on stdout (`Learn.Types`), shown as tooltips and a list under the editor. Lesson 13's own
+bindings as `learn-type` lines on stdout (`Learn.Types`), shown as tooltips and a list under the editor.
+Every compile and check also passes `--learn-spans`, whose parser plugin gives each element `Lesson`
+builds a `data-learn-src="<line>:<column>"` attribute; the page's Source mode (`js/source.js`) reads
+it back to outline what the pointer is on and go to its line, and `Learn.Diagnostics.withoutMarks`
+takes the marks out of GHC's messages. `/playground/` (`Learn.Playground`) is the same compiler with
+no lesson around it: layers picked by checkboxes, code kept in `localStorage` as best effort, and a
+lesson's code handed to it in the app's state by its "Open in playground". Lesson 13's own
 `Main.hs` runs the lesson's `spec` instead of mounting (`hspec-halogen`'s `runBrowserTestsIn`, the
 rootfs' `hspec` layer): with no runner in the page, the harness performs its actions with synthetic
 events (`hspec-halogen/jsbits/page.js`'s in-page mode, which `hspec-halogen-test` also runs its

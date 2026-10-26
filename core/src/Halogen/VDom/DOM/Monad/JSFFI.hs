@@ -23,6 +23,7 @@ import Halogen.JSBits (JSText, JSVal, Safety (..), browserJS, freeCallback, from
 import Halogen.VDom.DOM.Monad.Browser
 import Halogen.VDom.DOM.Monad.Class
 import Halogen.VDom.Types
+import System.IO.Error (userError)
 import Web.DOM.Internal.Types
 import Web.DOM.Internal.Types qualified as DOMTypes
 import Web.DOM.ParentNode
@@ -39,8 +40,8 @@ $( browserJS
      , ("js_insert_before", "js_insert_before", Unsafe, [t|Node -> Node -> ParentNode -> IO ()|])
      , ("js_get_window", "js_get_window", Unsafe, [t|IO Window|])
      , ("js_storage_read", "js_storage_read", Unsafe, [t|JSText -> JSText -> IO (Nullable JSVal)|])
-     , ("js_storage_write", "js_storage_write", Unsafe, [t|JSText -> JSText -> JSText -> IO ()|])
-     , ("js_storage_remove", "js_storage_remove", Unsafe, [t|JSText -> JSText -> IO ()|])
+     , ("js_storage_write", "js_storage_write", Unsafe, [t|JSText -> JSText -> JSText -> IO (Nullable JSVal)|])
+     , ("js_storage_remove", "js_storage_remove", Unsafe, [t|JSText -> JSText -> IO (Nullable JSVal)|])
      , ("js_storage_length", "js_storage_length", Unsafe, [t|JSText -> IO (Foreign Int)|])
      , ("js_storage_key", "js_storage_key", Unsafe, [t|JSText -> Int -> IO (Nullable JSVal)|])
      , ("js_get_document", "js_get_document", Unsafe, [t|Window -> IO HTMLDocument|])
@@ -124,8 +125,8 @@ instance MonadBrowserDOM BrowserDOM where
   querySelector (QuerySelector selector) parent = liftIO $ fmap Element . nullableToMaybe <$> js_query_selector (toJSText selector) (coerce parent)
   readyState doc = liftIO $ fromMaybe ReadyState.Loading . ReadyState.parse . fromJSText <$> js_ready_state doc
   readStorageItem kind key = liftIO $ fmap foreignToString . nullableToMaybe <$> js_storage_read (storageName kind) (toJSText key)
-  writeStorageItem kind key text = liftIO $ js_storage_write (storageName kind) (toJSText key) (toJSText text)
-  removeStorageItem kind key = liftIO $ js_storage_remove (storageName kind) (toJSText key)
+  writeStorageItem kind key text = liftIO $ refused =<< js_storage_write (storageName kind) (toJSText key) (toJSText text)
+  removeStorageItem kind key = liftIO $ refused =<< js_storage_remove (storageName kind) (toJSText key)
 
   -- `key(i)` rather than a list, because a list would have to be marshalled
   -- and this is what a store offers: the indices are stable for as long as
@@ -145,6 +146,12 @@ instance MonadAttributes BrowserDOM where
 -- | A namespace, or @null@ for none, as the jsbits take it.
 namespace :: Maybe Namespace -> JSVal
 namespace = maybe jsNull (toJSText . unNamespace)
+
+-- | What a store said when it refused a write or a removal (the jsbits catch
+-- it: on wasm a JavaScript exception out of a synchronous import would take
+-- the runtime down), thrown as an 'IOError' that the program can catch.
+refused :: Nullable JSVal -> IO ()
+refused = traverse_ (throwIO . userError . toS . ("the browser's storage refused: " <>) . foreignToString) . nullableToMaybe
 
 -- | Which store the browser is being asked for, as the string the jsbits
 -- switch on.
