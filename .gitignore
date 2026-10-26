@@ -25,3 +25,6 @@ cabal.project.local~
 node_modules
 .parcel-cache/
 .vscode
+
+# Worktrees that coding agents make under the checkout.
+.claude/worktrees/
