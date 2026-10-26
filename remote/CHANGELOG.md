@@ -13,11 +13,14 @@ point names `RemoteDOM`.
 
 `Halogen.Remote.Session` is one client's side: `newSession` with what sends a message to the
 client, `mount` of one component, `receive` of each message from the client and `dispose`. The
-session sends its operations in batches, normally one per render, the first beginning with
-`clear`; an event runs its listener as a page's callback would, and one for a listener that has
-gone is dropped. `Halogen.Remote.Protocol` says what crosses, as compact JSON: an operation is an
-array with its name first (`["create", 3, null, "div"]`), an event an object naming its listener
-and node with the fields handlers read.
+session sends its operations in batches, normally one per render and never part of one, the first
+beginning with `clear`; an event runs its listener as a page's callback would, and one for a
+listener that has gone is dropped. `Halogen.Remote.Protocol` says what crosses, as compact JSON:
+an operation is an array with its name first (`["create", 3, null, "div"]`), an event an object
+naming its listener and node with the fields handlers read. A node taken out and not put back by
+the end of a batch is forgotten, on both sides, so a child component whose parent replaces the
+element around it keeps its node. `Halogen.Remote.Internal` is the recorder itself, for tests and
+tools.
 
 `Halogen.Remote.Server` (native) serves a component over WebSockets with warp and wai-websockets,
 a session per connection, with the client at the socket's path and `.js` and the pages it is

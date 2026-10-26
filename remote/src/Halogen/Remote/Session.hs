@@ -9,13 +9,17 @@
 -- and a test one whose wire is a list.
 --
 -- __Batches.__ Operations are not sent one by one. The first operation
--- after a message has gone wakes the session's sender, which yields once
--- the thread it runs on, so that the work that made the operation (a render,
--- which runs on the tree's loop without waiting) can finish, and sends
--- everything recorded by then as one message. A render is therefore
--- normally one message; a long one may be several, which the client applies
--- in order all the same. The first message of a session holds the first
--- render, after a @clear@ that empties what the client showed before.
+-- after a message has gone wakes the session's sender, which waits until no
+-- render of the tree is under way, yields once (so that other work about to
+-- record joins it), and sends everything recorded by then as one message. A
+-- batch never ends in the middle of a render: 'mount' counts each render of
+-- the tree as under way while it runs, and the sender takes nothing while
+-- one is. That is what lets a node taken out and put back within a render
+-- (the node of a child component whose parent replaced the element around
+-- it) survive: a node taken out and not put back by the end of the batch is
+-- gone, on both sides, and only then. The first message of a session holds
+-- the first render, after a @clear@ that empties what the client showed
+-- before.
 --
 -- __What cannot cross.__ The component's program runs here, the page there,
 -- and the wire between them takes time, so:
@@ -51,18 +55,18 @@ where
 
 import Control.Concurrent.STM qualified as STM
 import Data.Aeson.Text (encodeToLazyText)
-import Data.Foldable qualified as Foldable
 import Data.Foreign (toForeign)
 import Data.Sequence qualified as Seq
 import Data.Text.Lazy qualified as Lazy
 import Halogen.Component (Component)
-import Halogen.IO.Driver (HalogenSocket (..))
+import Halogen.IO.Driver (HalogenSocket (..), RenderSpec (..))
+import Halogen.IO.Driver qualified as Driver
 import Halogen.JSBits (inBrowser)
 import Halogen.Remote.Client qualified as Client
 import Halogen.Remote.Internal (Recorder, RemoteDOM, runRemoteDOM)
 import Halogen.Remote.Internal qualified as Internal
 import Halogen.Remote.Protocol (Batch (..), EventMessage (..), Op (..), decodeEventMessage, encodeBatch)
-import Halogen.VDom.Driver (runUI)
+import Halogen.VDom.Driver (renderSpec)
 import Protolude hiding (yield)
 import UnliftIO (tryAny)
 import UnliftIO.Concurrent (yield)
@@ -106,33 +110,49 @@ sending :: Session -> Int -> IO ()
 sending session n = do
   woken <- STM.atomically $ do
     STM.readTVar session.held >>= STM.check . not
-    Internal.drain session.recorder
-  case woken of
-    Nothing -> pass
-    Just recorded -> do
-      -- Let the work that recorded the first operation finish what it
-      -- records, then take that too.
-      yield
-      rest <- STM.atomically $ do
-        more <- STM.readTVar session.recorder.pending
-        STM.writeTVar session.recorder.pending Seq.empty
-        pure more
-      sent <- tryAny (session.send (encodeBatch (Batch n (Foldable.toList (recorded <> rest)))))
-      case sent of
-        Left _ -> pass
-        Right () -> sending session (n + 1)
+    Internal.ready session.recorder
+  when woken $ do
+    -- Let what is about to record join the batch. A render that starts
+    -- meanwhile is waited for: the batch is taken between renders.
+    yield
+    Internal.takeBatch session.recorder >>= \case
+      Nothing -> pass
+      -- Everything it held was about nodes it forgot.
+      Just [] -> sending session n
+      Just ops -> do
+        sent <- tryAny (session.send (encodeBatch (Batch n ops)))
+        case sent of
+          Left _ -> pass
+          Right () -> sending session (n + 1)
 
 -- | Mount the component in the session's page: the first message the client
 -- gets is its first render. A session mounts one component, once.
+--
+-- It is 'Halogen.VDom.Driver.runUI' into the session's body, with each
+-- render counted as under way while it runs, so that no batch ends inside
+-- one (see the module's header).
 mount :: Session -> Component q i o RemoteDOM -> i -> IO (HalogenSocket q o RemoteDOM)
 mount session component input = do
   already <- isJust <$> readIORef session.mounted
   when already $ throwIO AlreadyMounted
+  let recorder = session.recorder
+      spec = counted (renderSpec (Internal.documentHandle recorder) (Internal.bodyHandle recorder))
   socket <-
-    run session (runUI component input (Internal.bodyHandle session.recorder))
+    run session (Driver.runUI spec component input)
       `finally` STM.atomically (STM.writeTVar session.held False)
   writeIORef session.mounted (Just socket.dispose)
   pure socket
+  where
+    counted :: RenderSpec RemoteDOM r -> RenderSpec RemoteDOM r
+    counted RenderSpec {render, renderChild, removeChild, dispose = disposeOf, sameElement, rootNode} =
+      RenderSpec
+        { render = \handler child html previous -> Internal.whileRendering (render handler child html previous)
+        , renderChild
+        , removeChild
+        , dispose = disposeOf
+        , sameElement
+        , rootNode
+        }
 
 -- | A message from the client: an event for one of the component's
 -- listeners, which runs on the caller's thread and hands its action to the

@@ -44,9 +44,16 @@ Session.dispose session                 -- the client has gone
 ```
 
 One session is one client and one instance of the component. Its operations are sent in
-batches: the first operation after a message has gone wakes the session's sender, which yields
-once so that the render under way can finish, and sends what has been recorded as one message, so
-a render is normally one message. The first message begins with `clear`, then the first render.
+batches: the first operation after a message has gone wakes the session's sender, which waits
+until no render of the tree is under way, yields once so that other work about to record joins
+in, and sends what has been recorded as one message. A batch never ends in the middle of a render:
+`mount` counts each render of the tree as under way while it runs (renders nest, a parent's
+around its children's), and the sender takes nothing while one is. That is what the protocol's
+rule for removed nodes needs: a node taken out and not put back by the end of the batch is gone,
+on both sides, and only then, because a render may take a node out and put it back (when a
+parent's render replaces the element around a child component's slot, the driver keeps the child
+and moves its node into the new element). The first message begins with `clear`, then the first
+render.
 An event from the client runs its listener as a page's callback would, and is dropped if the
 listener has gone (its removal crossed the wire after the event left). `dispose` sends nothing
 more, disposes of the component's tree and forgets the mirror.
@@ -66,7 +73,7 @@ its name first:
 | `["text", node, text]` | a text node |
 | `["set-text", node, text]` | a text node's text |
 | `["insert", parent, index, child]` | put `child` at `index` among `parent`'s children |
-| `["remove", parent, child]` | take `child` out, and forget it and its subtree |
+| `["remove", parent, child]` | take `child` out of `parent` |
 | `["attr", node, namespace, name, value]` | set an attribute |
 | `["unattr", node, namespace, name]` | remove one |
 | `["prop", node, name, value]` | set a property (a string, a number or a boolean) |
@@ -76,8 +83,11 @@ its name first:
 
 Node 0 is the window, node 1 the container the client was attached to (the component's body);
 the session numbers every other node. `insert`'s index is where the child ends up once it has
-been taken from wherever it was. A removed node is never named again: nothing in the reconciler
-puts a node back once it has taken it out (a move is an `insert`).
+been taken from wherever it was. A node taken out and not put back by the end of the batch is
+gone, on both sides: after the batch's last operation, each node a `remove` took out that still
+has no parent is forgotten with its subtree and their listeners, and is never named again. A
+batch leaves out what would happen inside such a node (its children taken out of it, its
+listeners stopped), which the client forgets with it.
 
 To the program, one JSON object per event:
 

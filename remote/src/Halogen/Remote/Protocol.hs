@@ -14,7 +14,7 @@
 -- > ["text", node, text]                       a text node
 -- > ["set-text", node, text]                   a text node's text
 -- > ["insert", parent, index, child]           put child at index among parent's children
--- > ["remove", parent, child]                  take child out of parent, and forget it
+-- > ["remove", parent, child]                  take child out of parent
 -- > ["attr", node, namespace, name, value]     set an attribute
 -- > ["unattr", node, namespace, name]          remove one
 -- > ["prop", node, name, value]                set a property (a string, number or boolean)
@@ -27,8 +27,17 @@
 -- to (the component's @body@, which it is mounted into); the session never
 -- creates either. @insert@'s index is where the child ends up, counted
 -- among the parent's children once the child has been taken from wherever
--- it was. A node that is removed is forgotten with everything under it, on
--- both sides: no operation names it again.
+-- it was.
+--
+-- A node taken out and not put back by the end of the batch is gone, on both
+-- sides: once the last operation is applied, each node a @remove@ took out
+-- that still has no parent is forgotten, with everything under it and the
+-- listeners on them, and no operation names it again. A node taken out and
+-- put back by an @insert@ in the same batch stays, as the node of a child
+-- component does when its parent replaces the element around it, and a
+-- batch never ends in the middle of a render. A batch says nothing about
+-- what happens inside a node it leaves gone (its children taken out of it,
+-- its listeners stopped): the client forgets all of it anyway.
 --
 -- __To the program__, one JSON object per event a listener heard:
 --
@@ -79,7 +88,8 @@ data Op
     SetText NodeId Text
   | -- | The parent, the index the child ends up at, and the child.
     Insert NodeId Int NodeId
-  | -- | The parent and the child, which is forgotten with its subtree.
+  | -- | The parent and the child, which is forgotten with its subtree at
+    -- the end of the batch unless an 'Insert' puts it back.
     Remove NodeId NodeId
   | -- | The element, the attribute's namespace and name, and its value.
     SetAttribute NodeId (Maybe Text) Text Text

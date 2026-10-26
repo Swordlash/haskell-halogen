@@ -78,6 +78,27 @@ spec m = do
     find ui "#submit" >>= click
     find ui "#submitted" >>= (`shouldHaveText` "2")
 
+  it "keeps a child's element when its parent replaces the element around it" $ runPage $ do
+    traffic <- unsafeIOToPageM (newIORef [])
+    ui <- mount m (host traffic swapping) ()
+    poke <- find ui "#poke"
+    click poke
+    find ui "#poke" >>= (`shouldHaveText` "poked 1")
+    find ui "#swap" >>= click
+    eventually (find ui "#wrapper" >>= (`getProperty` "tagName") >>= (`shouldBe` "SECTION"))
+    -- The child's button is the one that was there, moved into the
+    -- section, and it still counts.
+    moved <- find ui "#poke"
+    moved `shouldBeSameElement` poke
+    click moved
+    find ui "#poke" >>= (`shouldHaveText` "poked 2")
+    find ui "#swap" >>= click
+    eventually (find ui "#wrapper" >>= (`getProperty` "tagName") >>= (`shouldBe` "DIV"))
+    back <- find ui "#poke"
+    back `shouldBeSameElement` poke
+    click back
+    find ui "#poke" >>= (`shouldHaveText` "poked 3")
+
   it "empties its element when disposed of, and showed the traffic both ways" $ runPage $ do
     traffic <- unsafeIOToPageM (newIORef [])
     ui <- mount m (host traffic counter) ()

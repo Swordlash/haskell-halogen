@@ -6,6 +6,7 @@ module Test.Components
   , EchoQuery (..)
   , echo
   , toggling
+  , swapping
   , form
   )
 where
@@ -73,14 +74,38 @@ toggling =
     render shown =
       HH.div_
         [ HH.button [HP.id "toggle", HE.onClick (const Toggle)] [HH.text "toggle"]
-        , if shown then HH.slot_ "child" () child () else HH.text "hidden"
+        , if shown then HH.slot_ "child" () poker () else HH.text "hidden"
         ]
-    child :: H.Component H.VoidF () Void m
-    child =
-      H.component
-        (\() -> pure (0 :: Int))
-        (\n -> HH.button [HP.id "poke", HE.onClick (const ())] [HH.text ("poked " <> show n)] :: H.ComponentHTML () Empty m)
-        [H.onAction (\() -> modify (+ 1))]
+
+-- | A button that counts its pokes: the child of 'toggling' and 'swapping'.
+poker :: forall m. (Monad m) => H.Component H.VoidF () Void m
+poker =
+  H.component
+    (\() -> pure (0 :: Int))
+    (\n -> HH.button [HP.id "poke", HE.onClick (const ())] [HH.text ("poked " <> show n)] :: H.ComponentHTML () Empty m)
+    [H.onAction (\() -> modify (+ 1))]
+
+data Swap = Swap
+
+-- | A child in an element whose tag the parent's state picks. Swapping the
+-- tag replaces the element: the old one is taken out with the child's node
+-- still in it, and the driver, which keeps the child, puts that same node
+-- into the new element in the same render.
+swapping :: forall m. (Monad m) => H.Component H.VoidF () Void m
+swapping =
+  H.component
+    (\() -> pure False)
+    render
+    [H.onAction (\Swap -> modify not)]
+  where
+    render :: Bool -> H.ComponentHTML Swap Slots m
+    render inSection =
+      HH.div_
+        [ HH.button [HP.id "swap", HE.onClick (const Swap)] [HH.text "swap"]
+        , if inSection
+            then HH.section [HP.id "wrapper"] [HH.slot_ "child" () poker ()]
+            else HH.div [HP.id "wrapper"] [HH.slot_ "child" () poker ()]
+        ]
 
 data Submitted = Submitted
 

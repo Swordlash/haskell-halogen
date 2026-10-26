@@ -151,6 +151,39 @@ spec = describe "a session" $ do
     [t | CreateText _ t <- again] `shouldBe` ["poked 0"]
     Session.dispose session
 
+  it "keeps a child whose node moves into the element that replaces its parent's" $ do
+    (session, wire, ops, _) <- mounted swapping
+    swapper <- required "swap" (elementWithId ops "swap")
+    swapListener <- required "swap's listener" (listenerOn ops swapper "click")
+    poke <- required "the child's button" (elementWithId ops "poke")
+    pokeListener <- required "the child's listener" (listenerOn ops poke "click")
+    pokeText <- required "the child's text" (head [n | CreateText n "poked 0" <- ops])
+    oldWrapper <- required "the div around the child" (elementWithId ops "wrapper")
+    nodes <- Session.liveNodes session
+    Session.receive session (clickOn swapListener swapper)
+    patch <- nextOps wire
+    wrapper <- required "the section around the child" (elementWithId patch "wrapper")
+    [name | Create n _ name <- patch, n == wrapper] `shouldBe` ["section"]
+    -- The child's node, the one already on the page, goes into the section,
+    -- and no second child is made.
+    [(p, c) | Insert p _ c <- patch, c == poke] `shouldBe` [(wrapper, poke)]
+    [name | Create _ _ name <- patch] `shouldBe` ["section"]
+    [c | Remove _ c <- patch] `shouldBe` [oldWrapper]
+    Session.liveNodes session `shouldReturn` nodes
+    Session.liveListeners session `shouldReturn` 2
+    -- The child is still there, and still heard.
+    Session.receive session (clickOn pokeListener poke)
+    nextOps wire `shouldReturn` [SetText pokeText "poked 1"]
+    -- And back into a div.
+    Session.receive session (clickOn swapListener swapper)
+    back <- nextOps wire
+    div' <- required "the new div around the child" (elementWithId back "wrapper")
+    [(p, c) | Insert p _ c <- back, c == poke] `shouldBe` [(div', poke)]
+    Session.receive session (clickOn pokeListener poke)
+    nextOps wire `shouldReturn` [SetText pokeText "poked 2"]
+    Session.liveNodes session `shouldReturn` nodes
+    Session.dispose session
+
   it "drops an event for a listener it does not have, and a message that is none" $ do
     (session, wire, _, socket) <- mounted counter
     Session.receive session (clickOn 999 999)

@@ -3,6 +3,10 @@
 -- | The backend: a mirror of the page the client shows, and the operations
 -- that change it, recorded for the session to send.
 --
+-- Exposed for tests and tools that want to look at a recorder without a
+-- session's sender in the way ("Halogen.Remote.Session" is how a program
+-- uses it); what it exports may change between minor versions.
+--
 -- Every handle the driver holds ('Node', 'Element', 'Window', …) is a value
 -- holding the number of a node of the mirror, made with 'toJSInt', which is
 -- a number in a browser and an 'Int' natively: the mirror is looked up by
@@ -12,14 +16,31 @@
 -- browser about a number, rather than the browser reading a Haskell record
 -- as a JavaScript value.
 --
--- A node that is removed from its parent is forgotten at once, with its
--- subtree and the listeners on it, by the mirror and by the client alike:
--- nothing in the reconciler or the driver puts a node back once it has
--- taken it out (a move is an insertion), and the browser forgets such a node
--- when nothing holds it, which a client keeping a table of nodes cannot
--- know unless it is told. What is done to a forgotten node afterwards (the
--- halt of its children, which takes each out of a parent that is already
--- gone) does nothing and sends nothing.
+-- __A node taken out and not put back by the end of the batch is gone, on
+-- both sides.__ The browser forgets a node when nothing holds it, which a
+-- client keeping a table of nodes cannot know unless it is told, so the
+-- mirror and the client forget such a node themselves, with its subtree and
+-- the listeners on them. Not when it is taken out, though: the driver keeps
+-- a child component across its parent's render, and when the parent's
+-- render replaces the element around the child's slot (a @div@ that becomes
+-- a @section@), the old element is taken out with the child's node still in
+-- it, and that same node is then put into the new element. So a removal
+-- only detaches the node, which the recorder notes, and an insertion
+-- attaches it again wherever it goes; when the batch is taken
+-- ('takeBatch'), each noted node that still has no parent is forgotten with
+-- what is under it then. The client applies the same rule to the batch it
+-- receives (@jsbits/remote.js@).
+--
+-- That rule needs a batch never to end in the middle of a render, or the
+-- node would be forgotten between its removal and its insertion. The
+-- session wraps every render of its tree in 'whileRendering', a count of
+-- the renders under way (they nest, a parent's around its children's), and
+-- a batch is taken only while it is zero.
+--
+-- What the batch would say about a node that is gone by its end (the halt
+-- of a removed element's children, which takes each out of it and stops
+-- its listeners, a property set on it) is left out of it: the client
+-- forgets the node with everything under it, so none of it would show.
 module Halogen.Remote.Internal
   ( -- * The monad
     RemoteDOM (..)
@@ -28,9 +49,12 @@ module Halogen.Remote.Internal
     -- * The recorder
   , Recorder (..)
   , newRecorder
-  , drain
+  , ready
+  , takeBatch
+  , whileRendering
   , close
   , bodyHandle
+  , documentHandle
   , deliver
   , liveNodes
   , liveListeners
@@ -52,6 +76,7 @@ import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Foreign (foreignToInt)
 import Data.IntMap.Strict qualified as IntMap
+import Data.IntSet qualified as IntSet
 import Data.Map.Strict qualified as Map
 import Data.Scientific (floatingOrInteger)
 import Data.Sequence qualified as Seq
@@ -71,6 +96,7 @@ import Halogen.VDom.Types (ElemName (..), Namespace (..))
 import Protolude hiding (Handler, handle, join)
 import UnliftIO (MonadUnliftIO (..))
 import UnliftIO.Async qualified as Async
+import UnliftIO.Exception qualified as Exception
 import UnliftIO.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef, writeIORef)
 import Web.DOM.Internal.Types (Document (..), Element (..), HTMLDocument (..), HTMLElement (..), Node (..), Window (..))
 import Web.DOM.ParentNode (QuerySelector (..))
@@ -170,6 +196,11 @@ data Recorder = Recorder
   , nextListener :: IORef ListenerId
   , listeners :: IORef (IntMap Attached)
   , pending :: STM.TVar (Seq Op)
+  , detached :: STM.TVar (IntMap RemoteNode)
+  -- ^ The nodes taken out of their parents since the last batch was taken:
+  -- those still without one when the next is are forgotten.
+  , rendering :: STM.TVar Int
+  -- ^ How many renders are under way: a batch is taken only between them.
   , open :: STM.TVar Bool
   -- ^ Recording; 'False' once the session is over, when an operation has
   -- no one to go to.
@@ -197,6 +228,8 @@ newRecorder = do
     <*> newIORef 1
     <*> newIORef IntMap.empty
     <*> STM.newTVarIO Seq.empty
+    <*> STM.newTVarIO IntMap.empty
+    <*> STM.newTVarIO 0
     <*> STM.newTVarIO True
     <*> newIORef Map.empty
     <*> pure root
@@ -216,18 +249,68 @@ blank ident kind =
 bodyHandle :: Recorder -> HTMLElement
 bodyHandle recorder = HTMLElement recorder.body.handle
 
--- | Take what is pending, or wait for something to be: 'Nothing' once the
--- recorder is closed.
-drain :: Recorder -> STM.STM (Maybe (Seq Op))
-drain recorder = do
+-- | The document, which the driver renders with.
+documentHandle :: Recorder -> Document
+documentHandle recorder = Document recorder.document.handle
+
+-- | Wait until there is something to send and no render is under way:
+-- 'False' at once when the recorder is closed.
+ready :: Recorder -> STM.STM Bool
+ready recorder = do
   open <- STM.readTVar recorder.open
   if not open
-    then pure Nothing
+    then pure False
     else do
       ops <- STM.readTVar recorder.pending
-      STM.check (not (Seq.null ops))
-      STM.writeTVar recorder.pending Seq.empty
-      pure (Just ops)
+      depth <- STM.readTVar recorder.rendering
+      STM.check (not (Seq.null ops) && depth == 0)
+      pure True
+
+-- | Take what is pending as a batch, once no render is under way (waiting
+-- for the one there is to end), and forget the nodes it leaves without a
+-- parent: 'Nothing' once the recorder is closed. What the batch says about
+-- the nodes forgotten, other than their removal and the insertions that
+-- moved nodes about, is left out (see the module's header).
+takeBatch :: Recorder -> IO (Maybe [Op])
+takeBatch recorder = do
+  taken <- STM.atomically $ do
+    open <- STM.readTVar recorder.open
+    if not open
+      then pure Nothing
+      else do
+        STM.readTVar recorder.rendering >>= STM.check . (== 0)
+        ops <- STM.swapTVar recorder.pending Seq.empty
+        out <- STM.swapTVar recorder.detached IntMap.empty
+        pure (Just (ops, out))
+  for taken $ \(ops, out) -> do
+    gone <- fmap IntSet.unions . for (IntMap.elems out) $ \node ->
+      readIORef node.parent >>= \case
+        Nothing -> forget recorder node
+        Just _ -> pure IntSet.empty
+    pure (filter (not . within gone) (toList ops))
+  where
+    -- An operation whose effect stays inside what is forgotten. A removal
+    -- from a forgotten node is one only when the child is forgotten too: a
+    -- child that lives on is put somewhere else by an insertion the batch
+    -- keeps, and the client takes it from where it was then.
+    within gone = \case
+      SetText n _ -> n `IntSet.member` gone
+      Remove p c -> p `IntSet.member` gone && c `IntSet.member` gone
+      SetAttribute n _ _ _ -> n `IntSet.member` gone
+      RemoveAttribute n _ _ -> n `IntSet.member` gone
+      SetProperty n _ _ -> n `IntSet.member` gone
+      RemoveProperty n _ -> n `IntSet.member` gone
+      Listen n _ _ -> n `IntSet.member` gone
+      Unlisten n _ _ -> n `IntSet.member` gone
+      _ -> False
+
+-- | Run a render, counted as under way while it runs (and fails), so that no
+-- batch is taken in the middle of it.
+whileRendering :: RemoteDOM a -> RemoteDOM a
+whileRendering program = do
+  recorder <- recorderHere
+  let by n = liftIO (STM.atomically (STM.modifyTVar' recorder.rendering (+ n)))
+  Exception.bracket_ (by 1) (by (-1)) program
 
 -- | Stop recording, and forget the mirror and the listeners.
 close :: Recorder -> IO ()
@@ -235,6 +318,7 @@ close recorder = do
   STM.atomically $ do
     STM.writeTVar recorder.open False
     STM.writeTVar recorder.pending Seq.empty
+    STM.writeTVar recorder.detached IntMap.empty
   writeIORef recorder.listeners IntMap.empty
   writeIORef recorder.nodes (IntMap.fromList [(documentId, recorder.document), (bodyId, recorder.body)])
 
@@ -297,23 +381,30 @@ insertAt child reference parent
         pure (length before)
       record (Insert parent.ident index child.ident)
 
--- | Take a child out of its parent, say so, and forget it with its subtree.
+-- | Take a child out of its parent, say so, and note it: unless something
+-- puts it back before the batch is taken, it is forgotten then.
 removeFrom :: RemoteNode -> RemoteNode -> RemoteDOM ()
 removeFrom child parent = do
   current <- readIORef child.parent
   when (current == Just parent) $ do
-    liftIO (detach child)
+    recorder <- recorderHere
+    liftIO $ do
+      detach child
+      STM.atomically (STM.modifyTVar' recorder.detached (IntMap.insert child.ident child))
     record (Remove parent.ident child.ident)
-    forget child
 
-forget :: RemoteNode -> RemoteDOM ()
-forget node = do
-  recorder <- recorderHere
-  liftIO $ do
-    atomicModifyIORef' recorder.nodes (\m -> (IntMap.delete node.ident m, ()))
-    attached <- readIORef node.listening
-    for_ attached $ \(_, listener) -> atomicModifyIORef' recorder.listeners (\m -> (IntMap.update release listener m, ()))
-  traverse_ forget =<< readIORef node.kids
+-- | Forget a node and its subtree, and let go of their listeners: the
+-- numbers of the nodes forgotten. A node forgotten already is not again.
+forget :: Recorder -> RemoteNode -> IO IntSet.IntSet
+forget recorder node = do
+  known <- atomicModifyIORef' recorder.nodes (\m -> (IntMap.delete node.ident m, IntMap.member node.ident m))
+  if not known
+    then pure IntSet.empty
+    else do
+      attached <- readIORef node.listening
+      for_ attached $ \(_, listener) -> atomicModifyIORef' recorder.listeners (\m -> (IntMap.update release listener m, ()))
+      below <- traverse (forget recorder) =<< readIORef node.kids
+      pure (IntSet.insert node.ident (IntSet.unions below))
   where
     release a = if a.count <= 1 then Nothing else Just a {count = a.count - 1}
 

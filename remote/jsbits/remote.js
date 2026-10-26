@@ -11,6 +11,13 @@
 // of the program's hears, what handlers read of it. Halogen.Remote.Protocol
 // describes both. Node 0 is the window and node 1 the container the client
 // was attached to; every other node is made by an operation.
+//
+// A node taken out and not put back by the end of the batch is gone, on both
+// sides: the client forgets it then, with what is under it and the listeners
+// on them, as the program's mirror does. Not when it is taken out, since a
+// render may put it back (the node of a child component whose parent
+// replaced the element around it), and a batch never ends in the middle of
+// a render.
 
 // A client of the container, sending the page's events, as JSON text, to
 // send. It shows nothing until its first batch, which begins by emptying the
@@ -25,6 +32,8 @@ function halogen_remote_attach(container, send) {
     // The keys of the listeners on each node, by its number, so that a
     // node that is forgotten takes its own listeners off and no others.
     keysOf: new Map(),
+    // The nodes the batch being applied has taken out.
+    removed: [],
   };
   halogen_remote_forget_all(client);
   container.setAttribute("data-halogen-remote", "attached");
@@ -47,11 +56,18 @@ function halogen_remote_unlisten_all(client) {
   client.keysOf.clear();
 }
 
-// Apply one message of the program's: {"n": sequence, "ops": [...]}.
+// Apply one message of the program's: {"n": sequence, "ops": [...]}. The
+// nodes its removals took out that are still out at its end are forgotten.
 function halogen_remote_apply(client, text) {
   var batch = JSON.parse(text);
   var ops = batch.ops;
+  client.removed = [];
   for (var i = 0; i < ops.length; i++) halogen_remote_op(client, ops[i]);
+  var removed = client.removed;
+  client.removed = [];
+  for (var j = 0; j < removed.length; j++) {
+    if (!removed[j].parentNode) halogen_remote_forget(client, removed[j]);
+  }
 }
 
 function halogen_remote_op(client, op) {
@@ -60,6 +76,7 @@ function halogen_remote_op(client, op) {
   switch (op[0]) {
     case "clear":
       halogen_remote_forget_all(client);
+      client.removed = [];
       while (client.container.firstChild) client.container.removeChild(client.container.firstChild);
       break;
     case "create":
@@ -87,11 +104,13 @@ function halogen_remote_op(client, op) {
       }
       break;
     case "remove":
+      // Taken out, and forgotten at the end of the batch unless an insert
+      // puts it back before then.
       parent = nodes.get(op[1]);
       child = nodes.get(op[2]);
-      if (parent && child) {
-        if (child.parentNode === parent) parent.removeChild(child);
-        halogen_remote_forget(client, child);
+      if (parent && child && child.parentNode === parent) {
+        parent.removeChild(child);
+        client.removed.push(child);
       }
       break;
     case "attr":
@@ -139,8 +158,8 @@ function halogen_remote_reset_property(node, name) {
   else node[name] = undefined;
 }
 
-// A removed node is forgotten with everything under it, and its listeners
-// taken off, as the program's mirror forgets it.
+// A node gone at the end of a batch is forgotten with everything under it,
+// and its listeners taken off, as the program's mirror forgets it.
 function halogen_remote_forget(client, node) {
   var id = client.ids.get(node);
   if (id !== undefined) {

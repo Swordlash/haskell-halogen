@@ -26,7 +26,7 @@ A node is a number both ends agree on: node 2 is the `div`, 3 the input. `insert
 
 Type into the input and press Add: nothing is added. The input has no handler, so what is typed stays in the page, and `handleAction` finds `st.draft` empty. Give the input `HE.onValueInput Typed`, compile, and type again. Each key now sends an `input` event whose `target` and `currentTarget` carry the input's `value`, which `HE.onValueInput` reads as it would in a page; Add then sends a `create` and an `insert` for the new item, and a `prop` that empties the input.
 
-Then add a second button, `HH.button [HE.onClick (\_ -> Clear)] [HH.text "Clear"]`, with an action `Clear` that sets `items` to `[]`. Click it and look at the wire: one `remove` for each item. A node that is removed is forgotten at both ends, with everything under it and its listeners.
+Then add a second button, `HH.button [HE.onClick (\_ -> Clear)] [HH.text "Clear"]`, with an action `Clear` that sets `items` to `[]`. Click it and look at the wire: one `remove` for each item. A node taken out and not put back by the end of the batch is forgotten at both ends, with everything under it and its listeners, so the batch says nothing of the text inside each item.
 
 ## What cannot cross a wire
 
