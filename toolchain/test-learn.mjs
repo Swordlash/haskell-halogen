@@ -581,18 +581,23 @@ try {
     console.log(`ok  lesson 20 is checked with no Compile, ${seconds(Date.now() - checkedAt)} after Reset: ${await checked.textContent()}`);
 
     // Hovering a binding's name shows its type; a click in the list goes to
-    // its line.
+    // its line (render's first, for the editor to scroll it into view).
+    await binding("render :: State -> HH.HTML w Action").click();
     await page.locator(".learn-editor .cm-line", { hasText: /^render st =/ }).hover({ position: { x: 12, y: 8 } });
     await page.locator(".cm-tooltip .cm-learn-type", { hasText: "render :: State -> HH.HTML w Action" }).waitFor({ timeout: 5000 });
     await binding("label :: State -> Text").click();
-    assert.match(await page.locator(".cm-activeLine").textContent(), /^label ::/, "a binding in the list goes to its line");
+    assert.match(await page.locator(".cm-activeLine").textContent(), /^label st =/, "a binding in the list goes to the line it is bound at");
     console.log("ok  hovering render shows its type, and the list goes to label's line");
+    // The end of label's line, by the list: the editor scrolls itself, so
+    // the line may be out of its view for a click.
+    const atLabel = async () => {
+      await binding("label :: State -> Text").click();
+      await page.keyboard.press("End");
+    };
 
     // A typed error is marked within the check's delay, the types listed
     // stay, said to be from before, and undoing it checks clean again.
-    const labelLine = page.locator(".learn-editor .cm-line", { hasText: /^label st =/ });
-    await labelLine.click();
-    await page.keyboard.press("End");
+    await atLabel();
     const typedAt = Date.now();
     await page.keyboard.type(" 1");
     await page.locator(".cm-lintRange-error").first().waitFor({ timeout: 30000 });
@@ -611,8 +616,7 @@ try {
     // standing, whether the check was over by then or not.
     await page.locator("button.learn-solution").click();
     await binding("rename :: Text -> State -> State").waitFor({ timeout: 30000 });
-    await labelLine.click();
-    await page.keyboard.press("End");
+    await atLabel();
     await page.keyboard.type(" 1");
     await page.waitForTimeout(1300);
     await page.keyboard.press("Backspace");
