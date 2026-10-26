@@ -471,6 +471,26 @@ try {
     console.log("ok  what lesson 5's Finalize prints shows on every compile after the first");
   }
 
+  // Lesson 15's store: adding one renders the count's view again and not
+  // the name's, and a new name renders the name's view alone.
+  const storeLesson = lessons.find((lesson) => lesson.slug === "15-store");
+  if (storeLesson) {
+    await openLesson(storeLesson);
+    await page.locator("button.learn-solution").click();
+    assert.match(await compile("lesson 15, Solution.hs"), /^Compiled and ran/);
+    const view = (text) => page.locator("#learn-result p", { hasText: text }).waitFor({ timeout: 5000 });
+    await view("Count: 0 (rendered again: 0)");
+    const add = page.locator("#learn-result button", { hasText: "Add one" });
+    await add.click();
+    await add.click();
+    await view("Count: 2 (rendered again: 2)");
+    await view("Name: Ada (rendered again: 0)");
+    await page.locator("#learn-result input").fill("Grace");
+    await view("Name: Grace (rendered again: 1)");
+    await view("Count: 2 (rendered again: 2)");
+    console.log("ok  lesson 15's connected views render again only for their own part of the store");
+  }
+
   // Tab indents in the editor, and Escape then Tab leaves it.
   await page.locator(".learn-editor .cm-content").click();
   const typed = await page.evaluate(() => document.querySelector(".learn-editor .cm-content").innerText.length);

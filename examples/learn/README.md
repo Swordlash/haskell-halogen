@@ -70,7 +70,8 @@ HALOGEN_BASE_PATH=/haskell-halogen/ npm run test-learn
 for), and checks that every lesson's page arrives with its heading in it,
 that the page is adopted and the compiler loads (printing how long each step
 took) with no `HEAD` request, the manifest giving the version and the sizes,
-that the first two lessons do what their text says, that a type error is
+that the first two lessons do what their text says (and lesson 15's
+connected views render again only for their own part of the store), that a type error is
 listed at its line with the last result still mounted, that **every lesson's
 `Start.hs` compiles and its `Solution.hs` compiles with no diagnostic and
 shows something** (one line per lesson; for lesson 13, whose program runs a
@@ -131,10 +132,10 @@ args: -package haskell-halogen-hooks
 - `layers` (optional): the rootfs layers its code needs beside the base one,
   separated by spaces or commas. The page extracts a layer the first time a
   lesson needs it and passes its package database to GHC (`-package-db`).
-  The rootfs has `hooks`, `router`, `net`, `material`, `pixi` and `th`, one
-  per package of the same name (`haskell-halogen-hooks`, ...), `elements`,
-  for `haskell-halogen-custom-element`, and `hspec`, for `hspec-halogen` (see
-  `learn/README.md`, "Layers").
+  The rootfs has `hooks`, `router`, `net`, `material`, `pixi`, `th` and
+  `store`, one per package of the same name (`haskell-halogen-hooks`, ...),
+  `elements`, for `haskell-halogen-custom-element`, and `hspec`, for
+  `hspec-halogen` (see `learn/README.md`, "Layers").
 - `args` (optional): further GHC arguments, separated by spaces, after the
   ones every compile has (`-package haskell-halogen-core
   -Wno-missed-extra-shared-lib -i/tmp`). A layer's package still has to be
@@ -208,7 +209,8 @@ writes to stdout while the compile runs, a line at a time, as the playground
 makes stdout line-buffered and flushes it when a run ends: so what the previous
 run's `H.onFinalize` prints, which the next compile's `HA.endPreviousRun`
 runs, shows under the editor, and a click handler's output does not), two
-components, a router. It is the module `Main`, imports
+components, a router, a store (lesson 15's runs the tree through
+`Store.runStoreT` before `runUI`). It is the module `Main`, imports
 `Lesson`, and must do the same three things: `HA.endPreviousRun` first, mount
 into `#learn-result`, and `HA.keepForNextRun` with whatever ends what it
 started. Lesson 14's puts plain HTML and a script into `#learn-result`

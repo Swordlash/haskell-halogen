@@ -1,0 +1,53 @@
+This project, `haskell-halogen-store`, is based on code from the PureScript Halogen Store
+library, licensed under MIT, and adapted to GHC Haskell.
+See https://github.com/thomashoneyman/purescript-halogen-store for the original project
+(Copyright (c) 2020 Thomas Honeyman).
+
+`Halogen.Store.Monad`, `Halogen.Store.Select` and `Halogen.Store.Connect` follow the modules of
+the same names: the `MonadStore` class with `getStore`, `updateStore` and `emitSelected`, the
+`StoreT` transformer with `runStoreT` and `runAndEmitStoreT`, the `Selector` with `select`,
+`selectEq`, `selectAll` and `selectEmitter`, and `Connected`, `connect` and `subscribe` keep their
+names and meaning.
+
+It builds on `haskell-halogen-core`, which carries its own NOTICE covering the PureScript
+projects it was adapted from.
+
+The implementation differs where Haskell differs. There is no honest reference equality, so
+`selectAll` counts every update as a change rather than comparing with `unsafeRefEq`. A
+component's initial state is made in its monad, so `connect` reads the store there and the
+connected component is in the first render, rather than reading it in an initializer. The store
+numbers its updates and a subscriber drops one older than what it already has, because here
+updates can come from several threads, or from inside another update's notification, and arrive
+out of order. `HalogenM`'s instance lifts with `liftEffect`, which runs at once, since this port's
+`lift` is where a program waits. The hooks' `useSelector` is not included.
+
+---
+
+### **License Notices**
+#### **Apache 2.0 License**
+© 2025 Mateusz Goślinowski
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at:
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+#### **MIT-Licensed Code Attribution**
+This project includes portions of MIT-licensed code, from purescript-halogen-store, Copyright
+(c) 2020 Thomas Honeyman. The full MIT license text is included in that repository:
+
+> "Permission is hereby granted, free of charge, to any person obtaining a copy
+> of this software and associated documentation files (the 'Software'), to deal
+> in the Software without restriction, including without limitation the rights
+> to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+> copies of the Software, and to permit persons to whom the Software is
+> furnished to do so, subject to the following conditions:
+>
+> The above copyright notice and this permission notice shall be included in
+> all copies or substantial portions of the Software."

@@ -1,0 +1,116 @@
+cabal-version:      3.0
+name:               haskell-halogen-store
+version:            0.1.0.0
+synopsis:           Global state for haskell-halogen applications
+description:
+  A port of purescript-halogen-store: one store for the whole application,
+  changed by actions through a pure reducer, and components that follow
+  the part of it they need.
+  .
+  A component reads the store with @getStore@ and changes it with
+  @updateStore@ (the @MonadStore@ class); @connect@ hands a component the
+  part a @Selector@ picks out with its input, and renders it again only
+  when that part changes; @subscribe@ turns the changes into actions. The
+  tree runs in @StoreT@, which @runStoreT@ takes away at the root. See
+  "Halogen.Store".
+homepage:           https://github.com/Swordlash/haskell-halogen
+license:            Apache-2.0
+license-file:       LICENSE
+author:             Mateusz Goślinowski
+maintainer:         mateusz.goslinowski@gmail.com
+category:           Web
+extra-source-files: CHANGELOG.md, NOTICE, README.md
+
+common defaults
+  default-language: GHC2021
+  ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture -Wredundant-constraints -Wunused-packages
+
+  default-extensions:
+      RankNTypes
+      GeneralizedNewtypeDeriving
+      MultiParamTypeClasses
+      FunctionalDependencies
+      FlexibleContexts
+      FlexibleInstances
+      UndecidableInstances
+      GADTs
+      DeriveFunctor
+      DerivingStrategies
+      NoImplicitPrelude
+      KindSignatures
+      DataKinds
+      OverloadedStrings
+      TypeOperators
+      LambdaCase
+      TypeFamilies
+      OverloadedRecordDot
+      RecordWildCards
+      NamedFieldPuns
+      DuplicateRecordFields
+      PartialTypeSignatures
+      DefaultSignatures
+      StandaloneKindSignatures
+      NoFieldSelectors
+      DerivingVia
+      CPP
+      StrictData
+      RequiredTypeArguments
+      ExplicitNamespaces
+
+library
+    import: defaults
+
+    build-depends:
+        base >= 4.20,
+        exceptions,
+        mtl,
+        primitive,
+        protolude,
+        row-types,
+        transformers,
+        unliftio,
+        haskell-halogen-core
+
+    exposed-modules:
+      Halogen.Store
+      Halogen.Store.Connect
+      Halogen.Store.Monad
+      Halogen.Store.Select
+
+    hs-source-dirs:   src
+
+    if arch(javascript)
+      ghc-options: -fexpose-all-unfoldings
+
+    if arch(wasm32)
+      ghc-options: -fexpose-all-unfoldings
+
+-- Pure Haskell over core's driver, so the same suite runs natively and, under
+-- Node, on the JavaScript and WebAssembly backends: its components are
+-- rendered by a render spec that records their text (Test.Harness) rather
+-- than into a DOM.
+test-suite Halogen-store-test
+    import: defaults
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          Test.hs
+    build-depends:    base >= 4.20,
+                      haskell-halogen-core,
+                      haskell-halogen-store,
+                      hspec >= 2,
+                      protolude,
+                      row-types,
+                      text,
+                      unliftio
+
+    other-modules:  Test.Connect
+                    Test.Fixture
+                    Test.Harness
+                    Test.Monad
+                    Test.Native
+                    Test.Select
+
+source-repository head
+  type:     git
+  location: https://github.com/Swordlash/haskell-halogen.git
+  subdir:   store
