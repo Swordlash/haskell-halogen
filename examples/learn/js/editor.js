@@ -15,7 +15,13 @@
 // with a JSON string: {"type":"change","text":...} or {"type":"compile"}, and,
 // while the app's Source mode is on (setSourceMode), {"type":"cursor","line",
 // "column"} whenever the cursor is somewhere new, from 1 as GHC counts.
-import { Compartment, EditorState, StateEffect, StateField } from "@codemirror/state";
+//
+// The Source mode's marks are positions in the code as it was compiled, and
+// the reader goes on editing after a compile: the editor keeps the text the
+// result was compiled from and every change since (compileText, compiled), so
+// that a mark can be shown where its code is now and the cursor read as a
+// position of the compiled code (positions).
+import { ChangeSet, Compartment, EditorState, MapMode, StateEffect, StateField } from "@codemirror/state";
 import {
   Decoration,
   EditorView,
@@ -170,7 +176,16 @@ export function create(parent, text, readOnly, onEvent) {
           ...historyKeymap,
         ]),
         EditorView.updateListener.of((update) => {
-          if (update.docChanged) send({ type: "change", text: update.state.doc.toString() });
+          if (update.docChanged) {
+            const v = update.view;
+            const desc = update.changes.desc;
+            if (v.learnCompiling) v.learnCompiling.changes = v.learnCompiling.changes.composeDesc(desc);
+            if (v.learnCompiled) v.learnCompiled.changes = v.learnCompiled.changes.composeDesc(desc);
+            // The element the cursor's position names may be another one
+            // now, even with the cursor at the same line and column.
+            v.learnCursor = null;
+            send({ type: "change", text: update.state.doc.toString() });
+          }
           if (update.selectionSet || update.docChanged) reportCursor(update.view);
         }),
         EditorView.contentAttributes.of({
@@ -184,11 +199,58 @@ export function create(parent, text, readOnly, onEvent) {
   view.learnSend = send;
   view.learnSource = false;
   view.learnCursor = null;
+  // The code of the compile under way, and of the one the result is from:
+  // the text then, and the changes made to it since.
+  view.learnCompiling = null;
+  view.learnCompiled = null;
   return view;
 }
 
 export function text(view) {
   return view.state.doc.toString();
+}
+
+// The text, for a compile: what the Source mode's marks are positions in
+// once compiled says the compile mounted what it made of it. The reader may
+// type while it compiles; those changes are counted from here.
+export function compileText(view) {
+  const doc = view.state.doc;
+  view.learnCompiling = { doc, changes: ChangeSet.empty(doc.length).desc };
+  return doc.toString();
+}
+
+// The last compileText's code is the one the result was made from now.
+export function compiled(view) {
+  if (view.learnCompiling) view.learnCompiled = view.learnCompiling;
+  view.learnCompiling = null;
+}
+
+// Between the code the result was compiled from and the code as it is, for
+// the Source mode (source.js): current takes a mark's {line, column} to where
+// that code is now, compiled takes a position in the editor to where it was
+// in the compiled code, and either gives null when the code there was deleted
+// (or, for compiled, written) since. Mapping through CodeMirror's changes,
+// rather than counting lines, follows any edit: lines added or taken out
+// above, text typed before the element on its own line.
+export function positions(view) {
+  const through = (from, changes, to, { line, column }) => {
+    if (line < 1 || line > from.lines) return null;
+    const l = from.line(line);
+    const mapped = changes.mapPos(Math.min(l.from + Math.max(column - 1, 0), l.to), 1, MapMode.TrackDel);
+    if (mapped === null) return null;
+    const m = to.lineAt(mapped);
+    return { line: m.number, column: mapped - m.from + 1 };
+  };
+  return {
+    current(at) {
+      const c = view.learnCompiled;
+      return c ? through(c.doc, c.changes, view.state.doc, at) : at;
+    },
+    compiled(at) {
+      const c = view.learnCompiled;
+      return c ? through(view.state.doc, c.changes.invertedDesc, c.doc, at) : at;
+    },
+  };
 }
 
 // Replace the whole text; the app hears of it as a change, as of typing.

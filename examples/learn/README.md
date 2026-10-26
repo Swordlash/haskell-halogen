@@ -76,9 +76,16 @@ in the capture phase, so the program does not see it; and the editor tells
 the app where its cursor is (`setSourceMode`, a `cursor` event sent only
 while Source is on), which outlines the element whose position that is, or
 the one that starts last on the cursor's line before it. A new compile
-leaves Source on, over the new elements. GHC's messages quote the code they
-compiled, marks and all; `Learn.Diagnostics.withoutMarks` takes the marks
-out of a run's stderr before the page reads it. What gets a mark: an
+leaves Source on, over the new elements. Positions follow the reader's edits
+until the next compile: the marks are where the code was when it compiled,
+and the editor keeps that text and every change since (`compileText`, and
+`compiled` once the compile has mounted), so a mark is labelled, marked and
+gone to where its code is now (two lines added at the top move the button's
+line two down), the cursor's position is taken back to the compiled code
+before an element is matched to it, and an element whose code has been
+deleted since says so on its label and has no line. GHC's messages quote
+the code they compiled, marks and all; `Learn.Diagnostics.withoutMarks`
+takes the marks out of a run's stderr before the page reads it. What gets a mark: an
 application of an element function of `Halogen.HTML.Elements`, qualified or
 not as the module imports it, to a literal list of properties (`HH.div
 [HP.id "x"] [...]`, `HH.input []`). What does not: an element whose
@@ -169,8 +176,10 @@ that the first two lessons do what their text says (and lesson 15's
 connected views render again only for their own part of the store), that
 Source on lesson 2 outlines the button under the pointer at the position it
 was built at, marks its line, goes there on a click the counter does not
-count, outlines what the editor's cursor is on, and once off lets a click
-count again, that the playground's page is prerendered and linked from the
+count, outlines what the editor's cursor is on, does all that at the line
+the code has moved to when two lines are added above it and taken out
+again, gives an element whose code is deleted no line, and once off lets a
+click count again, that the playground's page is prerendered and linked from the
 introduction, that lesson 2's Open in playground arrives there with its code,
 which compiles and counts, with Source working there too, that the template
 compiles and counts, that checking `store` shows the progress line and then

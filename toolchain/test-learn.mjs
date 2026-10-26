@@ -17,7 +17,8 @@
 // request; the first two lessons compile and run as their text says, and a
 // type error is reported at its line with the last result still showing;
 // Source on lesson 2 outlines what the pointer and the editor's cursor are
-// on, marks its line and goes there on a click the program does not get, and
+// on, marks its line and goes there on a click the program does not get, at
+// the line its code is on after edits since the compile, and
 // no mark shows in what GHC says; the playground's page is prerendered, takes
 // lesson 2's code from its Open in playground, compiles its template, loads
 // the store layer when it is checked, and keeps all that for the next visit;
@@ -318,6 +319,53 @@ try {
   assert.equal(await page.locator(".learn-editor .cm-line.learn-source-line").count(), 0, "the pointer gone, no line is marked for it");
   await page.keyboard.press("ArrowUp");
   await outlined(page, minus);
+  // Edits since the compile: the marks are where the code was compiled,
+  // and the editor maps them through its changes. Two lines added at the
+  // top move the + button's line two down: hovering it labels and marks
+  // that line, a click goes there, and the cursor there outlines it; taken
+  // out again, it is back at its line. Its code deleted, it has none.
+  const sourceLine = page.locator(".learn-editor .cm-line.learn-source-line");
+  const label = page.locator(".learn-source-label");
+  const activeLine = page.locator(".learn-editor .cm-lineNumbers .cm-activeLineGutter");
+  const plusAt = async (line, what) => {
+    await page.mouse.move(5, 5);
+    await plus.hover();
+    await outlined(page, plus);
+    assert.equal(await label.textContent(), `Lesson.hs:${line}:${plusColumn}`, `the outline says where, ${what}`);
+    await sourceLine.filter({ hasText: 'Increment)] [HH.text "+"]' }).waitFor({ timeout: 5000 });
+    assert.equal(await sourceLine.count(), 1, `one line is marked, ${what}`);
+    await plus.click();
+    await page.waitForFunction((n) => document.querySelector(".learn-editor .cm-lineNumbers .cm-activeLineGutter")?.textContent === String(n), line, { timeout: 5000 });
+    assert.match(await page.locator(".cm-activeLine").textContent(), /Increment\)\] \[HH\.text "\+"\]/, `a click goes to the element's line, ${what}`);
+  };
+  await page.keyboard.press("ControlOrMeta+Home");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Enter");
+  await plusAt(plusLine + 2, "two lines added above");
+  await page.mouse.move(5, 5);
+  await outlined(page, plus);
+  await page.keyboard.press("ArrowUp");
+  await outlined(page, minus);
+  await page.keyboard.press("ControlOrMeta+Home");
+  await page.keyboard.press("Delete");
+  await page.keyboard.press("Delete");
+  await plusAt(plusLine, "the two lines taken out");
+  // The + button's code deleted (from its indentation to the end of its
+  // line): no line to mark or go to.
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Shift+End");
+  await page.keyboard.press("Backspace");
+  await page.keyboard.press("ControlOrMeta+Home");
+  await page.mouse.move(5, 5);
+  await plus.hover();
+  await outlined(page, plus);
+  assert.equal(await label.textContent(), "Lesson.hs: deleted since the compile", "an element whose code is gone says so");
+  assert.equal(await sourceLine.count(), 0, "an element whose code is gone marks no line");
+  await plus.click();
+  await page.waitForTimeout(300);
+  assert.equal(await activeLine.textContent(), "1", "a click on an element whose code is gone goes nowhere");
+  await page.locator("#learn-result p", { hasText: "Count: 2" }).waitFor({ timeout: 1000 });
+  console.log(`ok  Source follows edits: two lines added above move the + button's line to ${plusLine + 2}, taken out it is back at ${plusLine}, and with its code deleted it has no line`);
   await page.locator("button.learn-source").click();
   await page.locator('button.learn-source[aria-pressed="false"]').waitFor({ timeout: 5000 });
   assert.equal(await page.locator(".learn-source-box").count(), 0, "off, the outline goes");

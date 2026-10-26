@@ -313,7 +313,7 @@ component =
       Compile -> do
         st <- get
         when (canCompile st) $ for_ ((,) <$> codeOf st <*> st.editor) $ \(code, (editor, _)) -> do
-          source <- H.liftEffect (liftIO (Browser.editorText editor))
+          source <- H.liftEffect (liftIO (Browser.compileText editor))
           modify $ \s -> s {run = Compiling, runs = s.runs + 1, coveredEdit = Just s.edits}
           compiled <- liftIO $ Browser.compile (request code source)
           -- The reader may have left meanwhile, even for this same lesson
@@ -332,10 +332,14 @@ component =
                 -- compiled and then stopped has them too.
                 keepTypes editor result.compiled result.types
                 modify $ \s -> s {run = Ran result, mounted = s.mounted || result.compiled, diagnostics, lastCheck = Nothing}
-                -- What the Source mode outlined was the last run's: the
-                -- line marked for the pointer is forgotten, and the editor
-                -- says where its cursor is again, for the new elements.
-                when result.compiled $
+                -- The result's marks are positions in this compile's code
+                -- now, which the editor maps to where that code is as the
+                -- reader edits on. What the Source mode outlined was the
+                -- last run's: the line marked for the pointer is forgotten,
+                -- and the editor says where its cursor is again, for the new
+                -- elements.
+                when result.compiled $ do
+                  H.liftEffect (liftIO (Browser.markCompiled editor))
                   gets (.source) >>= traverse_ \_ -> H.liftEffect $ liftIO $ do
                     Browser.showSource editor 0
                     Browser.setSourceMode editor True
@@ -502,7 +506,7 @@ component =
         H.getHTMLElementRef st.resultHost >>= traverse_ \element -> do
           events <- liftIO HS.create
           subscription <- H.subscribe (FromSource <$> events.emitter)
-          source <- H.liftEffect $ liftIO $ Browser.startSource element (HS.notify events.listener)
+          source <- H.liftEffect $ liftIO $ Browser.startSource element editor (HS.notify events.listener)
           modify $ \s -> s {source = Just (source, subscription)}
           H.liftEffect $ liftIO $ Browser.setSourceMode editor True
 

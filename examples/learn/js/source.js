@@ -16,11 +16,20 @@
 // pointer is over no element. Events reach the app as JSON strings, through
 // one callback, as the editor's do.
 //
+// A mark is where the element was built in the code as it was compiled, and
+// the reader may have edited it since: every position the app hears, and the
+// label's, is where that code is in the editor now, and the cursor's position
+// the app gives is the editor's now, both mapped through the editor's changes
+// since the compile (editor.js's positions, given to start). An element
+// whose code has been deleted since has no line: the label says so, the app
+// hears "leave" for it, and a click on it goes nowhere (and is still not the
+// program's).
+//
 // The box is placed again whenever the page scrolls (anywhere: the result's
 // column scrolls on its own) or is resized, and at every pointer event, so it
 // follows the element; it hides when the element leaves the page.
 
-export function start(result, onEvent) {
+export function start(result, positions, onEvent) {
   const send = (event) => {
     try {
       onEvent(JSON.stringify(event));
@@ -44,6 +53,8 @@ export function start(result, onEvent) {
     const element = target instanceof Element ? target.closest("[data-learn-src]") : null;
     return element && result.contains(element) ? element : null;
   };
+  // Where the element's code is in the editor now, or null.
+  const now = (element) => positions.current(position(element));
   const shown = () => hovered ?? cursor;
   const place = () => {
     const element = shown();
@@ -56,7 +67,8 @@ export function start(result, onEvent) {
     box.style.top = `${r.top}px`;
     box.style.width = `${r.width}px`;
     box.style.height = `${r.height}px`;
-    label.textContent = `Lesson.hs:${element.dataset.learnSrc}`;
+    const at = now(element);
+    label.textContent = at ? `Lesson.hs:${at.line}:${at.column}` : "Lesson.hs: deleted since the compile";
     box.hidden = false;
   };
 
@@ -64,7 +76,8 @@ export function start(result, onEvent) {
     const element = marked(event.target);
     if (element !== hovered) {
       hovered = element;
-      send(element ? { type: "hover", ...position(element) } : { type: "leave" });
+      const at = element && now(element);
+      send(at ? { type: "hover", ...at } : { type: "leave" });
     }
     place();
   };
@@ -80,7 +93,8 @@ export function start(result, onEvent) {
     if (!element) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    send({ type: "goto", ...position(element) });
+    const at = now(element);
+    if (at) send({ type: "goto", ...at });
   };
 
   result.addEventListener("pointerover", onPointer);
@@ -93,15 +107,18 @@ export function start(result, onEvent) {
   window.addEventListener("resize", place);
 
   return {
-    // The element whose mark is this position, or else the one on its line
-    // that starts last at or before its column, or none.
+    // The element whose mark is this position of the editor, or else the
+    // one on its line that starts last at or before its column, or none,
+    // the position taken back to the compiled code first: none for code
+    // written since.
     outline(line, column) {
+      const then = positions.compiled({ line, column });
       let best = null;
       let bestColumn = 0;
-      for (const element of result.querySelectorAll("[data-learn-src]")) {
+      for (const element of then ? result.querySelectorAll("[data-learn-src]") : []) {
         const at = position(element);
-        if (at.line !== line || at.column > column) continue;
-        if (at.column === column) {
+        if (at.line !== then.line || at.column > then.column) continue;
+        if (at.column === then.column) {
           best = element;
           break;
         }

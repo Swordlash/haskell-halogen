@@ -71,6 +71,14 @@ function halogen_learn_editor_text(view) {
   return halogen_learn_api().editor.text(view);
 }
 
+function halogen_learn_editor_compile_text(view) {
+  return halogen_learn_api().editor.compileText(view);
+}
+
+function halogen_learn_editor_compiled(view) {
+  halogen_learn_api().editor.compiled(view);
+}
+
 function halogen_learn_editor_set_text(view, text) {
   halogen_learn_api().editor.setText(view, text);
 }
@@ -104,9 +112,11 @@ function halogen_learn_editor_destroy(view) {
 }
 
 // The Source mode's outline over the result's element; onEvent gets a JSON
-// string for each thing the reader does there (see source.js).
-function halogen_learn_source_start(result, onEvent) {
-  return halogen_learn_api().source.start(result, (event) => onEvent(event));
+// string for each thing the reader does there (see source.js). The editor
+// takes the marks' positions to where their code is now.
+function halogen_learn_source_start(result, view, onEvent) {
+  const api = halogen_learn_api();
+  return api.source.start(result, api.editor.positions(view), (event) => onEvent(event));
 }
 
 function halogen_learn_source_outline(handle, line, column) {

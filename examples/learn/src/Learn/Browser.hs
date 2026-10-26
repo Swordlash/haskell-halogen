@@ -32,6 +32,8 @@ module Learn.Browser
   , EditorEvent (..)
   , createEditor
   , editorText
+  , compileText
+  , markCompiled
   , setEditorText
   , setEditorReadOnly
   , showDiagnostics
@@ -74,6 +76,8 @@ $( browserJS
      , ("js_end_run", "halogen_learn_end_run", Unsafe, [t|IO Promise|])
      , ("js_editor_create", "halogen_learn_editor_create", Unsafe, [t|HTMLElement -> JSText -> Bool -> Callback -> IO JSVal|])
      , ("js_editor_text", "halogen_learn_editor_text", Unsafe, [t|JSVal -> IO JSText|])
+     , ("js_editor_compile_text", "halogen_learn_editor_compile_text", Unsafe, [t|JSVal -> IO JSText|])
+     , ("js_editor_compiled", "halogen_learn_editor_compiled", Unsafe, [t|JSVal -> IO ()|])
      , ("js_editor_set_text", "halogen_learn_editor_set_text", Unsafe, [t|JSVal -> JSText -> IO ()|])
      , ("js_editor_set_read_only", "halogen_learn_editor_set_read_only", Unsafe, [t|JSVal -> Bool -> IO ()|])
      , ("js_editor_diagnostics", "halogen_learn_editor_diagnostics", Unsafe, [t|JSVal -> JSText -> IO ()|])
@@ -82,7 +86,7 @@ $( browserJS
      , ("js_editor_show_source", "halogen_learn_editor_show_source", Unsafe, [t|JSVal -> Int -> IO ()|])
      , ("js_editor_source_mode", "halogen_learn_editor_source_mode", Unsafe, [t|JSVal -> Bool -> IO ()|])
      , ("js_editor_destroy", "halogen_learn_editor_destroy", Unsafe, [t|JSVal -> IO ()|])
-     , ("js_source_start", "halogen_learn_source_start", Unsafe, [t|HTMLElement -> Callback -> IO JSVal|])
+     , ("js_source_start", "halogen_learn_source_start", Unsafe, [t|HTMLElement -> JSVal -> Callback -> IO JSVal|])
      , ("js_source_outline", "halogen_learn_source_outline", Unsafe, [t|JSVal -> Int -> Int -> IO ()|])
      , ("js_source_stop", "halogen_learn_source_stop", Unsafe, [t|JSVal -> IO ()|])
      ]
@@ -279,6 +283,18 @@ createEditor element text readOnly onEvent = do
 editorText :: Editor -> IO Text
 editorText (Editor view _) = fromJSText <$> js_editor_text view
 
+-- | The editor's text, for a compile. The Source mode's marks are positions
+-- in the code a compile mounted, and the reader edits on after it: the
+-- editor keeps this text, and counts the changes made to it from here, so
+-- that once 'markCompiled' says the result is this code's, the Source mode
+-- shows each mark where its code is now.
+compileText :: Editor -> IO Text
+compileText (Editor view _) = fromJSText <$> js_editor_compile_text view
+
+-- | The last 'compileText''s code is the one the result was made from.
+markCompiled :: Editor -> IO ()
+markCompiled (Editor view _) = js_editor_compiled view
+
 -- | Replace the editor's text; the editor reports it as a 'Changed'.
 setEditorText :: Editor -> Text -> IO ()
 setEditorText (Editor view _) = js_editor_set_text view . toJSText
@@ -318,11 +334,13 @@ destroyEditor (Editor view callback) = js_editor_destroy view >> freeCallback ca
 -- (@learn\/Playground.hs@'s @--learn-spans@).
 data Source = Source JSVal Callback
 
--- | What the reader does over the result while the Source mode is on.
+-- | What the reader does over the result while the Source mode is on. A
+-- position is where the element's code is in the editor now, which is not
+-- where it was compiled when the reader has edited above it since.
 data SourceEvent
   = -- | The pointer is over the element made at this line and column.
     Pointing Int Int
-  | -- | It is over none.
+  | -- | It is over none, or over one whose code has been deleted since.
     NotPointing
   | -- | The reader clicked the element made here, to go there. The program
     -- did not see the click.
@@ -338,16 +356,18 @@ instance FromJSON SourceEvent where
       other -> fail ("no such event: " <> other)
 
 -- | Outline what the pointer is over in the element, and say so, until
--- 'stopSource'.
-startSource :: HTMLElement -> (SourceEvent -> IO ()) -> IO Source
-startSource element onEvent = do
+-- 'stopSource'; the editor maps the marks of the code it compiled to where
+-- that code is now ('compileText').
+startSource :: HTMLElement -> Editor -> (SourceEvent -> IO ()) -> IO Source
+startSource element (Editor view _) onEvent = do
   callback <- mkCallback $ \value -> either (const pass) onEvent (decode (jsValText value))
-  overlay <- js_source_start element callback
+  overlay <- js_source_start element view callback
   pure (Source overlay callback)
 
--- | Outline the element made at this line and column, or else the one on
--- that line made last before the column, while the pointer is over none.
--- Nothing when the line made none.
+-- | Outline the element made at this line and column of the editor, or
+-- else the one on that line made last before the column, while the pointer
+-- is over none. Nothing when the line made none, or was written since the
+-- compile.
 outlineSource :: Source -> Int -> Int -> IO ()
 outlineSource (Source overlay _) = js_source_outline overlay
 
