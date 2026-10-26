@@ -1,0 +1,150 @@
+cabal-version:      3.0
+name:               haskell-halogen-three
+version:            0.1.0.0
+synopsis:           Three.js rendering backend for haskell-halogen-core
+description:
+  A three-dimensional scene described as a component renders HTML and
+  reconciled by the same machinery: a MonadDOM instance over Three.js
+  objects, with meshes, lights, a camera that orbits, and pointer events
+  raycast into the scene.
+homepage:           https://github.com/Swordlash/haskell-halogen
+license:            Apache-2.0
+license-file:       LICENSE
+author:             Mateusz Goślinowski
+maintainer:         mateusz.goslinowski@gmail.com
+category:           Web
+extra-source-files: CHANGELOG.md, README.md, jsbits/*.js, test/jsbits/*.js, test/web/bundle.sh
+
+flag interactive
+    description: Build the browser test suite for browser GHCi (toolchain/dev-test.sh)
+    default:     False
+    manual:      True
+
+common defaults
+  default-language: GHC2021
+  ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture -Wredundant-constraints -Wunused-packages
+
+  default-extensions:
+      RankNTypes
+      GeneralizedNewtypeDeriving
+      MultiParamTypeClasses
+      FunctionalDependencies
+      FlexibleContexts
+      FlexibleInstances
+      UndecidableInstances
+      GADTs
+      DeriveFunctor
+      DerivingStrategies
+      NoImplicitPrelude
+      KindSignatures
+      DataKinds
+      OverloadedStrings
+      TypeOperators
+      LambdaCase
+      TypeFamilies
+      OverloadedRecordDot
+      RecordWildCards
+      NamedFieldPuns
+      DuplicateRecordFields
+      PartialTypeSignatures
+      DefaultSignatures
+      StandaloneKindSignatures
+      NoFieldSelectors
+      DerivingVia
+      CPP
+      StrictData
+      RequiredTypeArguments
+      ExplicitNamespaces
+
+library
+    import: defaults
+
+    build-depends:
+        base >= 4.20,
+        protolude,
+        containers,
+        primitive,
+        unliftio-core,
+        haskell-halogen-core,
+        haskell-halogen-jsbits
+
+    exposed-modules:
+      Halogen.Three
+      Halogen.Three.Camera
+      Halogen.Three.Core
+      Halogen.Three.Elements
+      Halogen.Three.Properties
+      Halogen.Three.Types
+
+    other-modules:
+      Halogen.Three.FFI
+      Halogen.Three.Monad
+      Halogen.Three.Prop
+
+    hs-source-dirs:   src
+
+    if arch(javascript)
+      js-sources:
+        jsbits/three.js
+
+      ghc-options: -fexpose-all-unfoldings
+
+    if arch(wasm32)
+      ghc-options: -fexpose-all-unfoldings
+
+-- The pure parts, on every backend (under Node on the browser ones): the
+-- camera's orbit and zoom, and the VDom the elements build.
+test-suite Halogen-three-test
+    import:           defaults
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          Test.hs
+    other-modules:    Test.Camera
+                      Test.Scene
+    build-depends:
+        hspec,
+        protolude,
+        haskell-halogen-core,
+        haskell-halogen-three
+
+-- A scene mounted in headless Chromium, Three.js and WebGL and all (the
+-- hspec-halogen executable serves test/web, whose bundle.sh bundles
+-- Three.js from node_modules, so that the suite needs no network).
+-- Natively it only reports that it skipped.
+test-suite Halogen-three-browser-test
+    import:           defaults
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          Browser.hs
+    other-modules:    Example.Scene
+                      Test.Browser
+                      Test.Page
+    build-depends:
+        base,
+        clay,
+        protolude,
+        row-types,
+        unliftio-core,
+        haskell-halogen-core,
+        haskell-halogen-jsbits,
+        haskell-halogen-three,
+        hspec-halogen
+
+    -- The page's side of the tests (test/jsbits), declared with browserJS as
+    -- a package's is.
+    if arch(javascript)
+        js-sources:   test/jsbits/scene.js
+
+    if arch(wasm32) && !flag(interactive)
+        ghc-options:
+            -no-hs-main
+            -optl-mexec-model=reactor
+            "-optl-Wl,--export=hs_start"
+
+    if flag(interactive)
+        cpp-options:  -DINTERACTIVE
+
+source-repository head
+  type:     git
+  location: https://github.com/Swordlash/haskell-halogen.git
+  subdir:   three

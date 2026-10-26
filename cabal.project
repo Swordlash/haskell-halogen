@@ -2,6 +2,7 @@ packages:
   jsbits
   core
   pixi
+  three
   sound
   material
   hooks

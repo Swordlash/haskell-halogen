@@ -21,7 +21,8 @@
 // lesson is checked); an error GHC throws rather than reports is still a
 // failed compile; lesson 13's spec runs in the page, its Start.hs with one
 // failure and its Solution.hs with none, by hspec's report under the editor,
-// and leaves nothing mounted; the routes survive back and forward; lesson 6's hash router
+// and leaves nothing mounted; lesson 19's scene is drawn and a click on its
+// sphere changes the colour the text names; the routes survive back and forward; lesson 6's hash router
 // keeps the lesson's address under the page's <base href>, Back included;
 // what lesson 5's Finalize prints shows on every compile after the first;
 // Escape then Tab leaves the editor; the reader's code survives a reload, and
@@ -64,7 +65,7 @@ const archive = /\.tar\.zst(\.\d\d)?$/;
 // (its `external` entries in rootfs.json, which learn/README.md lists), and
 // nothing else, so that neither the app nor the compiler depends on a CDN.
 // A layer's external is allowed only on the lessons that use that layer
-// (PixiJS, when lesson 11's canvas mounts), but for one named by a layer's
+// (PixiJS, when lesson 11's canvas mounts, and Three.js, lesson 19's scene), but for one named by a layer's
 // stylesheet (the Material Icons font, named by material.css): the
 // stylesheet stays on the page once the layer has loaded, whichever lesson
 // loaded it, and the browser fetches the font when it first needs it.
@@ -399,7 +400,30 @@ try {
     says: (text) => result.locator("p", { hasText: text }).first().waitFor({ timeout: 30000 }),
     press: (text) => result.locator("button", { hasText: new RegExp(`^${text}$`) }).click(),
   });
+  // Lesson 19's scene: a canvas, once Three.js has come from the CDN and
+  // drawn it, whose sphere is at the canvas's centre (the camera looks at
+  // it, and Solution.hs's floats less than its radius); a click there is
+  // raycast to the sphere, whose colour the text under the scene names. It
+  // is clicked until the text names another colour, since a click before
+  // Three.js has loaded goes nowhere.
+  const sphereColour = async (result) => {
+    const canvas = result.locator("canvas");
+    await canvas.waitFor({ timeout: 10000 });
+    await result.locator("p", { hasText: "The sphere is amber." }).waitFor({ timeout: 5000 });
+    const deadline = Date.now() + 60000;
+    for (;;) {
+      const box = await canvas.boundingBox();
+      if (box && box.width > 0) await result.page().mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      try {
+        await result.locator("p", { hasText: /The sphere is (sky|rose|lime)\./ }).waitFor({ timeout: 1000 });
+        return;
+      } catch (error) {
+        if (Date.now() > deadline) throw new Error(`no click reached the sphere (${error.message})`);
+      }
+    }
+  };
   const pageLessons = {
+    "19-three": { start: sphereColour, solution: sphereColour },
     "17-worker": {
       async start(result) {
         const { text, drawn } = await countPrimes(result);

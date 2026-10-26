@@ -22,7 +22,8 @@
     "esbuild": "^0.28.2",
     "http-server": "^14.1.1",
     "playwright": "^1.63.0",
-    "sass-embedded": "^1.105.0"
+    "sass-embedded": "^1.105.0",
+    "three": "0.186.1"
   },
   "scripts": {
     "build-native": "cabal build all --builddir=dist-newstyle/native",
