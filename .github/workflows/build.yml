@@ -173,10 +173,11 @@ jobs:
         path: /usr/local/.ghcup/ghc/javascript-unknown-ghcjs-${{ env.GHCJS_VERSION }}
         key: ${{ runner.os }}-ghcup-ghcjs-${{ env.GHCJS_VERSION }}-em-${{ env.EM_VERSION }}-emsdk-home
 
-    # Uses the ghcup the runner image already ships, the way the build-wasm job
-    # installs its own cross-compiler. Do not bootstrap ghcup here: the image
-    # puts it in a root-owned /usr/local/.ghcup, so get-ghcup.haskell.org fails
-    # trying to chmod the existing binary.
+    # Uses the ghcup the runner image already ships, the way the wasm jobs
+    # install their own cross-compiler (.github/actions/wasm-toolchain). Do
+    # not bootstrap ghcup here: the image puts it in a root-owned
+    # /usr/local/.ghcup, so get-ghcup.haskell.org fails trying to chmod the
+    # existing binary.
     #
     # @haskell-org/ghc-installer cannot be used either: its GHC-to-emsdk table
     # hardcodes a single entry, 9.12.1, and hard-exits on anything else, which
@@ -222,9 +223,9 @@ jobs:
       run: npm run build-js
 
     # Before the tests: the suites built with hspec-halogen (hspec-halogen's,
-    # material's, net's, custom-element's, devtools' and tauri's) run in
-    # headless Chromium, driven by the hspec-halogen executable, a native
-    # program that needs the host GHC.
+    # material's, net's, custom-element's, devtools', remote's, tauri's and
+    # three's) run in headless Chromium, driven by the hspec-halogen
+    # executable, a native program that needs the host GHC.
     - name: Cache Chromium
       uses: actions/cache@v5
       with:
@@ -251,130 +252,81 @@ jobs:
     - name: Test
       run: npm run test-ghcjs
 
-  build-wasm:
+  # The wasm build is two jobs that run side by side: test-wasm, the test
+  # suites, and learn-wasm, the tutorial and every other example as the
+  # deploy builds and tests them. Neither needs what the other builds, and
+  # one after the other they were the longest job of the three by far. Both
+  # set the toolchain up with .github/actions/wasm-toolchain, as
+  # build-deploy.yml does.
+  test-wasm:
     runs-on: ubuntu-latest
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v5
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v5
+    # The store is saved from this job only: see the action.
+    - name: Set up the wasm toolchain
+      uses: ./.github/actions/wasm-toolchain
       with:
-        node-version: '24'
-        cache: npm
+        ghc-version: ${{ env.GHC_VERSION }}
+        wasm-ghc-version: ${{ env.WASM_GHC_VERSION }}
+        ghc-wasm-meta-rev: ${{ env.GHC_WASM_META_REV }}
+        cabal-version: ${{ env.CABAL_VERSION }}
+        cabal-dir: ${{ env.CABAL_DIR }}
+        cache-scope: test
+        save-store: 'true'
 
-    # Only ~/.ghc-wasm (wasi-sdk, binaryen, node) is cacheable: ghcup installs
-    # the cross GHC under its own base directory, which lives outside $HOME on
-    # the runner image and is not ours to archive.
-    - name: Cache wasm sysroot
+    # Before the tests: the suites built with hspec-halogen (hspec-halogen's,
+    # material's, net's, custom-element's, devtools', remote's, tauri's and
+    # three's) run in headless Chromium, driven by the hspec-halogen
+    # executable, which is a native program, built with the host GHC the
+    # toolchain action installs.
+    - name: Cache Chromium
       uses: actions/cache@v5
       with:
-        path: ~/.ghc-wasm
-        key: ${{ runner.os }}-ghc-wasm-sysroot-${{ env.GHC_WASM_META_REV }}
+        path: ~/.cache/ms-playwright
+        key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
 
-    # See the note in build-js: ghcup's base directory is /usr/local/.ghcup, so
-    # cache only this cross compiler out of it.
-    - name: Cache wasm cross-compiler
-      uses: actions/cache@v5
+    # Without --with-deps: the runner image already has every library the
+    # headless shell needs (apt reported each one installed), and what
+    # --with-deps added besides, fonts and an xvfb upgrade, the tests do not
+    # use, while its apt fetch from the mirror has taken eleven minutes.
+    - name: Install Chromium
+      run: npx playwright install --only-shell chromium
+
+    - name: Test
+      run: npm run test-wasm
+
+  learn-wasm:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Set up the wasm toolchain
+      uses: ./.github/actions/wasm-toolchain
       with:
-        path: /usr/local/.ghcup/ghc/wasm32-wasi-${{ env.WASM_GHC_VERSION }}
-        key: ${{ runner.os }}-ghcup-wasm32-wasi-${{ env.WASM_GHC_VERSION }}
-
-    # Each half checks for itself rather than trusting cache-hit, so a cache
-    # that turns out not to carry a toolchain repairs itself instead of
-    # failing the build several steps later.
-    - name: Install GHC WebAssembly toolchain
-      run: |
-        mkdir -p "$RUNNER_TEMP/ghc-wasm-meta"
-        curl --fail --location --retry 5 "https://gitlab.haskell.org/haskell-wasm/ghc-wasm-meta/-/archive/$GHC_WASM_META_REV/ghc-wasm-meta-$GHC_WASM_META_REV.tar.gz" | tar xz --strip-components=1 --directory "$RUNNER_TEMP/ghc-wasm-meta"
-        if [ ! -x "$HOME/.ghc-wasm/add_to_github_path.sh" ]; then
-          SKIP_GHC=1 FLAVOUR=9.14 "$RUNNER_TEMP/ghc-wasm-meta/setup.sh"
-        fi
-        # shellcheck source=/dev/null
-        . ~/.ghc-wasm/env
-        if ! ghcup whereis cabal "$CABAL_VERSION" >/dev/null 2>&1; then
-          ghcup install cabal "$CABAL_VERSION"
-        fi
-        ghcup set cabal "$CABAL_VERSION"
-        if ! ghcup whereis ghc "wasm32-wasi-$WASM_GHC_VERSION" >/dev/null 2>&1; then
-          ghcup -s "file://$RUNNER_TEMP/ghc-wasm-meta/ghcup-wasm-0.0.9.yaml" install ghc "wasm32-wasi-$WASM_GHC_VERSION" --set -- $CONFIGURE_ARGS
-        fi
-        ghcup set ghc "wasm32-wasi-$WASM_GHC_VERSION"
-
-    # Puts the wasm tools on PATH and exports CC/AR/LD and friends for every
-    # later step, so it has to run whether or not anything was installed above.
-    - name: Activate toolchain
-      run: |
-        echo "$(ghcup whereis basedir)/ghc/wasm32-wasi-$WASM_GHC_VERSION/bin" >> "$GITHUB_PATH"
-        echo "$(ghcup whereis basedir)/bin" >> "$GITHUB_PATH"
-        ~/.ghc-wasm/add_to_github_path.sh
-
-    - name: Install JavaScript dependencies
-      run: npm ci
-
-    - name: Update Cabal package index
-      run: cabal update
-
-    # Unique per run so the store is always written back, restored by prefix
-    # from the newest earlier run. See the note in the build job.
-    - name: Cache cabal dependencies
-      uses: actions/cache@v5
-      with:
-        path: ${{ env.CABAL_DIR }}/store
-        key: ${{ runner.os }}-wasm-${{ env.WASM_GHC_VERSION }}-cabal-store-${{ github.run_id }}-${{ github.run_attempt }}
-        restore-keys: |
-          ${{ runner.os }}-wasm-${{ env.WASM_GHC_VERSION }}-cabal-store-
-
-    # The repository's own packages built with the host GHC: what the
-    # examples' prerender executables need (core, jsbits, router, the
-    # examples they render), and what test-wasm's hspec-halogen runner needs.
-    # The store above only holds their dependencies, so without this they are
-    # compiled from scratch on every run. Keep in step with the same step in
-    # the build-deploy job in build-deploy.yml.
-    #
-    # Unique per run so it is always written back, restored by prefix from
-    # the newest earlier run. Unlike the store, either job's tree is a valid
-    # start for the other's: both build into it with the same compiler, a
-    # tree with more or fewer components in it is just more or less to
-    # build, GHC (since 9.4) recompiles a module by its source's hash rather
-    # than its mtime, so a restored module is reused exactly where its source
-    # is unchanged, and cabal re-plans when the configuration has changed.
-    - name: Cache native build directory
-      uses: actions/cache@v5
-      with:
-        path: dist-newstyle/native
-        key: ${{ runner.os }}-wasm-native-build-${{ env.GHC_VERSION }}-${{ github.run_id }}-${{ github.run_attempt }}
-        restore-keys: |
-          ${{ runner.os }}-wasm-native-build-${{ env.GHC_VERSION }}-
-
-    # The runner image already ships this GHC under ghcup, so this only sets
-    # it as the default; it installs one if a later image does not. (Caching
-    # it only unpacked a copy over the image's, which tar cannot re-time.)
-    # Before the build: th's ghc-lib-parser runs alex and happy while it
-    # compiles. cabal builds them for wasm (alex.wasm, happy.wasm), which it
-    # cannot run, and falls back to PATH, where native ones have to be: a
-    # happy ghc-lib-parser accepts (not 2.2).
-    - name: Install host GHC, alex and happy
-      run: |
-        if ! ghcup whereis ghc "$GHC_VERSION" >/dev/null 2>&1; then
-          ghcup install ghc "$GHC_VERSION"
-        fi
-        ghcup set ghc "$GHC_VERSION"
-        cabal install alex happy --constraint='happy <2.2' --ignore-project --with-compiler="$(ghcup whereis ghc "$GHC_VERSION")" --installdir="$CABAL_DIR/bin" --install-method=copy --overwrite-policy=always
-        echo "$CABAL_DIR/bin" >> "$GITHUB_PATH"
+        ghc-version: ${{ env.GHC_VERSION }}
+        wasm-ghc-version: ${{ env.WASM_GHC_VERSION }}
+        ghc-wasm-meta-rev: ${{ env.GHC_WASM_META_REV }}
+        cabal-version: ${{ env.CABAL_VERSION }}
+        cabal-dir: ${{ env.CABAL_DIR }}
+        cache-scope: learn
 
     # The tutorial's compiler (toolchain/build-learn-rootfs.sh): GHC, its
     # libraries and ours, as the archives the page downloads and extracts.
-    # It takes some minutes to build (zstd -19) and is the same for the same
-    # inputs, so it is cached under a key of exactly those: --key plans the
-    # wasm build and hashes the compiler, the plan's units in the closure of
-    # the packages it packs (a store unit by its id, one of ours by its
-    # files), the wasi-sysroot's libraries and the files the script reads.
-    # The ghc-wasm-meta pin is in the key as well, for the tools that hash does
-    # not see. Restored and saved in two steps, so that a run whose tests fail
-    # still keeps the rootfs it built. Keep these three steps in step with the
-    # same ones in build-deploy.yml, which shares the cache.
+    # It takes some minutes to build and is the same for the same inputs, so
+    # it is cached under a key of exactly those: --key plans the wasm build
+    # and hashes the compiler, the plan's units in the closure of the
+    # packages it packs (a store unit by its id, one of ours by its files),
+    # the wasi-sysroot's libraries, the files the script reads and its
+    # settings, the zstd level among them. The ghc-wasm-meta pin is in the
+    # key as well, for the tools that hash does not see. Restored and saved
+    # in two steps, so that a run whose tests fail still keeps the rootfs it
+    # built. Keep these three steps in step with the same ones in
+    # build-deploy.yml, which shares the cache.
     - name: Key the tutorial's rootfs
       id: rootfs-key
       run: |
@@ -390,7 +342,7 @@ jobs:
 
     # Builds our libraries for wasm first, which the next step would anyway.
     # Its peak is a copy of the wasm GHC's libdir (2.8 GB) before it is
-    # trimmed; the output is 76 MB.
+    # trimmed; the output is 85 MB.
     - name: Build the tutorial's rootfs
       if: steps.rootfs-cache.outputs.cache-hit != 'true'
       run: npm run build-rootfs
@@ -410,11 +362,8 @@ jobs:
       env:
         HALOGEN_BASE_PATH: /${{ github.event.repository.name }}/
 
-    # Before the tests: the suites built with hspec-halogen (hspec-halogen's,
-    # material's, net's, custom-element's, devtools' and tauri's) run in
-    # headless Chromium, driven by the hspec-halogen executable, which is a
-    # native program, built with the host GHC installed above; and so do the
-    # tutorial's and the playground's.
+    # Before the tests: the tutorial's, the playground's and the workers'
+    # run in headless Chromium.
     - name: Cache Chromium
       uses: actions/cache@v5
       with:
@@ -427,9 +376,6 @@ jobs:
     # use, while its apt fetch from the mirror has taken eleven minutes.
     - name: Install Chromium
       run: npx playwright install --only-shell chromium
-
-    - name: Test
-      run: npm run test-wasm
 
     # The tutorial as Pages deploys it, in a real browser: every lesson's page
     # prerendered under the base path, the size-optimised app adopting it, the
