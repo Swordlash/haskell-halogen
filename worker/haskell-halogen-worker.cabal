@@ -1,0 +1,81 @@
+cabal-version:      3.4
+name:               haskell-halogen-worker
+version:            0.1.0.0
+synopsis:           Heavy work off the page's thread, in Web Workers that are copies of the program
+description:
+  "Halogen.Worker" runs a program's functions in Web Workers, so that a
+  computation that takes seconds does not take them from the page. GHC's
+  WebAssembly has no threads that share memory, so a worker is a second
+  instance of the program's own binary, which runs only the functions the
+  program registered as jobs, by name, with their arguments and results
+  passed as JSON over @postMessage@. A program's @main@ starts with
+  @program@ (or @serve@), which in a worker serves the jobs and on the page
+  goes on to the UI; a @Pool@ starts its workers when it first needs them,
+  and @run@ waits for a job's result as any @liftIO@ waits. Where no worker
+  can be made (natively, in Node, in a page that has not said where the
+  program is) the job runs in the program itself, through the same JSON, so
+  the same code works everywhere. It needs nothing of haskell-halogen-core:
+  any program compiled for the browser can use it.
+homepage:           https://github.com/Swordlash/haskell-halogen
+license:            Apache-2.0
+license-file:       LICENSE
+author:             Mateusz Goślinowski
+maintainer:         mateusz.goslinowski@gmail.com
+category:           Web, Concurrency
+build-type:         Simple
+extra-doc-files:    CHANGELOG.md, README.md
+extra-source-files: jsbits/*.js
+
+common defaults
+    default-language: GHC2021
+    ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists -Wunused-packages
+    default-extensions:
+        DataKinds
+        DerivingStrategies
+        DuplicateRecordFields
+        LambdaCase
+        NamedFieldPuns
+        NoFieldSelectors
+        OverloadedRecordDot
+        OverloadedStrings
+        StrictData
+
+library
+    import:           defaults
+    hs-source-dirs:   src
+    exposed-modules:  Halogen.Worker
+    build-depends:
+        base >= 4.20 && < 5,
+        aeson >= 2.2.1,
+        containers,
+        text,
+        unliftio,
+        haskell-halogen-jsbits
+
+    if arch(javascript)
+        js-sources:   jsbits/worker.js
+
+-- The protocol and the fallback, which run the same on every backend: under
+-- Node on the browser backends, where there is no configuration and so no
+-- worker, and natively. A worker itself is tested in headless Chromium
+-- through examples/worker (toolchain/test-worker.mjs), since a worker needs
+-- the program's binary served to it. It depends on haskell-halogen-core only
+-- for the JavaScript backend's polyfills, which hspec needs under Node.
+test-suite Halogen-worker-test
+    import:           defaults
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          Test.hs
+    other-modules:    Test.Run
+    build-depends:
+        base,
+        aeson,
+        hspec >= 2,
+        text,
+        haskell-halogen-core,
+        haskell-halogen-worker
+
+source-repository head
+  type:     git
+  location: https://github.com/Swordlash/haskell-halogen.git
+  subdir:   worker

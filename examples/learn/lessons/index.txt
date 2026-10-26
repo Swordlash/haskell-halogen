@@ -17,3 +17,4 @@
 14-custom-element
 15-store
 16-devtools
+17-worker

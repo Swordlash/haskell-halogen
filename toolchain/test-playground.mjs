@@ -6,8 +6,9 @@
 // their JavaScript: a hooks counter, a router link, a fetch from this server,
 // a custom element defined over the page's HTML, a Material button with its
 // CSS, a Pixi scene on a canvas, an hh quote
-// from haskell-halogen-th, and an hspec-halogen spec, whose report is the
-// program's output.
+// from haskell-halogen-th, an hspec-halogen spec, whose report is the
+// program's output, a store, and jobs of haskell-halogen-worker, run on the
+// page since the interpreter has no binary for a worker to load.
 //
 //   npm run test-playground                 # after: npm run build-rootfs
 //   node toolchain/test-playground.mjs [dir]  # default $LEARN_ROOTFS_DIR, or dist-newstyle/wasm/learn
@@ -661,6 +662,56 @@ main = runBrowserDOM $ do
       await appText(page, "stored 0");
       await page.locator("#app button", { hasText: "bump" }).click();
       await appText(page, "stored 1");
+    },
+  },
+
+  // Halogen.Worker in the interpreter, which has no binary for a worker to
+  // load: the program serves its table, finds no worker available, and runs
+  // its jobs on the page through the same JSON, a job's exception coming
+  // back as a WorkerError.
+  worker: {
+    what: "jobs from the worker layer, run on the page where no worker can be made, a failure as a WorkerError",
+    source: String.raw`{-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE OverloadedStrings #-}
+
+module Main (main) where
+
+import Control.Exception (throwIO, try)
+import Control.Monad.IO.Class (liftIO)
+import Control.Monad.State (put)
+import Data.Text (Text)
+import Data.Text qualified as T
+import Halogen qualified as H
+import Halogen.HTML qualified as HH
+import Halogen.Worker qualified as Worker
+${mounting}
+
+double :: Worker.Job Int Int
+double = Worker.job "double" (\n -> pure (n * 2))
+
+failing :: Worker.Job () Int
+failing = Worker.job "failing" (\() -> throwIO (userError "no luck"))
+
+report :: Worker.Pool -> H.Component q () o BrowserDOM
+report pool = H.component (\_ -> pure "") (\t -> HH.p_ [HH.text t]) [H.onInitialize initialize]
+  where
+    initialize = do
+      available <- Worker.available
+      doubled <- liftIO (Worker.run pool double 21)
+      failed <- liftIO (try (Worker.run pool failing ()))
+      let failure = either (\(e :: Worker.WorkerError) -> e.job <> ": " <> e.message) (T.pack . show) failed
+      put ("available " <> T.pack (show available) <> "; doubled 21 to " <> T.pack (show doubled) <> "; " <> failure :: Text)
+
+main :: IO ()
+main = Worker.program [Worker.some double, Worker.some failing] $ runBrowserDOM $ do
+  HA.endPreviousRun
+  app <- maybe (error "the page has no #app") pure =<< HA.selectElement (QuerySelector "#app")
+  pool <- Worker.newPool 1
+  socket <- runUI (report pool) () app
+  HA.keepForNextRun (socket.dispose >> Worker.terminate pool)
+`,
+    async verify(page) {
+      await appText(page, "available False; doubled 21 to 42; failing: user error (no luck)");
     },
   },
 };

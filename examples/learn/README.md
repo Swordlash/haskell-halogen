@@ -82,7 +82,10 @@ and the page's buttons do what the text says, before the exercise and after
 it; for lesson 16, whose program opens `Halogen.DevTools`' panel under the
 component, that the panel lists the component and counts a click, and that
 its count of renders climbs every second for `Start.hs` and not for
-`Solution.hs`), that back, forward, a second visit
+`Solution.hs`; for lesson 17, whose program runs its jobs through
+`Halogen.Worker`, that the component says no worker can be made here, and
+that each counts the primes right, `Start.hs` drawing no frame meanwhile and
+`Solution.hs`, through `Worker.run` in a `liftIO`, at least one), that back, forward, a second visit
 (from the cache) and Reset work, that a narrow screen downloads nothing large
 until asked, that a failed load can be retried and loads from a manifest
 without a version or sizes too, and that nothing is logged as an error.
@@ -138,8 +141,8 @@ args: -package haskell-halogen-hooks
   The rootfs has `hooks`, `router`, `net`, `material`, `pixi`, `th` and
   `store`, one per package of the same name (`haskell-halogen-hooks`, ...),
   `elements`, for `haskell-halogen-custom-element`, `devtools`, for
-  `haskell-halogen-devtools`, and `hspec`, for `hspec-halogen` (see
-  `learn/README.md`, "Layers").
+  `haskell-halogen-devtools`, `worker`, for `haskell-halogen-worker`, and
+  `hspec`, for `hspec-halogen` (see `learn/README.md`, "Layers").
 - `args` (optional): further GHC arguments, separated by spaces, after the
   ones every compile has (`-package haskell-halogen-core
   -Wno-missed-extra-shared-lib -i/tmp`). A layer's package still has to be
@@ -224,7 +227,13 @@ registration's `dispose` and the HTML's removal. Lesson 16's puts two
 elements into `#learn-result`, opens `Halogen.DevTools`' panel in the second
 (after `DevTools.showing @State`, which is why its `Lesson` exports `State`
 beside `component`) and then mounts the component in the first, and keeps
-both sockets' `dispose` and the elements' removal. A `Main.hs` may also run a
+both sockets' `dispose` and the elements' removal. Lesson 17's is the
+program an application with Web Workers ships: `Worker.program jobs` (the
+table its `Lesson` exports beside `component`) around the rest, which makes
+a pool and mounts `component pool`, and keeps the socket's `dispose` and
+`Worker.terminate pool`; in the tutorial the pool starts no worker (the
+interpreted program has no binary for one to load), and the jobs run on the
+page. A `Main.hs` may also run a
 spec of the lesson's instead, as lesson 13's does: `Lesson` exports `spec` beside `component`, and `main` is
 `HA.endPreviousRun` then `runBrowserTestsIn result (spec BrowserDOM)`
 (`hspec-halogen`'s `Test.Hspec.Halogen`), which runs each test in a page of

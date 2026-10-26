@@ -427,3 +427,8 @@ jobs:
     # for every layer, and what it measures. PixiJS comes from jsDelivr.
     - name: Test the playground in a browser
       run: npm run test-playground
+
+    # examples/worker, as build-wasm-all built it: jobs in Web Workers that
+    # are copies of the page's own app.wasm, the page drawing meanwhile.
+    - name: Test the Web Workers in a browser
+      run: npm run test-worker

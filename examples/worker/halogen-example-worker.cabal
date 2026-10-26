@@ -1,0 +1,96 @@
+cabal-version:      3.0
+name:               halogen-example-worker
+version:            0.1.0.0
+synopsis:           haskell-halogen-worker example: counting primes on the page or in a Web Worker
+license:            Apache-2.0
+author:             Mateusz Goślinowski
+maintainer:         mateusz.goslinowski@gmail.com
+category:           Web
+
+flag interactive
+  description: Build the example for browser GHCi (toolchain/dev.sh)
+  default:     False
+  manual:      True
+
+common shared
+  default-language: GHC2021
+  ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture -Wredundant-constraints -Wunused-packages
+
+  default-extensions:
+      RankNTypes
+      GeneralizedNewtypeDeriving
+      MultiParamTypeClasses
+      FunctionalDependencies
+      FlexibleContexts
+      FlexibleInstances
+      UndecidableInstances
+      GADTs
+      DeriveFunctor
+      DerivingStrategies
+      NoImplicitPrelude
+      KindSignatures
+      DataKinds
+      OverloadedStrings
+      TypeOperators
+      LambdaCase
+      TypeFamilies
+      OverloadedRecordDot
+      RecordWildCards
+      NamedFieldPuns
+      DuplicateRecordFields
+      PartialTypeSignatures
+      DefaultSignatures
+      StandaloneKindSignatures
+      NoFieldSelectors
+      DerivingVia
+      CPP
+      StrictData
+      RequiredTypeArguments
+      ExplicitNamespaces
+
+
+library
+  import:           shared
+  hs-source-dirs:   src
+  exposed-modules:  Example.Worker
+  build-depends:
+      base,
+      protolude,
+      row-types,
+      haskell-halogen-core,
+      haskell-halogen-worker
+
+executable halogen-example-worker
+  import:           shared
+  main-is:          Main.hs
+  hs-source-dirs:   .
+  build-depends:
+      protolude,
+      haskell-halogen-core,
+      haskell-halogen-worker
+
+  -- Browser GHCi (toolchain/dev.sh) reloads only the modules of the target it
+  -- loaded, so there the example's module is compiled into the executable
+  -- rather than taken from the library, where edits would go unnoticed.
+  if flag(interactive)
+    hs-source-dirs: src
+    other-modules:  Example.Worker
+    build-depends:
+        base,
+        row-types
+  else
+    build-depends:
+        halogen-example-worker
+
+  -- The wasm program is a reactor, which the page starts through its
+  -- hs_start export, and so does each worker. GHCi loads the program's
+  -- modules and runs main itself, so the interactive build is an ordinary
+  -- program, and Main leaves the export out when INTERACTIVE is defined.
+  if arch(wasm32) && !flag(interactive)
+    ghc-options:
+      -no-hs-main
+      -optl-mexec-model=reactor
+      "-optl-Wl,--export=hs_start"
+
+  if flag(interactive)
+    cpp-options: -DINTERACTIVE

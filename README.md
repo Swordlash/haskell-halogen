@@ -25,6 +25,7 @@ AI usage disclaimer: All code until tag `0.9.0` was hand-written. Any later comm
 | [net/](net/) | `haskell-halogen-net` | The browser's `fetch`: a request as a value, its response and body as values, aborted when the component waiting for it goes away. |
 | [custom-element/](custom-element/) | `haskell-halogen-custom-element` | A component as a custom element (a Web Component) for any page, React's, Vue's or plain HTML: attributes and properties are its input, outputs are `CustomEvent`s, queries are methods. |
 | [devtools/](devtools/) | `haskell-halogen-devtools` | A panel over the page that shows what the components do as they do it: their tree, counts of renders, actions and state changes, a log of events, the hovered component outlined, and earlier states put back. |
+| [worker/](worker/) | `haskell-halogen-worker` | Heavy work off the page's thread: a program's functions run by name in Web Workers that are copies of its own binary, arguments and results as JSON, and in the program itself where no worker can be made. |
 | [tauri/](tauri/) | `haskell-halogen-tauri` | Tauri v2's IPC for an app in a Tauri webview: Rust commands with aeson JSON, events as emitters, the window's own events; inert in a plain browser. |
 | [material/](material/) | `haskell-halogen-material` | Google Material Components bindings. |
 | [pixi/](pixi/) | `haskell-halogen-pixi` | A PixiJS v8 canvas rendering backend. |
@@ -36,7 +37,7 @@ AI usage disclaimer: All code until tag `0.9.0` was hand-written. Any later comm
 | [examples/](examples/) | `halogen-example-*` | One runnable browser app per library, and `learn`, the tutorial, whose code compiles in the page. |
 
 `hooks`, `store`, `router`, `material`, `pixi`, `hspec-halogen`, `th`, `custom-element` and `devtools`
-depend on `core`, and `tauri` on `core` for its emitters; `net` and `sound` are independent of those runtime libraries. WASM backends also use the `jsbits`
+depend on `core`, and `tauri` on `core` for its emitters; `net`, `sound` and `worker` are independent of those runtime libraries. WASM backends also use the `jsbits`
 compile-time helper. `th` builds natively and for WebAssembly, not with the JavaScript
 backend, which cannot build `ghc-lib-parser`. Every package builds from the one `cabal.project` at the
 repository root, so a change to
@@ -288,6 +289,32 @@ main = runBrowserDOM $ do
   socket <- runUI Counter.component () body
   HA.keepForNextRun (socket.dispose >> tools.dispose)
 ```
+
+## Work off the page's thread
+
+A computation of seconds takes those seconds from the page: GHC's WebAssembly has no threads
+that share memory, so the runtime's threads take turns on the page's one, and while one computes
+the page draws nothing. `haskell-halogen-worker` runs it in a Web Worker instead, a second copy
+of the program loaded from the same `app.wasm`, which runs the functions the program offers it
+by name, with arguments and results as JSON:
+
+```haskell
+primes :: Worker.Job Int Int
+primes = Worker.job "primes" (\n -> pure (countPrimes n))
+
+main = Worker.program [Worker.some primes] $ runBrowserDOM $ do
+  pool <- Worker.newPool 2
+  ...
+-- and in a component:
+  n <- liftIO (Worker.run pool primes 2000000)
+```
+
+`Worker.program` serves the jobs in a worker and goes on to the UI on the page. The page's
+loader names the program's files in `globalThis.halogenWorker` before starting it (see
+[worker/README.md](worker/README.md)); where nothing names them, natively, or in GHCi,
+`Worker.run` runs the job in the program itself, through the same JSON. `examples/worker` counts
+primes on the page and in a worker beside a spinner the component turns, and lesson 17 of the
+tutorial teaches the API (in the tutorial's interpreter, without a worker).
 
 ## Tauri
 

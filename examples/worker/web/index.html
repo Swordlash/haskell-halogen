@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Halogen in a Web Worker</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 42rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+      .spinner-row { display: flex; align-items: center; gap: 0.75rem; font-variant-numeric: tabular-nums; }
+      /* Turned by the component, a frame at a time (no CSS animation, which
+         the browser would go on drawing while the page's thread is busy). */
+      .spinner { width: 2.5rem; height: 2.5rem; border-radius: 50%; border: 0.35rem solid #cbd5e1; border-top-color: #1e3a8a; box-sizing: border-box; }
+      .controls { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+      button { font: inherit; }
+      #result { font-family: ui-monospace, monospace; }
+    </style>
+  </head>
+  <body>
+    <h1>Work that does not freeze the page</h1>
+    <p>
+      Counting the primes below two million takes a second or two. Counted
+      here, on the page, it takes that time from the page: the spinner below,
+      which the component turns a frame at a time, stops until the count is
+      done. Counted in a Web Worker (another copy of this program, which
+      <code>Halogen.Worker</code> starts from the same <code>app.wasm</code>),
+      it leaves the page free, and the spinner goes on turning.
+    </p>
+    <div id="app"></div>
+    <script language="javascript" src="./index.js" defer type="module"></script>
+  </body>
+</html>

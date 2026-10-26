@@ -180,8 +180,8 @@ its own. A library two layers both need belongs in the base layer:
 `learn-inject.py` is given the other layers' DBs (`--taken`) and stops the
 build if a layer's closure reaches a unit another layer already carries, as
 two copies of one library in a session would be two libraries to dyld. Today
-no two layers share anything: hooks, router, net, elements, devtools, pixi and
-store need only themselves beyond the base layer, material also `clock` and `extra`, th its
+no two layers share anything: hooks, router, net, elements, devtools, pixi,
+store and worker need only themselves beyond the base layer, material also `clock` and `extra`, th its
 parsers, hspec hspec's own closure (`hspec`, `hspec-core`, `HUnit`,
 `ansi-terminal` and the rest; `QuickCheck` and its generators are in the
 base layer already), none of it a boot package the script trims.
@@ -205,8 +205,9 @@ which loads its libraries into dyld and compiles. Three runs of
 | `th` | `haskell-halogen-th` (+ `ghc-lib-parser`, `megaparsec`, `parser-combinators`, `tagsoup`, `css-syntax`, `case-insensitive`) | 7 | 194.7 MB | 21.4 MB | none | 2.1–3.9 s | 8.0–12.0 s |
 | `hspec` | `hspec-halogen` (+ `hspec`, `hspec-core`, `hspec-expectations`, `hspec-discover`, `HUnit`, `quickcheck-io`, `ansi-terminal`, `ansi-terminal-types`, `colour`, `call-stack`, `haskell-lexer`) | 12 | 12.6 MB | 1.34 MB | none | 98–100 ms | 3.6–4.1 s |
 | `store` | `haskell-halogen-store` | 1 | 0.49 MB | 0.07 MB | none | 23–25 ms | 0.9–1.7 s |
-| **all ten** | | 29 | 214.9 MB | 24.4 MB | 0.33 MB | 1.9–2.3 s | |
-| all but `th` | | 22 | 20.3 MB | 2.49 MB | 0.33 MB | 0.30–0.32 s | |
+| `worker` | `haskell-halogen-worker` | 1 | 0.20 MB | 0.04 MB | none | 20–21 ms | 7.4–9.5 s |
+| **all eleven** | | 30 | 215.1 MB | 24.4 MB | 0.33 MB | 1.9–2.3 s | |
+| all but `th` | | 23 | 20.4 MB | 2.53 MB | 0.33 MB | 0.35–0.37 s | |
 
 (The `hspec` row is from three later runs, on a machine other builds were
 sharing; `th` loaded in 1.6–1.8 s in them. The `elements` row is from
@@ -214,8 +215,14 @@ three runs later again, of a rootfs in which `th`'s archive was 21.9 MB and
 `material`'s 2.61 MB uncompressed, and `th` loaded in 1.5–1.8 s. The
 `store` and `devtools` rows are each from three runs of a rootfs with that
 layer added to the eight before it, in which `th` loaded in 1.6–2.0 s; the
-two totals are those runs' totals with the other row's sizes added, and
-their loads span both.)
+two totals were those runs' totals with the other row's sizes added. The
+`worker` row and the two totals are from three runs of a rootfs with all
+eleven layers, whose sizes the totals add up (`hooks` 0.82 MB, `material`
+2.62 MB and `th`'s archive 21.9 MB in it); `th` loaded in 1.6–2.0 s. Every
+first run after `th`'s was slower in those runs than in the earlier ones,
+`store`'s 6.1–7.0 s and `hspec`'s 6.4–7.5 s, so the worker program's
+7.4–9.5 s says as much about its place last in the sequence as about the
+layer.)
 `hspec`'s archive is small enough that the harness is a layer like any
 other, with `hspec` itself rather than `hspec-core` alone: `hspec-core` is
 4.1 MB of its 10.9 MB of `.so`, `haskell-lexer` 3.0 MB and `colour` 1.4 MB,
@@ -247,7 +254,11 @@ quasi-quoter runs ghc-lib-parser in the page's interpreter; hspec, an
 acts with synthetic events, and hspec's report (`2 examples, 0 failures`)
 is the program's stdout, with `#app` empty afterwards; store, a tree
 in `StoreT` run with `runStoreT`, whose button's `updateStore` a component
-`connect`ed to the store shows. All pass, with no
+`connect`ed to the store shows; worker, `Halogen.Worker.program` serving a
+table of two jobs, `Worker.available` saying no worker can be made (the
+interpreted program has no binary for one to load), one job run through
+`Worker.run` on the page and the other's exception given back as a
+`WorkerError`. All pass, with no
 console errors. If the CDN cannot be reached from the browser, the pixi run
 is skipped and says why (it was reachable here, through the proxy).
 
@@ -537,8 +548,9 @@ It proves:
   trace), material (with its
   CSS and JavaScript on the page), pixi (PixiJS from its CDN), th, whose
   quasi-quoter runs ghc-lib-parser inside the page's GHC, store (a tree run
-  through `runStoreT`, whose interpreted components share one store), and
-  hspec: an
+  through `runStoreT`, whose interpreted components share one store), worker
+  (jobs run on the page, there being no binary for a Web Worker to start),
+  and hspec: an
   `hspec-halogen` suite, hspec's runner included, runs in the interpreter
   as it does in a linked test program, with no `getArgs`, terminal or
   configuration file in its way, and prints its report to stdout. Its
