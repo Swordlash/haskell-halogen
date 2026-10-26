@@ -190,6 +190,20 @@ jobs:
       env:
         HALOGEN_BASE_PATH: ${{ steps.pages.outputs.base_path }}
 
+    # Every example's script, stylesheet and binary, raw, gzipped and with
+    # brotli, in the log and the job summary, so that a change in what a
+    # reader downloads shows. Only reported (--no-write): GitHub Pages
+    # compresses on the fly, so precompressed copies would only weigh down
+    # the upload, and the rootfs' archives are compressed already. Here rather
+    # than in build-wasm-all.sh, so that a pull request's build does not spend
+    # the minute it takes.
+    - name: Report the sizes
+      run: |
+        public_dir=dist-newstyle/wasm/public
+        # shellcheck disable=SC2046
+        node toolchain/compress.mjs --no-write \
+          $(find "$public_dir" -mindepth 2 -path "$public_dir/learn/rootfs" -prune -o -type f \( -name '*.wasm' -o -name '*.js' -o -name '*.css' \) -print | sort)
+
     # The same browser test as the build-wasm job in build.yml, run here too
     # because the two workflows run side by side on a push to master: without
     # it, a tutorial that fails there would still be deployed from here.
