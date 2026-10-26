@@ -218,6 +218,29 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-ghcjs-${{ env.GHCJS_VERSION }}-cabal-store-
 
+    # Every package, example and test suite as the JavaScript backend
+    # compiled them (the Test step builds the suites into the same
+    # directory, so what is saved at the end of the job has them), so that a
+    # change to one package recompiles what depends on it and not every
+    # package. Unique per run so it is always written back, restored by
+    # prefix from the newest earlier run; an earlier run's tree is a valid
+    # start for the reasons .github/actions/wasm-toolchain gives for the
+    # native one. Not its cache/ (cabal's plan and the record of the
+    # compiler), planned again in seconds, where a plan from a run with
+    # another set of packages could only mislead cabal, nor tmp/, what cabal
+    # leaves behind; as an exclusion only applies to what an include pattern
+    # lists, the include is the directory's entries and not the directory.
+    - name: Cache JavaScript build directory
+      uses: actions/cache@v5
+      with:
+        path: |
+          dist-newstyle/javascript/*
+          !dist-newstyle/javascript/cache
+          !dist-newstyle/javascript/tmp
+        key: ${{ runner.os }}-ghcjs-build-${{ env.GHCJS_VERSION }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: |
+          ${{ runner.os }}-ghcjs-build-${{ env.GHCJS_VERSION }}-
+
     # Also writes the bundle sizes to the job summary.
     - name: Build
       run: npm run build-js

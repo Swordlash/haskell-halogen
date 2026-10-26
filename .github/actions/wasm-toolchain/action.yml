@@ -2,7 +2,8 @@ name: GHC WebAssembly toolchain
 description: >-
   What every job that builds for wasm starts with: Node.js, the wasm cross
   compiler and its sysroot, the npm packages, cabal's index, the wasm store,
-  the native build directory, and the host GHC with alex and happy.
+  the native and wasm build directories, and the host GHC with alex and
+  happy.
   The jobs that use it (test-wasm and learn-wasm in build.yml, build-deploy in
   build-deploy.yml) share these steps here rather than each keeping a copy of
   them in step with the others.
@@ -166,6 +167,32 @@ runs:
       restore-keys: |
         ${{ runner.os }}-wasm-native-build-${{ inputs.ghc-version }}-${{ inputs.cache-scope }}-
         ${{ runner.os }}-wasm-native-build-${{ inputs.ghc-version }}-
+
+  # The same for the wasm build: our packages, test suites and examples as
+  # the wasm GHC compiled them, so that a change to one package recompiles
+  # what depends on it and not every package. Not the whole directory: its
+  # cache/ (cabal's plan and the record of the compiler) is planned again in
+  # seconds, and a plan restored from a run with another set of packages
+  # has made cabal fail with "unknown-component" before; learn/ is the
+  # rootfs, cached on its own under a key of exactly its inputs; public/ is
+  # the examples' output, written afresh by every build; and learn-build/
+  # and tmp/ are what an interrupted rootfs build or cabal leave behind. An
+  # exclusion only applies to what an include pattern lists, which is why
+  # the include is the directory's entries (wasm/*) and not the directory.
+  - name: Cache wasm build directory
+    uses: actions/cache@v5
+    with:
+      path: |
+        dist-newstyle/wasm/*
+        !dist-newstyle/wasm/cache
+        !dist-newstyle/wasm/learn
+        !dist-newstyle/wasm/public
+        !dist-newstyle/wasm/learn-build
+        !dist-newstyle/wasm/tmp
+      key: ${{ runner.os }}-wasm-build-${{ inputs.wasm-ghc-version }}-${{ inputs.cache-scope }}-${{ github.run_id }}-${{ github.run_attempt }}
+      restore-keys: |
+        ${{ runner.os }}-wasm-build-${{ inputs.wasm-ghc-version }}-${{ inputs.cache-scope }}-
+        ${{ runner.os }}-wasm-build-${{ inputs.wasm-ghc-version }}-
 
   # The runner image already ships this GHC under ghcup, so this only sets
   # it as the default; it installs one if a later image does not. (Caching
