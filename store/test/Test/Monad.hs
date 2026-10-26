@@ -55,3 +55,40 @@ spec = describe "Halogen.Store.Monad" $ do
     readIORef answering >>= (`shouldBe` [1, 2])
     readIORef listening >>= (`shouldBe` [2])
     runIn store Store.getStore >>= (`shouldBe` 2) . (.count)
+
+  -- The first update is still being handed to the subscriber on one thread
+  -- when another thread makes the second. The second waits for the first
+  -- to be handed on, rather than reaching the subscriber at the same time,
+  -- or before the first one ends, which would leave it believing the store
+  -- holds the first update's value.
+  it "hands a subscriber an update made on another thread after the one under way" $ do
+    store <- Store.newHalogenStore initialStore reducer
+    seen <- newIORef []
+    inFirst <- newEmptyMVar
+    goOn <- newEmptyMVar
+    finished <- newEmptyMVar
+    _ <- HS.subscribe (Store.storeEmitter store) $ \s -> do
+      when (s.count == 1) $ putMVar inFirst () >> takeMVar goOn
+      modifyIORef' seen (<> [s.count])
+    _ <- forkIO $ runIn store (Store.updateStore Increment) >> putMVar finished ()
+    takeMVar inFirst
+    runIn store (Store.updateStore Increment)
+    readIORef seen >>= (`shouldBe` [])
+    putMVar goOn ()
+    takeMVar finished
+    readIORef seen >>= (`shouldBe` [1, 2])
+
+  it "hands a subscriber updates made by many threads at once in order, the newest last" $ do
+    store <- Store.newHalogenStore initialStore reducer
+    seen <- newIORef []
+    done <- newEmptyMVar
+    _ <- HS.subscribe (Store.storeEmitter store) $ \s -> atomicModifyIORef' seen (\counts -> (s.count : counts, ()))
+    let threads = 8 :: Int
+        each = 250 :: Int
+    replicateM_ threads $ forkIO $ do
+      replicateM_ each (runIn store (Store.updateStore Increment))
+      putMVar done ()
+    replicateM_ threads (takeMVar done)
+    counts <- reverse <$> readIORef seen
+    and (zipWith (<) counts (drop 1 counts)) `shouldBe` True
+    lastMay counts `shouldBe` Just (threads * each)

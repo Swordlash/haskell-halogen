@@ -72,32 +72,68 @@ class (MonadIO m) => MonadStore action store m | m -> store action where
 -- inside another one's notification (a component that answers a change by
 -- changing the store again), so the second update's subscribers may be
 -- told before the first one's notification has reached them all. Each
--- subscription keeps the number of the last update it was given and drops
--- an older one ('storeEmitter'), so that what a subscriber was told last
--- is what the store holds.
+-- subscription hands the updates on one at a time, in the order of their
+-- numbers, and drops one that an update it has already handed on overtook
+-- ('storeEmitter'), so that what a subscriber was told last is what the
+-- store holds.
 data HalogenStore action store = HalogenStore
-  { value :: IORef (Word64, store)
-  , listener :: HS.Listener IO (Word64, store)
-  , updates :: HS.Emitter IO (Word64, store)
+  { value :: IORef (Update store)
+  , listener :: HS.Listener IO (Update store)
+  , updates :: HS.Emitter IO (Update store)
   , reducer :: store -> action -> store
   }
+
+-- | The store's value after an update, with the update's number. Its fields
+-- are strict (the package compiles with @StrictData@): an update evaluates
+-- the reducer's result, so a store without subscribers does not pile up a
+-- chain of unevaluated reductions for the next read to go through.
+data Update store = Update {number :: Word64, value :: store}
 
 -- | A store holding the value given, which the reducer changes.
 newHalogenStore :: forall action store n. (MonadIO n) => store -> (store -> action -> store) -> n (HalogenStore action store)
 newHalogenStore initial reducer = liftIO $ do
-  value <- newIORef (0, initial)
+  value <- newIORef Update {number = 0, value = initial}
   subscribe <- HS.create
   pure HalogenStore {value, listener = subscribe.listener, updates = subscribe.emitter, reducer}
+
+-- | Where a subscription is with the store's updates: the number of the
+-- last one it handed on, the newest one it has yet to hand on, and whether
+-- a thread is handing them on now.
+data Delivery store = Delivery
+  { seen :: Word64
+  , pending :: Maybe (Update store)
+  , delivering :: Bool
+  }
 
 -- | Every value the store takes from now on, in the order the updates were
 -- made: an update that was overtaken by a later one before it reached this
 -- subscriber is not delivered to it.
+--
+-- The subscriber is run by one thread at a time. An update that arrives
+-- while another is being handed on, from another thread or from the
+-- subscriber itself (nested in the notification it is answering), is left
+-- for the thread handing on to take next, in place of any older update
+-- still waiting; so the subscriber sees the updates in order, and the last
+-- it sees is the newest.
 storeEmitter :: forall action store. HalogenStore action store -> HS.Emitter IO store
 storeEmitter store = HS.makeEmitter $ \push -> do
-  latest <- newIORef 0
-  subscription <- HS.subscribe store.updates $ \(n, s) -> do
-    newer <- atomicModifyIORef' latest (\seen -> if n > seen then (n, True) else (seen, False))
-    when newer (push s)
+  delivery <- newIORef Delivery {seen = 0, pending = Nothing, delivering = False}
+  let stop = atomicModifyIORef' delivery (\d -> (d {delivering = False}, ()))
+      deliver = do
+        next <- atomicModifyIORef' delivery $ \d -> case d.pending of
+          Nothing -> (d {delivering = False}, Nothing)
+          Just update -> (d {seen = update.number, pending = Nothing}, Just update)
+        for_ next $ \update -> do
+          push update.value `onException` stop
+          deliver
+  subscription <- HS.subscribe store.updates $ \update -> do
+    mine <- atomicModifyIORef' delivery $ \d ->
+      let newer = update.number > d.seen && all ((update.number >) . (.number)) d.pending
+          queued = if newer then d {pending = Just update} else d
+       in if queued.delivering || isNothing queued.pending
+            then (queued, False)
+            else (queued {delivering = True}, True)
+    when mine deliver
   pure (HS.unsubscribe subscription)
 
 -- | The application's monad with a store in it: a component in
@@ -134,12 +170,12 @@ instance (MonadUUID m) => MonadUUID (StoreT action store m)
 instance (MonadIO m) => MonadStore action store (StoreT action store m) where
   getStore = StoreT $ do
     store <- ask
-    snd <$> readIORef store.value
+    (.value) <$> readIORef store.value
   updateStore action = StoreT $ do
     store <- ask
     liftIO $ do
-      new <- atomicModifyIORef' store.value $ \(n, s) ->
-        let new = (n + 1, store.reducer s action) in (new, new)
+      new <- atomicModifyIORef' store.value $ \old ->
+        let new = Update {number = old.number + 1, value = store.reducer old.value action} in (new, new)
       HS.notify store.listener new
   emitSelected selector = StoreT $ do
     store <- ask
