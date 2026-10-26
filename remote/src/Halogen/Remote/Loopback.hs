@@ -16,6 +16,7 @@ module Halogen.Remote.Loopback
   , Traffic (..)
   , LoopbackError (..)
   , mountIn
+  , mountWatched
   )
 where
 
@@ -41,8 +42,11 @@ data Loopback = Loopback
   { dispose :: IO ()
   -- ^ End the session and the component's tree, and empty the element.
   , traffic :: HS.Emitter IO Traffic
-  -- ^ Every message, both ways, as it crosses: a subscriber added after
-  -- the first render does not see it.
+  -- ^ Every message, both ways, as it crosses, from when the subscriber
+  -- subscribes: the first render has usually gone by then, since it is
+  -- sent as soon as 'mountIn' has mounted the component. To see every
+  -- message, the first included, watch from the start with
+  -- 'mountWatched'.
   }
 
 data LoopbackError
@@ -56,7 +60,17 @@ instance Exception LoopbackError
 -- for itself: the element is the client's, which empties it, so it should
 -- be one nothing else renders into. Throws 'NotAvailable' natively.
 mountIn :: HTMLElement -> Component q i o RemoteDOM -> i -> IO Loopback
-mountIn (HTMLElement element) component input = do
+mountIn = mountWatched (const pass)
+
+-- | 'mountIn', with every message also handed to the watcher as it
+-- crosses, from the first: what a page that shows the wire's traffic wants,
+-- since a subscriber to 'traffic', which only exists once 'mountIn' has
+-- returned, may come after the first render has been sent. The watcher is
+-- called on the thread that sends or receives the message, so it should
+-- hand the message on rather than work on it (a 'HS.Listener''s
+-- 'HS.notify', to an emitter a component subscribed to before mounting).
+mountWatched :: (Traffic -> IO ()) -> HTMLElement -> Component q i o RemoteDOM -> i -> IO Loopback
+mountWatched watch (HTMLElement element) component input = do
   unless inBrowser $ throwIO NotAvailable
   HS.Subscribe {emitter, listener} <- HS.create
   -- The client sends before the session is there to receive only if the
@@ -65,10 +79,12 @@ mountIn (HTMLElement element) component input = do
   sessionRef <- newIORef Nothing
   callback <- mkCallback $ \value -> do
     let text = jsValText value
+    watch (ToProgram text)
     HS.notify listener (ToProgram text)
     readIORef sessionRef >>= traverse_ (`Session.receive` text)
   client <- Client.attach element callback
   session <- Session.newSession $ \text -> do
+    watch (ToPage text)
     HS.notify listener (ToPage text)
     Client.apply client text
   writeIORef sessionRef (Just session)

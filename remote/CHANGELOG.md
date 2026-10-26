@@ -25,7 +25,8 @@ given beside it; `application` is the same as a WAI application. A program that 
 own session, and a connection that closes disposes of its session.
 
 `Halogen.Remote.Loopback.mountIn` runs the same pipeline inside one page, with every message
-emitted on `traffic` both ways; natively it throws `NotAvailable`.
+emitted on `traffic` both ways, and `mountWatched` hands every message, the first render's
+included, to a watcher given before anything crosses; natively they throw `NotAvailable`.
 
 The client (`jsbits/remote.js`) prevents the default of every `submit`, and of every `click` on
 an `a` element, that it listens for, since a handler hears of an event too late to; refs are

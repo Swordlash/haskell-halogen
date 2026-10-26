@@ -123,7 +123,10 @@ not the server; a connection that closes disposes of its session, which finalize
 
 `Loopback.mountIn element component input` runs the whole pipeline in one page: a session whose
 messages go to a client in `element`, whose events come back to the session, and every message,
-both ways, emitted on `traffic` as `ToPage` and `ToProgram` for anyone watching. It is the server
+both ways, emitted on `traffic` as `ToPage` and `ToProgram` for anyone watching. The first render
+is sent as soon as the component is mounted, before a subscriber to `traffic` (which exists once
+`mountIn` has returned) can usually subscribe: `Loopback.mountWatched watch` hands every message,
+the first included, to `watch` as well, which a page showing the traffic subscribes to first. It is the server
 minus the socket, which makes it the way to see the wire (the tutorial's lesson 21 shows its
 traffic) and to test, in a browser, a component meant to be served. Natively it throws
 `NotAvailable`.

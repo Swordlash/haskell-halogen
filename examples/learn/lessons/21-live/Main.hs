@@ -23,6 +23,7 @@ import Halogen.HTML qualified as HH
 import Halogen.HTML.Properties qualified as HP
 import Halogen.IO.Util qualified as HA
 import Halogen.Remote.Loopback qualified as Loopback
+import Halogen.Subscription qualified as HS
 import Halogen.VDom.DOM.Monad (BrowserDOM, runBrowserDOM)
 import Halogen.VDom.Driver (runUI)
 import Lesson (component)
@@ -53,8 +54,11 @@ wire = H.component start render [H.onInitialize mountIt, H.onFinalize stop, H.on
       st <- get
       element <- H.getHTMLElementRef st.container
       for_ element $ \container -> do
-        loopback <- liftIO (Loopback.mountIn container component ())
-        _ <- H.subscribe (Crossed <$> loopback.traffic)
+        -- Subscribed to before mounting, so that the first render's
+        -- message, sent as soon as the component is mounted, is seen too.
+        crossing <- liftIO HS.create
+        _ <- H.subscribe (Crossed <$> crossing.emitter)
+        loopback <- liftIO (Loopback.mountWatched (HS.notify crossing.listener) container component ())
         modify (\s -> s {running = Just loopback})
     stop = do
       st <- get

@@ -17,6 +17,7 @@ import Halogen.HTML qualified as HH
 import Halogen.HTML.Properties qualified as HP
 import Halogen.Remote.Loopback (Loopback (..), Traffic (..))
 import Halogen.Remote.Loopback qualified as Loopback
+import Halogen.Subscription qualified as HS
 import Protolude hiding (State)
 
 data State = State
@@ -41,8 +42,11 @@ page shared =
       label <- gets (.container)
       element <- H.getHTMLElementRef label
       for_ element $ \container -> do
-        loopback <- liftIO (Loopback.mountIn container (board shared) ())
-        void (H.subscribe (Crossed <$> loopback.traffic))
+        -- Subscribed to before mounting, so that the first render's
+        -- message, sent as soon as the board is mounted, is seen too.
+        HS.Subscribe {emitter, listener} <- liftIO HS.create
+        void (H.subscribe (Crossed <$> emitter))
+        loopback <- liftIO (Loopback.mountWatched (HS.notify listener) container (board shared) ())
         modify (\s -> s {running = Just loopback})
 
     render :: State -> H.ComponentHTML Action Empty m
