@@ -1,3 +1,5 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 -- | Note: an element may contain more attributes than what
 -- | we currently allow in its corresponding `SVGelemName`.
 module Halogen.Svg.Indexed
@@ -40,6 +42,7 @@ where
 
 import Data.Row
 import HPrelude
+import Halogen.Row.TH (flatRows)
 import Web.Event.Event (Event)
 import Web.HTML.Event.DragEvent (DragEvent)
 import Web.UIEvent.FocusEvent (FocusEvent)
@@ -193,201 +196,9 @@ type AllPresentationAttributes r =
         )
     )
 
--- Specific SVG elements -------------------------------------------------------
-type SVGsvg =
-  GlobalAttributes
-    ( AllPresentationAttributes
-        ( "width" .== Double
-            .+ "height" .== Double
-            .+ "viewBox" .== Text
-            .+ "preserveAspectRatio" .== Text
-            .+ "transform" .== Text
-            .+ "onLoad" .== Event
-            .+ "onError" .== Event
-        )
-    )
-
-type SVGg =
-  GlobalAttributes
-    ( AllPresentationAttributes
-        ("transform" .== Text)
-    )
-
-type SVGforeignObject =
-  GlobalAttributes
-    ( AllPresentationAttributes
-        ( "x" .== Double
-            .+ "y" .== Double
-            .+ "height" .== Double
-            .+ "width" .== Double
-            .+ "transform" .== Text
-        )
-    )
-
-type SVGmarker =
-  GlobalAttributes
-    ( AllPresentationAttributes
-        ( "markerWidth" .== Double
-            .+ "markerHeight" .== Double
-            .+ "refX" .== Double
-            .+ "refY" .== Double
-            .+ "orient" .== Text
-            .+ "markerUnits" .== Text
-            .+ "viewBox" .== Text
-            .+ "preserveAspectRatio" .== Text
-        )
-    )
-
-type SVGmask =
-  GlobalAttributes
-    ( AllPresentationAttributes
-        ( "transform" .== Text
-            .+ "x" .== Double
-            .+ "y" .== Double
-            .+ "width" .== Double
-            .+ "height" .== Double
-            .+ "maskUnits" .== Text
-            .+ "maskContentUnits" .== Text
-        )
-    )
-
-type SVGcircle =
-  GlobalAttributes
-    ( AllPresentationAttributes
-        ( "cx" .== Double
-            .+ "cy" .== Double
-            .+ "r" .== Double
-            .+ "transform" .== Text
-            .+ "pathLength" .== Double
-        )
-    )
-
-type SVGellipse =
-  GlobalAttributes
-    ( AllPresentationAttributes
-        ( "cx" .== Double
-            .+ "cy" .== Double
-            .+ "rx" .== Double
-            .+ "ry" .== Double
-            .+ "transform" .== Text
-            .+ "pathLength" .== Double
-        )
-    )
-
-type SVGline =
-  GlobalAttributes
-    ( AllPresentationAttributes
-        ( "x1" .== Double
-            .+ "y1" .== Double
-            .+ "x2" .== Double
-            .+ "y2" .== Double
-            .+ "transform" .== Text
-            .+ "pathLength" .== Double
-        )
-    )
-
-type SVGpolyline =
-  GlobalAttributes
-    ( AllPresentationAttributes
-        ( "points" .== Text
-            .+ "pathLength" .== Double
-            .+ "transform" .== Text
-        )
-    )
-
-type SVGpolygon =
-  GlobalAttributes
-    ( AllPresentationAttributes
-        ( "points" .== Text
-            .+ "pathLength" .== Double
-            .+ "transform" .== Text
-        )
-    )
-
-type SVGpath =
-  GlobalAttributes
-    ( AllPresentationAttributes
-        ( "d" .== Text
-            .+ "transform" .== Text
-            .+ "pathLength" .== Double
-        )
-    )
-
-type SVGpattern =
-  GlobalAttributes
-    ( "height" .== Double
-        .+ "href" .== Text
-        .+ "patternContentUnits" .== Text
-        .+ "patternTransform" .== Text
-        .+ "patternUnits" .== Text
-        .+ "preserveAspectRatio" .== Text
-        .+ "viewBox" .== Text
-        .+ "width" .== Double
-        .+ "x" .== Double
-        .+ "xlinkHref" .== Text
-        .+ "y" .== Double
-    )
-
-type SVGrect =
-  GlobalAttributes
-    ( AllPresentationAttributes
-        ( "x" .== Double
-            .+ "y" .== Double
-            .+ "rx" .== Double
-            .+ "ry" .== Double
-            .+ "width" .== Double
-            .+ "height" .== Double
-            .+ "transform" .== Text
-            .+ "pathLength" .== Double
-        )
-    )
-
-type SVGtext =
-  GlobalAttributes
-    ( CanBeMaskedAttributes
-        ( StrokeAttributes
-            ( StokeEndAttributes
-                ( StrokeJoinAttributes
-                    ( FillAttributes
-                        ( FontAttributes
-                            ( "x" .== Double
-                                .+ "y" .== Double
-                                .+ "textAnchor" .== Text
-                                .+ "dominantBaseline" .== Text
-                                .+ "transform" .== Text
-                            )
-                        )
-                    )
-                )
-            )
-        )
-    )
-
-type SVGuse =
-  GlobalAttributes
-    ( CanBeMaskedAttributes
-        ( StrokeAttributes
-            ( StokeEndAttributes
-                ( StrokeJoinAttributes
-                    ( FillAttributes
-                        ( FontAttributes
-                            ( "x" .== Double
-                                .+ "y" .== Double
-                                .+ "width" .== Double
-                                .+ "height" .== Double
-                                .+ "transform" .== Text
-                                .+ "href" .== Text
-                                .+ "xlinkHref" .== Text
-                            )
-                        )
-                    )
-                )
-            )
-        )
-    )
-
---------------------------------------------------------------------------------
-
+-- | The attributes of the animation elements. Unlike `fill` in
+-- `FillAttributes`, `fill` in `AnimationAttributes` is intended to record a
+-- `FillState` via `fillAnim`.
 type AnimationAttributes r =
   GlobalAttributes
     ( "from" .== Text
@@ -400,33 +211,231 @@ type AnimationAttributes r =
         .+ "xlinkHref" .== Text
         .+ r
     )
--- ^ Unlike `fill` in `GlobalAttributes`, `fill` in `AnimationAttributes` is
--- intended to record a `FillState` via `fillAnim`.
 
-type SVGanimate = AnimationAttributes ("attributeName" .== Text)
+-- Specific SVG elements -------------------------------------------------------
 
-type SVGanimateMotion = AnimationAttributes ("path" .== Text)
+-- The element rows. 'flatRows' defines each of them as the sorted list of
+-- labels its definition below reduces to, with no type family left in it, so
+-- that a use of an element costs the type checker almost nothing. See
+-- "Halogen.Row.TH".
+$( flatRows
+     [d|
+       type SVGsvg =
+         GlobalAttributes
+           ( AllPresentationAttributes
+               ( "width" .== Double
+                   .+ "height" .== Double
+                   .+ "viewBox" .== Text
+                   .+ "preserveAspectRatio" .== Text
+                   .+ "transform" .== Text
+                   .+ "onLoad" .== Event
+                   .+ "onError" .== Event
+               )
+           )
 
-type SVGanimateTransform = AnimationAttributes ("attributeName" .== Text .+ "type" .== Text .+ "by" .== Text)
+       type SVGg =
+         GlobalAttributes
+           ( AllPresentationAttributes
+               ("transform" .== Text)
+           )
 
-type SVGset = AnimationAttributes ("attributeName" .== Text)
+       type SVGforeignObject =
+         GlobalAttributes
+           ( AllPresentationAttributes
+               ( "x" .== Double
+                   .+ "y" .== Double
+                   .+ "height" .== Double
+                   .+ "width" .== Double
+                   .+ "transform" .== Text
+               )
+           )
 
-type SVGimage =
-  GlobalAttributes
-    ( "x" .== Double
-        .+ "y" .== Double
-        .+ "width" .== Double
-        .+ "height" .== Double
-        .+ "href" .== Text
-        .+ "xlinkHref" .== Text
-        .+ "preserveAspectRatio" .== Text
-        .+ "transform" .== Text
-        .+ "onLoad" .== Event
-        .+ "onError" .== Event
-    )
+       type SVGmarker =
+         GlobalAttributes
+           ( AllPresentationAttributes
+               ( "markerWidth" .== Double
+                   .+ "markerHeight" .== Double
+                   .+ "refX" .== Double
+                   .+ "refY" .== Double
+                   .+ "orient" .== Text
+                   .+ "markerUnits" .== Text
+                   .+ "viewBox" .== Text
+                   .+ "preserveAspectRatio" .== Text
+               )
+           )
 
-type SVGmpath = GlobalAttributes ("href" .== Text .+ "xlinkHref" .== Text)
+       type SVGmask =
+         GlobalAttributes
+           ( AllPresentationAttributes
+               ( "transform" .== Text
+                   .+ "x" .== Double
+                   .+ "y" .== Double
+                   .+ "width" .== Double
+                   .+ "height" .== Double
+                   .+ "maskUnits" .== Text
+                   .+ "maskContentUnits" .== Text
+               )
+           )
 
---------------------------------------------------------------------------------
+       type SVGcircle =
+         GlobalAttributes
+           ( AllPresentationAttributes
+               ( "cx" .== Double
+                   .+ "cy" .== Double
+                   .+ "r" .== Double
+                   .+ "transform" .== Text
+                   .+ "pathLength" .== Double
+               )
+           )
 
-type SVGtitle = GlobalAttributes Empty
+       type SVGellipse =
+         GlobalAttributes
+           ( AllPresentationAttributes
+               ( "cx" .== Double
+                   .+ "cy" .== Double
+                   .+ "rx" .== Double
+                   .+ "ry" .== Double
+                   .+ "transform" .== Text
+                   .+ "pathLength" .== Double
+               )
+           )
+
+       type SVGline =
+         GlobalAttributes
+           ( AllPresentationAttributes
+               ( "x1" .== Double
+                   .+ "y1" .== Double
+                   .+ "x2" .== Double
+                   .+ "y2" .== Double
+                   .+ "transform" .== Text
+                   .+ "pathLength" .== Double
+               )
+           )
+
+       type SVGpolyline =
+         GlobalAttributes
+           ( AllPresentationAttributes
+               ( "points" .== Text
+                   .+ "pathLength" .== Double
+                   .+ "transform" .== Text
+               )
+           )
+
+       type SVGpolygon =
+         GlobalAttributes
+           ( AllPresentationAttributes
+               ( "points" .== Text
+                   .+ "pathLength" .== Double
+                   .+ "transform" .== Text
+               )
+           )
+
+       type SVGpath =
+         GlobalAttributes
+           ( AllPresentationAttributes
+               ( "d" .== Text
+                   .+ "transform" .== Text
+                   .+ "pathLength" .== Double
+               )
+           )
+
+       type SVGpattern =
+         GlobalAttributes
+           ( "height" .== Double
+               .+ "href" .== Text
+               .+ "patternContentUnits" .== Text
+               .+ "patternTransform" .== Text
+               .+ "patternUnits" .== Text
+               .+ "preserveAspectRatio" .== Text
+               .+ "viewBox" .== Text
+               .+ "width" .== Double
+               .+ "x" .== Double
+               .+ "xlinkHref" .== Text
+               .+ "y" .== Double
+           )
+
+       type SVGrect =
+         GlobalAttributes
+           ( AllPresentationAttributes
+               ( "x" .== Double
+                   .+ "y" .== Double
+                   .+ "rx" .== Double
+                   .+ "ry" .== Double
+                   .+ "width" .== Double
+                   .+ "height" .== Double
+                   .+ "transform" .== Text
+                   .+ "pathLength" .== Double
+               )
+           )
+
+       type SVGtext =
+         GlobalAttributes
+           ( CanBeMaskedAttributes
+               ( StrokeAttributes
+                   ( StokeEndAttributes
+                       ( StrokeJoinAttributes
+                           ( FillAttributes
+                               ( FontAttributes
+                                   ( "x" .== Double
+                                       .+ "y" .== Double
+                                       .+ "textAnchor" .== Text
+                                       .+ "dominantBaseline" .== Text
+                                       .+ "transform" .== Text
+                                   )
+                               )
+                           )
+                       )
+                   )
+               )
+           )
+
+       type SVGuse =
+         GlobalAttributes
+           ( CanBeMaskedAttributes
+               ( StrokeAttributes
+                   ( StokeEndAttributes
+                       ( StrokeJoinAttributes
+                           ( FillAttributes
+                               ( FontAttributes
+                                   ( "x" .== Double
+                                       .+ "y" .== Double
+                                       .+ "width" .== Double
+                                       .+ "height" .== Double
+                                       .+ "transform" .== Text
+                                       .+ "href" .== Text
+                                       .+ "xlinkHref" .== Text
+                                   )
+                               )
+                           )
+                       )
+                   )
+               )
+           )
+
+       type SVGanimate = AnimationAttributes ("attributeName" .== Text)
+
+       type SVGanimateMotion = AnimationAttributes ("path" .== Text)
+
+       type SVGanimateTransform = AnimationAttributes ("attributeName" .== Text .+ "type" .== Text .+ "by" .== Text)
+
+       type SVGset = AnimationAttributes ("attributeName" .== Text)
+
+       type SVGimage =
+         GlobalAttributes
+           ( "x" .== Double
+               .+ "y" .== Double
+               .+ "width" .== Double
+               .+ "height" .== Double
+               .+ "href" .== Text
+               .+ "xlinkHref" .== Text
+               .+ "preserveAspectRatio" .== Text
+               .+ "transform" .== Text
+               .+ "onLoad" .== Event
+               .+ "onError" .== Event
+           )
+
+       type SVGmpath = GlobalAttributes ("href" .== Text .+ "xlinkHref" .== Text)
+
+       type SVGtitle = GlobalAttributes Empty
+       |]
+ )

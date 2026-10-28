@@ -1,3 +1,5 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 module DOM.HTML.Indexed where
 
 import Data.MediaType
@@ -5,6 +7,7 @@ import Data.Row
 import Data.Text qualified as T
 import Data.Time
 import HPrelude hiding (Any)
+import Halogen.Row.TH (flatRows)
 import Web.Clipboard.ClipboardEvent
 import Web.Event.Event
 import Web.HTML.Event.DragEvent
@@ -502,551 +505,559 @@ type Interactive r = InteractiveEvents (GlobalProperties r)
 
 type Noninteractive r = GlobalProperties r
 
-type HTMLa =
-  Interactive
-    ( "download" .== Text
-        .+ "href" .== Text
-        .+ "hrefLang" .== Text
-        .+ "rel" .== Text
-        .+ "target" .== Text
-        .+ "type" .== MediaType
-    )
-
-type HTMLabbr = Interactive Empty
-
-type HTMLaddress = Interactive ("onScroll" .== Event)
-
-type HTMLarea =
-  Interactive
-    ( "coords" .== Text
-        .+ "download" .== Text
-        .+ "href" .== Text
-        .+ "hrefLang" .== Text
-        .+ "media" .== Text
-        .+ "rel" .== Text
-        .+ "shape" .== Text
-        .+ "target" .== Text
-        .+ "type" .== MediaType
-    )
-
-type HTMLarticle = Interactive Empty
-
-type HTMLaside = Interactive Empty
-
-type HTMLaudio =
-  Interactive
-    ( "autoplay" .== Bool
-        .+ "controls" .== Bool
-        .+ "loop" .== Bool
-        .+ "muted" .== Bool
-        .+ "preload" .== PreloadValue
-        .+ "src" .== Text
-        .+ "onError" .== Event
-    )
-
-type HTMLb = Interactive Empty
-
-type HTMLbase =
-  Noninteractive
-    ( "href" .== Text
-        .+ "target" .== Text
-    )
-
-type HTMLbdi = Interactive Empty
-
-type HTMLbdo = Noninteractive Empty
-
-type HTMLblockquote =
-  Interactive
-    ( "cite" .== Text
-        .+ "onScroll" .== Event
-    )
-
-type HTMLbody =
-  Interactive
-    ( "onBeforeUnload" .== Event
-        .+ "onHashChange" .== Event
-        .+ "onLoad" .== Event
-        .+ "onPageShow" .== Event
-        .+ "onPageHide" .== Event
-        .+ "onResize" .== Event
-        .+ "onScroll" .== Event
-        .+ "onUnload" .== Event
-    )
-
-type HTMLbr = Noninteractive Empty
-
-type HTMLbutton =
-  Interactive
-    ( "autofocus" .== Bool
-        .+ "disabled" .== Bool
-        .+ "form" .== Text
-        .+ "formAction" .== Text
-        .+ "formEncType" .== MediaType
-        .+ "formMethod" .== FormMethod
-        .+ "formNoValidate" .== Bool
-        .+ "formTarget" .== Text
-        .+ "name" .== Text
-        .+ "type" .== ButtonType
-        .+ "value" .== Text
-    )
+-- The element rows. 'flatRows' defines each of them as the sorted list of
+-- labels its definition below reduces to, with no type family left in it, so
+-- that a use of an element costs the type checker almost nothing. See
+-- "Halogen.Row.TH".
+$( flatRows
+     [d|
+       type HTMLa =
+         Interactive
+           ( "download" .== Text
+               .+ "href" .== Text
+               .+ "hrefLang" .== Text
+               .+ "rel" .== Text
+               .+ "target" .== Text
+               .+ "type" .== MediaType
+           )
+
+       type HTMLabbr = Interactive Empty
+
+       type HTMLaddress = Interactive ("onScroll" .== Event)
+
+       type HTMLarea =
+         Interactive
+           ( "coords" .== Text
+               .+ "download" .== Text
+               .+ "href" .== Text
+               .+ "hrefLang" .== Text
+               .+ "media" .== Text
+               .+ "rel" .== Text
+               .+ "shape" .== Text
+               .+ "target" .== Text
+               .+ "type" .== MediaType
+           )
+
+       type HTMLarticle = Interactive Empty
+
+       type HTMLaside = Interactive Empty
+
+       type HTMLaudio =
+         Interactive
+           ( "autoplay" .== Bool
+               .+ "controls" .== Bool
+               .+ "loop" .== Bool
+               .+ "muted" .== Bool
+               .+ "preload" .== PreloadValue
+               .+ "src" .== Text
+               .+ "onError" .== Event
+           )
+
+       type HTMLb = Interactive Empty
+
+       type HTMLbase =
+         Noninteractive
+           ( "href" .== Text
+               .+ "target" .== Text
+           )
+
+       type HTMLbdi = Interactive Empty
+
+       type HTMLbdo = Noninteractive Empty
+
+       type HTMLblockquote =
+         Interactive
+           ( "cite" .== Text
+               .+ "onScroll" .== Event
+           )
+
+       type HTMLbody =
+         Interactive
+           ( "onBeforeUnload" .== Event
+               .+ "onHashChange" .== Event
+               .+ "onLoad" .== Event
+               .+ "onPageShow" .== Event
+               .+ "onPageHide" .== Event
+               .+ "onResize" .== Event
+               .+ "onScroll" .== Event
+               .+ "onUnload" .== Event
+           )
+
+       type HTMLbr = Noninteractive Empty
+
+       type HTMLbutton =
+         Interactive
+           ( "autofocus" .== Bool
+               .+ "disabled" .== Bool
+               .+ "form" .== Text
+               .+ "formAction" .== Text
+               .+ "formEncType" .== MediaType
+               .+ "formMethod" .== FormMethod
+               .+ "formNoValidate" .== Bool
+               .+ "formTarget" .== Text
+               .+ "name" .== Text
+               .+ "type" .== ButtonType
+               .+ "value" .== Text
+           )
+
+       type HTMLcanvas =
+         Interactive
+           ( "width" .== CSSPixel
+               .+ "height" .== CSSPixel
+           )
+
+       type HTMLcaption = Interactive ("onScroll" .== Event)
 
-type HTMLcanvas =
-  Interactive
-    ( "width" .== CSSPixel
-        .+ "height" .== CSSPixel
-    )
-
-type HTMLcaption = Interactive ("onScroll" .== Event)
+       type HTMLcite = Interactive Empty
 
-type HTMLcite = Interactive Empty
-
-type HTMLcode = Interactive Empty
-
-type HTMLcol = Interactive Empty
+       type HTMLcode = Interactive Empty
 
-type HTMLcolgroup = Interactive ("span" .== Int)
+       type HTMLcol = Interactive Empty
 
-type HTMLcommand = Interactive Empty
+       type HTMLcolgroup = Interactive ("span" .== Int)
 
-type HTMLdatalist = Interactive Empty
+       type HTMLcommand = Interactive Empty
 
-type HTMLdd = Interactive ("onScroll" .== Event)
+       type HTMLdatalist = Interactive Empty
 
-type HTMLdel =
-  Interactive
-    ( "cite" .== Text
-        .+ "UTCTime" .== Text
-    )
+       type HTMLdd = Interactive ("onScroll" .== Event)
 
-type HTMLdetails = Interactive ("open" .== Bool)
+       type HTMLdel =
+         Interactive
+           ( "cite" .== Text
+               .+ "UTCTime" .== Text
+           )
 
-type HTMLdfn = Interactive Empty
+       type HTMLdetails = Interactive ("open" .== Bool)
 
-type HTMLdialog = Interactive ("open" .== Bool)
+       type HTMLdfn = Interactive Empty
 
-type HTMLdiv = Interactive ("onScroll" .== Event)
+       type HTMLdialog = Interactive ("open" .== Bool)
 
-type HTMLdl = Interactive ("onScroll" .== Event)
+       type HTMLdiv = Interactive ("onScroll" .== Event)
 
-type HTMLdt = Interactive ("onScroll" .== Event)
+       type HTMLdl = Interactive ("onScroll" .== Event)
 
-type HTMLem = Interactive Empty
+       type HTMLdt = Interactive ("onScroll" .== Event)
 
-type HTMLembed =
-  Interactive
-    ( "height" .== CSSPixel
-        .+ "src" .== Text
-        .+ "type" .== MediaType
-        .+ "width" .== CSSPixel
-    )
-
-type HTMLfieldset =
-  Interactive
-    ( "disabled" .== Bool
-        .+ "form" .== Text
-        .+ "name" .== Text
-        .+ "onScroll" .== Event
-    )
-
-type HTMLfigcaption = Interactive Empty
-
-type HTMLfigure = Interactive Empty
-
-type HTMLfooter = Interactive Empty
-
-type HTMLform =
-  Interactive
-    ( "acceptCharset" .== Text
-        .+ "action" .== Text
-        .+ "autocomplete" .== AutocompleteType
-        .+ "enctype" .== MediaType
-        .+ "method" .== FormMethod
-        .+ "name" .== Text
-        .+ "noValidate" .== Bool
-        .+ "onReset" .== Event
-        .+ "onScroll" .== Event
-        .+ "onSubmit" .== Event
-        .+ "target" .== Text
-    )
-
-type HTMLh1 = Interactive ("onScroll" .== Event)
-
-type HTMLh2 = Interactive ("onScroll" .== Event)
-
-type HTMLh3 = Interactive ("onScroll" .== Event)
-
-type HTMLh4 = Interactive ("onScroll" .== Event)
-
-type HTMLh5 = Interactive ("onScroll" .== Event)
-
-type HTMLh6 = Interactive ("onScroll" .== Event)
-
-type HTMLhead = Noninteractive Empty
-
-type HTMLheader = Interactive Empty
-
-type HTMLhr = Interactive Empty
-
-type HTMLhtml =
-  Interactive
-    ( "manifest" .== Text
-        .+ "onScroll" .== Event
-        .+ "xmlns" .== Text
-    )
-
-type HTMLi = Interactive Empty
-
-type HTMLiframe =
-  Noninteractive
-    ( "height" .== CSSPixel
-        .+ "name" .== Text
-        .+ "onLoad" .== Event
-        .+ "sandbox" .== Text
-        .+ "src" .== Text
-        .+ "srcDoc" .== Text
-        .+ "width" .== CSSPixel
-    )
-
-type HTMLimg =
-  Interactive
-    ( "alt" .== Text
-        .+ "crossOrigin" .== CrossOriginValue
-        .+ "height" .== CSSPixel
-        .+ "isMap" .== Bool
-        .+ "longDesc" .== Text
-        .+ "onAbort" .== Event
-        .+ "onError" .== Event
-        .+ "onLoad" .== Event
-        .+ "src" .== Text
-        .+ "useMap" .== Text
-        .+ "width" .== CSSPixel
-    )
-
-type HTMLinput =
-  Interactive
-    ( "accept" .== InputAcceptType
-        .+ "autocomplete" .== AutocompleteType
-        .+ "autofocus" .== Bool
-        .+ "checked" .== Bool
-        .+ "disabled" .== Bool
-        .+ "form" .== Text
-        .+ "formAction" .== Text
-        .+ "formEncType" .== MediaType
-        .+ "formMethod" .== FormMethod
-        .+ "formNoValidate" .== Bool
-        .+ "formTarget" .== Text
-        .+ "height" .== CSSPixel
-        .+ "list" .== Text
-        .+ "max" .== Double
-        .+ "min" .== Double
-        .+ "maxLength" .== Int
-        .+ "minLength" .== Int
-        .+ "multiple" .== Bool
-        .+ "name" .== Text
-        .+ "onAbort" .== Event
-        .+ "onChange" .== Event
-        .+ "onError" .== Event
-        .+ "onInvalid" .== Event
-        .+ "onLoad" .== Event
-        .+ "onSearch" .== Event
-        .+ "onSelect" .== Event
-        .+ "pattern" .== Text
-        .+ "placeholder" .== Text
-        .+ "readOnly" .== Bool
-        .+ "required" .== Bool
-        .+ "size" .== Int
-        .+ "src" .== Text
-        .+ "step" .== StepValue
-        .+ "type" .== InputType
-        .+ "value" .== Text
-        .+ "width" .== CSSPixel
-    )
-
-type HTMLins =
-  Interactive
-    ( "cite" .== Text
-        .+ "UTCTime" .== UTCTime
-    )
-
-type HTMLkbd = Interactive Empty
-
-type HTMLlabel =
-  Interactive
-    ( "for" .== Text
-        .+ "form" .== Text
-    )
-
-type HTMLlegend = Interactive Empty
-
-type HTMLli =
-  Interactive
-    ( "value" .== Int
-        .+ "onScroll" .== Event
-    )
-
-type HTMLlink =
-  Noninteractive
-    ( "crossOrigin" .== CrossOriginValue
-        .+ "href" .== Text
-        .+ "hreflang" .== Text
-        .+ "media" .== Text
-        .+ "onLoad" .== Event
-        .+ "rel" .== Text
-        .+ "sizes" .== Text
-        .+ "type" .== MediaType
-    )
-
-type HTMLmain = Interactive Empty
-
-type HTMLmap = Interactive ("name" .== Text)
-
-type HTMLmark = Interactive Empty
-
-type HTMLmenu =
-  Interactive
-    ( "label" .== Text
-        .+ "onScroll" .== Event
-        .+ "type" .== MenuType
-    )
-
-type HTMLmenuitem =
-  Interactive
-    ( "checked" .== Bool
-        .+ "command" .== Text
-        .+ "default" .== Bool
-        .+ "disabled" .== Bool
-        .+ "icon" .== Text
-        .+ "label" .== Text
-        .+ "radioGroup" .== Text
-        .+ "type" .== MenuitemType
-    )
-
-type HTMLmeta =
-  Noninteractive
-    ( "charset" .== Text
-        .+ "content" .== Text
-        .+ "httpEquiv" .== Text
-        .+ "name" .== Text
-    )
-
-type HTMLmeter =
-  Interactive
-    ( "form" .== Text
-        .+ "high" .== Double
-        .+ "low" .== Double
-        .+ "max" .== Double
-        .+ "min" .== Double
-        .+ "optimum" .== Double
-        .+ "value" .== Double
-    )
-
-type HTMLnav = Interactive Empty
-
-type HTMLnoscript = Interactive Empty
-
-type HTMLobject =
-  Interactive
-    ( "data" .== Text
-        .+ "form" .== Text
-        .+ "height" .== CSSPixel
-        .+ "name" .== Text
-        .+ "onError" .== Event
-        .+ "onScroll" .== Event
-        .+ "type" .== MediaType
-        .+ "useMap" .== Text
-        .+ "width" .== CSSPixel
-    )
-
-type HTMLol =
-  Interactive
-    ( "onScroll" .== Event
-        .+ "reversed" .== Bool
-        .+ "start" .== Int
-        .+ "type" .== OrderedListType
-    )
-
-type HTMLoptgroup =
-  Interactive
-    ( "disabled" .== Bool
-        .+ "label" .== Text
-    )
-
-type HTMLoption =
-  Interactive
-    ( "disabled" .== Bool
-        .+ "label" .== Text
-        .+ "selected" .== Bool
-        .+ "value" .== Text
-    )
-
-type HTMLoutput =
-  Interactive
-    ( "for" .== Text
-        .+ "form" .== Text
-        .+ "name" .== Text
-    )
-
-type HTMLp = Interactive ("onScroll" .== Event)
-
-type HTMLparam =
-  Noninteractive
-    ( "name" .== Text
-        .+ "value" .== Text
-    )
-
-type HTMLpre = Interactive ("onScroll" .== Event)
-
-type HTMLprogress =
-  Interactive
-    ( "max" .== Double
-        .+ "value" .== Double
-    )
-
-type HTMLq = Interactive ("cite" .== Text)
-
-type HTMLrp = Interactive Empty
-
-type HTMLrt = Interactive Empty
-
-type HTMLruby = Interactive Empty
-
-type HTMLsamp = Interactive Empty
-
-type HTMLscript =
-  Noninteractive
-    ( "async" .== Bool
-        .+ "charset" .== Text
-        .+ "defer" .== Bool
-        .+ "onError" .== Event
-        .+ "onLoad" .== Event
-        .+ "src" .== Text
-        .+ "type" .== MediaType
-    )
-
-type HTMLsection = Interactive Empty
-
-type HTMLselect =
-  Interactive
-    ( "autofocus" .== Bool
-        .+ "disabled" .== Bool
-        .+ "form" .== Text
-        .+ "multiple" .== Bool
-        .+ "name" .== Text
-        .+ "onChange" .== Event
-        .+ "onScroll" .== Event
-        .+ "required" .== Bool
-        .+ "selectedIndex" .== Int
-        .+ "size" .== Int
-        .+ "value" .== Text
-    )
-
-type HTMLsmall = Interactive Empty
-
-type HTMLsource =
-  Interactive
-    ( "media" .== Text
-        .+ "src" .== Text
-        .+ "type" .== MediaType
-    )
-
-type HTMLspan = Interactive Empty
-
-type HTMLstrong = Interactive Empty
-
-type HTMLstyle =
-  Noninteractive
-    ( "media" .== Text
-        .+ "onError" .== Event
-        .+ "onLoad" .== Event
-        .+ "scoped" .== Bool
-        .+ "type" .== MediaType
-    )
-
-type HTMLsub = Interactive Empty
-
-type HTMLsummary = Interactive Empty
-
-type HTMLsup = Interactive Empty
-
-type HTMLtable = Interactive ("sortable" .== Bool)
-
-type HTMLtbody = Interactive ("onScroll" .== Event)
-
-type HTMLtd =
-  Interactive
-    ( "colSpan" .== Int
-        .+ "headers" .== Text
-        .+ "rowSpan" .== Int
-    )
-
-type HTMLtextarea =
-  Interactive
-    ( "autofocus" .== Bool
-        .+ "cols" .== Int
-        .+ "disabled" .== Bool
-        .+ "form" .== Text
-        .+ "maxLength" .== Int
-        .+ "name" .== Text
-        .+ "onChange" .== Event
-        .+ "onScroll" .== Event
-        .+ "onSelect" .== Event
-        .+ "placeholder" .== Text
-        .+ "readOnly" .== Bool
-        .+ "required" .== Bool
-        .+ "rows" .== Int
-        .+ "value" .== Text
-        .+ "wrap" .== WrapValue
-    )
-
-type HTMLtfoot = Interactive ("onScroll" .== Event)
-
-type HTMLth =
-  Interactive
-    ( "abbr" .== Text
-        .+ "colSpan" .== Int
-        .+ "headers" .== Text
-        .+ "rowSpan" .== Int
-        .+ "scope" .== ScopeValue
-        .+ "sorted" .== Bool
-    )
-
-type HTMLthead = Interactive Empty
-
-type HTMLtime = Interactive ("UTCTime" .== UTCTime)
-
-type HTMLtitle = Noninteractive Empty
-
-type HTMLtr = Interactive Empty
-
-type HTMLtrack =
-  Interactive
-    ( "default" .== Bool
-        .+ "kind" .== KindValue
-        .+ "label" .== Text
-        .+ "src" .== Text
-        .+ "srcLang" .== Text
-    )
-
-type HTMLu = Interactive Empty
-
-type HTMLul = Interactive ("onScroll" .== Event)
-
-type HTMLvar = Interactive Empty
-
-type HTMLvideo =
-  Interactive
-    ( "autoplay" .== Bool
-        .+ "controls" .== Bool
-        .+ "height" .== CSSPixel
-        .+ "loop" .== Bool
-        .+ "muted" .== Bool
-        .+ "poster" .== Text
-        .+ "preload" .== PreloadValue
-        .+ "src" .== Text
-        .+ "width" .== CSSPixel
-        .+ "type" .== MediaType
-        .+ "onError" .== Event
-    )
-
-type HTMLwbr = Interactive Empty
+       type HTMLem = Interactive Empty
+
+       type HTMLembed =
+         Interactive
+           ( "height" .== CSSPixel
+               .+ "src" .== Text
+               .+ "type" .== MediaType
+               .+ "width" .== CSSPixel
+           )
+
+       type HTMLfieldset =
+         Interactive
+           ( "disabled" .== Bool
+               .+ "form" .== Text
+               .+ "name" .== Text
+               .+ "onScroll" .== Event
+           )
+
+       type HTMLfigcaption = Interactive Empty
+
+       type HTMLfigure = Interactive Empty
+
+       type HTMLfooter = Interactive Empty
+
+       type HTMLform =
+         Interactive
+           ( "acceptCharset" .== Text
+               .+ "action" .== Text
+               .+ "autocomplete" .== AutocompleteType
+               .+ "enctype" .== MediaType
+               .+ "method" .== FormMethod
+               .+ "name" .== Text
+               .+ "noValidate" .== Bool
+               .+ "onReset" .== Event
+               .+ "onScroll" .== Event
+               .+ "onSubmit" .== Event
+               .+ "target" .== Text
+           )
+
+       type HTMLh1 = Interactive ("onScroll" .== Event)
+
+       type HTMLh2 = Interactive ("onScroll" .== Event)
+
+       type HTMLh3 = Interactive ("onScroll" .== Event)
+
+       type HTMLh4 = Interactive ("onScroll" .== Event)
+
+       type HTMLh5 = Interactive ("onScroll" .== Event)
+
+       type HTMLh6 = Interactive ("onScroll" .== Event)
+
+       type HTMLhead = Noninteractive Empty
+
+       type HTMLheader = Interactive Empty
+
+       type HTMLhr = Interactive Empty
+
+       type HTMLhtml =
+         Interactive
+           ( "manifest" .== Text
+               .+ "onScroll" .== Event
+               .+ "xmlns" .== Text
+           )
+
+       type HTMLi = Interactive Empty
+
+       type HTMLiframe =
+         Noninteractive
+           ( "height" .== CSSPixel
+               .+ "name" .== Text
+               .+ "onLoad" .== Event
+               .+ "sandbox" .== Text
+               .+ "src" .== Text
+               .+ "srcDoc" .== Text
+               .+ "width" .== CSSPixel
+           )
+
+       type HTMLimg =
+         Interactive
+           ( "alt" .== Text
+               .+ "crossOrigin" .== CrossOriginValue
+               .+ "height" .== CSSPixel
+               .+ "isMap" .== Bool
+               .+ "longDesc" .== Text
+               .+ "onAbort" .== Event
+               .+ "onError" .== Event
+               .+ "onLoad" .== Event
+               .+ "src" .== Text
+               .+ "useMap" .== Text
+               .+ "width" .== CSSPixel
+           )
+
+       type HTMLinput =
+         Interactive
+           ( "accept" .== InputAcceptType
+               .+ "autocomplete" .== AutocompleteType
+               .+ "autofocus" .== Bool
+               .+ "checked" .== Bool
+               .+ "disabled" .== Bool
+               .+ "form" .== Text
+               .+ "formAction" .== Text
+               .+ "formEncType" .== MediaType
+               .+ "formMethod" .== FormMethod
+               .+ "formNoValidate" .== Bool
+               .+ "formTarget" .== Text
+               .+ "height" .== CSSPixel
+               .+ "list" .== Text
+               .+ "max" .== Double
+               .+ "min" .== Double
+               .+ "maxLength" .== Int
+               .+ "minLength" .== Int
+               .+ "multiple" .== Bool
+               .+ "name" .== Text
+               .+ "onAbort" .== Event
+               .+ "onChange" .== Event
+               .+ "onError" .== Event
+               .+ "onInvalid" .== Event
+               .+ "onLoad" .== Event
+               .+ "onSearch" .== Event
+               .+ "onSelect" .== Event
+               .+ "pattern" .== Text
+               .+ "placeholder" .== Text
+               .+ "readOnly" .== Bool
+               .+ "required" .== Bool
+               .+ "size" .== Int
+               .+ "src" .== Text
+               .+ "step" .== StepValue
+               .+ "type" .== InputType
+               .+ "value" .== Text
+               .+ "width" .== CSSPixel
+           )
+
+       type HTMLins =
+         Interactive
+           ( "cite" .== Text
+               .+ "UTCTime" .== UTCTime
+           )
+
+       type HTMLkbd = Interactive Empty
+
+       type HTMLlabel =
+         Interactive
+           ( "for" .== Text
+               .+ "form" .== Text
+           )
+
+       type HTMLlegend = Interactive Empty
+
+       type HTMLli =
+         Interactive
+           ( "value" .== Int
+               .+ "onScroll" .== Event
+           )
+
+       type HTMLlink =
+         Noninteractive
+           ( "crossOrigin" .== CrossOriginValue
+               .+ "href" .== Text
+               .+ "hreflang" .== Text
+               .+ "media" .== Text
+               .+ "onLoad" .== Event
+               .+ "rel" .== Text
+               .+ "sizes" .== Text
+               .+ "type" .== MediaType
+           )
+
+       type HTMLmain = Interactive Empty
+
+       type HTMLmap = Interactive ("name" .== Text)
+
+       type HTMLmark = Interactive Empty
+
+       type HTMLmenu =
+         Interactive
+           ( "label" .== Text
+               .+ "onScroll" .== Event
+               .+ "type" .== MenuType
+           )
+
+       type HTMLmenuitem =
+         Interactive
+           ( "checked" .== Bool
+               .+ "command" .== Text
+               .+ "default" .== Bool
+               .+ "disabled" .== Bool
+               .+ "icon" .== Text
+               .+ "label" .== Text
+               .+ "radioGroup" .== Text
+               .+ "type" .== MenuitemType
+           )
+
+       type HTMLmeta =
+         Noninteractive
+           ( "charset" .== Text
+               .+ "content" .== Text
+               .+ "httpEquiv" .== Text
+               .+ "name" .== Text
+           )
+
+       type HTMLmeter =
+         Interactive
+           ( "form" .== Text
+               .+ "high" .== Double
+               .+ "low" .== Double
+               .+ "max" .== Double
+               .+ "min" .== Double
+               .+ "optimum" .== Double
+               .+ "value" .== Double
+           )
+
+       type HTMLnav = Interactive Empty
+
+       type HTMLnoscript = Interactive Empty
+
+       type HTMLobject =
+         Interactive
+           ( "data" .== Text
+               .+ "form" .== Text
+               .+ "height" .== CSSPixel
+               .+ "name" .== Text
+               .+ "onError" .== Event
+               .+ "onScroll" .== Event
+               .+ "type" .== MediaType
+               .+ "useMap" .== Text
+               .+ "width" .== CSSPixel
+           )
+
+       type HTMLol =
+         Interactive
+           ( "onScroll" .== Event
+               .+ "reversed" .== Bool
+               .+ "start" .== Int
+               .+ "type" .== OrderedListType
+           )
+
+       type HTMLoptgroup =
+         Interactive
+           ( "disabled" .== Bool
+               .+ "label" .== Text
+           )
+
+       type HTMLoption =
+         Interactive
+           ( "disabled" .== Bool
+               .+ "label" .== Text
+               .+ "selected" .== Bool
+               .+ "value" .== Text
+           )
+
+       type HTMLoutput =
+         Interactive
+           ( "for" .== Text
+               .+ "form" .== Text
+               .+ "name" .== Text
+           )
+
+       type HTMLp = Interactive ("onScroll" .== Event)
+
+       type HTMLparam =
+         Noninteractive
+           ( "name" .== Text
+               .+ "value" .== Text
+           )
+
+       type HTMLpre = Interactive ("onScroll" .== Event)
+
+       type HTMLprogress =
+         Interactive
+           ( "max" .== Double
+               .+ "value" .== Double
+           )
+
+       type HTMLq = Interactive ("cite" .== Text)
+
+       type HTMLrp = Interactive Empty
+
+       type HTMLrt = Interactive Empty
+
+       type HTMLruby = Interactive Empty
+
+       type HTMLsamp = Interactive Empty
+
+       type HTMLscript =
+         Noninteractive
+           ( "async" .== Bool
+               .+ "charset" .== Text
+               .+ "defer" .== Bool
+               .+ "onError" .== Event
+               .+ "onLoad" .== Event
+               .+ "src" .== Text
+               .+ "type" .== MediaType
+           )
+
+       type HTMLsection = Interactive Empty
+
+       type HTMLselect =
+         Interactive
+           ( "autofocus" .== Bool
+               .+ "disabled" .== Bool
+               .+ "form" .== Text
+               .+ "multiple" .== Bool
+               .+ "name" .== Text
+               .+ "onChange" .== Event
+               .+ "onScroll" .== Event
+               .+ "required" .== Bool
+               .+ "selectedIndex" .== Int
+               .+ "size" .== Int
+               .+ "value" .== Text
+           )
+
+       type HTMLsmall = Interactive Empty
+
+       type HTMLsource =
+         Interactive
+           ( "media" .== Text
+               .+ "src" .== Text
+               .+ "type" .== MediaType
+           )
+
+       type HTMLspan = Interactive Empty
+
+       type HTMLstrong = Interactive Empty
+
+       type HTMLstyle =
+         Noninteractive
+           ( "media" .== Text
+               .+ "onError" .== Event
+               .+ "onLoad" .== Event
+               .+ "scoped" .== Bool
+               .+ "type" .== MediaType
+           )
+
+       type HTMLsub = Interactive Empty
+
+       type HTMLsummary = Interactive Empty
+
+       type HTMLsup = Interactive Empty
+
+       type HTMLtable = Interactive ("sortable" .== Bool)
+
+       type HTMLtbody = Interactive ("onScroll" .== Event)
+
+       type HTMLtd =
+         Interactive
+           ( "colSpan" .== Int
+               .+ "headers" .== Text
+               .+ "rowSpan" .== Int
+           )
+
+       type HTMLtextarea =
+         Interactive
+           ( "autofocus" .== Bool
+               .+ "cols" .== Int
+               .+ "disabled" .== Bool
+               .+ "form" .== Text
+               .+ "maxLength" .== Int
+               .+ "name" .== Text
+               .+ "onChange" .== Event
+               .+ "onScroll" .== Event
+               .+ "onSelect" .== Event
+               .+ "placeholder" .== Text
+               .+ "readOnly" .== Bool
+               .+ "required" .== Bool
+               .+ "rows" .== Int
+               .+ "value" .== Text
+               .+ "wrap" .== WrapValue
+           )
+
+       type HTMLtfoot = Interactive ("onScroll" .== Event)
+
+       type HTMLth =
+         Interactive
+           ( "abbr" .== Text
+               .+ "colSpan" .== Int
+               .+ "headers" .== Text
+               .+ "rowSpan" .== Int
+               .+ "scope" .== ScopeValue
+               .+ "sorted" .== Bool
+           )
+
+       type HTMLthead = Interactive Empty
+
+       type HTMLtime = Interactive ("UTCTime" .== UTCTime)
+
+       type HTMLtitle = Noninteractive Empty
+
+       type HTMLtr = Interactive Empty
+
+       type HTMLtrack =
+         Interactive
+           ( "default" .== Bool
+               .+ "kind" .== KindValue
+               .+ "label" .== Text
+               .+ "src" .== Text
+               .+ "srcLang" .== Text
+           )
+
+       type HTMLu = Interactive Empty
+
+       type HTMLul = Interactive ("onScroll" .== Event)
+
+       type HTMLvar = Interactive Empty
+
+       type HTMLvideo =
+         Interactive
+           ( "autoplay" .== Bool
+               .+ "controls" .== Bool
+               .+ "height" .== CSSPixel
+               .+ "loop" .== Bool
+               .+ "muted" .== Bool
+               .+ "poster" .== Text
+               .+ "preload" .== PreloadValue
+               .+ "src" .== Text
+               .+ "width" .== CSSPixel
+               .+ "type" .== MediaType
+               .+ "onError" .== Event
+           )
+
+       type HTMLwbr = Interactive Empty
+       |]
+ )

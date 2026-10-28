@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- The element rows of `DOM.HTML.Indexed` (`HTMLdiv`, `HTMLinput` and the
+  others) and of `Halogen.Svg.Indexed` (`SVGsvg`, `SVGcircle` and the
+  others) are now sorted lists of labels, `R '[ "accessKey" :-> Text, ... ]`,
+  and no longer chains of the attribute groups joined with row-types' `.+`.
+  Each row has the same labels and types as before, so code that
+  type-checked still does, unchanged. What changes is compile time. The
+  type checker reduced an element's chain of `.+` again at every element of
+  that kind, and an element without properties (`HH.div [] [...]`, which
+  the `hh` quoter writes for a tag without attributes) cost about 70 ms of
+  type checking. A module of 200 such elements now type-checks in 0.2 s
+  instead of 14 s. The rows are still written as before, with the groups,
+  inside one Template Haskell splice per module, `$(flatRows [d| type
+  HTMLdiv = Interactive ("onScroll" .== Event) ... |])`: the new
+  `Halogen.Row.TH.flatRows` turns each definition into its sorted list when
+  core is compiled. It and `flatRow`, for a single row, are exposed for
+  rows of elements of your own. The groups (`GlobalAttributes`,
+  `MouseEvents`, `Interactive` and the others) are unchanged.
+  `haskell-halogen-core` now depends on `template-haskell`.
 - `Halogen.HTML.Core.withProps` gives the element a piece of HTML is more
   properties, before its own, so that of two with the same name the
   element's own still wins: it adds what the element does not say and

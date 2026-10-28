@@ -82,6 +82,7 @@ common commons
       exceptions,
       clay >= 0.16.0,
       data-default,
+      template-haskell,
       haskell-halogen-jsbits
 
   if arch(wasm32)
@@ -138,6 +139,8 @@ library
       Halogen.Query.Input
       Halogen.Query.HalogenM
       Halogen.Query.HalogenQ
+
+      Halogen.Row.TH
 
       Halogen.VDom.DOM
       Halogen.VDom.DOM.Monad
@@ -261,6 +264,7 @@ test-suite Halogen-core-test
                       mtl,
                       row-types,
                       text,
+                      time,
                       unordered-containers
     
     other-modules:  Test.Canvas
@@ -275,6 +279,7 @@ test-suite Halogen-core-test
                     Test.HTML
                     Test.Hydrate
                     Test.IndexedDB
+                    Test.IndexedRows
                     Test.NativeDom
                     Test.NativeEvents
                     Test.Refs
