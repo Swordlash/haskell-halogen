@@ -46,6 +46,8 @@
     "test-learn": "node toolchain/test-learn.mjs",
     "test-playground": "node toolchain/test-playground.mjs",
     "test-worker": "node toolchain/test-worker.mjs",
-    "clean": "rm -rf dist-newstyle/wasm/public dist-newstyle/ghcjs"
+    "clean": "rm -rf dist-newstyle/wasm/public dist-newstyle/ghcjs",
+    "test-wasi": "sh toolchain/test-wasi.sh",
+    "test-runner": "node --test hspec-halogen/js/runner.test.mjs"
   }
 }

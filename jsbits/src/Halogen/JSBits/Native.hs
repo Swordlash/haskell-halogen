@@ -1,5 +1,5 @@
--- | What a value is natively, where no engine makes values: compiled only
--- natively, for the code there that builds a value or takes one apart
+-- | Values without JavaScript, in native and standalone WASI builds.
+-- Used by code that builds a value or takes one apart
 -- (haskell-halogen-core's "Data.Foreign", which reads an event made from
 -- JSON, and its in-memory DOM, which keeps its nodes and listeners in their
 -- handles' values). "Halogen.JSBits.Value" exports the two types, without

@@ -12,6 +12,7 @@
 module Test.Hspec.Halogen.Internal.Page
   ( inBrowser
   , runnerArgs
+  , runnerShard
   , reportDone
   , removeLeftovers
   , createContainer
@@ -46,6 +47,7 @@ import Web.DOM.Internal.Types (Element (..))
 $( browserJS
      ["jsbits/page.js"]
      [ ("js_has_document", "halogen_test_has_document", Unsafe, [t|IO Bool|])
+     , ("js_shard", "halogen_test_shard", Unsafe, [t|IO JSText|])
      , ("js_test_args", "halogen_test_test_args", Unsafe, [t|IO JSVal|])
      , ("js_remove_leftovers", "halogen_test_remove_leftovers", Unsafe, [t|IO ()|])
      , ("js_test_done", "halogen_test_test_done", Unsafe, [t|Int -> IO ()|])
@@ -86,6 +88,9 @@ runnerArgs :: IO (Maybe [Text])
 runnerArgs = do
   args <- js_test_args
   pure $ if absent args then Nothing else Just (map jsValText (elements args))
+
+runnerShard :: IO Text
+runnerShard = fromJSText <$> js_shard
 
 -- | Tell the runner how many tests failed. Outside the runner (a page opened
 -- by hand) there is nobody to tell.

@@ -17,7 +17,7 @@ import Data.Text (Text)
 import GHC.Generics (Generic)
 import Halogen.VDom.DOM.Monad (StorageKind (..), readStorageItem, removeStorageItem, writeStorageItem)
 import Prelude
-#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+#if !defined(HALOGEN_WASI) && (defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH))
 import Halogen.VDom.DOM.Monad (BrowserDOM, runBrowserDOM)
 #else
 import Halogen.VDom.DOM.Monad (MemDOM, runMemDOM)
@@ -26,7 +26,7 @@ import Test.Hspec (Spec, describe, it)
 import Test.Utils (assertEqual)
 import Web.Storage.Storage qualified as Storage
 
-#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+#if !defined(HALOGEN_WASI) && (defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH))
 type TestDOM = BrowserDOM
 runTestDOM :: TestDOM a -> IO a
 runTestDOM = runBrowserDOM

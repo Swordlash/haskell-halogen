@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+The README now explains registration, concurrent calls, worker configuration,
+cancellation and fallback with direct examples. It also describes the costs
+of JSON and what a future binary transport would need. The protocol is unchanged.
+
 The first version: `Halogen.Worker` runs a program's functions in Web Workers, so that work of
 seconds does not take those seconds from the page. A function is offered as a `Job`, under a
 name, with JSON for its argument and result; the program's `main` starts with `program jobs`

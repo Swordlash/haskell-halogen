@@ -23,8 +23,10 @@
 -- outlive it, so no test can reach into another's. 'PageM' has no @MonadIO@,
 -- so one page cannot be opened inside another; the expectations a test needs
 -- are provided here in 'PageM', and 'unsafeIOToPageM' is there for the rest.
--- A page has one mouse, one keyboard and one focused element, so pages are
--- opened one at a time: tests marked @parallel@ still run in turn.
+-- Each browser context has one mouse, keyboard and focused element, so
+-- examples and hooks run sequentially within it. With
+-- @HSPEC_HALOGEN_JOBS=2@, the runner distributes examples marked 'parallel'
+-- across isolated contexts, after unmarked and 'sequential' examples finish.
 --
 -- Import this module rather than "Test.Hspec": it re-exports what a spec
 -- needs to describe tests, and its expectations share hspec's names.
@@ -139,12 +141,14 @@ import Halogen.Trace qualified as Trace
 import Protolude hiding (find)
 import System.Environment (withArgs)
 import System.IO (BufferMode (..), hFlush, hSetBuffering)
+import System.IO.Error (userError)
 import System.IO.Unsafe (unsafePerformIO)
 import Test.HUnit.Lang (FailureReason (..), HUnitFailure (..), assertFailure)
 import Test.Hspec (Spec, SpecWith, context, describe, it, parallel, sequential, specify, xit)
 import Test.Hspec qualified as Hspec
 import Test.Hspec.Halogen.Internal.Monad (MonadBrowserTest (..))
 import Test.Hspec.Halogen.Internal.Page qualified as Page
+import Test.Hspec.Halogen.Internal.Shard (Shard (..), onePage, shardSpec)
 import Test.Hspec.Runner (Summary (..), defaultConfig, hspecWithResult)
 import Text.Show (Show (showsPrec))
 import Web.DOM.Internal.Types qualified as DOM
@@ -185,7 +189,19 @@ runSuite parent spec =
       hSetBuffering stdout LineBuffering
       Page.removeLeftovers
       args <- Page.runnerArgs
-      let run = maybe identity (withArgs . map toS) args $ hspecWithResult defaultConfig spec
+      shard <- Page.runnerShard
+      selected <- case T.splitOn "/" shard of
+        [""] -> pure spec
+        ["serial"] -> pure (shardSpec Serial spec)
+        [index, count]
+          | Just i <- readMaybe index
+          , Just n <- readMaybe count
+          , n > 0
+          , i >= 0
+          , i < n ->
+              pure (shardSpec (Parallel i n) spec)
+        _ -> throwIO (userError "hspec-halogen: invalid browser shard")
+      let run = maybe identity (withArgs . map toS) args $ hspecWithResult defaultConfig (onePage selected)
           -- The tests' pages go where this suite was told, while it runs.
           inParent = bracket_ (atomicWriteIORef pagesIn parent) (atomicWriteIORef pagesIn Nothing)
       -- The runner is told how it went even if the suite itself throws;

@@ -4,7 +4,7 @@ module Main (main) where
 
 import Prelude
 
-#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+#if !defined(HALOGEN_WASI) && (defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH))
 import Test.GHCJS qualified as GHCJS
 #endif
 import Test.Canvas qualified as Canvas
@@ -33,7 +33,7 @@ import Test.WindowEvents qualified as WindowEvents
 
 main :: IO ()
 main = hspec $ do
-#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+#if !defined(HALOGEN_WASI) && (defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH))
   GHCJS.spec
 #endif
   Canvas.spec

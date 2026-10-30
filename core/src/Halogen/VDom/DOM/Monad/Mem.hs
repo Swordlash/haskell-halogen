@@ -6,9 +6,8 @@
 --
 -- The newtype is always in scope; the instance is not. It lives in
 -- "Halogen.VDom.DOM.Monad.Native", alongside the tree it manipulates, and the
--- cabal file compiles that module only on native - so on the JavaScript and
--- wasm backends this monad exists but cannot be run. Those backends have a
--- real document to render into, which is what their tests use instead.
+-- cabal file compiles that module natively and with the @wasi@ flag.
+-- Browser builds use the real document instead.
 module Halogen.VDom.DOM.Monad.Mem
   ( MemDOM (..)
   , runMemDOM

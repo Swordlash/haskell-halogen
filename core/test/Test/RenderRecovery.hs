@@ -8,7 +8,7 @@ module Test.RenderRecovery (spec) where
 
 import Prelude
 
-#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+#if !defined(HALOGEN_WASI) && (defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH))
 
 import Test.Hspec (Spec, xdescribe)
 

@@ -81,7 +81,7 @@ propToStrKey = \case
   Ref _ -> "ref"
 
 {-# INLINEABLE buildProp #-}
-#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+#if !defined(HALOGEN_WASI) && (defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH))
 {-# SPECIALISE buildProp :: (a -> BrowserDOM ()) -> DOM.Element -> V.Machine BrowserDOM [Prop a] () #-}
 #else
 {-# SPECIALISE buildProp :: (a -> MemDOM ()) -> DOM.Element -> V.Machine MemDOM [Prop a] () #-}

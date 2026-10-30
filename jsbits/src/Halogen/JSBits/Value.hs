@@ -7,7 +7,7 @@
 -- holding whatever it was made from, a 'JSText' is a 'JSVal' holding a
 -- string in a browser and 'Text' natively.
 --
--- Natively the two types are "Halogen.JSBits.Native"'s, which also has
+-- Without JavaScript the types are "Halogen.JSBits.Native"'s, which also has
 -- their constructors, for the code that builds or takes apart a value there.
 module Halogen.JSBits.Value
   ( JSVal
@@ -42,18 +42,18 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import System.IO.Unsafe (unsafePerformIO)
 
-#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+#if !defined(HALOGEN_WASI) && (defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH))
 import Data.ByteString.Internal qualified as ByteString (create)
 import Data.ByteString.Unsafe (unsafeUseAsCStringLen)
 import Data.Word (Word8)
 import Foreign.Ptr (Ptr, castPtr)
 #endif
-#if defined(javascript_HOST_ARCH)
+#if defined(javascript_HOST_ARCH) && !defined(HALOGEN_WASI)
 import GHC.JS.Foreign.Callback qualified as JS
 import GHC.JS.Prim (JSVal, fromJSString, toJSString)
 import GHC.JS.Prim qualified as JS
 import Unsafe.Coerce (unsafeCoerce)
-#elif defined(wasm32_HOST_ARCH)
+#elif defined(wasm32_HOST_ARCH) && !defined(HALOGEN_WASI)
 import Control.Concurrent (forkIO, yield)
 import Control.Exception (evaluate)
 import GHC.Conc (ThreadStatus (..), threadStatus)
@@ -183,7 +183,7 @@ instance (Inert b) => Inert (a -> b) where inert = const inert
 
 instance (Inert a) => Inert (IO a) where inert = pure inert
 
-#if defined(javascript_HOST_ARCH)
+#if defined(javascript_HOST_ARCH) && !defined(HALOGEN_WASI)
 inBrowser = True
 
 type JSText = JSVal
@@ -228,7 +228,7 @@ invokeCallback callback = js_invoke (unsafeCoerce callback)
 foreign import javascript unsafe "(($1, $2) => { $1($2); })" js_invoke :: JSVal -> JSVal -> IO ()
 
 instance Inert JSVal where inert = JS.jsNull
-#elif defined(wasm32_HOST_ARCH)
+#elif defined(wasm32_HOST_ARCH) && !defined(HALOGEN_WASI)
 inBrowser = True
 
 -- A JSString does not cross this toolchain's JSFFI: the value inside it does.

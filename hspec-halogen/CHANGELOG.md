@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+Set `HSPEC_HALOGEN_JOBS` to run examples marked `parallel` in isolated browser
+contexts. Unmarked and `sequential` examples finish first. Each context has
+its own input, storage and runtime; failures in any context fail the command.
+
 * A test that fails says what the tree did before it failed: while a test
   runs, `runPage` keeps the last 50 events of core's trace
   (`Halogen.Trace`), and the failure's message ends with a section "What

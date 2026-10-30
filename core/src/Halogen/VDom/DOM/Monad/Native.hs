@@ -1,12 +1,11 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 
--- | 'MonadDOM' for native GHC, backed by an in-memory document tree.
+-- | 'MonadDOM' for native GHC and standalone WASI, backed by an in-memory tree.
 --
 -- There is no browser here, so this module /is/ the DOM: a mutable tree of
 -- 'NativeNode' records that reproduces the subset of the DOM the VDom machinery
--- actually calls. That makes two things possible that the JavaScript and wasm
--- backends cannot do — running the whole driver under @cabal test@ with no
--- cross-compiler, and serialising a rendered tree to HTML with 'renderToText'.
+-- actually calls. It runs the driver without a browser, in native tests or
+-- standalone WASI commands, and serialises rendered trees with 'renderToText'.
 --
 -- The instance deliberately mirrors the /guards/ the browser backends carry
 -- (@parent.lastChild !== child@ and friends), not just their effects: a patch

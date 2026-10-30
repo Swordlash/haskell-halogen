@@ -76,6 +76,7 @@ environment =
         , "HSPEC_HALOGEN_HEADED    show the browser while testing"
         , "HSPEC_HALOGEN_HEADLESS  open no window for 'open'"
         , "HSPEC_HALOGEN_SLOWMO    milliseconds to wait before every browser action"
+        , "HSPEC_HALOGEN_JOBS      isolated browser pages for parallel examples (1)"
         , "HSPEC_HALOGEN_TIMEOUT   seconds the whole suite may take (600)"
         ]
     ]

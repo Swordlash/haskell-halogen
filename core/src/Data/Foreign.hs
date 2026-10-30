@@ -6,7 +6,7 @@ module Data.Foreign where
 import GHC.Base (isTrue#, reallyUnsafePtrEquality, reallyUnsafePtrEquality#)
 import HPrelude
 
-#if defined(javascript_HOST_ARCH)
+#if defined(javascript_HOST_ARCH) && !defined(HALOGEN_WASI)
 import GHC.Base (Int#)
 import GHC.JS.Prim hiding (JSVal)
 import Halogen.JSBits (Inert (..), JSVal)
@@ -46,7 +46,7 @@ foreignToBool x = isTrue# (foreignToBool' x)
 
 foreign import javascript unsafe "(($1) => { return +$1; })"
   foreignToNumber :: Foreign tag -> Double
-#elif defined(wasm32_HOST_ARCH)
+#elif defined(wasm32_HOST_ARCH) && !defined(HALOGEN_WASI)
 import GHC.Wasm.Prim hiding (JSVal)
 import Halogen.JSBits (Inert (..), JSVal)
 import Unsafe.Coerce (unsafeCoerce)

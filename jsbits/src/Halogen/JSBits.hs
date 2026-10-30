@@ -13,7 +13,7 @@ module Halogen.JSBits
 where
 
 import Control.Monad (forM)
-#if defined(javascript_HOST_ARCH)
+#if defined(javascript_HOST_ARCH) && !defined(HALOGEN_WASI)
 import Control.Exception (throwIO)
 import Control.Monad (unless)
 import GHC.JS.Prim (fromJSString)
@@ -88,7 +88,7 @@ wasmJS files bindings = do
 -- Natively, with no engine to call, each binding is 'inert': it does nothing
 -- and returns nothing in particular.
 browserJS :: [FilePath] -> [(String, String, Safety, Q Type)] -> Q [Dec]
-#if defined(javascript_HOST_ARCH)
+#if defined(javascript_HOST_ARCH) && !defined(HALOGEN_WASI)
 browserJS _ bindings = concat <$> forM bindings importByName
   where
     importByName (haskell, javascript, safety, quotedType) = do
@@ -127,7 +127,7 @@ browserJS _ bindings = concat <$> forM bindings importByName
     arity :: Type -> Int
     arity (AppT (AppT ArrowT _) result) = 1 + arity result
     arity _ = 0
-#elif defined(wasm32_HOST_ARCH)
+#elif defined(wasm32_HOST_ARCH) && !defined(HALOGEN_WASI)
 browserJS = wasmJS
 #else
 browserJS _ bindings = concat <$> forM bindings stub

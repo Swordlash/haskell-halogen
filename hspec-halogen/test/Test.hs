@@ -22,7 +22,7 @@ import Test.Dispatch qualified
 import Test.Drag qualified
 import Test.Editing qualified
 import Test.Family qualified
-import Test.Hspec.Halogen (describe, runBrowserTests)
+import Test.Hspec.Halogen (describe, parallel, runBrowserTests)
 import Test.Hydrate qualified
 import Test.InPage qualified
 import Test.IndexedDB qualified
@@ -38,19 +38,19 @@ import Test.LastRun qualified
 
 main :: IO ()
 main = runBrowserTests $ do
-  describe "Counter" (Test.Counter.spec BrowserDOM)
-  describe "Agreement" (Test.Agreement.spec BrowserDOM)
-  describe "Digits" (Test.Digits.spec BrowserDOM)
-  describe "Todo" (Test.Todo.spec BrowserDOM)
-  describe "Family" (Test.Family.spec BrowserDOM)
-  describe "Async" (Test.Async.spec BrowserDOM)
-  describe "Reconciliation" (Test.Reconcile.spec BrowserDOM)
-  describe "Dispatch" (Test.Dispatch.spec BrowserDOM)
-  describe "Drag" (Test.Drag.spec BrowserDOM)
-  describe "Editing" (Test.Editing.spec BrowserDOM)
-  describe "Hydration" (Test.Hydrate.spec BrowserDOM)
-  describe "IndexedDB" (Test.IndexedDB.spec BrowserDOM)
-  describe "Promised" (Test.Promised.spec BrowserDOM)
+  parallel $ describe "Counter" (Test.Counter.spec BrowserDOM)
+  parallel $ describe "Agreement" (Test.Agreement.spec BrowserDOM)
+  parallel $ describe "Digits" (Test.Digits.spec BrowserDOM)
+  parallel $ describe "Todo" (Test.Todo.spec BrowserDOM)
+  parallel $ describe "Family" (Test.Family.spec BrowserDOM)
+  parallel $ describe "Async" (Test.Async.spec BrowserDOM)
+  parallel $ describe "Reconciliation" (Test.Reconcile.spec BrowserDOM)
+  parallel $ describe "Dispatch" (Test.Dispatch.spec BrowserDOM)
+  parallel $ describe "Drag" (Test.Drag.spec BrowserDOM)
+  parallel $ describe "Editing" (Test.Editing.spec BrowserDOM)
+  parallel $ describe "Hydration" (Test.Hydrate.spec BrowserDOM)
+  parallel $ describe "IndexedDB" (Test.IndexedDB.spec BrowserDOM)
+  parallel $ describe "Promised" (Test.Promised.spec BrowserDOM)
   describe "Without the runner" (Test.InPage.spec BrowserDOM)
   describe "A failure's timeline" (Test.Timeline.spec BrowserDOM)
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)

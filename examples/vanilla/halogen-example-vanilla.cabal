@@ -7,6 +7,11 @@ author:             Mateusz Goślinowski
 maintainer:         mateusz.goslinowski@gmail.com
 category:           Web
 
+flag wasi
+  description: Build the prerenderer as a standalone WASI command.
+  default: False
+  manual: True
+
 flag interactive
   description: Build the example for browser GHCi (toolchain/dev.sh)
   default:     False
@@ -104,7 +109,7 @@ executable halogen-example-vanilla-prerender
   main-is:          Prerender.hs
   hs-source-dirs:   .
 
-  if arch(wasm32) || arch(javascript)
+  if (arch(wasm32) || arch(javascript)) && !flag(wasi)
     buildable: False
   else
     build-depends:

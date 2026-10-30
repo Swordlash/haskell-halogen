@@ -182,7 +182,7 @@ enterCallback loop work = do
   called <- if browser then inSyncCallback else pure False
   enterWith called loop work
   where
-#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+#if !defined(HALOGEN_WASI) && (defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH))
     browser = True
 #else
     browser = False
@@ -196,7 +196,7 @@ enterCallback loop work = do
 -- (@syncCallback1 ContinueAsync@): it would return to the browser at the
 -- first 'yield', its event dispatched, so waiting would gain nothing.
 waitsForRunner :: Bool
-#if defined(wasm32_HOST_ARCH)
+#if defined(wasm32_HOST_ARCH) && !defined(HALOGEN_WASI)
 waitsForRunner = True
 #else
 waitsForRunner = False
