@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+The `wasi` flag builds inert browser bindings and checked Haskell values on
+WebAssembly, for standalone commands without JavaScript imports.
+
 Natively a value carries what it was made from, so an event built from JSON
 has properties to read. A native `JSVal` is a `Dynamic` (`newtype JSVal =
 JSVal Dynamic`, with its constructor in a module compiled only natively,

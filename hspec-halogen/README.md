@@ -356,9 +356,40 @@ Nothing is kept for a passing test, and nothing at all while no test runs.
 
 ### Parallel tests
 
-A page has one mouse, one keyboard and one focused element, so pages open one
-at a time. Tests marked `parallel` still run in turn, and cannot type into
-each other's inputs.
+Mark independent examples with hspec's `parallel` and set the number of
+browser contexts in the runner:
+
+```haskell
+spec m = parallel $ do
+  it "counts clicks" $ runPage $ do
+    ui <- mount m Counter.component ()
+    find ui "button.increment" >>= click
+    find ui ".count" >>= (`shouldHaveText` "1")
+```
+
+```sh
+HSPEC_HALOGEN_JOBS=2 npm run test-wasm
+```
+
+The default is one context and preserves the usual single-page run. With
+multiple contexts, unmarked and `sequential` examples finish first on one
+page. The runner then starts the parallel examples on separate pages, each
+in its own browser context, with its own focus, keyboard, mouse, storage and
+Haskell heap. Within each page, `runPage` still admits one example at a time.
+Web Workers cannot provide this isolation because they have no DOM.
+
+The spec must enumerate the same examples in each context. Every example
+is then assigned to exactly one page. Normal hspec filters and
+focused examples still apply. Each context runs its own hooks and has its
+own in-memory fixtures: a `beforeAll` value is not shared between pages.
+External servers and files remain shared; their fixtures must support
+concurrent tests. Browser GHCi and suites run without the executable keep
+running one page at a time.
+
+With multiple contexts, each page's report is buffered and printed together
+so concurrent reports do not interleave. A failure, page exception, missing result or timeout in
+any context fails the command. More contexts load more copies of the suite;
+start with two and measure before increasing the count.
 
 ### Your own monad
 

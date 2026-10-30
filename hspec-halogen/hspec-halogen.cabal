@@ -22,6 +22,7 @@ extra-source-files: jsbits/*.js
                     test/jsbits/*.js
                     js/runner.mjs
                     js/open.mjs
+                    js/runner.test.mjs
 
 flag interactive
     description: Build the test suite for browser GHCi (toolchain/dev-test.sh)
@@ -41,6 +42,7 @@ library
     exposed-modules:  Test.Hspec.Halogen
     other-modules:    Test.Hspec.Halogen.Internal.Monad
                       Test.Hspec.Halogen.Internal.Page
+                      Test.Hspec.Halogen.Internal.Shard
     build-depends:
         base,
         containers,
@@ -48,6 +50,7 @@ library
         text,
         HUnit,
         hspec,
+        hspec-core >= 2.11.17 && < 2.12,
         unliftio,
         haskell-halogen-core,
         haskell-halogen-jsbits
@@ -170,3 +173,16 @@ source-repository head
   type:     git
   location: https://github.com/Swordlash/haskell-halogen.git
   subdir:   hspec-halogen
+
+-- The partitioner has no browser dependency. Check coverage, focus and hooks
+-- before loading the resulting examples into browser contexts.
+test-suite shard-test
+    type: exitcode-stdio-1.0
+    default-language: GHC2024
+    hs-source-dirs: unit src
+    main-is: Main.hs
+    other-modules: Test.Hspec.Halogen.Internal.Shard
+    ghc-options: -Wall -Wextra
+    build-depends: base, hspec, hspec-core >= 2.11.17 && < 2.12
+    if arch(wasm32) || arch(javascript)
+        buildable: False

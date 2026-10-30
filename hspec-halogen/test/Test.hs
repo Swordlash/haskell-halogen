@@ -22,7 +22,7 @@ import Test.Dispatch qualified
 import Test.Drag qualified
 import Test.Editing qualified
 import Test.Family qualified
-import Test.Hspec.Halogen (describe, runBrowserTests)
+import Test.Hspec.Halogen (describe, parallel, runBrowserTests)
 import Test.Hydrate qualified
 import Test.InPage qualified
 import Test.IndexedDB qualified
@@ -37,7 +37,7 @@ import Test.LastRun qualified
 #endif
 
 main :: IO ()
-main = runBrowserTests $ do
+main = runBrowserTests $ parallel $ do
   describe "Counter" (Test.Counter.spec BrowserDOM)
   describe "Agreement" (Test.Agreement.spec BrowserDOM)
   describe "Digits" (Test.Digits.spec BrowserDOM)

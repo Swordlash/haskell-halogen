@@ -11,17 +11,24 @@ license-file: LICENSE
 build-type: Simple
 extra-source-files: README.md, CHANGELOG.md, jsbits/promise.js, test/fixture.js, test/boundary-a.js, test/boundary-b.js, test/promise.js
 
+flag wasi
+  description: Build without JavaScript, for standalone WASI commands.
+  default: False
+  manual: True
+
 library
   exposed-modules: Halogen.JSBits, Halogen.JSBits.Promise, Halogen.JSBits.Value
   hs-source-dirs: src
   default-language: GHC2021
   ghc-options: -Wall -Wextra -Wredundant-constraints -Wunused-packages
   build-depends: base >= 4.20, bytestring, template-haskell, directory, filepath, text
-  if arch(wasm32)
+  if flag(wasi)
+    cpp-options: -DHALOGEN_WASI
+  if arch(wasm32) && !flag(wasi)
     build-depends: ghc-experimental
-  if arch(javascript)
+  if arch(javascript) && !flag(wasi)
     js-sources: jsbits/promise.js
-  if !arch(wasm32) && !arch(javascript)
+  if flag(wasi) || (!arch(wasm32) && !arch(javascript))
     exposed-modules: Halogen.JSBits.Native
 
 test-suite jsbits-test

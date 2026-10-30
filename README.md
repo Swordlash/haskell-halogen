@@ -181,6 +181,34 @@ deploy sets it to the site's). Its `Main.hs` then mounts the component with `hyd
 `runUI`: the component adopts the prerendered HTML, attaching its listeners, instead of rendering
 over it.
 
+For a build that has only the wasm toolchain, `Halogen.Static` also works as
+a standalone WASI command. Enable `wasi` in **both** `haskell-halogen-core`
+and `haskell-halogen-jsbits`, as `cabal-wasi.project` does. This selects
+MemDOM and inert browser bindings; it does not need JSFFI glue or a JavaScript
+engine at runtime. The vanilla example enables its prerenderer with the same
+flag:
+
+```sh
+mkdir -p dist-newstyle/wasi/prerender
+sh toolchain/run-wasi.sh halogen-example-vanilla:exe:halogen-example-vanilla-prerender \
+  examples/vanilla/web/index.html dist-newstyle/wasi/prerender
+```
+
+The script builds with the wasm compiler and runs the result through
+`wasmtime`, granting access to the repository directory. To use it for another
+project, enable its prerender executable on wasm, copy the two package flag
+settings, and use a separate build directory. Browser and WASI builds have
+different value representations and cannot share compiled core/jsbits modules.
+A component that needs a browser binding during initialization must provide a
+non-browser path, just as for native rendering (`inBrowser` is false).
+
+WASI replaces the native prerender executable, not the need to compile the
+prerender's dependency closure: its MemDOM build remains separate from the
+browser build. It is useful on machines without native GHC; when both builds
+are already cached, measure the complete pipeline before switching for speed.
+The existing browser build script still uses its native prerender by default.
+`npm run test-wasi` checks the renderer and driver under standalone WASI.
+
 Put its component in a library module (`src/Example/<Name>.hs`, as the existing examples do, with
 `Main.hs` only starting it). GitHub Pages serves only the tutorial, so an example reaches readers
 through a lesson in `examples/learn`; [its README](examples/learn/README.md) says how to write one.

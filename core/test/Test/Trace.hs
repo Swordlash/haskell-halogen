@@ -33,7 +33,7 @@ import Halogen.VDom.Types (VDom (..), runGraft)
 import Prelude
 import Test.Hspec (Spec, describe, it)
 import Test.Utils (assertEqual, assertWith)
-#if !defined(javascript_HOST_ARCH) && !defined(wasm32_HOST_ARCH)
+#if defined(HALOGEN_WASI) || (!defined(javascript_HOST_ARCH) && !defined(wasm32_HOST_ARCH))
 import Data.Row (Empty)
 import Halogen.VDom.DOM.Monad (MemDOM, runMemDOM)
 import Halogen.VDom.DOM.Monad.Native qualified as N
@@ -247,7 +247,7 @@ spec = describe "Halogen.Trace" $ do
           Trace.restoreState (-1) first >>= assertEqual "refused for no component" False
         found -> assertWith ("two state changes, found " <> show (length found)) False
 
-#if !defined(javascript_HOST_ARCH) && !defined(wasm32_HOST_ARCH)
+#if defined(HALOGEN_WASI) || (!defined(javascript_HOST_ARCH) && !defined(wasm32_HOST_ARCH))
   it "finds the node a component stands for on the page" $
     listened $ \events -> do
       container <- N.newElement Nothing (ElemName "div")
@@ -262,7 +262,7 @@ spec = describe "Halogen.Trace" $ do
         found -> assertWith ("one component mounted, found " <> show found) False
 #endif
 
-#if !defined(javascript_HOST_ARCH) && !defined(wasm32_HOST_ARCH)
+#if defined(HALOGEN_WASI) || (!defined(javascript_HOST_ARCH) && !defined(wasm32_HOST_ARCH))
 -- | A paragraph, rendered into the in-memory DOM.
 data Shown = Shown
 

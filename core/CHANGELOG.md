@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+Standalone WASI prerenderers can use `Halogen.Static` and MemDOM by enabling
+the `wasi` flag in core and jsbits. The browser build remains separate.
+
 - The element rows of `DOM.HTML.Indexed` (`HTMLdiv`, `HTMLinput` and the
   others) and of `Halogen.Svg.Indexed` (`SVGsvg`, `SVGcircle` and the
   others) are now sorted lists of labels, `R '[ "accessKey" :-> Text, ... ]`,

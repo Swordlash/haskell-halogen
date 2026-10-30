@@ -273,6 +273,8 @@ jobs:
         ghcup set ghc "$GHC_VERSION"
 
     - name: Test
+      env:
+        HSPEC_HALOGEN_JOBS: '2'
       run: npm run test-ghcjs
 
   # The wasm build is two jobs that run side by side: test-wasm, the test
@@ -318,8 +320,16 @@ jobs:
     - name: Install Chromium
       run: npx playwright install --only-shell chromium
 
+    - name: Test browser runner
+      run: npm run test-runner
+
     - name: Test
+      env:
+        HSPEC_HALOGEN_JOBS: '2'
       run: npm run test-wasm
+
+    - name: Test standalone WASI rendering
+      run: npm run test-wasi
 
   learn-wasm:
     runs-on: ubuntu-latest

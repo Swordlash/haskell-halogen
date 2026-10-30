@@ -10,6 +10,11 @@ maintainer:         mateusz.goslinowski@gmail.com
 category:           Web
 extra-source-files: CHANGELOG.md, NOTICE, jsbits/*.js, bench/README.md, bench/results.csv
 
+flag wasi
+  description: Use the in-memory DOM without JavaScript for standalone WASI prerenderers. Enable jsbits' wasi flag too.
+  default: False
+  manual: True
+
 flag js-polyfills
   description:
     On the JavaScript backend, link jsbits/polyfills.js: the functions other
@@ -20,6 +25,8 @@ flag js-polyfills
   manual: True
 
 common defaults
+  if flag(wasi)
+    cpp-options: -DHALOGEN_WASI
   default-language: GHC2021
   ghc-options: -Wall -Wextra -Wcompat -Wno-partial-type-signatures -Wterm-variable-capture -Wredundant-constraints -Wunused-packages
 
@@ -85,7 +92,7 @@ common commons
       template-haskell,
       haskell-halogen-jsbits
 
-  if arch(wasm32)
+  if arch(wasm32) && !flag(wasi)
     build-depends: ghc-experimental
 
 library
@@ -210,10 +217,10 @@ library
     hs-source-dirs:   src
 
     -- Exactly one MonadDOM backend is compiled in, selected by architecture:
-    -- the browser one on both browser backends, the in-memory one natively.
+    -- the browser one on browser builds, the in-memory one natively or with wasi.
     -- Halogen.VDom.DOM.Monad makes the same choice with CPP and re-exports it;
     -- keep the two in step.
-    if arch(javascript)
+    if arch(javascript) && !flag(wasi)
       exposed-modules: Halogen.VDom.DOM.Monad.JSFFI
 
       js-sources:
@@ -230,7 +237,7 @@ library
 
       ghc-options: -fexpose-all-unfoldings
 
-    elif arch(wasm32)
+    elif arch(wasm32) && !flag(wasi)
       exposed-modules: Halogen.VDom.DOM.Monad.JSFFI
 
       ghc-options: -fexpose-all-unfoldings

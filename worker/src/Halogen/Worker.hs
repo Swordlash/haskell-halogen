@@ -1,64 +1,24 @@
 {-# LANGUAGE TemplateHaskell #-}
 
--- | Heavy work off the page's thread, in Web Workers.
+-- | Run expensive Haskell functions in Web Workers while the page handles
+-- input and draws. Each worker loads a separate copy of the program and has
+-- its own heap. Workers have no DOM and cannot access component state.
 --
--- A page has one thread for its JavaScript, its layout and its Haskell, and
--- GHC's WebAssembly has no threads that share memory, so a computation that
--- takes a second takes that second from the page, whatever thread of the
--- Haskell runtime it runs on. A Web Worker is another thread with its own
--- memory. Here a worker is a second copy of the program itself (the same
--- @app.wasm@ and glue), which runs only the functions the program offers it,
--- named in a table, and the page and the worker pass their arguments and
--- results as JSON over @postMessage@.
+-- Register named 'Job's with 'program' in @main@, create a 'Pool', and call
+-- 'run' from a component's @liftIO@. Arguments and results use aeson JSON;
+-- pass the calculation's inputs explicitly, since closures and IORefs do
+-- not cross between heaps. Concurrent calls can use multiple workers;
+-- consecutive calls in one thread wait for one another.
 --
--- A program offers its functions as 'Job's, and its @main@ starts with
--- 'program' (or 'serve'): in a worker that serves the jobs and does nothing
--- else, on the page it goes on to mount the UI. The same list is the table
--- in both roles.
---
--- > primes :: Worker.Job Int Int
 -- > primes = Worker.job "primes" (\n -> pure (countPrimes n))
--- >
--- > main :: IO ()
 -- > main = Worker.program [Worker.some primes] $ runBrowserDOM $ do
 -- >   pool <- Worker.newPool 2
--- >   body <- HA.awaitBody
--- >   void (runUI (component pool) () body)
+-- >   ...
 --
--- and a component waits for a result as it waits for anything, in a 'liftIO'
--- (or @lift@), which runs on a thread of its own while the rest of the tree
--- goes on:
---
--- > handleAction Count = do
--- >   n <- liftIO (Worker.run pool primes 3000000)
--- >   modify (\st -> st {primes = Just n})
---
--- The page's loader says where the program is before it starts Haskell, in
--- a global this module reads (a WebAssembly program's three files; see
--- the README):
---
--- > globalThis.halogenWorker = {
--- >   wasm: new URL("./app.wasm", import.meta.url).href,
--- >   jsffi: new URL("./ghc_wasm_jsffi.js", import.meta.url).href,
--- >   wasi: new URL("./wasi.js", import.meta.url).href,   // browser_wasi_shim, as the page imports it
--- > };
---
--- Where no worker can be made (natively, in Node, in a page whose loader
--- says nothing, in GHCi, in a worker itself), 'run' runs the job in the
--- calling program instead, through the same JSON and the same table, so the
--- same code works everywhere and fails the same way; 'available' says which
--- it will be.
---
--- What to know about a job:
---
--- * Each worker is another copy of the program, its memory too: a pool of
---   four is four more heaps.
--- * Arguments and results cross as JSON text, so large ones cost their
---   encoding, copying and decoding (a later version may move bytes as
---   transferables instead).
--- * As far as the page is concerned a job is a pure function of its
---   arguments: it runs with a heap of its own, sees none of the page's state,
---   and has no DOM.
+-- The page's loader must configure @globalThis.halogenWorker@ with the
+-- program's URLs before starting Haskell. Without this configuration, or
+-- outside a browser, 'run' executes the job on the caller's thread. See the
+-- README for the loader, a complete example and the fallback's limitations.
 module Halogen.Worker
   ( -- * Jobs
     Job

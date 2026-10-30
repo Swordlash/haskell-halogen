@@ -15,7 +15,7 @@ import Halogen.Subscription qualified as HS
 import Prelude
 import Test.Hspec (Spec, describe, it)
 import Test.Utils (assertEqual, assertWith)
-#if !defined(javascript_HOST_ARCH) && !defined(wasm32_HOST_ARCH)
+#if defined(HALOGEN_WASI) || (!defined(javascript_HOST_ARCH) && !defined(wasm32_HOST_ARCH))
 import Data.Foldable (for_)
 import Data.Foreign (toForeign)
 import Data.Text (Text)
@@ -74,7 +74,7 @@ spec = describe "window emitters" $ do
       HS.unsubscribe sub
       assertEqual "frames" 0 =<< readIORef frames
 
-#if !defined(javascript_HOST_ARCH) && !defined(wasm32_HOST_ARCH)
+#if defined(HALOGEN_WASI) || (!defined(javascript_HOST_ARCH) && !defined(wasm32_HOST_ARCH))
   describe "on the in-memory DOM" $ do
     it "listens for keys on the window while subscribed" $ do
       before <- listenersFor "keydown"

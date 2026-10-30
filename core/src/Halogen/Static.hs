@@ -28,8 +28,9 @@
 -- then mounts the component with 'Halogen.VDom.Driver.hydrateUI', which
 -- adopts the HTML rather than render the component afresh in its place.
 --
--- Native only: on the browser backends there is a real document to render
--- into instead.
+-- Available natively and in a standalone WASI build with the @wasi@ flags
+-- enabled in core and jsbits. Browser builds use the real DOM instead.
+-- See @cabal-wasi.project@ for the separate prerender configuration.
 module Halogen.Static
   ( renderToHtml
   , renderToHtmlWith
@@ -58,7 +59,7 @@ renderToHtml = renderToHtmlWith runMemDOM
 -- | 'renderToHtml' for a component whose monad is an application's own, such
 -- as @ReaderT Config MemDOM@, given how to run it.
 --
--- Natively every 'MonadBrowserDOM' is the in-memory one, possibly under
+-- In native and standalone WASI builds, 'MonadBrowserDOM' uses MemDOM, possibly under
 -- transformers, which is what makes the document this renders into the one
 -- the component speaks.
 renderToHtmlWith

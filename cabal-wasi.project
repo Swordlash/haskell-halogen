@@ -1,0 +1,9 @@
+-- Standalone prerenderers. No JavaScript engine or native GHC is needed.
+import: cabal-wasm.project
+
+package haskell-halogen-jsbits
+  flags: +wasi
+package haskell-halogen-core
+  flags: +wasi
+package halogen-example-vanilla
+  flags: +wasi

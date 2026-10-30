@@ -96,6 +96,12 @@ if (!isBrowserSuite) {
   process.exit(wasi.start(instance));
 }
 
+const jobs = Number(process.env.HSPEC_HALOGEN_JOBS ?? 1);
+if (!Number.isSafeInteger(jobs) || jobs < 1) {
+  process.stderr.write("HSPEC_HALOGEN_JOBS must be a positive integer\n");
+  process.exit(1);
+}
+
 const { chromium } = createRequire(join(packageDir("playwright"), "package.json"))("playwright");
 const wasiShim = isWasm ? join(packageDir("@bjorn3/browser_wasi_shim"), "dist") : null;
 
@@ -209,8 +215,15 @@ const browser = await chromium.launch({
   headless: !process.env.HSPEC_HALOGEN_HEADED,
   slowMo: Number(process.env.HSPEC_HALOGEN_SLOWMO ?? 0),
 });
-let exitCode = 1;
-try {
+const timeoutSeconds = Number(process.env.HSPEC_HALOGEN_TIMEOUT ?? 600);
+const deadline = Date.now() + timeoutSeconds * 1000;
+async function runShard(shard) {
+  const stdout = [];
+  const stderr = [];
+  const write = (fd, text) => {
+    if (jobs === 1) (fd === 2 ? process.stderr : process.stdout).write(text);
+    else (fd === 2 ? stderr : stdout).push(text);
+  };
   const context = await browser.newContext();
   const tab = await context.newPage();
   // Long enough for a real page, short enough that an element which never
@@ -223,11 +236,11 @@ try {
     // The JavaScript backend's runtime writes the suite's stdout to the
     // console a chunk at a time, newlines and all: that is the report.
     if (!isWasm && message.type() === "log") {
-      process.stdout.write(message.text());
+      write(1, message.text());
       return;
     }
     const line = `[page ${message.type()}] ${message.text()}\n`;
-    (message.type() === "error" ? process.stderr : process.stdout).write(line);
+    write(message.type() === "error" ? 2 : 1, line);
   });
 
   let failures = null;
@@ -236,7 +249,7 @@ try {
     finish = resolve;
   });
   await tab.exposeFunction("__halogenTestFinished", (crash) => finish(crash));
-  await tab.exposeFunction("__halogenTestWrite", (fd, text) => (fd === 2 ? process.stderr : process.stdout).write(text));
+  await tab.exposeFunction("__halogenTestWrite", (fd, text) => write(fd, text));
   await tab.exposeFunction("__halogenTestDone", (count) => {
     failures = count;
     // A JavaScript-backend suite starts itself, so its report is its end.
@@ -255,30 +268,46 @@ try {
   // Chromium HTML5 drag and drop's too.
   await tab.exposeFunction("__halogenTestDrag", (source, target) => tab.locator(source).dragTo(tab.locator(target)));
   await tab.exposeFunction("__halogenTestPress", (key) => tab.keyboard.press(key));
-  await tab.addInitScript((args) => {
+  await tab.addInitScript(({ args, shard }) => {
     globalThis.__halogenTestArgs = args;
+    globalThis.__halogenTestShard = shard;
     globalThis.__halogenTest = {
       act: (action, selector, text) => globalThis.__halogenTestAct(action, selector, text),
       drag: (source, target) => globalThis.__halogenTestDrag(source, target),
       press: (key) => globalThis.__halogenTestPress(key),
       done: (count) => globalThis.__halogenTestDone(count),
     };
-  }, args);
+  }, { args, shard });
 
   const { port } = server.address();
   await tab.goto(`http://127.0.0.1:${port}/`);
   // A suite that never finishes (a test waiting on something that will not
   // happen, with no timeout of its own) fails the run rather than hanging it.
-  const timeoutSeconds = Number(process.env.HSPEC_HALOGEN_TIMEOUT ?? 600);
   const crash = await Promise.race([
     finished,
-    new Promise((resolve) => setTimeout(() => resolve(`no result after ${timeoutSeconds}s`), timeoutSeconds * 1000).unref()),
+    new Promise((resolve) => setTimeout(() => resolve(`no result after ${timeoutSeconds}s`), Math.max(0, deadline - Date.now())).unref()),
   ]);
 
-  if (crash) process.stderr.write(`The suite stopped with an exception:\n${crash}\n`);
-  if (pageErrors.length) process.stderr.write(`Errors in the page:\n${pageErrors.join("\n")}\n`);
-  if (failures === null && !crash) process.stderr.write("The suite finished without reporting a result.\n");
-  exitCode = !crash && !pageErrors.length && failures === 0 ? 0 : 1;
+  if (crash) write(2, `The suite stopped with an exception:\n${crash}\n`);
+  if (pageErrors.length) write(2, `Errors in the page:\n${pageErrors.join("\n")}\n`);
+  if (failures === null && !crash) write(2, "The suite finished without reporting a result.\n");
+  const supported = !shard || Boolean(crash) || await tab.evaluate(() => globalThis.__halogenTestShardSupported === true);
+  if (!supported) write(2, "The suite library does not support browser shards. Rebuild with the current hspec-halogen library or set HSPEC_HALOGEN_JOBS=1.\n");
+  await context.close();
+  return { fatal: Boolean(crash) || pageErrors.length > 0, supported, shard, stdout: stdout.join(""), stderr: stderr.join(""), ok: supported && !crash && !pageErrors.length && failures === 0 };
+}
+const report = (result) => {
+  if (result.shard) process.stdout.write(`\nBrowser shard ${result.shard}\n`);
+  process.stdout.write(result.stdout);
+  process.stderr.write(result.stderr);
+  return result.ok;
+};
+let exitCode = 1;
+try {
+  // Unmarked and sequential examples finish before parallel pages start.
+  const serial = await runShard(jobs === 1 ? "" : "serial");
+  const results = jobs === 1 || !serial.supported || serial.fatal ? [] : await Promise.all(Array.from({ length: jobs }, (_, i) => runShard(`${i}/${jobs}`)));
+  exitCode = [serial, ...results].map(report).every(Boolean) ? 0 : 1;
 } finally {
   await browser.close();
   server.close();

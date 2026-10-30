@@ -1,3 +1,8 @@
+function halogen_test_shard() {
+  globalThis.__halogenTestShardSupported = true;
+  return globalThis.__halogenTestShard ?? "";
+}
+
 function halogen_test_has_document() {
   return typeof document !== 'undefined';
 }

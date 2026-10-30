@@ -69,7 +69,7 @@ runThunk (Thunk _ _ render arg _) = render arg
 {-# INLINEABLE buildThunk #-}
 
 {-# INLINEABLE hydrateThunk #-}
-#if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
+#if !defined(HALOGEN_WASI) && (defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH))
 {-# SPECIALISE buildThunk :: (f i -> V.VDom a w) -> V.VDomSpec BrowserDOM a w -> V.Machine BrowserDOM (Thunk f i) (DomNode BrowserDOM) #-}
 {-# SPECIALISE hydrateThunk :: (f i -> V.VDom a w) -> V.VDomSpec BrowserDOM a w -> DomNode BrowserDOM -> V.Machine BrowserDOM (Thunk f i) (DomNode BrowserDOM) #-}
 #else

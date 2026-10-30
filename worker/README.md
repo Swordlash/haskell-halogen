@@ -1,15 +1,17 @@
 # haskell-halogen-worker
 
-Heavy work off the page's thread, in Web Workers, for a
-[haskell-halogen](https://github.com/Swordlash/haskell-halogen) program, or any Haskell program
-compiled for the browser.
+Run expensive Haskell functions in Web Workers. The browser can keep drawing
+and handling input while a worker computes the result.
 
-A page has one thread for its JavaScript, its layout, its drawing and its Haskell, and a
-computation that takes two seconds takes them from the page, whichever thread of the Haskell
-runtime it runs on: GHC's WebAssembly has no threads that share memory, and the runtime's own
-take turns on the page's. A Web Worker is another thread, with memory of its own. Here a worker
-is a second instance of the program itself, loaded from the same `app.wasm`, which runs only the
-functions the program offers it, named in a table, with arguments and results passed as JSON.
+`forkIO` and a component's `liftIO` let other Haskell threads run, but browser
+Haskell still shares the page's JavaScript thread. A long calculation on that
+thread can freeze the UI. A Web Worker runs on another browser thread and has
+its own Haskell heap.
+
+## Register a job and run it
+
+A job has a unique name, an argument type and a result type. Register every job
+in `main`, then create a pool and pass it to the components that need it:
 
 ```haskell
 import Halogen.Worker qualified as Worker
@@ -20,12 +22,12 @@ primes = Worker.job "primes" (\n -> pure (countPrimes n))
 main :: IO ()
 main = Worker.program [Worker.some primes] $ runBrowserDOM $ do
   pool <- Worker.newPool 2
-  app <- HA.awaitBody
-  socket <- runUI (component pool) () app
+  body <- HA.awaitBody
+  socket <- runUI (component pool) () body
   HA.keepForNextRun (socket.dispose >> Worker.terminate pool)
 ```
 
-and in the component, a wait like any other, in `liftIO`:
+Call the job from a component:
 
 ```haskell
 handleAction Count = do
@@ -33,82 +35,107 @@ handleAction Count = do
   modify (\st -> st {primes = Just n})
 ```
 
-## The API
+`run` waits for the result. To use both workers at once, make concurrent calls
+from separate fibers or Haskell threads. Two consecutive calls in one `do`
+block wait for one another.
 
-- `job :: (FromJSON a, ToJSON b) => Text -> (a -> IO b) -> Job a b`: a function under a name.
-  Several arguments are a tuple or a record. The result is evaluated completely as it is encoded,
-  so a lazy error in it is the job's error.
-- `some :: Job a b -> SomeJob`, for the table, a list of them.
-- `serve :: [SomeJob] -> IO Bool`, what `main` does first: in a worker of a pool it answers the
-  pool's messages with the table and returns `False`, and `main` does nothing else; anywhere else
-  it returns `True`. `program jobs onPage` is `serve` and then `onPage` where it says to.
-- `newPool :: Int -> m Pool`: that many workers (at least one), each started when it is first
-  given a job. `terminate :: Pool -> m ()` ends them; what they were running fails, and the next
-  job starts them again.
-- `run :: (ToJSON a, FromJSON b) => Pool -> Job a b -> a -> m b`: the job in the pool's next
-  worker (they take turns), waiting for its result. A job that throws, an argument or a result
-  that does not decode, a name that is not in the table, a worker that did not start and a pool
-  terminated meanwhile each throw a `WorkerError {job, message}`.
-- `available :: m Bool`: whether `run` would use a worker here.
+The worker loads another copy of the same program and calls `main`.
+`Worker.program` detects that it is running in a worker, registers the jobs
+and skips the UI code. On the page, it registers the same jobs and starts the UI.
+A worker looks up a job by name; closures, IORefs and component state do not
+cross between the two heaps. Pass everything the calculation needs as its
+argument. Use a tuple or a record for several arguments.
 
-Killing the thread that waits in `run` (a component's fiber, say) stops the wait and not the
-job: there is no cancelling a job in this version, and the worker finishes it, its result
-unread. `terminate` ends a worker and everything in it.
+## Configure the loader
 
-## Telling the workers where the program is
-
-The page's loader says where the program's files are, before it starts Haskell, in a global the
-library reads. A WebAssembly program names its binary, its JSFFI glue and the WASI shim module
-the page itself uses (a worker imports all three, as the page did):
+Before starting the Haskell program, set the URLs of the files a worker must
+load. For WebAssembly:
 
 ```js
 globalThis.halogenWorker = {
   wasm: new URL("./app.wasm", import.meta.url).href,
   jsffi: new URL("./ghc_wasm_jsffi.js", import.meta.url).href,
-  wasi: new URL("./wasi.js", import.meta.url).href, // @bjorn3/browser_wasi_shim, as an ES module
+  wasi: new URL("./wasi.js", import.meta.url).href,
 };
 ```
 
-A worker is a module worker made from a script the pool writes into a `Blob`: it imports the
-shim and the glue, instantiates the binary with a WASI of its own (its stdout and stderr go to
-the console, each line prefixed with `[worker n]`), and calls `hs_start`, the export every
-example's binary has. The program's `main` then reaches `serve`, which finds itself in a worker
-(the script told it its number) and answers messages: `{id, job, args}` in, `{id, result}` or
-`{id, error}` out, the arguments and the result as JSON text, after a `{ready: true}` that lets
-the pool send what it kept until then. A program that does not call `serve` is reported as a
-worker that did not start.
+`wasi.js` must export `@bjorn3/browser_wasi_shim` as an ES module. The binary
+must export `hs_start`, as the repository's examples do. Workers are module
+workers created from a Blob; the site's content security policy must allow
+them. See `examples/worker` for a complete loader and bundle script.
 
-A program built with the GHC JavaScript backend names its `all.js` instead,
-`globalThis.halogenWorker = { js: new URL("./all.js", location.href).href }`, and gets classic
-workers that `importScripts` it, which runs `main` as the page did.
+For the GHC JavaScript backend:
 
-Where no worker can be made, `run` runs the job in the program itself, on the calling thread,
-through the same JSON and the same table, so that the same code works everywhere and fails the
-same way: natively, under Node (the test suites), in browser GHCi (`npm run dev`), in a page
-whose loader says nothing (the tutorial, whose programs run in GHC's interpreter and have no
-binary of their own), in a browser without `Worker`, inside a worker, and before `serve` has been
-called.
+```js
+globalThis.halogenWorker = {
+  js: new URL("./all.js", location.href).href,
+};
+```
 
-## What to know
+These are classic workers that load the program with `importScripts`.
 
-- Each worker is another copy of the program, its memory too: a pool of four is four more heaps,
-  and starting one takes about what the page took to load the program (the browser has the
-  binary cached by then).
-- Arguments and results cross as JSON text, so large ones cost their encoding, copying and
-  decoding: a job is worth sending when it is much work on little data. (A later version may move
-  bytes as transferables.)
-- As far as the page is concerned a job is a pure function of its argument: it runs with a heap
-  of its own, sees none of the page's state and has no DOM.
-- On the page, a computation in `liftIO` without a worker leaves the component's loop free, but
-  not the page's thread, which it holds until it is done (`examples/worker` measures it): only a
-  worker gives the page its thread back.
+## Lifetime, failures and fallback
+
+- `newPool n` creates a pool with at least one worker. Each worker starts on
+  its first job. Startup loads and initializes a complete copy of the program;
+  a pool of four workers has four additional Haskell heaps.
+- `run pool job argument` assigns a job to the next worker in round-robin order.
+  It throws `WorkerError {job, message}` if startup, decoding or execution fails.
+  Exceptions raised while encoding a lazy result are job failures too.
+- `terminate pool` stops all workers and fails outstanding requests. The next
+  call to `run` starts workers again.
+- Cancelling a thread waiting in `run` cancels the wait. The worker continues
+  computing. Use `terminate` to stop its computation; that affects the whole pool.
+- `available` reports whether workers can be used. Without the loader
+  configuration, outside a browser, in GHCi or inside a worker, `run` executes
+  the registered job on the caller's thread. It uses the same encoding and
+  lookup rules. This fallback keeps the API usable, but does not prevent a
+  long calculation from blocking the page.
+
+`serve jobs` is the lower-level entry point used by `program`. It returns
+`False` after installing a worker's message handler, or `True` when the caller
+should start the UI. Job names must be unique in the registration list.
+
+## JSON and binary data
+
+The current API encodes arguments and results as JSON text using aeson. It is
+suited to expensive calculations with small inputs and results. JavaScript
+only routes the text; the Haskell job decodes it. Sending a large payload costs
+encoding, copying and decoding on both sides.
+
+A binary codec such as `cereal` could reduce the size and parsing cost for some
+payloads. It would still need a byte transport: Haskell bytes must become a
+JavaScript `Uint8Array` and be copied into the receiving Haskell heap. A
+transferable `ArrayBuffer` can avoid an extra copy between JavaScript contexts;
+it does not share the two Haskell heaps. The existing JSBits byte conversions
+provide the first step, but the worker API currently accepts JSON text only.
+
+Keep JSON for the existing typed jobs. A future binary API should accept a
+codec and transferable bytes, so an application can choose `cereal`, another
+format or raw bytes. Changing the default codec without measuring representative
+payloads would add a dependency and a protocol change without establishing a
+speedup. There is no measured JSON-versus-binary benchmark in this package yet.
+
+## Browser tests need pages
+
+A [Web Worker](https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Using_web_workers)
+has no DOM, focused element or browser input. It can test a pure
+calculation, but cannot run an hspec-halogen component test. Moving the DOM
+through `Halogen.Remote` would test another backend and would still require
+pages for real browser behavior. Use hspec-halogen's isolated browser contexts
+for parallel UI tests; reserve this package for the calculations those
+components call.
 
 ## Tests
 
-`Halogen-worker-test` runs natively and under Node on both browser backends, where there is no
-worker: the JSON both ways, a job's exception, an error in its result, arguments and a result
-that do not decode, a name that is not in the table, the job run in the program itself, and
-`serve` returning `True` outside a worker. The workers themselves are tested through
-`examples/worker` in headless Chromium (`npm run test-worker`, after
-`sh toolchain/build-wasm.sh worker`): the counts in each worker and on the page, the frames the
-page drew meanwhile, a failing job, `terminate`, and the page without a configuration.
+`Halogen-worker-test` checks registration, encoding, decoding, failures and the
+fallback natively and under Node on both browser backends. Real workers are
+checked in Chromium through `examples/worker`:
+
+```sh
+sh toolchain/build-wasm.sh worker
+npm run test-worker
+```
+
+That test checks results, UI responsiveness during a calculation, failures,
+termination and the fallback without loader configuration.

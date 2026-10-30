@@ -20,7 +20,7 @@ import Data.ByteString qualified as BS
 import Data.Map.Strict qualified as M
 import Data.Text (Text)
 import Halogen.VDom.DOM.Monad (MemDOM, runMemDOM)
-#if !defined(javascript_HOST_ARCH) && !defined(wasm32_HOST_ARCH)
+#if defined(HALOGEN_WASI) || (!defined(javascript_HOST_ARCH) && !defined(wasm32_HOST_ARCH))
 import Halogen.VDom.DOM.Monad (runBrowserDOM)
 #endif
 import Prelude
@@ -166,7 +166,7 @@ spec = describe "IndexedDB in memory" $ do
 
 -- | 'BrowserDOM' natively, where there is no IndexedDB, says so.
 noIndexedDB :: Spec
-#if !defined(javascript_HOST_ARCH) && !defined(wasm32_HOST_ARCH)
+#if defined(HALOGEN_WASI) || (!defined(javascript_HOST_ARCH) && !defined(wasm32_HOST_ARCH))
 noIndexedDB = it "says so when there is no IndexedDB" $ do
   outcome <- try (runBrowserDOM (IDB.keys (database "nowhere") pages))
   either (\(IndexedDBError _ failure) -> Just failure) (const Nothing) outcome `shouldBe` Just Unavailable
