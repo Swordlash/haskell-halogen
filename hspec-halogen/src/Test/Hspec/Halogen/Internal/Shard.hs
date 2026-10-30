@@ -10,15 +10,18 @@ data Shard = Serial | Parallel Int Int
   deriving (Eq, Show)
 
 -- | Keep each example in exactly one shard, retaining its groups and hooks.
--- Focus is resolved before partitioning: a focused example on another page
--- must not make this page run examples that were not focused.
+-- Focus eligibility is decided across the whole spec before partitioning.
+-- Keep the original flags so hspec's focused-only and fail-on-focused
+-- options still distinguish focused examples from ordinary ones.
 shardSpec :: Shard -> Spec.Spec -> Spec.Spec
-shardSpec shard = Spec.mapSpecForest partition . Spec.focus
+shardSpec shard = Spec.mapSpecForest partition
   where
-    partition forest = Spec.pruneForest . map (fmap snd) . Spec.filterForest selected $ snd (mapAccumL numberTree 0 forest)
+    partition forest = Spec.pruneForest . map (fmap snd) . Spec.filterForest (selected focused) $ snd (mapAccumL numberTree 0 forest)
+      where
+        focused = any (any Spec.itemIsFocused) forest
     numberTree n tree = mapAccumL (\i item -> (i + 1, (i, item))) n tree
-    selected (i, item) =
-      Spec.itemIsFocused item && case shard of
+    selected focused (i, item) =
+      (not focused || Spec.itemIsFocused item) && case shard of
         Serial -> Spec.itemIsParallelizable item /= Just True
         Parallel index count -> Spec.itemIsParallelizable item == Just True && i `mod` count == index
 

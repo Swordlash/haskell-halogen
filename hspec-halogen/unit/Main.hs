@@ -5,6 +5,7 @@ import Control.Monad (replicateM_)
 import Data.Foldable (toList)
 import Data.IORef
 import Data.List (sort)
+import System.Environment (withArgs)
 import Test.Hspec
 import Test.Hspec.Core.Spec qualified as Spec
 import Test.Hspec.Halogen.Internal.Shard
@@ -13,6 +14,17 @@ import Prelude
 
 labels :: Shard -> Spec -> IO [String]
 labels shard spec = map Spec.itemRequirement . concatMap toList . snd <$> Spec.runSpecM (shardSpec shard spec)
+
+-- Run all partitions with the real hspec options, without printing the
+-- expected failures of a focused example to the outer suite's report.
+runShards :: Config -> Spec -> IO [Summary]
+runShards config spec =
+  withArgs [] $
+    traverse
+      (\shard -> hspecWithResult quiet (onePage (shardSpec shard spec)))
+      [Serial, Parallel 0 2, Parallel 1 2]
+  where
+    quiet = config {configFormat = Just (\_ -> pure (\_ -> pure ()))}
 
 examples :: Spec
 examples = do
@@ -40,6 +52,24 @@ main = hspec $ do
     labels Serial focused `shouldReturn` []
     selected <- traverse (\i -> labels (Parallel i 2) focused) [0 .. 1]
     concat selected `shouldBe` ["focused"]
+  it "accepts ordinary examples with --fail-on=focused" $ do
+    results <- runShards defaultConfig {configFailOnFocused = True} examples
+    sum (map summaryExamples results) `shouldBe` 5
+    sum (map summaryFailures results) `shouldBe` 0
+  it "skips ordinary examples with --focused-only" $ do
+    results <- runShards defaultConfig {configFocusedOnly = True} examples
+    sum (map summaryExamples results) `shouldBe` 0
+    sum (map summaryFailures results) `shouldBe` 0
+  it "still rejects a focused example with --fail-on=focused" $ do
+    let focused = examples >> parallel (fit "focused" (pure () :: IO ()))
+    results <- runShards defaultConfig {configFailOnFocused = True} focused
+    sum (map summaryExamples results) `shouldBe` 1
+    sum (map summaryFailures results) `shouldBe` 1
+  it "keeps an actual focused example with --focused-only" $ do
+    let focused = examples >> parallel (fit "focused" (pure () :: IO ()))
+    results <- runShards defaultConfig {configFocusedOnly = True} focused
+    sum (map summaryExamples results) `shouldBe` 1
+    sum (map summaryFailures results) `shouldBe` 0
   it "does not let a hook change globals during another example" $ do
     active <- newIORef False
     let enter = do
