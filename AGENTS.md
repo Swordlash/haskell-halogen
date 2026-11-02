@@ -276,6 +276,9 @@ objects. Sources must ship in `extra-source-files`; `addDependentFile` tracks ed
 Material's shared JS is already bundled with its external npm dependencies.
 On wasm, `foreign import javascript "wrapper"` callbacks run synchronously until
 they block; on JS, `syncCallback1 ContinueAsync` gives the same behaviour.
+A plain property read or method call needs no `.js` file: `Halogen.JSBits.Fields.jsFields`
+writes a `HasField` instance per member with the JavaScript inline (core's `Web.*` types are
+written with it, the instances beside each newtype), and `jsFieldFunctions` the same as functions.
 A binding that starts asynchronous work returns a `Promise` (`Halogen.JSBits.Promise`)
 from an `Unsafe` import, and the program `await`s it, which gives a rejection back as a value,
 instead of declaring a `Safe` import and forcing its result with `evaluate`.

@@ -34,7 +34,9 @@ New types, each in a module of its own: `Web.HTML.Navigator` (`onLine`,
 `hash`), `Web.Event.CustomEvent` (`detail`), `Web.HTML.Event.DataTransfer`
 (`files`), `Web.File.FileList` (`length`, `item`, and `items`),
 `Web.File.File` (`name`, `type_`, `size`, `lastModified`, `text`, `bytes`),
-`Web.File.Blob` (the same, and `fromBytes`), `Web.URL` (`parse`, the parts
+`Web.File.Blob` (the same, and `fromBytes`; `bytes` is the browser's
+`Blob.bytes()`, which Chromium 132, Firefox 128 and Safari 18 have, and an
+older browser rejects as a `JSError`), `Web.URL` (`parse`, the parts
 of an address, `createObjectURL`, `revokeObjectURL`),
 `Web.HTML.HTMLDialogElement` (`open`, `show`, `showModal`, `close`),
 `Web.HTML.HTMLInputElement` (`value`, writable, `files`) and
