@@ -54,10 +54,10 @@ spec = describe "Web fields, natively" $ do
     w.isSecureContext `shouldBe` False
     w.document.title `shouldReturn` ""
     (inert :: File).name `shouldBe` ""
-    (inert :: FileList).length `shouldBe` 0
     Window.isSecureContext w `shouldBe` False
 
   it "reads a live member as its inert value" $ do
+    (inert :: FileList).length `shouldReturn` 0
     w.navigator.onLine `shouldReturn` False
     w.innerWidth `shouldReturn` 0
     w.history.length `shouldReturn` 0

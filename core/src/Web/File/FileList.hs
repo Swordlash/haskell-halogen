@@ -23,8 +23,10 @@ newtype FileList = FileList (Foreign FileList)
 
 $( jsFields
      ''FileList
-     [ -- How many files it holds.
-       Fixed "length" [t|Int|]
+     [ -- How many files it holds. Read each time: the list a drop's
+       -- 'Web.HTML.Event.DataTransfer.files' gives is live, and an input's
+       -- list empties when the input is cleared.
+       Live "length" [t|IO Int|]
      , -- The file at a position, from 0, or 'Nothing' past the end.
        Method "item" [t|Int -> IO (Maybe File)|]
      ]
@@ -34,4 +36,6 @@ $(jsFieldFunctions ''FileList [])
 
 -- | Every file, in order.
 items :: FileList -> IO [File]
-items files = catMaybes <$> traverse files.item [0 .. files.length - 1]
+items files = do
+  count <- files.length
+  catMaybes <$> traverse files.item [0 .. count - 1]
