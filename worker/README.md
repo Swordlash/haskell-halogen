@@ -180,12 +180,57 @@ Worker.kill pool p     -- the job's worker is ended, now
 after installing a worker's message handler, or `True` when the caller should
 start the UI.
 
+## Many tasks at once: `Halogen.Worker.Par`
+
+For a computation that calls jobs at many independent points, `Par` collects
+the calls and sends them to the pool's workers in batches:
+
+```haskell
+{-# LANGUAGE ApplicativeDo #-}
+
+import Halogen.Worker.Par (runPar, task)
+
+-- a job mapped over a list, on every worker, the results in the list's order
+counts <- liftIO (runPar pool (traverse (task primesBetween) parts))
+
+-- independent tasks sent together, a dependent one after them
+(a, b, c) <- liftIO $ runPar pool $ do
+  a <- task primes 1000000
+  b <- task primes 2000000
+  c <- task primes (a + b)
+  pure (a, b, c)
+```
+
+- `task job argument` is one call of the job. `Par`'s `<*>` runs both sides
+  before anything is sent, so their tasks go out together; `>>=` waits for the
+  left side's tasks before it runs the right. With `ApplicativeDo` a `do` block
+  is taken apart where its statements do not depend on one another. There is
+  no cache: the same task twice is two calls.
+- `runPar pool computation` runs the computation until all of it waits for
+  tasks, then sends that round's calls: grouped by job, each job's cut into
+  batches (four for each worker, or fewer for fewer calls) that are each one
+  request, handed out from a queue to whichever worker has answered its last
+  batch. So a worker that drew the quick calls takes more batches while another
+  is still at slow ones. Then it goes on with the next round.
+- A failing call fails the whole `runPar` with a `WorkerError` naming the job,
+  whose message gives the call's index among that job's calls in the round (for
+  a `traverse`, the list's index): `its call at index 5: ...`. The batches still
+  running are cancelled, as they are when `runPar`'s thread is interrupted.
+  A worker stops a batch at its first failing call.
+- Where no worker can be made, the batches run on the calling thread, one after
+  the other, through the same codecs.
+
+A batch is worth sending when its calls add up to seconds of work: the calls in
+a batch run one after another in one worker.
+
 ## Data on the wire
 
 The argument and the result are encoded with `Data.Binary`. The page sends the
 job's static key and the argument's bytes in an `ArrayBuffer`, which is
 transferred to the worker rather than copied, and the worker answers with the
-result's bytes the same way. A job is worth sending when it is seconds of work:
+result's bytes the same way. A request holds a list of arguments and a reply the
+list of results, up to the first call that failed and that call's failure, which
+is how `Par` sends a batch as one request. A job is worth sending when it is seconds of work:
 each call still encodes on one side and decodes on the other, and the bytes are
 copied between each Haskell heap and its `ArrayBuffer`.
 
@@ -202,8 +247,8 @@ components call.
 ## Tests
 
 `Halogen-worker-test` checks encoding, decoding, the lookup by static key,
-failures, `start`'s promises, stopping jobs and the fallback natively and under
-Node on both browser backends. Real workers are
+failures, `start`'s promises, stopping jobs, `Par`'s planner and `runPar` and
+the fallback natively and under Node on both browser backends. Real workers are
 checked in Chromium through `examples/worker`:
 
 ```sh
@@ -212,7 +257,8 @@ npm run test-worker
 ```
 
 That test checks results, UI responsiveness during a calculation, a range
-counted in parts by both workers through `start` and `mapConcurrently`,
+counted in parts by both workers through `start` and `mapConcurrently` and in
+sixteen tasks through `runPar`,
 cancelling a job that checkpoints, killing one that does not, a race whose
 loser is cancelled, failures, termination and the fallback without loader
 configuration.

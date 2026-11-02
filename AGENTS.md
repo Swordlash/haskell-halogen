@@ -166,7 +166,8 @@ and wired into `test/Test.hs`.
   and drives real Web Workers, each a second instance of the page's `app.wasm`: the count in each
   of the pool's workers while the page draws (it samples the component's frame counter at the
   page's own animation frames), the range in four parts through `Worker.start` and
-  `mapConcurrently`, back in order from both workers, a slow count stopped by Cancel at its next
+  `mapConcurrently`, back in order from both workers, the range in sixteen `runPar` tasks (each
+  count against a sieve, in order, both workers used), a slow count stopped by Cancel at its next
   checkpoint (its logged chunks stop), Kill ending a count's worker, a race's loser cancelled,
   the same count on the page drawing none, a failing job,
   `terminate`, and the page with `?workers=none`, which leaves `halogenWorker` unset and so runs
@@ -314,7 +315,12 @@ bytes in process, with no lookup, on a thread `start` forks. A job is stopped wi
 yields a turn of the worker's event loop) or `kill` (its worker terminated, the worker's other
 requests, whose bytes the page keeps until answered, re-posted to a new one); `run` cancels on
 an interrupted wait, and in the fallback both kill the forked thread, which the pool finds by
-the stable name of the promise's `rawPromise`. Static pointer bindings are exported from their modules: GHC
+the stable name of the promise's `rawPromise`. `Halogen.Worker.Par` is Haxl's core without the
+cache (`Par` an `IO` of `Done` or `Blocked` calls and a continuation, `<*>` joining the blocked
+calls): `runPar` cuts each round's calls into batches with the pure `Internal.plan` (grouped by
+static key, four batches per worker) and feeds them from a queue, one thread per worker, through
+`sendTo` (a given worker's index), each batch one request whose reply holds the results up to the
+first failing call. Static pointer bindings are exported from their modules: GHC
 before 10.0 (issue #24773) can fail to link a module whose static binding is not exported and is
 used more than once (with `-O` the binding stays internal, and the static pointer table's entry
 has nothing to link to). On wasm a computation
