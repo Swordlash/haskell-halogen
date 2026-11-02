@@ -14,9 +14,14 @@
 // gives the same count, and the component draws no frame until it is done;
 // the range counted in four parts with Worker.start and mapConcurrently
 // comes back in order, from both of the pool's workers, while the page
-// draws, and on the page where no worker can be made; a job that throws is reported with its message; terminating the pool ends
-// its workers, and the next job starts one again; nothing is logged as an
-// error, and nothing is loaded from another site. WORKER_DEBUG=1 prints
+// draws, and on the page where no worker can be made; a slow count that
+// checkpoints stops soon after Cancel (its log of chunks, which the
+// workers' console relays to the page's, stops), a count that does not is
+// stopped at once by Kill, which ends its worker, and the pool's places
+// still run jobs afterwards; a race between a quick count and the slow one
+// cancels the slow one; a job that throws is reported with its message;
+// terminating the pool ends its workers, and the next job starts one again;
+// nothing is logged as an error, and nothing is loaded from another site. WORKER_DEBUG=1 prints
 // what the page and its workers log.
 import assert from "node:assert/strict";
 import { readFile, stat } from "node:fs/promises";
@@ -71,6 +76,8 @@ try {
 
 const browser = await chromium.launch();
 const errors = [];
+// Everything the page and its workers log, for the slow count's chunks.
+const logs = [];
 const offSite = [];
 let failed = false;
 const ms = (n) => `${Math.round(n)} ms`;
@@ -90,6 +97,7 @@ try {
     // with the worker's number.
     opened.on("pageerror", (error) => errors.push(error.message));
     opened.on("console", (message) => {
+      logs.push(message.text());
       if (message.type() === "error") errors.push(message.text());
       if (process.env.WORKER_DEBUG) console.log(`    [${message.type()}] ${message.text()}`);
     });
@@ -206,6 +214,65 @@ try {
     noErrors("counting in parts");
   }
 
+  // The slow count logs each chunk it counts, and checkpoints after each.
+  const progress = () => logs.filter((line) => line.includes("the slow count has counted up to")).length;
+  const until = async (done, timeout, what) => {
+    for (const deadline = Date.now() + timeout; !done(); ) {
+      if (Date.now() > deadline) throw new Error(`timed out waiting until ${what}`);
+      await page.waitForTimeout(50);
+    }
+  };
+
+  {
+    const started = progress();
+    await page.locator("#slow").click();
+    await until(() => progress() >= started + 3, 30000, "the slow count has logged three chunks");
+    const clicked = Date.now();
+    await page.locator("#cancel").click();
+    await page.locator("#result", { hasText: /^the slow count: failed: .*the job was cancelled/ }).waitFor({ timeout: 5000 });
+    const rejectedIn = Date.now() - clicked;
+    // The chunk under way when the cancel came is finished, then the
+    // checkpoint after it throws: half a second is several chunks' time.
+    await page.waitForTimeout(500);
+    const atCancel = progress();
+    await page.waitForTimeout(2000);
+    assert.equal(progress(), atCancel, "the slow count logs no chunk once it has stopped");
+    console.log(
+      `ok  cancel: the promise was rejected ${ms(rejectedIn)} after the click, and the slow count stopped at its next checkpoint, after ${atCancel - started} chunks`,
+    );
+    noErrors("cancelling the slow count");
+  }
+
+  {
+    const before = workers.size;
+    await page.locator("#worker").click();
+    await page.locator("#status", { hasText: "Counting in a worker" }).waitFor();
+    await page.waitForTimeout(300);
+    const clicked = Date.now();
+    await page.locator("#kill").click();
+    await page.locator("#result", { hasText: /^in a worker: failed: .*killed/ }).waitFor({ timeout: 5000 });
+    const rejectedIn = Date.now() - clicked;
+    await until(() => workers.size < before, 5000, "the killed job's worker has ended");
+    console.log(`ok  kill: the promise was rejected ${ms(rejectedIn)} after the click, and the worker that counted ended (${before} workers before, ${workers.size} after)`);
+    noErrors("killing a count");
+    const { count, parts } = await inParts("in both workers", ["0", "1"]);
+    console.log(`ok  after kill, both of the pool's places run jobs: ${count} primes, the parts from workers ${parts.map((part) => part.worker).join(", ")}`);
+  }
+
+  {
+    const started = progress();
+    const run = await runJob("race", "the race");
+    const { count, millis } = counted(run.text);
+    assert.equal(count, 78498, "the quick count wins the race");
+    const atEnd = progress();
+    assert.ok(atEnd > started, "the slow count ran during the race");
+    await page.waitForTimeout(2000);
+    // At most the chunk under way when the race ended.
+    assert.ok(progress() <= atEnd + 1, `the slow count stopped when it lost: ${progress() - atEnd} chunks after the race`);
+    console.log(`ok  race: the quick count won in ${ms(millis)}, and the slow one, after ${atEnd - started} chunks, was cancelled and stopped`);
+    noErrors("in the race");
+  }
+
   {
     const run = await runJob("here", "here");
     const { count, millis, drew } = counted(run.text);
@@ -235,18 +302,18 @@ try {
   await page.close();
 
   // The page with ?workers=none, whose loader leaves halogenWorker unset, as
-  // wherever no worker can be made: Worker.run counts on the page, on the
-  // thread of the component's liftIO, which leaves the component's loop
-  // free, and the page's thread is shared between them.
+  // wherever no worker can be made: Worker.start counts on the page, on a
+  // thread it forks, which leaves the component's loop free, and the page's
+  // thread is shared between them.
   page = await open(`${url}?workers=none`);
   await page.locator("#available", { hasText: "No Web Worker can be made here" }).waitFor({ timeout: 30000 });
   {
-    const run = await runJob("worker", "with Worker.run");
+    const run = await runJob("worker", "with Worker.start");
     const { count, millis, drew } = counted(run.text);
     assert.equal(count, expected, "the fallback's count");
     assert.equal(workers.size, 0, "no worker without the page's configuration");
     console.log(
-      `ok  with Worker.run and no worker: ${count} primes in ${ms(millis)}, the component drew ${drew} frames, the page showed ${run.shown} different counts in ${run.samples} of its frames`,
+      `ok  with Worker.start and no worker: ${count} primes in ${ms(millis)}, the component drew ${drew} frames, the page showed ${run.shown} different counts in ${run.samples} of its frames`,
     );
     noErrors("in the fallback");
   }
