@@ -3,6 +3,12 @@ function halogen_test_shard() {
   return globalThis.__halogenTestShard ?? "";
 }
 
+// How many Web Workers the runner started beside the pages. A page told so
+// leaves the examples marked inWorker to them.
+function halogen_test_workers() {
+  return globalThis.__halogenTestWorkers ?? 0;
+}
+
 function halogen_test_has_document() {
   return typeof document !== 'undefined';
 }

@@ -27,6 +27,9 @@
 -- examples and hooks run sequentially within it. With
 -- @HSPEC_HALOGEN_JOBS=2@, the runner distributes examples marked 'parallel'
 -- across isolated contexts, after unmarked and 'sequential' examples finish.
+-- With @HSPEC_HALOGEN_WORKERS=2@ it also starts two Web Workers of the suite
+-- beside those contexts, which take the examples marked 'inWorker': ones
+-- that need no page.
 --
 -- Import this module rather than "Test.Hspec": it re-exports what a spec
 -- needs to describe tests, and its expectations share hspec's names.
@@ -64,6 +67,7 @@ module Test.Hspec.Halogen
   , xit
   , parallel
   , sequential
+  , inWorker
 
     -- * Pages
   , PageM
@@ -141,14 +145,13 @@ import Halogen.Trace qualified as Trace
 import Protolude hiding (find)
 import System.Environment (withArgs)
 import System.IO (BufferMode (..), hFlush, hSetBuffering)
-import System.IO.Error (userError)
 import System.IO.Unsafe (unsafePerformIO)
 import Test.HUnit.Lang (FailureReason (..), HUnitFailure (..), assertFailure)
 import Test.Hspec (Spec, SpecWith, context, describe, it, parallel, sequential, specify, xit)
 import Test.Hspec qualified as Hspec
 import Test.Hspec.Halogen.Internal.Monad (MonadBrowserTest (..))
 import Test.Hspec.Halogen.Internal.Page qualified as Page
-import Test.Hspec.Halogen.Internal.Shard (Shard (..), onePage, shardSpec)
+import Test.Hspec.Halogen.Internal.Shard (Shard (..), Workers (..), inWorker, onePage, shardSpec)
 import Test.Hspec.Runner (Summary (..), defaultConfig, hspecWithResult)
 import Text.Show (Show (showsPrec))
 import Web.DOM.Internal.Types qualified as DOM
@@ -183,38 +186,69 @@ runBrowserTestsIn = runSuite . Just . (coerce :: DOM.HTMLElement -> DOM.Element)
 
 runSuite :: Maybe DOM.Element -> Spec -> IO ()
 runSuite parent spec =
-  Page.inBrowser >>= \case
-    False -> putText "hspec-halogen: skipped, this suite runs in a browser (run it with hspec-halogen test)"
-    True -> do
-      hSetBuffering stdout LineBuffering
-      Page.removeLeftovers
-      args <- Page.runnerArgs
-      shard <- Page.runnerShard
-      selected <- case T.splitOn "/" shard of
-        [""] -> pure spec
-        ["serial"] -> pure (shardSpec Serial spec)
-        [index, count]
-          | Just i <- readMaybe index
-          , Just n <- readMaybe count
-          , n > 0
-          , i >= 0
-          , i < n ->
-              pure (shardSpec (Parallel i n) spec)
-        _ -> throwIO (userError "hspec-halogen: invalid browser shard")
-      let run = maybe identity (withArgs . map toS) args $ hspecWithResult defaultConfig (onePage selected)
-          -- The tests' pages go where this suite was told, while it runs.
-          inParent = bracket_ (atomicWriteIORef pagesIn parent) (atomicWriteIORef pagesIn Nothing)
-      -- The runner is told how it went even if the suite itself throws;
-      -- otherwise it would wait for a report until it timed out.
-      summary <- inParent run `onException` (hFlush stdout >> Page.reportDone (-1))
-      hFlush stdout
-      Page.reportDone (summaryFailures summary)
+  readShard <$> Page.runnerShard >>= \case
+    Left invalid -> do
+      -- Reported as a failure rather than thrown, so that the runner hears
+      -- of it at once instead of waiting for a report until it times out.
+      hPutStrLn stderr ("hspec-halogen: invalid browser shard " <> show invalid :: Text)
+      Page.reportDone (-1)
+    Right shard -> do
+      -- A worker has no document, but it is where the runner sent this copy
+      -- of the suite; elsewhere no document means no browser (natively, or a
+      -- JavaScript-backend suite run as the Node script it also is).
+      let worker = case shard of
+            Just (Worker _ _) -> True
+            _ -> False
+      runnable <- if worker then pure True else Page.inBrowser
+      if not runnable
+        then putText "hspec-halogen: skipped, this suite runs in a browser (run it with hspec-halogen test)"
+        else do
+          hSetBuffering stdout LineBuffering
+          unless worker Page.removeLeftovers
+          args <- Page.runnerArgs
+          workers <- (\count -> if count > 0 then WithWorkers else WithoutWorkers) <$> Page.runnerWorkers
+          let selected = maybe spec (\s -> shardSpec workers s spec) shard
+              run = maybe identity (withArgs . map toS) args $ hspecWithResult defaultConfig (onePage selected)
+              -- The tests' pages go where this suite was told, while it runs,
+              -- and a worker opens none.
+              inParent =
+                bracket_
+                  (atomicWriteIORef pagesIn parent >> atomicWriteIORef inWorkerShard worker)
+                  (atomicWriteIORef pagesIn Nothing >> atomicWriteIORef inWorkerShard False)
+          -- The runner is told how it went even if the suite itself throws;
+          -- otherwise it would wait for a report until it timed out.
+          summary <- inParent run `onException` (hFlush stdout >> Page.reportDone (-1))
+          hFlush stdout
+          Page.reportDone (summaryFailures summary)
+
+-- | The shard the runner gave, 'Nothing' for the whole suite (no runner, or
+-- one context and no workers), or the text that is not a shard.
+readShard :: Text -> Either Text (Maybe Shard)
+readShard text = case T.splitOn "/" text of
+  [""] -> Right Nothing
+  ["serial"] -> Right (Just Serial)
+  [index, count] | Just (i, n) <- position index count -> Right (Just (Parallel i n))
+  ["worker", index, count] | Just (i, n) <- position index count -> Right (Just (Worker i n))
+  _ -> Left text
+  where
+    position :: Text -> Text -> Maybe (Int, Int)
+    position index count = do
+      i <- readMaybe index
+      n <- readMaybe count
+      guard (n > 0 && i >= 0 && i < n)
+      pure (i, n)
 
 -- | Where the suite running now puts its pages: in this element, or, when
 -- 'Nothing', at the end of the body.
 pagesIn :: IORef (Maybe DOM.Element)
 pagesIn = unsafePerformIO (newIORef Nothing)
 {-# NOINLINE pagesIn #-}
+
+-- | Whether the suite running now is a Web Worker's share of it, which has
+-- no page to open.
+inWorkerShard :: IORef Bool
+inWorkerShard = unsafePerformIO (newIORef False)
+{-# NOINLINE inWorkerShard #-}
 
 --------------------------------------------------------------------------------
 -- Pages
@@ -250,8 +284,16 @@ data PageEnv = PageEnv
 -- keeps an @STRef@. Only one page is open at a time -- the browser has one
 -- mouse, one keyboard and one focused element to share -- so a test waits
 -- here for the one before it, whatever hspec was told about parallelism.
-runPage :: (forall s. PageM s a) -> IO a
+--
+-- In a Web Worker (an example marked 'inWorker', run with
+-- @HSPEC_HALOGEN_WORKERS@) there is no page, and the example fails saying
+-- so, rather than being skipped, so that an example put there by mistake is
+-- seen.
+runPage :: (HasCallStack) => (forall s. PageM s a) -> IO a
 runPage (PageM test) = do
+  worker <- readIORef inWorkerShard
+  when worker $
+    assertFailure "hspec-halogen: this example runs in a worker, which has no page: take it out of inWorker"
   me <- myThreadId
   holder <- readIORef pageHolder
   -- Only 'unsafeIOToPageM' can get here: the lock would wait on itself.

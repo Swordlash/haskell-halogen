@@ -13,7 +13,7 @@ import Test.Hspec.Runner
 import Prelude
 
 labels :: Shard -> Spec -> IO [String]
-labels shard spec = map Spec.itemRequirement . concatMap toList . snd <$> Spec.runSpecM (shardSpec shard spec)
+labels shard spec = map Spec.itemRequirement . concatMap toList . snd <$> Spec.runSpecM (shardSpec WithoutWorkers shard spec)
 
 -- Run all partitions with the real hspec options, without printing the
 -- expected failures of a focused example to the outer suite's report.
@@ -21,7 +21,7 @@ runShards :: Config -> Spec -> IO [Summary]
 runShards config spec =
   withArgs [] $
     traverse
-      (\shard -> hspecWithResult quiet (onePage (shardSpec shard spec)))
+      (\shard -> hspecWithResult quiet (onePage (shardSpec WithoutWorkers shard spec)))
       [Serial, Parallel 0 2, Parallel 1 2]
   where
     quiet = config {configFormat = Just (\_ -> pure (\_ -> pure ()))}
@@ -93,13 +93,13 @@ main = hspec $ do
             $ beforeAll_ (record "before")
             $ parallel
             $ it "example" (record "body")
-    _ <- hspecWithResult defaultConfig (shardSpec (Parallel 1 2) hooked)
+    _ <- hspecWithResult defaultConfig (shardSpec WithoutWorkers (Parallel 1 2) hooked)
     readIORef calls `shouldReturn` []
-    result <- hspecWithResult defaultConfig (shardSpec (Parallel 0 2) hooked)
+    result <- hspecWithResult defaultConfig (shardSpec WithoutWorkers (Parallel 0 2) hooked)
     summaryExamples result `shouldBe` 1
     summaryFailures result `shouldBe` 0
     readIORef calls `shouldReturn` ["before", "body", "cleanup"]
   it "allows normal hspec match filters within a shard" $ do
-    result <- hspecWithResult defaultConfig {configFilterPredicate = Just (\(_, label) -> label == "first")} (shardSpec (Parallel 1 2) examples)
+    result <- hspecWithResult defaultConfig {configFilterPredicate = Just (\(_, label) -> label == "first")} (shardSpec WithoutWorkers (Parallel 1 2) examples)
     summaryExamples result `shouldBe` 1
     summaryFailures result `shouldBe` 0
