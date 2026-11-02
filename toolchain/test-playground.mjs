@@ -7,8 +7,8 @@
 // a custom element defined over the page's HTML, a Material button with its
 // CSS, a Pixi scene on a canvas, an hh quote
 // from haskell-halogen-th, an hspec-halogen spec, whose report is the
-// program's output, a store, jobs of haskell-halogen-worker, run on the
-// page since the interpreter has no binary for a worker to load, a component
+// program's output, a store, jobs of haskell-halogen-worker, run in a Web
+// Worker that is a second compiler with the program compiled in it, a component
 // from a library linked while the program runs, and one sent over the live
 // layer's wire to a client in the page.
 //
@@ -751,11 +751,16 @@ main = runBrowserDOM $ do
   },
 
   // Halogen.Worker in the interpreter, which has no binary for a worker to
-  // load: the program serves, finds no worker available, and runs its jobs,
-  // static pointers, on the page through the same bytes, a job's exception
-  // coming back as a WorkerError and, through start, as a rejection.
+  // load: the page names its worker.js as halogenWorker.script before the
+  // run, and the pool's worker, started at the first job, starts a compiler
+  // of its own, compiles the same source and runs its main, which serves.
+  // The jobs, static pointers the worker finds by the page's keys, run there
+  // (whichWorker says Just 0), one mapped with start, three in runPar's
+  // tasks, and a job's exception comes back as a WorkerError. The first job
+  // waits for that worker to start: the page's own start-up, and this
+  // program's first compile, again.
   worker: {
-    what: "static jobs from the worker layer, run on the page where no worker can be made, one mapped with start and in tasks with runPar, a failure as a WorkerError",
+    what: "static jobs from the worker layer, run in a worker that is a second compiler with the program compiled in it, one mapped with start and in tasks with runPar, a failure as a WorkerError",
     source: String.raw`{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StaticPointers #-}
@@ -781,17 +786,21 @@ double = static (Worker.job (\n -> pure (n * 2)))
 failing :: StaticPtr (Worker.Job () Int)
 failing = static (Worker.job (\() -> throwIO (userError "no luck")))
 
+whereAmI :: StaticPtr (Worker.Job () (Maybe Int))
+whereAmI = static (Worker.job (\() -> Worker.whichWorker))
+
 report :: Worker.Pool -> H.Component q () o BrowserDOM
 report pool = H.component (\_ -> pure "") (\t -> HH.p_ [HH.text t]) [H.onInitialize initialize]
   where
     initialize = do
       available <- Worker.available
+      ranIn <- liftIO (Worker.run pool whereAmI ())
       doubled <- liftIO (Worker.run pool double 21)
       many <- liftIO (mapConcurrently (Worker.start pool double) [1, 2, 3])
       tasks <- liftIO (runPar pool (traverse (task double) [4, 5, 6]))
       failed <- liftIO (try (Worker.run pool failing ()))
       let failure = either (\(e :: Worker.WorkerError) -> e.job <> ": " <> e.message) (T.pack . show) failed
-      put ("available " <> T.pack (show available) <> "; doubled 21 to " <> T.pack (show doubled) <> "; doubled 1, 2, 3 to " <> T.pack (show many) <> "; in tasks 4, 5, 6 to " <> T.pack (show tasks) <> "; " <> failure :: Text)
+      put ("available " <> T.pack (show available) <> "; ran in " <> T.pack (show ranIn) <> "; doubled 21 to " <> T.pack (show doubled) <> "; doubled 1, 2, 3 to " <> T.pack (show many) <> "; in tasks 4, 5, 6 to " <> T.pack (show tasks) <> "; " <> failure :: Text)
 
 main :: IO ()
 main = Worker.program $ runBrowserDOM $ do
@@ -802,7 +811,18 @@ main = Worker.program $ runBrowserDOM $ do
   HA.keepForNextRun (socket.dispose >> Worker.terminate pool)
 `,
     async verify(page) {
-      await appText(page, /available False; doubled 21 to 42; doubled 1, 2, 3 to \[2,4,6\]; in tasks 4, 5, 6 to \[8,10,12\]; Main:\d+:\d+: user error \(no luck\)/);
+      // The first job waits for the worker's compiler to start and compile
+      // the program: tens of seconds on a slow runner. What it took, from
+      // the end of the run (the component mounted, its jobs given), and the
+      // renderer's memory with the worker up, are printed.
+      const started = Date.now();
+      await page
+        .locator("#app", { hasText: /available True; ran in Just 0; doubled 21 to 42; doubled 1, 2, 3 to \[2,4,6\]; in tasks 4, 5, 6 to \[8,10,12\]; Main:\d+:\d+: user error \(no luck\)/ })
+        .waitFor({ timeout });
+      const renderers = (await rendererMemory()) ?? [];
+      console.log(
+        `    the worker started and answered in ${Date.now() - started} ms; renderer RSS with it up ${renderers.map(({ rss, peak }) => `${(rss / 1e6).toFixed(0)} MB (peak ${(peak / 1e6).toFixed(0)} MB)`).join(", ")}`,
+      );
     },
   },
 
