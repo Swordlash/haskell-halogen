@@ -314,11 +314,12 @@ quasi-quoter runs ghc-lib-parser in the page's interpreter; hspec, an
 acts with synthetic events, and hspec's report (`2 examples, 0 failures`)
 is the program's stdout, with `#app` empty afterwards; store, a tree
 in `StoreT` run with `runStoreT`, whose button's `updateStore` a component
-`connect`ed to the store shows; worker, `Halogen.Worker.program` serving a
-table of two jobs, `Worker.available` saying no worker can be made (the
-interpreted program has no binary for one to load), one job run through
-`Worker.run` on the page and the other's exception given back as a
-`WorkerError`; lazy, `Halogen.Lazy`'s placeholder while
+`connect`ed to the store shows; worker, `Halogen.Worker.program` serving two
+jobs that are static pointers, `Worker.available` saying no worker can be
+made (the interpreted program has no binary for one to load), one job run
+through `Worker.run` on the page and mapped over a list with
+`Worker.start` and `mapConcurrently`, and the other's exception given back
+as a `WorkerError`; lazy, `Halogen.Lazy`'s placeholder while
 `Halogen.Lazy.Dyld` fetches `layers/lazy/liblazy-demo.so` and has dyld link it
 into the program, then the component its entry handed over, clicked and told
 to wave by its parent, which hears it each time; live, a counter in `RemoteDOM` mounted into

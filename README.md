@@ -362,26 +362,29 @@ main = runBrowserDOM $ do
 A computation of seconds takes those seconds from the page: GHC's WebAssembly has no threads
 that share memory, so the runtime's threads take turns on the page's one, and while one computes
 the page draws nothing. `haskell-halogen-worker` runs it in a Web Worker instead, a second copy
-of the program loaded from the same `app.wasm`, which runs the functions the program offers it
-by name, with arguments and results as JSON:
+of the program loaded from the same `app.wasm`, which finds the function the page asks for by
+its static pointer (GHC's `StaticPointers`), with arguments and results as `Data.Binary` bytes
+in transferred `ArrayBuffer`s:
 
 ```haskell
-primes :: Worker.Job Int Int
-primes = Worker.job "primes" (\n -> pure (countPrimes n))
+primes :: StaticPtr (Worker.Job Int Int)
+primes = static (Worker.job (\n -> pure (countPrimes n)))
 
-main = Worker.program [Worker.some primes] $ runBrowserDOM $ do
+main = Worker.program $ runBrowserDOM $ do
   pool <- Worker.newPool 2
   ...
 -- and in a component:
   n <- liftIO (Worker.run pool primes 2000000)
+-- or several at once, across the pool's workers:
+  counts <- liftIO (mapConcurrently (Worker.start pool primesBetween) parts)
 ```
 
 `Worker.program` serves the jobs in a worker and goes on to the UI on the page. The page's
 loader names the program's files in `globalThis.halogenWorker` before starting it (see
 [worker/README.md](worker/README.md)); where nothing names them, natively, or in GHCi,
-`Worker.run` runs the job in the program itself, through the same JSON. `examples/worker` counts
-primes on the page and in a worker beside a spinner the component turns, and lesson 17 of the
-tutorial teaches the API (in the tutorial's interpreter, without a worker).
+the job runs in the program itself, through the same bytes. `examples/worker` counts primes on
+the page, in a worker and in both of its pool's workers beside a spinner the component turns,
+and lesson 17 of the tutorial teaches the API (in the tutorial's interpreter, without a worker).
 
 ## Tauri
 

@@ -751,13 +751,14 @@ main = runBrowserDOM $ do
   },
 
   // Halogen.Worker in the interpreter, which has no binary for a worker to
-  // load: the program serves its table, finds no worker available, and runs
-  // its jobs on the page through the same JSON, a job's exception coming
-  // back as a WorkerError.
+  // load: the program serves, finds no worker available, and runs its jobs,
+  // static pointers, on the page through the same bytes, a job's exception
+  // coming back as a WorkerError and, through start, as a rejection.
   worker: {
-    what: "jobs from the worker layer, run on the page where no worker can be made, a failure as a WorkerError",
+    what: "static jobs from the worker layer, run on the page where no worker can be made, one mapped with start, a failure as a WorkerError",
     source: String.raw`{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE StaticPointers #-}
 
 module Main (main) where
 
@@ -768,14 +769,16 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Halogen qualified as H
 import Halogen.HTML qualified as HH
+import GHC.StaticPtr (StaticPtr)
+import Halogen.JSBits.Promise (mapConcurrently)
 import Halogen.Worker qualified as Worker
 ${mounting}
 
-double :: Worker.Job Int Int
-double = Worker.job "double" (\n -> pure (n * 2))
+double :: StaticPtr (Worker.Job Int Int)
+double = static (Worker.job (\n -> pure (n * 2)))
 
-failing :: Worker.Job () Int
-failing = Worker.job "failing" (\() -> throwIO (userError "no luck"))
+failing :: StaticPtr (Worker.Job () Int)
+failing = static (Worker.job (\() -> throwIO (userError "no luck")))
 
 report :: Worker.Pool -> H.Component q () o BrowserDOM
 report pool = H.component (\_ -> pure "") (\t -> HH.p_ [HH.text t]) [H.onInitialize initialize]
@@ -783,12 +786,13 @@ report pool = H.component (\_ -> pure "") (\t -> HH.p_ [HH.text t]) [H.onInitial
     initialize = do
       available <- Worker.available
       doubled <- liftIO (Worker.run pool double 21)
+      many <- liftIO (mapConcurrently (Worker.start pool double) [1, 2, 3])
       failed <- liftIO (try (Worker.run pool failing ()))
       let failure = either (\(e :: Worker.WorkerError) -> e.job <> ": " <> e.message) (T.pack . show) failed
-      put ("available " <> T.pack (show available) <> "; doubled 21 to " <> T.pack (show doubled) <> "; " <> failure :: Text)
+      put ("available " <> T.pack (show available) <> "; doubled 21 to " <> T.pack (show doubled) <> "; doubled 1, 2, 3 to " <> T.pack (show many) <> "; " <> failure :: Text)
 
 main :: IO ()
-main = Worker.program [Worker.some double, Worker.some failing] $ runBrowserDOM $ do
+main = Worker.program $ runBrowserDOM $ do
   HA.endPreviousRun
   app <- maybe (error "the page has no #app") pure =<< HA.selectElement (QuerySelector "#app")
   pool <- Worker.newPool 1
@@ -796,7 +800,7 @@ main = Worker.program [Worker.some double, Worker.some failing] $ runBrowserDOM 
   HA.keepForNextRun (socket.dispose >> Worker.terminate pool)
 `,
     async verify(page) {
-      await appText(page, "available False; doubled 21 to 42; failing: user error (no luck)");
+      await appText(page, /available False; doubled 21 to 42; doubled 1, 2, 3 to \[2,4,6\]; Main:\d+:\d+: user error \(no luck\)/);
     },
   },
 

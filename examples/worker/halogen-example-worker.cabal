@@ -1,7 +1,7 @@
 cabal-version:      3.0
 name:               halogen-example-worker
 version:            0.1.0.0
-synopsis:           haskell-halogen-worker example: counting primes on the page or in a Web Worker
+synopsis:           haskell-halogen-worker example: counting primes on the page, in a Web Worker or in two
 license:            Apache-2.0
 author:             Mateusz Goślinowski
 maintainer:         mateusz.goslinowski@gmail.com
@@ -58,6 +58,7 @@ library
       protolude,
       row-types,
       haskell-halogen-core,
+      haskell-halogen-jsbits,
       haskell-halogen-worker
 
 executable halogen-example-worker
@@ -77,8 +78,10 @@ executable halogen-example-worker
     other-modules:  Example.Worker
     build-depends:
         base,
-        row-types
-  else
+        row-types,
+        haskell-halogen-jsbits
+  -- Natively Main mounts nothing, so it needs the library only in a browser.
+  elif arch(wasm32) || arch(javascript)
     build-depends:
         halogen-example-worker
 

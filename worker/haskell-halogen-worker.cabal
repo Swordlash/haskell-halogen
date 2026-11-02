@@ -6,16 +6,18 @@ description:
   "Halogen.Worker" runs a program's functions in Web Workers, so that a
   computation that takes seconds does not take them from the page. GHC's
   WebAssembly has no threads that share memory, so a worker is a second
-  instance of the program's own binary, which runs only the functions the
-  program registered as jobs, by name, with their arguments and results
-  passed as JSON over @postMessage@. A program's @main@ starts with
+  instance of the program's own binary, which runs the functions the page
+  asks for by their static pointers (GHC's @StaticPointers@), with their
+  arguments and results passed as "Data.Binary" bytes in transferred
+  @ArrayBuffer@s over @postMessage@. A program's @main@ starts with
   @program@ (or @serve@), which in a worker serves the jobs and on the page
   goes on to the UI; a @Pool@ starts its workers when it first needs them,
-  and @run@ waits for a job's result as any @liftIO@ waits. Where no worker
-  can be made (natively, in Node, in a page that has not said where the
-  program is) the job runs in the program itself, through the same JSON, so
-  the same code works everywhere. It needs nothing of haskell-halogen-core:
-  any program compiled for the browser can use it.
+  @start@ gives a promise of a job's result and @run@ waits for it as any
+  @liftIO@ waits. Where no worker can be made (natively, in Node, in a page
+  that has not said where the program is) the job runs in the program
+  itself, through the same bytes, so the same code works everywhere. It
+  needs nothing of haskell-halogen-core: any program compiled for the
+  browser can use it.
 homepage:           https://github.com/Swordlash/haskell-halogen
 license:            Apache-2.0
 license-file:       LICENSE
@@ -43,11 +45,11 @@ common defaults
 library
     import:           defaults
     hs-source-dirs:   src
-    exposed-modules:  Halogen.Worker
+    exposed-modules:  Halogen.Worker, Halogen.Worker.Internal
     build-depends:
         base >= 4.20 && < 5,
-        aeson >= 2.2.1,
-        containers,
+        binary >= 0.8.9,
+        bytestring,
         text,
         unliftio,
         haskell-halogen-jsbits
@@ -69,10 +71,12 @@ test-suite Halogen-worker-test
     other-modules:    Test.Run
     build-depends:
         base,
-        aeson,
+        binary,
+        bytestring,
         hspec >= 2,
         text,
         haskell-halogen-core,
+        haskell-halogen-jsbits,
         haskell-halogen-worker
 
 source-repository head

@@ -2,10 +2,11 @@
 
 -- | The same program twice over: on the page it mounts the example, and in
 -- each Web Worker the pool starts (another instance of this binary) it
--- serves the jobs instead, which is what 'Worker.program' decides.
+-- serves the jobs instead, which is what 'Worker.program' decides. A worker
+-- finds each job by its static pointer's key, so there is no table of them
+-- to hand over here.
 module Main where
 
-import Example.Worker (jobs)
 import Halogen.IO.Util qualified as HA
 import Halogen.VDom.DOM.Monad (BrowserDOM, runBrowserDOM)
 import Halogen.Worker qualified as Worker
@@ -33,7 +34,7 @@ mount = panic "This example runs in a browser: build it with the JavaScript or w
 #endif
 
 main :: IO ()
-main = Worker.program jobs $ runBrowserDOM $ do
+main = Worker.program $ runBrowserDOM $ do
   -- Browser GHCi (toolchain/dev.sh) keeps the page between runs of :main:
   -- end the last run's tree and workers, and keep how to end this run's.
   -- There the program is GHCi's, with no binary of its own for a worker to

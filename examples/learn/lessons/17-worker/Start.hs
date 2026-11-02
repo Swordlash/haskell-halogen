@@ -1,8 +1,9 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE StaticPointers #-}
 
-module Lesson (component, jobs) where
+module Lesson (component) where
 
 import Control.Exception (evaluate)
 import Control.Monad (void)
@@ -22,11 +23,6 @@ countPrimes :: Int -> Int
 countPrimes n = length (filter isPrime [2 .. n - 1])
   where
     isPrime k = all (\d -> k `rem` d /= 0) (takeWhile (\d -> d * d <= k) (2 : [3, 5 ..]))
-
--- The program's table of jobs, which Main.hs hands to Worker.program.
--- Empty, for now.
-jobs :: [Worker.SomeJob]
-jobs = []
 
 data State = State {frame :: Int, counting :: Bool, answer :: Text, workers :: Bool}
 

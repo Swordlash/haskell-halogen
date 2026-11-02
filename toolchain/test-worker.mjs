@@ -12,7 +12,9 @@
 // sample at each of its own animation frames), in each of the pool's two
 // workers as it starts and in one already running; counting on the page
 // gives the same count, and the component draws no frame until it is done;
-// a job that throws is reported with its message; terminating the pool ends
+// the range counted in four parts with Worker.start and mapConcurrently
+// comes back in order, from both of the pool's workers, while the page
+// draws, and on the page where no worker can be made; a job that throws is reported with its message; terminating the pool ends
 // its workers, and the next job starts one again; nothing is logged as an
 // error, and nothing is loaded from another site. WORKER_DEBUG=1 prints
 // what the page and its workers log.
@@ -25,6 +27,13 @@ import { chromium } from "playwright";
 const root = resolve(process.argv[2] ?? "dist-newstyle/wasm/public/worker");
 // The primes below two million, which the example counts.
 const expected = 148933;
+// And in each quarter of that range, which the example counts in parts.
+const quarters = [
+  { from: 0, to: 500000, count: 41538 },
+  { from: 500000, to: 1000000, count: 36960 },
+  { from: 1000000, to: 1500000, count: 35657 },
+  { from: 1500000, to: 2000000, count: 34778 },
+];
 
 const types = {
   ".html": "text/html",
@@ -166,6 +175,37 @@ try {
   await inWorker("the second, starting it");
   await inWorker("the first again, already running");
 
+  // The range in four parts, each a Worker.start, waited for together with
+  // mapConcurrently: the parts come back in the range's order, whichever
+  // finished first, and the pool's two workers took turns with them.
+  const inParts = async (place, where) => {
+    const run = await runJob("spread", place);
+    const { count, millis, drew } = counted(run.text);
+    assert.equal(count, expected, "the parts' total");
+    const parts = await page.locator("#parts li").evaluateAll((items) =>
+      items.map((item) => ({ text: item.textContent, worker: item.dataset.worker })),
+    );
+    assert.equal(parts.length, quarters.length, `a line for each part: ${JSON.stringify(parts)}`);
+    parts.forEach((part, index) => {
+      const quarter = quarters[index];
+      assert.ok(
+        part.text.startsWith(`${quarter.count} primes from ${quarter.from} up to ${quarter.to}, counted `),
+        `part ${index} in its place, with its count: ${part.text}`,
+      );
+    });
+    const workersUsed = [...new Set(parts.map((part) => part.worker))].sort();
+    assert.deepEqual(workersUsed, where, `the parts were counted ${where.join(" and ")}: ${JSON.stringify(parts)}`);
+    return { count, millis, drew, run, parts };
+  };
+  {
+    const { count, millis, drew, run, parts } = await inParts("in both workers", ["0", "1"]);
+    assert.ok(drew >= 10, `the component drew while the workers counted: ${drew} frames`);
+    console.log(
+      `ok  in both workers, a part each in turn: ${count} primes in ${ms(millis)}, the parts in order from workers ${parts.map((part) => part.worker).join(", ")}, the component drew ${drew} frames, the page showed ${run.shown} different counts`,
+    );
+    noErrors("counting in parts");
+  }
+
   {
     const run = await runJob("here", "here");
     const { count, millis, drew } = counted(run.text);
@@ -209,6 +249,12 @@ try {
       `ok  with Worker.run and no worker: ${count} primes in ${ms(millis)}, the component drew ${drew} frames, the page showed ${run.shown} different counts in ${run.samples} of its frames`,
     );
     noErrors("in the fallback");
+  }
+  {
+    const { count, millis, parts } = await inParts("in parts with Worker.start", ["page"]);
+    assert.equal(workers.size, 0, "no worker for the parts without the page's configuration");
+    console.log(`ok  in parts with no worker: ${count} primes in ${ms(millis)}, all ${parts.length} parts counted on the page, in order`);
+    noErrors("counting in parts in the fallback");
   }
 
   await page.close();
