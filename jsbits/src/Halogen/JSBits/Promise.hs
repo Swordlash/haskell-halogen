@@ -40,10 +40,11 @@ module Halogen.JSBits.Promise
   , JSError (..)
   , await
   , awaitAll
+  , checkThrown
   )
 where
 
-import Control.Exception (Exception (..), evaluate)
+import Control.Exception (Exception (..), evaluate, throwIO)
 import Control.Monad.IO.Class (MonadIO (..))
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -87,6 +88,7 @@ $( browserJS
      , ("js_value", "halogen_promise_value", Unsafe, [t|JSVal -> IO JSVal|])
      , ("js_name", "halogen_promise_name", Unsafe, [t|JSVal -> IO JSText|])
      , ("js_message", "halogen_promise_message", Unsafe, [t|JSVal -> IO JSText|])
+     , ("js_sync_ok", "halogen_sync_ok", Unsafe, [t|JSVal -> IO Bool|])
      ]
  )
 
@@ -140,6 +142,22 @@ outcomeOf outcome = do
       name <- fromJSText <$> js_name outcome
       message <- fromJSText <$> js_message outcome
       pure (Left JSError {name, message})
+
+-- | Throw the JavaScript exception a synchronous call caught, as a
+-- 'JSError'. The call is one that 'Halogen.JSBits.Fields.jsFields' writes:
+-- its JavaScript returns @{ ok: true, value }@, or @{ ok: false, error }@
+-- with what it caught, and this reads that. Natively it does nothing.
+checkThrown :: JSVal -> IO ()
+checkThrown outcome
+  | not inBrowser = pure ()
+  | otherwise = do
+      ok <- js_sync_ok outcome
+      if ok
+        then pure ()
+        else do
+          name <- fromJSText <$> js_name outcome
+          message <- fromJSText <$> js_message outcome
+          throwIO JSError {name, message}
 
 notInBrowser :: JSError
 notInBrowser = JSError {name = "NotInBrowserError", message = "there is no JavaScript engine here to run a promise"}

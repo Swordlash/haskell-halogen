@@ -2,7 +2,8 @@
 
 -- | Fields of the Web types ("Halogen.JSBits.Fields"), in a real browser:
 -- one test for each kind of member (fixed, live, writable, a method, a
--- method whose Promise is awaited), a rejected Promise, and checked casts,
+-- method whose Promise is awaited), a rejected Promise, an exception thrown
+-- by a method, and checked casts,
 -- one that holds and ones that do not. Natively each field gives its inert
 -- answer, which core's suite tests (Test.WebFields).
 module Test.Fields (spec) where
@@ -79,6 +80,14 @@ spec m = do
     -- Nothing is full screen, so leaving full screen is rejected.
     outcome <- inPage (\w -> try @JSError w.document.exitFullscreen)
     outcome `shouldSatisfy` isLeft
+
+  it "throws a JavaScript exception out of a method as a JSError" $ runPage $ do
+    -- A selector that does not parse is a SyntaxError, which on WebAssembly
+    -- would end the program if the field did not catch it.
+    outcome <- inPage (\w -> try @JSError (w.document.querySelector "::"))
+    either (.name) (const "no exception") outcome `shouldBe` "SyntaxError"
+    -- The program goes on, and the next call answers as usual.
+    inPage (\w -> isJust <$> w.document.querySelector "body") `shouldReturn` True
 
   it "casts an event or an element only to what it is" $ runPage $ do
     plain <- inPage (const (js_new_event (toJSText "fields-test")))

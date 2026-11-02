@@ -71,13 +71,16 @@
 --
 -- = Exceptions
 --
--- A 'Fixed', 'Live', 'Writable' or 'Method' member is a synchronous import,
--- and on WebAssembly a JavaScript exception out of a synchronous import ends
--- the program: it cannot be caught as a Haskell exception there. So a call
--- that can throw (@showModal@ on a dialog that is already open, a selector
--- that does not parse) must be made only when it cannot, or written in
--- jsbits with its own @try@. An 'Awaited' member catches what its method
--- throws.
+-- A JavaScript exception out of a 'Live', 'Writable' or 'Method' member is
+-- thrown in Haskell as a 'Halogen.JSBits.Promise.JSError', with the
+-- exception's name and message, so the caller catches it as any 'IO'
+-- exception (@showModal@ on a dialog that is already open throws an
+-- @InvalidStateError@, a selector that does not parse a @SyntaxError@).
+-- Without that, a JavaScript exception out of a synchronous import would end
+-- the program on WebAssembly, where it cannot be caught as a Haskell
+-- exception. A 'Fixed' member is read purely and is not guarded: it is for
+-- values whose read does not throw. An 'Awaited' member throws a rejection
+-- the same way, and so what its method throws before returning its Promise.
 --
 -- = Where instances go
 --
@@ -101,7 +104,7 @@ import Data.List (intercalate, isSuffixOf, sortOn)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import GHC.Records (HasField (..))
-import Halogen.JSBits.Promise (Promise (..), await)
+import Halogen.JSBits.Promise (Promise (..), await, checkThrown)
 import Halogen.JSBits.Value (Inert (..), JSText, JSVal, fromJSBytes, fromJSText, isNull, jsNull, jsValText, toJSText)
 import Language.Haskell.TH
 import Language.Haskell.TH.Syntax (addModFinalizer)
@@ -245,12 +248,9 @@ member receiver native = \case
     get <- browser native (readLive js shape result)
     argument <- argumentShape js result
     set <- browser Nothing $ do
-      raw <- rawName "set" js
+      (raw, decls, guard) <- guarded "set" js ("$1." <> js <> " = $2") Unit (TupleT 0) [self, ffiType argument result]
       v <- newName "v"
-      pure
-        ( [importJS raw ("$1." <> js <> " = $2") (self `arrow` (ffiType argument result `arrow` AppT (ConT ''IO) (TupleT 0)))]
-        , [|\o -> $(lamE [varP v] [|$(varE raw) o $(toForeign argument (varE v))|])|]
-        )
+      pure (decls, [|\o -> $(lamE [varP v] (guard [|$(varE raw) o $(toForeign argument (varE v))|]))|])
     pure (field js ty get <> field (js <> "_set") (result `arrow` AppT (ConT ''IO) (TupleT 0)) set)
   Method js quoted -> do
     ty <- quoted
@@ -258,12 +258,11 @@ member receiver native = \case
     (shape, result) <- ioResult js io
     shapes <- mapM (argumentShape js) arguments
     call <- browser native $ do
-      raw <- rawName "call" js
+      (raw, decls, guard) <- guarded "call" js (callOf js (length arguments)) shape result (self : zipWith ffiType shapes arguments)
       vs <- mapM (const (newName "a")) arguments
       o <- newName "o"
-      let ffi = foldr arrow (AppT (ConT ''IO) (ffiType shape result)) (self : zipWith ffiType shapes arguments)
-          applied = foldl appE (varE raw) (varE o : zipWith toForeign shapes (map varE vs))
-      pure ([importJS raw (nullish shape (callOf js (length arguments))) ffi], lamE (varP o : map varP vs) (ioFrom shape applied))
+      let applied = foldl appE (varE raw) (varE o : zipWith toForeign shapes (map varE vs))
+      pure (decls, lamE (varP o : map varP vs) (guard applied))
     pure (field js ty call)
   Awaited js quoted -> do
     ty <- quoted
@@ -290,8 +289,26 @@ member receiver native = \case
     typeName = nameBase receiver
     rawName kind js = newName ("js_" <> kind <> "_" <> typeName <> "_" <> js)
     readLive js shape result = do
-      raw <- rawName "get" js
-      pure ([importJS raw (nullish shape ("$1." <> js)) (self `arrow` AppT (ConT ''IO) (ffiType shape result))], [|\o -> $(ioFrom shape [|$(varE raw) o|])|])
+      (raw, decls, guard) <- guarded "get" js ("$1." <> js) shape result [self]
+      pure (decls, [|\o -> $(guard [|$(varE raw) o|])|])
+    -- An IO member's call, made so that a JavaScript exception out of it is
+    -- thrown in Haskell as a 'JSError'. The import catches the exception
+    -- and returns an outcome object, @{ok, value}@ or @{ok: false, error}@;
+    -- 'checkThrown' throws its error, and a second import reads its value
+    -- with the FFI's conversion for the member's type. The outcome is made
+    -- and read with nothing in between, so no other Haskell thread can see
+    -- or take it.
+    guarded kind js expression shape result ffiArguments = do
+      raw <- rawName kind js
+      let caught = "(() => { try { return { ok: true, value: " <> expression <> " }; } catch (e) { return { ok: false, error: e }; } })()"
+          outcome = importJS raw caught (foldr arrow (AppT (ConT ''IO) (ConT ''JSVal)) ffiArguments)
+      if shape == Unit
+        then pure (raw, [outcome], \call -> [|$call >>= checkThrown|])
+        else do
+          value <- rawName (kind <> "_value") js
+          let readValue = importJS value (nullish shape "$1.value") (ConT ''JSVal `arrow` AppT (ConT ''IO) (ffiType shape result))
+          r <- newName "r"
+          pure (raw, [outcome, readValue], \call -> [|$call >>= \ $(varP r) -> checkThrown $(varE r) >> $(ioFrom shape [|$(varE value) $(varE r)|])|])
     field js ty (decls, impl) = decls <> [fieldInstance (fieldName js) receiver ty impl]
 
 -- In a browser, the imports and the field's expression the generator

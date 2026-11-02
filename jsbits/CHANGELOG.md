@@ -11,7 +11,10 @@ file. `jsFields ''T [...]` writes a `HasField` instance for each member of
 (`doc.title_set :: Text -> IO ()`), a `Method` holds the call
 (`history.go :: Int -> IO ()`) and an `Awaited` one the call and the wait for
 the Promise it returns, through `Halogen.JSBits.Promise.await`, throwing a
-rejection as a `JSError`. Strings, numbers, booleans, `Maybe` for `null` and
+rejection as a `JSError`. A JavaScript exception out of a `Live`,
+`Writable` or `Method` member is thrown as a `JSError` too, so the caller
+catches it as any `IO` exception (on WebAssembly an exception out of a
+synchronous import would otherwise end the program). Strings, numbers, booleans, `Maybe` for `null` and
 `undefined`, newtypes over a `JSVal` and, for an awaited result, a
 `ByteString` cross as the FFI passes them. Natively every field is `inert`,
 or what `Natively` gives it. `jsFieldFunctions ''T [...]` writes the same
@@ -21,6 +24,9 @@ checked cast that asks `instanceof`; `inlineJS` declares one import of an
 expression over `$1`, `$2`, ..., for constructors and static methods.
 
 `Inert` has an instance for `ByteString` (empty).
+
+`Halogen.JSBits.Promise.checkThrown` throws the exception a synchronous call
+caught, for the code `jsFields` writes.
 
 The `wasi` flag builds inert browser bindings and checked Haskell values on
 WebAssembly, for standalone commands without JavaScript imports.

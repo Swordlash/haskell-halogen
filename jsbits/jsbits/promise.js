@@ -83,3 +83,14 @@ function halogen_promise_name(outcome) {
 function halogen_promise_message(outcome) {
   return outcome.message;
 }
+
+// Whether a synchronous call's outcome, { ok: true, value } or
+// { ok: false, error }, says it returned. When it threw, its error is
+// described the way a rejection is, in the name and message fields
+// halogen_promise_name and halogen_promise_message read.
+function halogen_sync_ok(outcome) {
+  if (outcome.ok) return true;
+  halogen_promise_rejected(outcome, outcome.error);
+  outcome.error = undefined;
+  return false;
+}

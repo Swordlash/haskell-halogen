@@ -35,8 +35,8 @@ $( jsFields
      , -- Show it as a modal: above the page, with a backdrop, the rest of
        -- the page inert, closed by Escape, and the focus given back to
        -- where it was when it closes. The browser throws for a dialog that
-       -- is already open as a non-modal one, or is not in the document,
-       -- which on WebAssembly ends the program: ask 'open' first.
+       -- is already open as a non-modal one, or is not in the document;
+       -- that comes back as a 'Halogen.JSBits.Promise.JSError'.
        Method "showModal" [t|IO ()|]
      , -- Close it, if it is open.
        Method "close" [t|IO ()|]

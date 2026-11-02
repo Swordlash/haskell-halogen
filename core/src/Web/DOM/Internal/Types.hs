@@ -105,7 +105,7 @@ $( jsFields
      , -- The element shown full screen, if one is.
        Live "fullscreenElement" [t|IO (Maybe Element)|]
      , -- The first element a CSS selector matches. A selector that does not
-       -- parse throws, which on WebAssembly ends the program.
+       -- parse throws a 'Halogen.JSBits.Promise.JSError' (a @SyntaxError@).
        Method "querySelector" [t|Text -> IO (Maybe Element)|]
      , Method "getElementById" [t|Text -> IO (Maybe Element)|]
      , -- Leave full screen. Rejected when nothing is full screen.
@@ -121,8 +121,8 @@ $( jsFields
      , Method "getAttribute" [t|Text -> IO (Maybe Text)|]
      , Method "hasAttribute" [t|Text -> IO Bool|]
      , -- The element itself or its nearest ancestor that a CSS selector
-       -- matches. A selector that does not parse throws, which on
-       -- WebAssembly ends the program; so does one for 'querySelector'.
+       -- matches. A selector that does not parse throws a
+       -- 'Halogen.JSBits.Promise.JSError' (a @SyntaxError@), as for 'querySelector'.
        Method "closest" [t|Text -> IO (Maybe Element)|]
      , Method "querySelector" [t|Text -> IO (Maybe Element)|]
      , -- Scroll the page (and whatever scrolls around the element) until
