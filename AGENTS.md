@@ -139,9 +139,10 @@ and wired into `test/Test.hs`.
   so every JS program linking core has them, test suites included. `POLYFILLS.md` lists each one
   with where its real fix belongs upstream; add a polyfill there, not in a package's own jsbits.
 - Two wasm facts the harness depends on: an async (`safe`) JSFFI import returns a *thunk*, and the
-  calling thread only waits for the promise when it is forced. `Halogen.JSBits.Promise.await` is
-  where a binding's wait is forced (its own are the only `safe` bindings), so the harness's page
-  actions return a `Promise` and await it, and the test does not run on while the page still acts.
+  calling thread only waits for the promise when it is forced. The harness's page actions return a
+  `Promise` instead and `Halogen.JSBits.Promise.await` it: two callbacks on the promise's `then`
+  (`awaitPromise`) fill an `MVar` the thread sleeps on, so the test does not run on while the page
+  still acts.
   And a JS→Haskell callback is not run on the spot: the glue schedules the RTS scheduler loop as a
   task (`scheduler.postTask` in Chromium), which is why every harness action ends with `settle`.
 - `toolchain/test-learn.mjs` tests the deployed artefact rather than a component: it serves the built
