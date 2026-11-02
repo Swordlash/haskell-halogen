@@ -25,11 +25,12 @@ module Test.Run
   , where_
   , sleeper
   , spin
+  , selfKilled
   )
 where
 
 import Control.Concurrent (threadDelay)
-import Control.Exception (throwIO)
+import Control.Exception (AsyncException (..), throwIO)
 import Control.Monad (forever)
 import Data.Binary (Binary (..), encode)
 import Data.ByteString (ByteString)
@@ -75,6 +76,11 @@ lazyError = static (Worker.job (\n -> pure (if n > 0 then error "found too late"
 
 broken :: StaticPtr (Job () Broken)
 broken = static (Worker.job (\() -> pure Broken))
+
+-- A job that ends its thread with an exception 'runCall' does not catch:
+-- ThreadKilled counts as asynchronous, whoever throws it.
+selfKilled :: StaticPtr (Job () Int)
+selfKilled = static (Worker.job (\() -> throwIO ThreadKilled))
 
 where_ :: StaticPtr (Job () (Maybe Int))
 where_ = static (Worker.job (\() -> Worker.whichWorker))
@@ -146,6 +152,13 @@ spec = describe "Halogen.Worker" $ do
   it "gives a job's exception back as a WorkerError naming where its static is" $ do
     pool <- Worker.newPool 1
     Worker.run pool fails 1 `shouldThrow` failsWith "no luck"
+
+  it "settles the promise of a job whose thread ends by an exception it does not catch" $ do
+    pool <- Worker.newPool 1
+    Worker.run pool selfKilled () `shouldThrow` failsWith "thread killed"
+    p <- Worker.start pool selfKilled ()
+    outcome <- waitCatch p
+    either (.name) (const "resolved") outcome `shouldBe` "WorkerError"
 
   it "counts an error in the result, found as it is encoded, as the job's" $ do
     pool <- Worker.newPool 1

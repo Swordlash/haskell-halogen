@@ -65,7 +65,7 @@ where
 
 import Control.Concurrent (ThreadId, forkIO, forkIOWithUnmask, killThread, myThreadId, yield)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, readMVar)
-import Control.Exception (Exception (..), evaluate, finally, mask, mask_, onException, throwIO, try)
+import Control.Exception (Exception (..), SomeException, evaluate, finally, mask, mask_, onException, throwIO, try)
 import Control.Monad (void, when)
 import Control.Monad.IO.Class (MonadIO (..))
 import Data.Bifunctor (first)
@@ -344,12 +344,23 @@ launch pool pointer argument = do
       -- its 'forget' cannot come first and leave the entry behind; and it
       -- begins masked, so that a 'cancel' before it has begun still finds
       -- the 'finally' in place.
+      --
+      -- Whatever ends the thread settles the promise: 'runCall' gives the
+      -- function's own outcome, and an exception it lets through (one
+      -- thrown to the thread from elsewhere than 'cancel', 'kill' and
+      -- 'terminate', which settle the promise before they throw, or a
+      -- 'ThreadKilled' the function throws itself) is the job's failure
+      -- too, so that nobody waits for a thread that is gone. An outcome a
+      -- stop supplied first is kept, since 'fill' writes only once.
       registered <- newEmptyMVar
       mask_ $ do
         thread <- forkIOWithUnmask $ \unmask -> do
           readMVar registered
-          ( unmask (runCall theJob.call bytes)
-              >>= atomically . fill . either (Left . failed) (first failed . decoded theJob)
+          ended <- try (unmask (runCall theJob.call bytes))
+          atomically
+            ( fill $ case ended of
+                Left (e :: SomeException) -> Left (failed (Text.pack (displayException e)))
+                Right outcome -> either (Left . failed) (first failed . decoded theJob) outcome
             )
             `finally` forget
         atomicModifyIORef' pool.local (\running -> ((name, Local {thread, settle = fill . Left}) : running, ()))
