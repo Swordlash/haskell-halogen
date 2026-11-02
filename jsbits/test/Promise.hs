@@ -24,6 +24,7 @@ $( browserJS
      , ("plain", "halogen_promise_test_plain", Unsafe, [t|JSText -> IO (Promise JSVal)|])
      , ("typedText", "halogen_promise_test_text", Unsafe, [t|Int -> JSText -> IO (Promise Text)|])
      , ("typedNumber", "halogen_promise_test_number", Unsafe, [t|Int -> Int -> IO (Promise Int)|])
+     , ("typedNumbers", "halogen_promise_test_numbers", Unsafe, [t|Int -> IO (Promise [Int])|])
      , ("readNumber", "halogen_promise_test_read_number", Unsafe, [t|JSVal -> IO Int|])
      , ("isString", "halogen_promise_test_is_string", Unsafe, [t|JSVal -> IO Bool|])
      ]
@@ -44,6 +45,8 @@ inEngine = do
   check "a Promise Text resolves with its text" (typed == Right "typed")
   typedN <- await =<< typedNumber 10 41
   check "a Promise Int resolves with its number" (typedN == Right 41)
+  typedList <- await =<< typedNumbers 10
+  check "a Promise [Int] resolves with its numbers" (typedList == Right [1, 2, 3])
 
   failed <- await =<< failing 10 (toJSText "NotFoundError") (toJSText "no such thing")
   check "an Error's rejection gives its name and message" (failed `isError` JSError "NotFoundError" "no such thing")

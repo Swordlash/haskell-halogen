@@ -97,3 +97,13 @@ function halogen_promise_boolean(value) {
 function halogen_promise_absent(value) {
   return value === null || value === undefined;
 }
+
+// An array a promise resolved with, read element by element. Anything that
+// is not an array reads as an empty one.
+function halogen_promise_array_length(value) {
+  return Array.isArray(value) ? value.length : 0;
+}
+
+function halogen_promise_array_index(value, i) {
+  return value[i];
+}

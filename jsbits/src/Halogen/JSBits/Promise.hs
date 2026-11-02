@@ -48,6 +48,7 @@ module Halogen.JSBits.Promise
 where
 
 import Control.Exception (evaluate, throwIO)
+import Control.Monad ((<=<))
 import Control.Monad.IO.Class (MonadIO (..))
 import Data.ByteString (ByteString)
 import Data.Text (Text)
@@ -85,6 +86,8 @@ $( browserJS
      , ("js_as_double", "halogen_promise_number", Unchecked, [t|JSVal -> IO Double|])
      , ("js_as_bool", "halogen_promise_boolean", Unchecked, [t|JSVal -> IO Bool|])
      , ("js_absent", "halogen_promise_absent", Unchecked, [t|JSVal -> IO Bool|])
+     , ("js_array_length", "halogen_promise_array_length", Unchecked, [t|JSVal -> IO Int|])
+     , ("js_array_index", "halogen_promise_array_index", Unchecked, [t|JSVal -> Int -> IO JSVal|])
      ]
  )
 
@@ -111,6 +114,14 @@ instance FromJS Int where fromJS = js_as_int
 instance FromJS Double where fromJS = js_as_double
 
 instance FromJS Bool where fromJS = js_as_bool
+
+-- | An array, each element read as @a@. Read through the array's length and
+-- its elements by index, the same on both browser backends: the JavaScript
+-- backend's @fromJSArray@ has no WebAssembly counterpart.
+instance (FromJS a) => FromJS [a] where
+  fromJS v = do
+    count <- js_array_length v
+    traverse (fromJS <=< js_array_index v) [0 .. count - 1]
 
 -- | @null@ or @undefined@ as 'Nothing'.
 instance (FromJS a) => FromJS (Maybe a) where

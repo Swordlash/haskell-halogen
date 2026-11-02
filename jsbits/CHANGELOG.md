@@ -27,7 +27,8 @@ expression over `$1`, `$2`, ..., for constructors and static methods.
 **Breaking: `Promise` takes the type of what it resolves with**, `Promise a`,
 and `await :: Promise a -> m (Either JSError a)` reads the resolved value as
 that type through the new class `FromJS` (`JSVal`, `()`, `Text`,
-`ByteString`, `Int`, `Double`, `Bool`, `Maybe a` for `null` and `undefined`;
+`ByteString`, `Int`, `Double`, `Bool`, `Maybe a` for `null` and `undefined`,
+`[a]` for an array;
 a newtype over a `JSVal` derives it). `Promise JSVal` is the old behaviour.
 `awaitOrThrow` throws a rejection instead of returning it.
 
