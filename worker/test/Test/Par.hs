@@ -16,7 +16,9 @@ module Test.Par
   )
 where
 
-import Control.Exception (throwIO)
+import Control.Concurrent (forkIO, threadDelay)
+import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
+import Control.Exception (throwIO, try)
 import Data.List (sort)
 import Data.Text qualified as Text
 import GHC.StaticPtr (StaticPtr)
@@ -25,7 +27,7 @@ import Halogen.Worker qualified as Worker
 import Halogen.Worker.Internal (Batch (..), plan)
 import Halogen.Worker.Par (runPar, task)
 import Test.Hspec
-import Test.Run (broken, double)
+import Test.Run (broken, double, spin)
 
 triple :: StaticPtr (Job Int Int)
 triple = static (Worker.job (\n -> pure (n * 3)))
@@ -88,3 +90,13 @@ spec = describe "Halogen.Worker.Par" $ do
     it "fails for a result that does not decode, naming the call" $ do
       pool <- Worker.newPool 1
       runPar pool (task broken ()) `shouldThrow` failsWith "its call at index 0: its result does not decode"
+
+    it "ends a computation run here when the pool is terminated" $ do
+      pool <- Worker.newPool 1
+      outcome <- newEmptyMVar
+      _ <- forkIO (try (runPar pool (task spin ())) >>= putMVar outcome)
+      threadDelay 10000
+      Worker.terminate pool
+      takeMVar outcome >>= \case
+        Left (e :: WorkerError) -> Text.unpack e.message `shouldEndWith` "the pool was terminated"
+        Right () -> expectationFailure "the computation outlived the pool"

@@ -43,7 +43,8 @@ each round's calls of a job into batches, several for each worker, each one requ
 the next batch to whichever worker has answered its last, so that uneven calls do not leave a
 worker idle. A failing call fails the whole computation with a `WorkerError` naming its job and
 its index, and the batches still running are cancelled, as they are when `runPar`'s thread is
-interrupted. Where no worker can be made the batches run on the calling thread. `size` gives a
+interrupted. Where no worker can be made the batches run here, as jobs of the pool's own, so that
+`terminate` ends them. `size` gives a
 pool's number of workers. A worker now answers a request with the results of its calls up to the
 first that failed, and that call's failure, rather than one failure for the whole request.
 

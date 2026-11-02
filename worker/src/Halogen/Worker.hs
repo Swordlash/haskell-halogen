@@ -64,6 +64,7 @@ module Halogen.Worker
 
     -- * For "Halogen.Worker.Par"
   , sendTo
+  , startHere
   )
 where
 
@@ -354,42 +355,57 @@ launch pool pointer argument = do
       let outcome = (\case Left e -> Left (named e); Right reply -> first failed (fromReply theJob reply)) <$> replied.settled
       pure (replied.rawPromise, outcome)
     else do
-      box <- newTVarIO Nothing
-      raw <- evaluate . toJSInt =<< atomicModifyIORef' tokens (\n -> (n + 1, n))
-      name <- makeStableName raw
-      let fill outcome = readTVar box >>= maybe (writeTVar box (Just outcome)) (const (pure ()))
-          forget = atomicModifyIORef' pool.local (\running -> (filter ((/= name) . fst) running, ()))
-      -- The thread waits for its entry to be made before it begins, so that
-      -- its 'forget' cannot come first and leave the entry behind; and it
-      -- begins masked, so that a 'cancel' before it has begun still finds
-      -- the 'finally' in place.
-      --
-      -- Whatever ends the thread settles the promise: 'runCall' gives the
-      -- function's own outcome, and an exception it lets through (one
-      -- thrown to the thread from elsewhere than 'cancel', 'kill' and
-      -- 'terminate', which settle the promise before they throw, or a
-      -- 'ThreadKilled' the function throws itself) is the job's failure
-      -- too, so that nobody waits for a thread that is gone. An outcome a
-      -- stop supplied first is kept, since 'fill' writes only once.
-      registered <- newEmptyMVar
-      mask_ $ do
-        thread <- forkIOWithUnmask $ \unmask -> do
-          readMVar registered
-          ended <- try (unmask (runCall theJob.call bytes))
-          atomically
-            ( fill $ case ended of
-                Left (e :: SomeException) -> Left (failed (Text.pack (displayException e)))
-                Right outcome -> either (Left . failed) (first failed . decoded theJob) outcome
-            )
-            `finally` forget
-        atomicModifyIORef' pool.local (\running -> ((name, Local {thread, settle = fill . Left}) : running, ()))
-        putMVar registered ()
-      pure (raw, readTVar box >>= maybe retry pure)
+      replied <- startHere pool (either (Left . failed) (first failed . decoded theJob) <$> runCall theJob.call bytes)
+      pure (replied.rawPromise, replied.settled)
   where
-    failed message = JSError {name = "WorkerError", message}
     named e
       | e.name `elem` ["Cancelled", "Killed"] = e
       | otherwise = JSError {name = "WorkerError", message = e.message}
+
+-- | Run the action as a job in the program itself, on a thread of its own,
+-- and give a promise of its outcome: what 'start' and 'run' do with a job
+-- where 'available' is 'False', and what "Halogen.Worker.Par" does with each
+-- batch there. The promise's 'rawPromise' is a number that identifies the
+-- job rather than a JavaScript promise, by which 'cancel', 'kill' and
+-- 'terminate' find the thread; an exception the action lets through is the
+-- job's failure. Not for applications.
+startHere :: Pool -> IO (Either JSError r) -> IO (Promise r)
+startHere pool action = do
+  box <- newTVarIO Nothing
+  raw <- evaluate . toJSInt =<< atomicModifyIORef' tokens (\n -> (n + 1, n))
+  name <- makeStableName raw
+  let fill outcome = readTVar box >>= maybe (writeTVar box (Just outcome)) (const (pure ()))
+      forget = atomicModifyIORef' pool.local (\running -> (filter ((/= name) . fst) running, ()))
+  -- The thread waits for its entry to be made before it begins, so that
+  -- its 'forget' cannot come first and leave the entry behind; and it
+  -- begins masked, so that a 'cancel' before it has begun still finds
+  -- the 'finally' in place.
+  --
+  -- Whatever ends the thread settles the promise: the action gives the
+  -- job's own outcome, and an exception it lets through (one thrown to the
+  -- thread from elsewhere than 'cancel', 'kill' and 'terminate', which
+  -- settle the promise before they throw, or a 'ThreadKilled' the job
+  -- throws itself) is the job's failure too, so that nobody waits for a
+  -- thread that is gone. An outcome a stop supplied first is kept, since
+  -- 'fill' writes only once.
+  registered <- newEmptyMVar
+  mask_ $ do
+    thread <- forkIOWithUnmask $ \unmask -> do
+      readMVar registered
+      ended <- try (unmask action)
+      atomically
+        ( fill $ case ended of
+            Left (e :: SomeException) -> Left (failed (Text.pack (displayException e)))
+            Right outcome -> outcome
+        )
+        `finally` forget
+    atomicModifyIORef' pool.local (\running -> ((name, Local {thread, settle = fill . Left}) : running, ()))
+    putMVar registered ()
+  pure Promise {rawPromise = raw, settled = readTVar box >>= maybe retry pure}
+
+-- | A failure of a job run here, as the promise is rejected with it.
+failed :: Text -> JSError
+failed message = JSError {name = "WorkerError", message}
 
 -- | The numbers that identify the jobs run in the program itself.
 tokens :: IORef Int

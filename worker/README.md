@@ -217,8 +217,10 @@ counts <- liftIO (runPar pool (traverse (task primesBetween) parts))
   a `traverse`, the list's index): `its call at index 5: ...`. The batches still
   running are cancelled, as they are when `runPar`'s thread is interrupted.
   A worker stops a batch at its first failing call.
-- Where no worker can be made, the batches run on the calling thread, one after
-  the other, through the same codecs.
+- Where no worker can be made, the batches run here, one after the other, each
+  as a job of the pool's own on a thread of its own (as `start`'s fallback
+  does), through the same codecs: `terminate` ends them as it ends any job run
+  here, and an interrupted `runPar` cancels the one running.
 
 A batch is worth sending when its calls add up to seconds of work: the calls in
 a batch run one after another in one worker.

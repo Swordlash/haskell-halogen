@@ -41,6 +41,7 @@ import Control.Exception (Exception (..), SomeException, mask, mask_, onExceptio
 import Control.Monad (forM, unless, void, when)
 import Control.Monad.IO.Class (MonadIO (..))
 import Data.ByteString (ByteString)
+import Data.Either (isLeft)
 import Data.Foldable (for_, toList, traverse_)
 import Data.IORef (atomicModifyIORef', atomicWriteIORef, newIORef, readIORef, writeIORef)
 import Data.Map.Strict qualified as Map
@@ -50,7 +51,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import GHC.StaticPtr (StaticKey, StaticPtr, deRefStaticPtr, staticKey)
 import Halogen.JSBits.Promise (JSError (..), waitCatch)
-import Halogen.Worker (Pool, WorkerError (..), available, cancel, sendTo, size)
+import Halogen.Worker (Pool, WorkerError (..), available, cancel, sendTo, size, startHere)
 import Halogen.Worker.Internal (Batch (..), Job (..), Reply (..), Request (..), decodeReply, encodeRequest, jobName, plan, runCall)
 
 -- | A computation that runs tasks on a pool, run with 'runPar'.
@@ -142,9 +143,11 @@ instance Exception Unanswered where
 -- thread is interrupted (a killed fiber, a @timeout@); a job that calls
 -- 'Halogen.Worker.checkpoint' stops soon after.
 --
--- Where 'available' is 'False' the batches run here, on the calling thread,
--- one after the other, through the same codecs: the same results and the
--- same failures, with the page's thread held while they compute.
+-- Where 'available' is 'False' the batches run here, one after the other,
+-- each as a job of the pool's own on a thread 'Halogen.Worker.start' would
+-- fork, through the same codecs: the same results and the same failures,
+-- and 'Halogen.Worker.terminate' ends them as it ends any job run here; the
+-- page's thread is held while they compute.
 runPar :: (MonadIO m) => Pool -> Par a -> m a
 runPar pool = liftIO . go
   where
@@ -160,18 +163,31 @@ perform pool calls = do
   inWorkers <- available
   if inWorkers
     then dispatch pool calls batches
-    else for_ batches $ \batch -> runHere (callsOf calls batch) batch.offset
+    else for_ batches $ \batch -> do
+      let these = callsOf calls batch
+      -- Each batch is a job run here, so that 'terminate' ends it, and
+      -- an interruption of the wait cancels it, as in 'Halogen.Worker.run'.
+      outcome <- mask $ \restore -> do
+        replied <- startHere pool (either (\e -> Left JSError {name = "WorkerError", message = e.message}) Right <$> runHere these batch.offset)
+        restore (waitCatch replied) `onException` cancel pool replied
+      case (outcome, these) of
+        (Right (), _) -> pure ()
+        (Left e, first' : _) -> throwIO WorkerError {job = first'.name, message = e.message}
+        (Left e, []) -> throwIO WorkerError {job = "", message = e.message}
 
 callsOf :: Seq Call -> Batch StaticKey -> [Call]
 callsOf calls batch = map (Seq.index calls) batch.positions
 
 -- | A batch's calls made in the program itself, in order, stopping at the
 -- first that fails.
-runHere :: [Call] -> Int -> IO ()
-runHere these offset = for_ (zip [offset ..] these) $ \(index, call) ->
-  runCall call.function call.argument >>= \case
-    Left problem -> throwIO (callFailure call index problem)
-    Right bytes -> call.deliver bytes >>= either (throwIO . callFailure call index) pure
+runHere :: [Call] -> Int -> IO (Either WorkerError ())
+runHere these offset = go (zip [offset ..] these)
+  where
+    go [] = pure (Right ())
+    go ((index, call) : rest) =
+      runCall call.function call.argument >>= \case
+        Left problem -> pure (Left (callFailure call index problem))
+        Right bytes -> call.deliver bytes >>= either (pure . Left . callFailure call index) (const (go rest))
 
 callFailure :: Call -> Int -> Text -> WorkerError
 callFailure call index problem = WorkerError {job = call.name, message = "its call at index " <> Text.pack (show index) <> ": " <> problem}
@@ -220,7 +236,13 @@ dispatch pool calls batches = do
   mask $ \restore -> do
     feeders <- forM [0 .. min (size pool) (length batches) - 1] $ \slot -> do
       finished <- newEmptyMVar
-      thread <- forkIOWithUnmask $ \unmask -> try @SomeException (unmask (feed slot)) >>= putMVar finished
+      -- A feeder that ends with an exception of its own (a reply whose
+      -- delivery threw, a cancel that did) halts the others as a failure
+      -- does, before it reports, since the computation has failed.
+      thread <- forkIOWithUnmask $ \unmask -> do
+        ended <- try @SomeException (unmask (feed slot))
+        when (isLeft ended) (void (try @SomeException halt))
+        putMVar finished ended
       pure (thread, finished)
     outcomes <-
       restore (traverse (takeMVar . snd) feeders) `onException` do
