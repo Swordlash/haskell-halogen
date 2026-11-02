@@ -159,6 +159,8 @@ wasm (`--builddir=dist-newstyle/wasm`).
 | `HSPEC_HALOGEN_HEADED=1` | show the browser while the suite runs |
 | `HSPEC_HALOGEN_SLOWMO=<ms>` | wait this long before every browser action |
 | `HSPEC_HALOGEN_TIMEOUT=<s>` | how long the whole suite may take (600) |
+| `HSPEC_HALOGEN_JOBS=<n>` | pages for the examples marked `parallel` (1), see [Parallel tests](#parallel-tests) |
+| `HSPEC_HALOGEN_WORKERS=<m>` | Web Workers for the examples marked `inWorker` (0), see [Parallel tests](#parallel-tests) |
 | `HSPEC_HALOGEN_WASM_GHC` | the wasm GHC whose post-linker to use (`wasm32-wasi-ghc`) |
 | `HSPEC_HALOGEN_NODE` | the Node to run with (`node`) |
 
@@ -376,7 +378,8 @@ multiple contexts, unmarked and `sequential` examples finish first on one
 page. The runner then starts the parallel examples on separate pages, each
 in its own browser context, with its own focus, keyboard, mouse, storage and
 Haskell heap. Within each page, `runPage` still admits one example at a time.
-Web Workers cannot provide this isolation because they have no DOM.
+Web Workers cannot provide this isolation because they have no DOM, but they
+can run the examples that need none; see below.
 
 The spec must enumerate the same examples in each context. Every example
 is then assigned to exactly one page. Normal hspec filters and
@@ -390,6 +393,54 @@ With multiple contexts, each page's report is buffered and printed together
 so concurrent reports do not interleave. A failure, page exception, missing result or timeout in
 any context fails the command. More contexts load more copies of the suite;
 start with two and measure before increasing the count.
+
+#### Examples that need no page
+
+An example that never calls `runPage` (a pure check, a computation, a
+parser fed a fixture, anything that does not mount a component) does not
+need a page at all. Mark it with `inWorker`, and the runner can run it in a
+Web Worker, a copy of the suite with a thread of its own, on another core,
+while the pages go on with the rest:
+
+```haskell
+spec m = do
+  inWorker $ describe "the price model" $ do
+    it "reads a price" $ Price.parse "12.35" `Hspec.shouldBe` Just (Price 1235)
+    it "totals a large basket" $ Price.total (replicate 100000 (Price 5)) `Hspec.shouldBe` Price 500000
+  parallel $ it "shows the total" $ runPage $ do
+    ui <- mount m Basket.component ()
+    find ui ".total" >>= (`shouldHaveText` "12.35")
+```
+
+Such an example is plain `IO`, so its expectations are those of
+`Test.Hspec` (imported qualified, as `Hspec` here, beside this module's).
+
+```sh
+HSPEC_HALOGEN_JOBS=2 HSPEC_HALOGEN_WORKERS=2 npm run test-wasm
+```
+
+`HSPEC_HALOGEN_WORKERS=<m>` (0 by default) starts `m` workers, all in one
+browser context of their own, together with the parallel pages, once the
+unmarked examples have run. The examples marked `inWorker` are divided
+between the workers, whether or not they are also marked `parallel`, and the
+pages leave them out; each worker's report is printed on its own, as
+`Browser shard worker/<i>/<m>`, and a failure, an exception the program did
+not catch, a missing result or a timeout in any worker fails the command, as
+on a page. Without workers (the default, browser GHCi, a page with no
+runner, natively) `inWorker` changes nothing: its examples run on the pages
+like any other.
+
+A worker has no document, so `runPage` there fails the example with
+`this example runs in a worker, which has no page: take it out of inWorker`,
+rather than skipping it, so that an example marked by mistake is seen. What
+a worker does have is the program itself: Haskell threads, `threadDelay`, the
+JavaScript FFI for whatever a worker's global scope offers (`fetch`, timers,
+promises awaited with `Halogen.JSBits.Promise`), and the suite's hooks, which
+run in each worker as in each page. Your page's scripts and styles
+(`test/web/`) are not loaded there.
+
+Each worker is one more copy of the suite in memory, in the same browser as
+the pages: count them with the pages when choosing the numbers.
 
 ### Your own monad
 

@@ -127,6 +127,11 @@ and wired into `test/Test.hs`.
   GHC and Chromium. The suite's cabal `interactive` flag drops the reactor options, and
   `toolchain/dev-test.sh` runs it in browser GHCi under ghciwatch (wasm only), in a window
   `hspec-halogen open` opened, rerunning `:main` on every save.
+  `HSPEC_HALOGEN_JOBS` runs the examples marked `parallel` on that many pages, each in a context
+  of its own, after the unmarked ones; `HSPEC_HALOGEN_WORKERS` (CI sets both to 2) also starts
+  that many Web Workers of the suite beside them for the examples marked `inWorker` (ones with no
+  `runPage`): on wasm module workers that instantiate the binary as the page does, on the JS
+  backend classic ones that import the bundle (`js/runner.mjs`).
   On the JS backend the same suites run in Chromium too: `ghcjs-test-wrapper.sh` recognises a
   program that uses hspec-halogen's page functions and hands it to `hspec-halogen test`, which
   bundles `<suite>.jsexe/all.js` with esbuild and loads it; its FFI is
