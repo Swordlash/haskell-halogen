@@ -20,8 +20,9 @@ Component any page can use, its attributes and properties the component's input,
 (`haskell-halogen-devtools`: a panel over the page, read from core's `Halogen.Trace`, with the tree
 of components, their counts, a log of events, the hovered component outlined and earlier states
 put back), `worker` (`haskell-halogen-worker`: heavy work in Web Workers that are second
-instances of the program's own binary, jobs registered by name, arguments and results as JSON over
-`postMessage`, the job run in the program itself where no worker can be made), `tauri`
+instances of the program's own binary, jobs as static pointers a worker finds by key, arguments and
+results as `Binary` bytes in transferred `ArrayBuffer`s over `postMessage`, `start` a `Promise` of
+the result, the job run in the program itself where no worker can be made), `tauri`
 (Tauri v2's IPC through its global API `window.__TAURI__`: commands with aeson JSON, events as
 emitters, the current window's events), `material`
 (Material Components bindings), `pixi` (PixiJS v8 canvas backend), `three` (`haskell-halogen-three`:
@@ -159,7 +160,8 @@ and wired into `test/Test.hs`.
 - `toolchain/test-worker.mjs` serves the built `examples/worker` (`dist-newstyle/wasm/public/worker`)
   and drives real Web Workers, each a second instance of the page's `app.wasm`: the count in each
   of the pool's workers while the page draws (it samples the component's frame counter at the
-  page's own animation frames), the same count on the page drawing none, a failing job,
+  page's own animation frames), the range in four parts through `Worker.start` and
+  `mapConcurrently`, back in order from both workers, the same count on the page drawing none, a failing job,
   `terminate`, and the page with `?workers=none`, which leaves `halogenWorker` unset and so runs
   `Worker.run`'s fallback. CI's `learn-wasm` job runs it after `test-playground`; the example bundles its
   WASI shim (`bundle.sh`), so it needs no network.
@@ -293,9 +295,16 @@ generated code listens to the JavaScript promise at once, and the program waits 
 the page's loader did (the files `globalThis.halogenWorker` names: on wasm the binary, the JSFFI
 glue and the WASI shim; on the JavaScript backend its `all.js`) and runs `main`, whose
 `Worker.program`/`serve` finds the number the script set in `halogenWorker.worker` and answers
-`{id, job, args}` messages from its table instead of going on to the UI. A job's argument and
-result cross as JSON text, and the fallback (no configuration, natively, in Node, in GHCi, in the
-tutorial's interpreter) goes through the same table and JSON in process. On wasm a computation
+`{id, request}` messages instead of going on to the UI. A job is `static (Worker.job f)`, its
+`Binary` codecs inside the `Job`: the request's bytes (`Halogen.Worker.Internal`) are the
+pointer's `StaticKey` and a list of arguments, which the worker looks up with
+`unsafeLookupStaticPtr`, and the reply is the list of results, each crossing in a transferred
+`ArrayBuffer`. `start` gives a `Halogen.JSBits.Promise` (rejected with a `JSError` named
+`WorkerError`), `run` waits and throws a `WorkerError`; the fallback (no configuration,
+natively, in Node, in GHCi, in the tutorial's interpreter) runs the job's function on the same
+bytes in process, with no lookup. Static pointer bindings are exported from their modules: GHC
+9.14 with `-O` can rename a private one while the module's static pointer table keeps the old
+name, which fails to link. On wasm a computation
 that does not wait holds the page's thread until it ends, whichever Haskell thread runs it: in
 `examples/worker` two seconds of counting in a component's `liftIO` without a worker let the
 page draw one frame, against about 120 in a worker.
