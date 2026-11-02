@@ -33,7 +33,7 @@ a newtype over a `JSVal` derives it). `Promise JSVal` is the old behaviour.
 `awaitOrThrow` throws a rejection instead of returning it. `awaitPromise onResolve
 onReject p` hands the promise two actions, one of which runs when it settles;
 `await` is built on it with an `MVar`, so waiting no longer goes through an
-async import and `awaitAll` is `traverse await`.
+async import; `awaitAll` hands every promise its callbacks before it waits for any.
 
 **Breaking: `Safety` is this package's own**, with three constructors:
 `Unsafe`, `Unchecked` and `Safe`. An `Unsafe` binding whose type ends in `IO`

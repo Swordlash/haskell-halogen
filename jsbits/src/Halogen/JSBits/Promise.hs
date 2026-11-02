@@ -48,7 +48,7 @@ module Halogen.JSBits.Promise
   )
 where
 
-import Control.Concurrent.MVar (newEmptyMVar, putMVar, readMVar, takeMVar, tryPutMVar)
+import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, readMVar, takeMVar, tryPutMVar)
 import Control.Exception (throwIO, try)
 import Control.Monad (void, (<=<))
 import Control.Monad.IO.Class (MonadIO (..))
@@ -167,20 +167,28 @@ awaitPromise onResolve onReject (Promise promise)
 --
 -- Natively it waits for nothing and gives @'JSError' "NotInBrowserError" _@.
 await :: (MonadIO m, FromJS a) => Promise a -> m (Either JSError a)
-await promise = liftIO $ do
+await promise = liftIO (takeMVar =<< listen promise)
+
+-- The promise's outcome, in an 'MVar' its callbacks fill. Taking them is
+-- the wait; handing them over is not, so 'awaitAll' hands every promise its
+-- callbacks before it waits for any.
+listen :: (FromJS a) => Promise a -> IO (MVar (Either JSError a))
+listen promise = do
   box <- newEmptyMVar
   awaitPromise (void . tryPutMVar box . Right) (void . tryPutMVar box . Left) promise
-  takeMVar box
+  pure box
 
 -- | 'await', throwing a rejection as the 'JSError' it is.
 awaitOrThrow :: (MonadIO m, FromJS a) => Promise a -> m a
 awaitOrThrow promise = await promise >>= either (liftIO . throwIO) pure
 
 -- | Wait for every promise and give each one's outcome, in order, as 'await'
--- would. The promises' work runs at once whatever the order of the waits,
--- so waiting for one after another takes as long as the slowest.
+-- would. Every promise gets its callbacks first, and the waits come after,
+-- one after another, which takes as long as the slowest. Handing them over
+-- first matters: a promise rejected while nothing listens to it is an
+-- unhandled rejection, which a browser logs and Node ends its process for.
 awaitAll :: (MonadIO m, FromJS a) => [Promise a] -> m [Either JSError a]
-awaitAll = traverse await
+awaitAll promises = liftIO (traverse takeMVar =<< traverse listen promises)
 
 notInBrowser :: JSError
 notInBrowser = JSError {name = "NotInBrowserError", message = "there is no JavaScript engine here to run a promise"}
