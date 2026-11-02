@@ -5,7 +5,8 @@ module Main (main) where
 -- under Node at all: the library needs nothing of core, its tests do.
 import Data.Foreign ()
 import Test.Hspec (hspec)
+import Test.Par qualified as Par
 import Test.Run qualified as Run
 
 main :: IO ()
-main = hspec Run.spec
+main = hspec (Run.spec >> Par.spec)

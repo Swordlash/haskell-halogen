@@ -45,7 +45,7 @@ common defaults
 library
     import:           defaults
     hs-source-dirs:   src
-    exposed-modules:  Halogen.Worker, Halogen.Worker.Internal
+    exposed-modules:  Halogen.Worker, Halogen.Worker.Internal, Halogen.Worker.Par
     build-depends:
         base >= 4.20 && < 5,
         binary >= 0.8.9,
@@ -69,7 +69,7 @@ test-suite Halogen-worker-test
     type:             exitcode-stdio-1.0
     hs-source-dirs:   test
     main-is:          Test.hs
-    other-modules:    Test.Run
+    other-modules:    Test.Par, Test.Run
     build-depends:
         base,
         binary,

@@ -186,10 +186,21 @@ spec = describe "Halogen.Worker" $ do
     mapConcurrently (Worker.start pool double) [1 .. 10] `shouldReturn` map (* 2) [1 .. 10]
 
   it "answers a request by the job's key, as a worker does" $ do
-    Internal.answer (request double 21) >>= \case
-      Right reply -> Internal.decodeReply reply `shouldBe` Right [Lazy.toStrict (encode (42 :: Int))]
+    let replied bytes = Internal.answer bytes >>= either (\problem -> expectationFailure (Text.unpack problem) >> pure Nothing) (pure . either (const Nothing) Just . Internal.decodeReply)
+    replied (request double 21) `shouldReturn` Just Internal.Reply {results = [Lazy.toStrict (encode (42 :: Int))], failure = Nothing}
+    replied (request fails 1) `shouldReturn` Just Internal.Reply {results = [], failure = Just "user error (no luck)"}
+
+  it "answers a batch up to its first failing call, and says why that one failed" $ do
+    let arguments = map (Lazy.toStrict . encode @Int) [1, 2, 0, 3]
+        batch = Internal.encodeRequest Internal.Request {key = staticKey lazyError, arguments}
+    reply <- Internal.answer batch
+    (Internal.decodeReply <$> reply) `shouldSatisfy` \case
+      Right (Right Internal.Reply {results = [], failure = Just problem}) -> "found too late" `Text.isInfixOf` problem
+      _ -> False
+    let fine = Internal.encodeRequest Internal.Request {key = staticKey double, arguments}
+    Internal.answer fine >>= \case
+      Right bytes -> Internal.decodeReply bytes `shouldBe` Right Internal.Reply {results = map (Lazy.toStrict . encode @Int) [2, 4, 0, 6], failure = Nothing}
       Left problem -> expectationFailure (Text.unpack problem)
-    Internal.answer (request fails 1) `shouldReturn` Left "user error (no luck)"
 
   it "says when a request's key is not in the program's static pointer table" $ do
     let made = Internal.encodeRequest Internal.Request {key = Fingerprint 1 2, arguments = [Lazy.toStrict (encode (1 :: Int))]}
@@ -199,9 +210,9 @@ spec = describe "Halogen.Worker" $ do
 
   it "says when a job's argument does not decode" $ do
     let wrong = Internal.encodeRequest Internal.Request {key = staticKey double, arguments = ["\1"]}
-    Internal.answer wrong >>= \case
-      Left problem -> Text.unpack problem `shouldContain` "its argument does not decode"
-      Right _ -> expectationFailure "an argument that does not decode was answered"
+    (fmap Internal.decodeReply <$> Internal.answer wrong) >>= \case
+      Right (Right Internal.Reply {results = [], failure = Just problem}) -> Text.unpack problem `shouldContain` "its argument does not decode"
+      other -> expectationFailure ("an argument that does not decode was answered: " <> show other)
 
   it "runs the job on a thread of its own: start returns before the job ends" $ do
     pool <- Worker.newPool 1

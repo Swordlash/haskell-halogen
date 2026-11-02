@@ -755,7 +755,7 @@ main = runBrowserDOM $ do
   // static pointers, on the page through the same bytes, a job's exception
   // coming back as a WorkerError and, through start, as a rejection.
   worker: {
-    what: "static jobs from the worker layer, run on the page where no worker can be made, one mapped with start, a failure as a WorkerError",
+    what: "static jobs from the worker layer, run on the page where no worker can be made, one mapped with start and in tasks with runPar, a failure as a WorkerError",
     source: String.raw`{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StaticPointers #-}
@@ -772,6 +772,7 @@ import Halogen.HTML qualified as HH
 import GHC.StaticPtr (StaticPtr)
 import Halogen.JSBits.Promise (mapConcurrently)
 import Halogen.Worker qualified as Worker
+import Halogen.Worker.Par (runPar, task)
 ${mounting}
 
 double :: StaticPtr (Worker.Job Int Int)
@@ -787,9 +788,10 @@ report pool = H.component (\_ -> pure "") (\t -> HH.p_ [HH.text t]) [H.onInitial
       available <- Worker.available
       doubled <- liftIO (Worker.run pool double 21)
       many <- liftIO (mapConcurrently (Worker.start pool double) [1, 2, 3])
+      tasks <- liftIO (runPar pool (traverse (task double) [4, 5, 6]))
       failed <- liftIO (try (Worker.run pool failing ()))
       let failure = either (\(e :: Worker.WorkerError) -> e.job <> ": " <> e.message) (T.pack . show) failed
-      put ("available " <> T.pack (show available) <> "; doubled 21 to " <> T.pack (show doubled) <> "; doubled 1, 2, 3 to " <> T.pack (show many) <> "; " <> failure :: Text)
+      put ("available " <> T.pack (show available) <> "; doubled 21 to " <> T.pack (show doubled) <> "; doubled 1, 2, 3 to " <> T.pack (show many) <> "; in tasks 4, 5, 6 to " <> T.pack (show tasks) <> "; " <> failure :: Text)
 
 main :: IO ()
 main = Worker.program $ runBrowserDOM $ do
@@ -800,7 +802,7 @@ main = Worker.program $ runBrowserDOM $ do
   HA.keepForNextRun (socket.dispose >> Worker.terminate pool)
 `,
     async verify(page) {
-      await appText(page, /available False; doubled 21 to 42; doubled 1, 2, 3 to \[2,4,6\]; Main:\d+:\d+: user error \(no luck\)/);
+      await appText(page, /available False; doubled 21 to 42; doubled 1, 2, 3 to \[2,4,6\]; in tasks 4, 5, 6 to \[8,10,12\]; Main:\d+:\d+: user error \(no luck\)/);
     },
   },
 

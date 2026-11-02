@@ -47,6 +47,7 @@ module Halogen.Worker
     -- * Pools
   , Pool
   , newPool
+  , size
   , terminate
   , available
 
@@ -60,6 +61,10 @@ module Halogen.Worker
   , kill
   , checkpoint
   , Cancelled (..)
+
+    -- * For "Halogen.Worker.Par"
+  , sendTo
+  , startHere
   )
 where
 
@@ -83,7 +88,7 @@ import GHC.Conc (STM, atomically, newTVarIO, readTVar, retry, writeTVar)
 import GHC.StaticPtr (StaticPtr, deRefStaticPtr, staticKey)
 import Halogen.JSBits
 import Halogen.JSBits.Promise (Promise (..), wait)
-import Halogen.Worker.Internal (Job (..), Request (..), answer, decodeReply, decodeStrict, encodeRequest, jobName, runCall)
+import Halogen.Worker.Internal (Job (..), Reply (..), Request (..), answer, decodeReply, decodeStrict, encodeRequest, jobName, runCall)
 import System.IO.Unsafe (unsafePerformIO)
 import System.Info qualified
 import System.Mem.StableName (StableName, makeStableName)
@@ -93,6 +98,7 @@ $( browserJS
      [ ("js_available", "halogen_worker_available", Safe, [t|JSText -> IO Bool|])
      , ("js_pool", "halogen_worker_pool", Safe, [t|Int -> JSText -> IO JSVal|])
      , ("js_run", "halogen_worker_run", Safe, [t|JSVal -> JSVal -> IO (Promise ByteString)|])
+     , ("js_run_on", "halogen_worker_run_on", Safe, [t|JSVal -> Int -> JSVal -> IO (Promise ByteString)|])
      , ("js_terminate", "halogen_worker_terminate", Safe, [t|JSVal -> IO ()|])
      , ("js_in_worker", "halogen_worker_in_worker", Safe, [t|IO Bool|])
      , ("js_which_worker", "halogen_worker_which_worker", Safe, [t|IO Int|])
@@ -226,6 +232,7 @@ program onPage = do
 -- worker can be made.
 data Pool = Pool
   { workers :: JSVal
+  , count :: Int
   , local :: IORef [(StableName JSVal, Local)]
   -- ^ The jobs running in the program itself, by the 'rawPromise' of the
   -- promise 'start' gave for each, for 'cancel' and 'kill' to find. That
@@ -248,7 +255,20 @@ data Local = Local
 -- caches, and running @main@ to 'serve'). Natively, and wherever 'available'
 -- is 'False', a pool starts nothing.
 newPool :: (MonadIO m) => Int -> m Pool
-newPool size = liftIO (Pool <$> js_pool size arch <*> newIORef [])
+newPool n = liftIO (Pool <$> js_pool n arch <*> pure (max 1 n) <*> newIORef [])
+
+-- | How many workers the pool has (the number 'newPool' was given, or one),
+-- whether or not they have started.
+size :: Pool -> Int
+size pool = pool.count
+
+-- | Send a request's bytes to the pool's worker of this number (from 0, below
+-- 'size'), starting it if it has not been, and give a promise of the reply's
+-- bytes: what "Halogen.Worker.Par" hands each batch to the worker that is
+-- free. Not for applications, which give jobs to the pool with 'start' and
+-- 'run', and let it choose the worker. 'cancel' and 'kill' take the promise.
+sendTo :: Pool -> Int -> ByteString -> IO (Promise ByteString)
+sendTo pool index request = toJSBytes request >>= js_run_on pool.workers index
 
 -- | End the pool's workers, and the jobs it runs in the program itself.
 -- What they were running fails with a 'WorkerError'; a later job starts the
@@ -335,42 +355,57 @@ launch pool pointer argument = do
       let outcome = (\case Left e -> Left (named e); Right reply -> first failed (fromReply theJob reply)) <$> replied.settled
       pure (replied.rawPromise, outcome)
     else do
-      box <- newTVarIO Nothing
-      raw <- evaluate . toJSInt =<< atomicModifyIORef' tokens (\n -> (n + 1, n))
-      name <- makeStableName raw
-      let fill outcome = readTVar box >>= maybe (writeTVar box (Just outcome)) (const (pure ()))
-          forget = atomicModifyIORef' pool.local (\running -> (filter ((/= name) . fst) running, ()))
-      -- The thread waits for its entry to be made before it begins, so that
-      -- its 'forget' cannot come first and leave the entry behind; and it
-      -- begins masked, so that a 'cancel' before it has begun still finds
-      -- the 'finally' in place.
-      --
-      -- Whatever ends the thread settles the promise: 'runCall' gives the
-      -- function's own outcome, and an exception it lets through (one
-      -- thrown to the thread from elsewhere than 'cancel', 'kill' and
-      -- 'terminate', which settle the promise before they throw, or a
-      -- 'ThreadKilled' the function throws itself) is the job's failure
-      -- too, so that nobody waits for a thread that is gone. An outcome a
-      -- stop supplied first is kept, since 'fill' writes only once.
-      registered <- newEmptyMVar
-      mask_ $ do
-        thread <- forkIOWithUnmask $ \unmask -> do
-          readMVar registered
-          ended <- try (unmask (runCall theJob.call bytes))
-          atomically
-            ( fill $ case ended of
-                Left (e :: SomeException) -> Left (failed (Text.pack (displayException e)))
-                Right outcome -> either (Left . failed) (first failed . decoded theJob) outcome
-            )
-            `finally` forget
-        atomicModifyIORef' pool.local (\running -> ((name, Local {thread, settle = fill . Left}) : running, ()))
-        putMVar registered ()
-      pure (raw, readTVar box >>= maybe retry pure)
+      replied <- startHere pool (either (Left . failed) (first failed . decoded theJob) <$> runCall theJob.call bytes)
+      pure (replied.rawPromise, replied.settled)
   where
-    failed message = JSError {name = "WorkerError", message}
     named e
       | e.name `elem` ["Cancelled", "Killed"] = e
       | otherwise = JSError {name = "WorkerError", message = e.message}
+
+-- | Run the action as a job in the program itself, on a thread of its own,
+-- and give a promise of its outcome: what 'start' and 'run' do with a job
+-- where 'available' is 'False', and what "Halogen.Worker.Par" does with each
+-- batch there. The promise's 'rawPromise' is a number that identifies the
+-- job rather than a JavaScript promise, by which 'cancel', 'kill' and
+-- 'terminate' find the thread; an exception the action lets through is the
+-- job's failure. Not for applications.
+startHere :: Pool -> IO (Either JSError r) -> IO (Promise r)
+startHere pool action = do
+  box <- newTVarIO Nothing
+  raw <- evaluate . toJSInt =<< atomicModifyIORef' tokens (\n -> (n + 1, n))
+  name <- makeStableName raw
+  let fill outcome = readTVar box >>= maybe (writeTVar box (Just outcome)) (const (pure ()))
+      forget = atomicModifyIORef' pool.local (\running -> (filter ((/= name) . fst) running, ()))
+  -- The thread waits for its entry to be made before it begins, so that
+  -- its 'forget' cannot come first and leave the entry behind; and it
+  -- begins masked, so that a 'cancel' before it has begun still finds
+  -- the 'finally' in place.
+  --
+  -- Whatever ends the thread settles the promise: the action gives the
+  -- job's own outcome, and an exception it lets through (one thrown to the
+  -- thread from elsewhere than 'cancel', 'kill' and 'terminate', which
+  -- settle the promise before they throw, or a 'ThreadKilled' the job
+  -- throws itself) is the job's failure too, so that nobody waits for a
+  -- thread that is gone. An outcome a stop supplied first is kept, since
+  -- 'fill' writes only once.
+  registered <- newEmptyMVar
+  mask_ $ do
+    thread <- forkIOWithUnmask $ \unmask -> do
+      readMVar registered
+      ended <- try (unmask action)
+      atomically
+        ( fill $ case ended of
+            Left (e :: SomeException) -> Left (failed (Text.pack (displayException e)))
+            Right outcome -> outcome
+        )
+        `finally` forget
+    atomicModifyIORef' pool.local (\running -> ((name, Local {thread, settle = fill . Left}) : running, ()))
+    putMVar registered ()
+  pure Promise {rawPromise = raw, settled = readTVar box >>= maybe retry pure}
+
+-- | A failure of a job run here, as the promise is rejected with it.
+failed :: Text -> JSError
+failed message = JSError {name = "WorkerError", message}
 
 -- | The numbers that identify the jobs run in the program itself.
 tokens :: IORef Int
@@ -464,8 +499,9 @@ instance Exception Cancelled where
 fromReply :: Job a b -> ByteString -> Either Text b
 fromReply theJob reply = case decodeReply reply of
   Left problem -> Left ("the reply does not decode: " <> Text.pack problem)
-  Right [result] -> decoded theJob result
-  Right results -> Left ("the reply has " <> Text.pack (show (length results)) <> " results for one argument")
+  Right Reply {failure = Just problem} -> Left problem
+  Right Reply {results = [result]} -> decoded theJob result
+  Right Reply {results} -> Left ("the reply has " <> Text.pack (show (length results)) <> " results for one argument")
 
 decoded :: Job a b -> ByteString -> Either Text b
 decoded theJob = first (\problem -> "its result does not decode: " <> Text.pack problem) . theJob.decodeResult
