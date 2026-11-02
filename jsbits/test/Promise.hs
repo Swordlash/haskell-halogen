@@ -11,7 +11,7 @@ import Control.Concurrent (forkIO, newEmptyMVar, putMVar, takeMVar)
 import Control.Monad (unless)
 import Data.Text (Text)
 import Halogen.JSBits (JSText, JSVal, Safety (..), browserJS, inBrowser, jsValText, toJSText)
-import Halogen.JSBits.Promise (JSError (..), Promise (..), await, awaitAll)
+import Halogen.JSBits.Promise (JSError (..), Promise (..), await, awaitAll, awaitAny)
 import System.IO (BufferMode (..), hSetBuffering, stdout)
 
 $( browserJS
@@ -45,6 +45,8 @@ inEngine = do
   check "a Promise Text resolves with its text" (typed == Right "typed")
   typedN <- await =<< typedNumber 10 41
   check "a Promise Int resolves with its number" (typedN == Right 41)
+  earliest <- awaitAny =<< sequence [typedNumber 40 1, typedNumber 10 2]
+  check "awaitAny gives the promise that settles first" (earliest == Right 2)
   typedList <- await =<< typedNumbers 10
   check "a Promise [Int] resolves with its numbers" (typedList == Right [1, 2, 3])
 

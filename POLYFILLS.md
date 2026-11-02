@@ -133,5 +133,6 @@ wrong: whether the mismatch comes from how the wasm GHC is built (its
   (`hspec-halogen`'s `awaitJS`).
 - **JavaScript backend, `interruptible` imports.** They need
   `InterruptibleFFI`, and the JavaScript gets its continuation as a trailing
-  `$c` argument. The guide's JavaScript FFI section could show an example like
-  those `browserJS` generates for a safe binding (`jsbits/src/Halogen/JSBits.hs`).
+  `$c` argument. The guide's JavaScript FFI section could show an example.
+  (`browserJS` no longer generates any: a binding returns a promise, which
+  `Halogen.JSBits.Promise` listens to with callbacks.)

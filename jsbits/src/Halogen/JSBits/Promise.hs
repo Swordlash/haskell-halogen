@@ -5,85 +5,90 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE NoFieldSelectors #-}
 
--- | A JavaScript promise, kept to be awaited later.
+-- | A JavaScript promise, listened to from the moment it is made, and
+-- awaited when the program wants its value: as "Control.Concurrent.Async"'s
+-- @Async@ is to a thread.
 --
 -- A binding that starts asynchronous work (a request, a timer, a dialog)
--- returns a 'Promise' at once, as an 'Unsafe' binding: the JavaScript has
--- started the work by the time it returns, and nothing has waited.
+-- returns a 'Promise' at once: the JavaScript has started the work by the
+-- time it returns, and nothing has waited.
 --
 -- > $(browserJS ["jsbits/net.js"]
 -- >   [("js_fetch_text", "halogen_net_fetch_text", Unsafe, [t| JSText -> IO (Promise Text) |])])
 --
--- 'await' is the one place that waits for it, on every backend the same
--- way, and gives a rejection back as a value. That separates starting the
--- work from waiting for it, which a 'Safe' binding ties together. A
--- component can start work in @H.liftEffect@, inside the dispatch of the
--- event that asked for it, and keep the 'Promise' in its state, then 'await'
--- it in @lift@ (on a worker, while the rest of the tree goes on), or never.
--- It can start several and 'awaitAll' of them at once.
+-- 'Halogen.JSBits.browserJS' and the fields of "Halogen.JSBits.Fields" make
+-- a 'Promise' of the JavaScript promise a function returns with 'promise',
+-- which hands it two callbacks at once. So a promise is always listened to,
+-- and one rejected before anyone awaits it is not an unhandled rejection
+-- (which a browser logs and Node ends its process for).
 --
--- A 'Promise' says the type of what it resolves with, and 'await' reads the
--- resolved value as that type ('FromJS'). @'Promise' 'JSVal'@ leaves the
--- decoding to the binding's wrapper.
+-- 'await' is the one place that waits, and gives a rejection back as a
+-- value. A component can start work in @H.liftEffect@, inside the dispatch
+-- of the event that asked for it, keep the 'Promise' in its state, then
+-- 'await' it in @lift@ (on a worker, while the rest of the tree goes on),
+-- or never. 'wait' is the same in 'STM', so that waits compose: 'awaitAny'
+-- takes whichever of several settles first.
 --
--- A module declaring such a binding imports @Promise (..)@: the FFI passes a
--- newtype only when its constructor is in scope.
---
--- A promise that is rejected and never awaited is reported by the engine as
--- an unhandled rejection, which a browser logs and Node ends its process
--- for, so the JavaScript of a binding whose result may be dropped, and whose
--- failure does not matter then, should handle the rejection itself.
---
--- This module declares its own bindings with 'browserJS', so it sits above
--- "Halogen.JSBits" rather than being re-exported from it; import both.
+-- A 'Promise' says the type of what it resolves with, read with 'FromJS'
+-- when it settles; @'Promise' 'JSVal'@ leaves the decoding to the
+-- binding's wrapper. It is a 'Functor'.
 module Halogen.JSBits.Promise
   ( Promise (..)
   , FromJS (..)
   , JSError (..)
-  , awaitPromise
+  , promise
   , await
   , awaitOrThrow
   , awaitAll
+  , awaitAny
   , checkThrown
   )
 where
 
-import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, readMVar, takeMVar, tryPutMVar)
-import Control.Exception (throwIO, try)
-import Control.Monad (void, (<=<))
+import Control.Concurrent.MVar (newEmptyMVar, putMVar, readMVar)
+import Control.Exception (SomeException, displayException, throwIO, try)
+import Control.Monad ((<=<))
 import Control.Monad.IO.Class (MonadIO (..))
 import Data.ByteString (ByteString)
 import Data.Text (Text)
-import Halogen.JSBits (Safety (..), browserJS)
-import Halogen.JSBits.Value (Callback, Inert, JSError (..), JSVal, checkThrown, freeCallback, fromJSBytes, inBrowser, jsValText, mkCallback)
+import Data.Text qualified as Text
+import GHC.Conc (STM, atomically, newTVarIO, orElse, readTVar, retry, writeTVar)
+import Halogen.JSBits.Inline (inlineJS)
+import Halogen.JSBits.Value (Callback, Inert (..), JSError (..), JSVal, checkThrown, freeCallback, fromJSBytes, inBrowser, jsNull, jsValText, mkCallback)
 
--- | A JavaScript promise of a value of type @a@, or any value, which then
--- stands for a promise that has resolved with it. The type says what 'await'
--- reads the resolved value as ('FromJS'); @'Promise' 'JSVal'@ leaves it as
--- it is, @'Promise' ()@ ignores it. Natively, where no engine makes one, a
--- placeholder, which 'await' never waits for.
---
--- A binding returns one from a synchronous import, at once
--- (@[t|Text -> IO (Promise Text)|]@), and the program awaits it where it
--- wants the value.
-newtype Promise a = Promise JSVal
-  deriving newtype (Inert)
+-- | A JavaScript promise and the wait for its outcome.
+data Promise a = Promise
+  { rawPromise :: JSVal
+  -- ^ The promise itself, to hand back to JavaScript (@Promise.race@, a
+  -- binding that takes one). A 'fmap' leaves it as it is.
+  , wait :: STM (Either JSError a)
+  -- ^ Its outcome: blocks ('retry') until it has settled, then gives what
+  -- it resolved with or what it was rejected with, as often as asked.
+  }
 
--- A wait is a pair of callbacks handed to the promise's @then@ ('awaitPromise').
--- A rejection reaches the second as @{ ok: false, error }@, the outcome
--- 'checkThrown' reads, so its name and message are read as a synchronous
--- call's exception is.
-$( browserJS
-     ["jsbits/promise.js"]
-     [ ("js_then", "halogen_promise_then", Unchecked, [t|JSVal -> Callback -> Callback -> IO ()|])
-     , ("js_as_int", "halogen_promise_number", Unchecked, [t|JSVal -> IO Int|])
-     , ("js_as_double", "halogen_promise_number", Unchecked, [t|JSVal -> IO Double|])
-     , ("js_as_bool", "halogen_promise_boolean", Unchecked, [t|JSVal -> IO Bool|])
-     , ("js_absent", "halogen_promise_absent", Unchecked, [t|JSVal -> IO Bool|])
-     , ("js_array_length", "halogen_promise_array_length", Unchecked, [t|JSVal -> IO Int|])
-     , ("js_array_index", "halogen_promise_array_index", Unchecked, [t|JSVal -> Int -> IO JSVal|])
-     ]
+instance Functor Promise where
+  fmap f p = Promise {rawPromise = p.rawPromise, wait = fmap f <$> p.wait}
+
+-- What every wait gives natively, where no engine runs a promise.
+notInBrowser :: JSError
+notInBrowser = JSError {name = "NotInBrowserError", message = "there is no JavaScript engine here to run a promise"}
+
+-- | Natively, where no engine makes one: a promise that has already been
+-- rejected, with @'JSError' "NotInBrowserError" _@.
+instance Inert (Promise a) where
+  inert = Promise {rawPromise = jsNull, wait = pure (Left notInBrowser)}
+
+$( inlineJS
+     "js_then"
+     "Promise.resolve($1).then($2, (error) => $3({ ok: false, error: error }))"
+     [t|JSVal -> Callback -> Callback -> IO ()|]
  )
+$(inlineJS "js_as_int" "Number($1)" [t|JSVal -> IO Int|])
+$(inlineJS "js_as_double" "Number($1)" [t|JSVal -> IO Double|])
+$(inlineJS "js_as_bool" "$1 === true" [t|JSVal -> IO Bool|])
+$(inlineJS "js_absent" "$1 === null || $1 === undefined" [t|JSVal -> IO Bool|])
+$(inlineJS "js_array_length" "Array.isArray($1) ? $1.length : 0" [t|JSVal -> IO Int|])
+$(inlineJS "js_array_index" "$1[$2]" [t|JSVal -> Int -> IO JSVal|])
 
 -- | How a promise's resolved value is read as a Haskell value. A newtype
 -- over a 'JSVal' (an object's type) derives it:
@@ -99,7 +104,7 @@ instance FromJS () where fromJS _ = pure ()
 -- | A string.
 instance FromJS Text where fromJS = pure . jsValText
 
--- | A @Uint8Array@ (or an @ArrayBuffer@'s bytes in one), copied out.
+-- | A @Uint8Array@, copied out.
 instance FromJS ByteString where fromJS = fromJSBytes
 
 -- | A number, as an 'Int' the way the FFI converts one.
@@ -111,7 +116,8 @@ instance FromJS Bool where fromJS = js_as_bool
 
 -- | An array, each element read as @a@. Read through the array's length and
 -- its elements by index, the same on both browser backends: the JavaScript
--- backend's @fromJSArray@ has no WebAssembly counterpart.
+-- backend's @fromJSArray@ has no WebAssembly counterpart. A value that is
+-- not an array reads as an empty one.
 instance (FromJS a) => FromJS [a] where
   fromJS v = do
     count <- js_array_length v
@@ -123,72 +129,68 @@ instance (FromJS a) => FromJS (Maybe a) where
     absent <- js_absent v
     if absent then pure Nothing else Just <$> fromJS v
 
--- | Hand the promise two actions: the first runs with what it resolves
--- with, read as @a@, the second with what it is rejected with. Exactly one
--- runs, once, on a thread of its own, after the call returns (a promise's
--- callbacks always run later). The callbacks are freed when one of them has
--- run, so nothing is left behind once the promise settles; a promise that
--- never settles keeps its two.
+-- | A 'Promise' of a JavaScript value: a promise, or any value, which then
+-- stands for one that has resolved with it. Its @then@ gets two callbacks at
+-- once; when one runs, both are freed and the outcome is kept for 'wait'.
+-- A value that 'FromJS' cannot read is a rejection with the name
+-- @FromJSError@.
 --
--- Natively, where there is no promise, the second runs at once with
--- @'JSError' "NotInBrowserError" _@.
-awaitPromise :: (FromJS a) => (a -> IO ()) -> (JSError -> IO ()) -> Promise a -> IO ()
-awaitPromise onResolve onReject (Promise promise)
-  | not inBrowser = onReject notInBrowser
+-- A promise that never settles keeps its two callbacks. Natively the
+-- promise has already been rejected (@NotInBrowserError@).
+promise :: (FromJS a) => JSVal -> IO (Promise a)
+promise raw
+  | not inBrowser = pure Promise {rawPromise = raw, wait = pure (Left notInBrowser)}
   | otherwise = do
+      box <- newTVarIO Nothing
       made <- newEmptyMVar
-      let done = readMVar made >>= \(resolve, reject) -> freeCallback resolve >> freeCallback reject
-      resolve <- mkCallback $ \value -> done >> (fromJS value >>= onResolve)
-      reject <- mkCallback $ \outcome -> do
-        done
-        try (checkThrown outcome) >>= \case
-          Left e -> onReject e
-          Right () -> onReject JSError {name = "Error", message = "rejected"}
+      let settle outcome = do
+            (resolve, reject) <- readMVar made
+            freeCallback resolve
+            freeCallback reject
+            atomically (writeTVar box (Just outcome))
+      resolve <- mkCallback $ \value ->
+        try (fromJS value)
+          >>= settle . \case
+            Left (e :: SomeException) -> Left JSError {name = "FromJSError", message = Text.pack (displayException e)}
+            Right a -> Right a
+      reject <- mkCallback $ \outcome ->
+        try (checkThrown outcome)
+          >>= settle . \case
+            Left e -> Left e
+            Right () -> Left JSError {name = "Error", message = "rejected"}
       putMVar made (resolve, reject)
-      js_then promise resolve reject
+      js_then raw resolve reject
+      pure Promise {rawPromise = raw, wait = readTVar box >>= maybe retry pure}
 
 -- | Wait for the promise to settle, and give what it resolved with, or what
 -- it was rejected with. It never throws a rejection, on any backend.
 --
--- It is 'awaitPromise' with an 'MVar': the calling thread sleeps on it, and
--- the runtime goes on with the rest of the program and gives the page back
--- to the browser meanwhile. So it waits only where a thread may wait: in
--- @lift@, not in @H.liftEffect@.
+-- The calling thread sleeps until the outcome is there, and the runtime
+-- goes on with the rest of the program and gives the page back to the
+-- browser meanwhile. So it waits only where a thread may wait: in @lift@,
+-- not in @H.liftEffect@.
 --
 -- Waiting is all it does. Killing the thread (or the component's fiber)
 -- that waits stops the wait, not the work: a promise cannot be cancelled,
--- and whatever started it goes on to the end, its outcome unread. A binding
--- for an API that takes an @AbortSignal@ (@fetch@ does) should take one
--- itself and hand it on, so that the program can abort the work as well as
--- stop waiting for it.
+-- and whatever started it goes on to the end. A binding for an API that
+-- takes an @AbortSignal@ (@fetch@ does) should take one itself and hand it
+-- on, so that the program can abort the work as well as stop waiting.
 --
--- Any number of waits on the same promise each get what it settled with,
--- and so does one that starts after it has settled.
---
--- Natively it waits for nothing and gives @'JSError' "NotInBrowserError" _@.
-await :: (MonadIO m, FromJS a) => Promise a -> m (Either JSError a)
-await promise = liftIO (takeMVar =<< listen promise)
-
--- The promise's outcome, in an 'MVar' its callbacks fill. Taking them is
--- the wait; handing them over is not, so 'awaitAll' hands every promise its
--- callbacks before it waits for any.
-listen :: (FromJS a) => Promise a -> IO (MVar (Either JSError a))
-listen promise = do
-  box <- newEmptyMVar
-  awaitPromise (void . tryPutMVar box . Right) (void . tryPutMVar box . Left) promise
-  pure box
+-- Any number of waits on the same promise each get what it settled with.
+-- Natively it gives @'JSError' "NotInBrowserError" _@ at once.
+await :: (MonadIO m) => Promise a -> m (Either JSError a)
+await p = liftIO (atomically p.wait)
 
 -- | 'await', throwing a rejection as the 'JSError' it is.
-awaitOrThrow :: (MonadIO m, FromJS a) => Promise a -> m a
-awaitOrThrow promise = await promise >>= either (liftIO . throwIO) pure
+awaitOrThrow :: (MonadIO m) => Promise a -> m a
+awaitOrThrow p = await p >>= either (liftIO . throwIO) pure
 
--- | Wait for every promise and give each one's outcome, in order, as 'await'
--- would. Every promise gets its callbacks first, and the waits come after,
--- one after another, which takes as long as the slowest. Handing them over
--- first matters: a promise rejected while nothing listens to it is an
--- unhandled rejection, which a browser logs and Node ends its process for.
-awaitAll :: (MonadIO m, FromJS a) => [Promise a] -> m [Either JSError a]
-awaitAll promises = liftIO (traverse takeMVar =<< traverse listen promises)
+-- | Wait for every promise and give each one's outcome, in order. Their work
+-- runs at once, so this takes as long as the slowest.
+awaitAll :: (MonadIO m) => [Promise a] -> m [Either JSError a]
+awaitAll = traverse await
 
-notInBrowser :: JSError
-notInBrowser = JSError {name = "NotInBrowserError", message = "there is no JavaScript engine here to run a promise"}
+-- | Wait for whichever promise settles first, and give its outcome. With no
+-- promises it waits for ever.
+awaitAny :: (MonadIO m) => [Promise a] -> m (Either JSError a)
+awaitAny ps = liftIO (atomically (foldr (orElse . (.wait)) retry ps))

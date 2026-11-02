@@ -68,7 +68,7 @@ $( browserJS
      [ ("js_available", "halogen_lazy_available", Unsafe, [t|IO Bool|])
      , ("js_load", "halogen_lazy_load", Unsafe, [t|JSText -> JSText -> JSText -> IO (Promise JSVal)|])
      , ("js_number", "halogen_lazy_number", Unsafe, [t|JSVal -> IO Int|])
-     , ("js_abandon", "halogen_lazy_abandon", Unsafe, [t|(Promise JSVal) -> IO ()|])
+     , ("js_abandon", "halogen_lazy_abandon", Unsafe, [t|JSVal -> IO ()|])
      ]
  )
 
@@ -153,7 +153,7 @@ load lib = do
       -- the entry is still called, and the StablePtr it makes would have
       -- nobody to free it, so the page is told to free it when it comes.
       -- From here to the free below, nothing else can interrupt.
-      outcome <- restore (await promise) `onException` js_abandon promise
+      outcome <- restore (await promise) `onException` js_abandon promise.rawPromise
       case outcome of
         Left e
           | e.name == "NotAvailableError" -> throwIO NotAvailable

@@ -101,7 +101,8 @@ import Data.List (intercalate, isSuffixOf, sortOn)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import GHC.Records (HasField (..))
-import Halogen.JSBits.Promise (Promise)
+import Halogen.JSBits.Inline (Backend (..), arrow, backend, importJS, inlineJS, splitArrows)
+import Halogen.JSBits.Promise (Promise, promise)
 import Halogen.JSBits.Value (Inert (..), JSText, JSVal, checkThrown, fromJSBytes, fromJSText, isNull, jsNull, jsValText, toJSText)
 import Language.Haskell.TH
 import Language.Haskell.TH.Syntax (addModFinalizer)
@@ -122,21 +123,6 @@ data Member
     -- 'inert'. It has the field's type (for a 'Writable' member, the
     -- read's). The browsers ignore it.
     Natively (Q Exp) Member
-
--- | Which code to write, decided by the architecture this package is
--- compiled for. The code for every backend is compiled on every one, so a
--- native build type-checks the generator for the browsers too.
-data Backend = OnWasm | OnJavaScript | OnNative
-  deriving (Eq)
-
-backend :: Backend
-#if defined(javascript_HOST_ARCH) && !defined(HALOGEN_WASI)
-backend = OnJavaScript
-#elif defined(wasm32_HOST_ARCH) && !defined(HALOGEN_WASI)
-backend = OnWasm
-#else
-backend = OnNative
-#endif
 
 -- | A 'HasField' instance for each member of the type, which must be a
 -- newtype over a 'JSVal' (or over another such newtype, as an event type is
@@ -195,25 +181,6 @@ jsCast function from to = do
         , ValD (VarP name) (NormalB body) []
         ]
 
--- | A function of one JavaScript expression over its arguments, @$1@,
--- @$2@ and so on, for what is not a member of an object: a constructor, a
--- static method, a call with an options object.
---
--- > $(inlineJS "js_new_url" "(() => { try { return new URL($1, $2); } catch { return null; } })()"
--- >     [t|JSText -> JSText -> IO JSVal|])
---
--- The type is the import's own, as 'Halogen.JSBits.browserJS' takes it
--- ('JSText' for a string), and natively the function is 'inert'. It is a
--- synchronous import: what can throw must catch, as above.
-inlineJS :: String -> String -> Q Type -> Q [Dec]
-inlineJS function expression quotedType = do
-  ty <- quotedType
-  let name = mkName function
-  pure $
-    if backend == OnNative
-      then [SigD name ty, ValD (VarP name) (NormalB (VarE 'inert)) []]
-      else [importJS name expression ty]
-
 --------------------------------------------------------------------------------
 -- Members
 --------------------------------------------------------------------------------
@@ -226,7 +193,7 @@ member receiver native = \case
   Fixed js quoted -> do
     ty <- quoted
     shape <- valueShape js ty
-    when (shape `elem` [Unit, Bytes]) $ failFor js "a fixed member cannot be () or a ByteString; read it as Live"
+    when (shape `elem` [Unit, Bytes, PromiseOf]) $ failFor js "a fixed member cannot be (), a ByteString or a Promise; read it as Live"
     get <- browser native $ do
       raw <- rawName "get" js
       pure ([importJS raw (nullish shape ("$1." <> js)) (self `arrow` ffiType shape ty)], [|\o -> $(pureResult shape) ($(varE raw) o)|])
@@ -328,6 +295,9 @@ data Shape
     Bytes
   | -- | @()@, a result only.
     Unit
+  | -- | A @'Promise' a@, a result only: the JavaScript promise as a
+    -- 'JSVal', made a 'Promise' (listened to) with 'promise'.
+    PromiseOf
   deriving (Eq)
 
 isMaybe :: Shape -> Bool
@@ -344,7 +314,7 @@ valueShape js ty = maybe (failFor js ("cannot pass a value of type " <> pprint t
         | n == ''ByteString -> Just Bytes
         | n `elem` [''Bool, ''Int, ''Double] -> Just Primitive
         | otherwise -> Just Plain
-      AppT (ConT p) _ | p == ''Promise -> Just Plain
+      AppT (ConT p) _ | p == ''Promise -> Just PromiseOf
       AppT (ConT m) a | m == ''Maybe -> case shapeOf a of
         Just AsText -> Just MaybeText
         Just Plain -> Just MaybeValue
@@ -360,7 +330,7 @@ ioResult js = \case
 argumentShape :: String -> Type -> Q Shape
 argumentShape js ty = do
   shape <- valueShape js ty
-  when (shape `elem` [Unit, Bytes]) $ failFor js ("cannot take an argument of type " <> pprint ty)
+  when (shape `elem` [Unit, Bytes, PromiseOf]) $ failFor js ("cannot take an argument of type " <> pprint ty <> " (a Promise goes as its rawPromise, a JSVal)")
   pure shape
 
 ffiType :: Shape -> Type -> Type
@@ -369,6 +339,7 @@ ffiType shape ty = case shape of
   MaybeText -> ConT ''JSVal
   MaybeValue -> ConT ''JSVal
   Bytes -> ConT ''JSVal
+  PromiseOf -> ConT ''JSVal
   _ -> ty
 
 -- The JavaScript of a read that may give @null@ or @undefined@, so that
@@ -396,6 +367,7 @@ ioFrom shape call = case shape of
   Primitive -> call
   Plain -> call
   Bytes -> [|$call >>= fromJSBytes|]
+  PromiseOf -> [|$call >>= promise|]
   _ -> [|fmap $(pureResult shape) $call|]
 
 -- From the field's argument to what the import takes.
@@ -405,39 +377,6 @@ toForeign shape v = case shape of
   MaybeText -> [|maybe jsNull toJSText $v|]
   MaybeValue -> [|maybe jsNull coerce $v|]
   _ -> v
-
---------------------------------------------------------------------------------
--- Imports
---------------------------------------------------------------------------------
-
--- A synchronous import of one JavaScript expression over @$1@, @$2@, ...:
--- on WebAssembly the expression itself, which the linker makes the body of
--- a function of those parameters; on the JavaScript backend that function,
--- written out.
-importJS :: Name -> String -> Type -> Dec
-importJS name expression ty = ForeignD (ImportF JavaScript Unsafe source name ty)
-  where
-    source = case backend of
-      OnJavaScript -> "((" <> intercalate ", " parameters <> ") => { " <> body <> " })"
-      OnWasm -> expression
-      OnNative -> expression
-    parameters = ["$" <> show n | n <- [1 .. length (fst (splitArrows ty))]]
-    body
-      | returnsUnit (snd (splitArrows ty)) = expression <> ";"
-      | otherwise = "return " <> expression <> ";"
-    returnsUnit = \case
-      AppT (ConT io) (TupleT 0) -> io == ''IO
-      AppT (ConT io) (ConT u) -> io == ''IO && u == ''()
-      _ -> False
-
-splitArrows :: Type -> ([Type], Type)
-splitArrows = \case
-  AppT (AppT ArrowT a) rest -> let (as, r) = splitArrows rest in (a : as, r)
-  ParensT t -> splitArrows t
-  t -> ([], t)
-
-arrow :: Type -> Type -> Type
-arrow a = AppT (AppT ArrowT a)
 
 failFor :: String -> String -> Q a
 failFor js message = fail ("jsFields: the member " <> js <> ": " <> message)

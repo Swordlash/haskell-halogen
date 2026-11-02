@@ -24,19 +24,28 @@ expression over `$1`, `$2`, ..., for constructors and static methods.
 
 `Inert` has an instance for `ByteString` (empty).
 
-**Breaking: `Promise` takes the type of what it resolves with**, `Promise a`,
-and `await :: Promise a -> m (Either JSError a)` reads the resolved value as
-that type through the new class `FromJS` (`JSVal`, `()`, `Text`,
-`ByteString`, `Int`, `Double`, `Bool`, `Maybe a` for `null` and `undefined`,
-`[a]` for an array;
-a newtype over a `JSVal` derives it). `Promise JSVal` is the old behaviour.
-`awaitOrThrow` throws a rejection instead of returning it. `awaitPromise onResolve
-onReject p` hands the promise two actions, one of which runs when it settles;
-`await` is built on it with an `MVar`, so waiting no longer goes through an
-async import; `awaitAll` hands every promise its callbacks before it waits for any.
+**Breaking: `Promise a` is a promise listened to from the moment it is
+made**, as `Control.Concurrent.Async`'s `Async` is to a thread: a record of
+the JavaScript promise (`rawPromise`) and the wait for its outcome
+(`wait :: STM (Either JSError a)`), and a `Functor`. A binding (`browserJS`)
+or a field (`jsFields`) whose type ends in `IO (Promise a)` makes one with
+`promise`, which hands the promise's `then` two callbacks at once, so a
+rejection that comes before anyone awaits is never an unhandled one. The
+resolved value is read as `a` through the new class `FromJS` (`JSVal`, `()`,
+`Text`, `ByteString`, `Int`, `Double`, `Bool`, `Maybe a` for `null` and
+`undefined`, `[a]` for an array; a newtype over a `JSVal` derives it), and a
+rejection is a `JSError`. `await` waits in `IO`, `awaitOrThrow` throws the
+rejection, `awaitAll` waits for each and `awaitAny` for the first, through
+`STM`. `Promise JSVal` is the old untyped promise. A binding that takes a
+promise takes its `rawPromise`, a `JSVal`. `jsbits/promise.js` is gone: the
+module's few imports are inline (`Halogen.JSBits.Inline`, where `inlineJS`
+now lives; `Halogen.JSBits.Fields` re-exports it).
 
-**Breaking: `Safety` is this package's own**, with three constructors:
-`Unsafe`, `Unchecked` and `Safe`. An `Unsafe` binding whose type ends in `IO`
+**Breaking: `Safety` is this package's own**, with two constructors,
+`Unsafe` and `Unchecked`; `Safe`, the binding that awaited its function's
+promise (an async import on wasm, an `interruptible` one on the JavaScript
+backend), is gone: a binding returns `IO (Promise a)` and the program awaits
+it. An `Unsafe` binding whose type ends in `IO`
 now catches what its JavaScript throws and throws it in Haskell as a
 `JSError`, which moved to `Halogen.JSBits.Value` (re-exported by
 `Halogen.JSBits` and `Halogen.JSBits.Promise`). On WebAssembly an exception
