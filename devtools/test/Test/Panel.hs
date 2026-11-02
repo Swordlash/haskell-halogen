@@ -18,7 +18,7 @@ import Test.Hspec.Halogen
 
 $( browserJS
      ["test/jsbits/hover.js"]
-     [("js_hover", "halogen_devtools_test_hover", Unsafe, [t|JSText -> IO ()|])]
+     [("js_hover", "halogen_devtools_test_hover", Safe, [t|JSText -> IO ()|])]
  )
 
 -- | Move the mouse onto the first element matching the selector, as far as

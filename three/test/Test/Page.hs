@@ -12,9 +12,9 @@ module Test.Page
   )
 where
 
-import Halogen.JSBits (JSText, Safety (..), browserJS, toJSText)
-import Halogen.JSBits.Promise (Promise (..), await)
-import Protolude
+import Halogen.JSBits (JSText, JSVal, Safety (..), browserJS, toJSText)
+import Halogen.JSBits.Promise (Promise (..), waitCatch)
+import Protolude hiding (waitCatch)
 import System.IO.Error (userError)
 import Test.Hspec.Halogen (PageM, unsafeIOToPageM)
 
@@ -25,12 +25,12 @@ moduleUrl = "/three.mjs"
 
 $( browserJS
      ["test/jsbits/scene.js"]
-     [ ("js_drawn", "halogen_three_test_drawn", Unsafe, [t|IO Int|])
-     , ("js_live", "halogen_three_test_live", Unsafe, [t|IO Int|])
-     , ("js_color", "halogen_three_test_color", Unsafe, [t|JSText -> IO Int|])
-     , ("js_watch_disposals", "halogen_three_test_watch_disposals", Unsafe, [t|JSText -> IO Promise|])
-     , ("js_disposed_geometries", "halogen_three_test_disposed_geometries", Unsafe, [t|IO Int|])
-     , ("js_disposed_materials", "halogen_three_test_disposed_materials", Unsafe, [t|IO Int|])
+     [ ("js_drawn", "halogen_three_test_drawn", Safe, [t|IO Int|])
+     , ("js_live", "halogen_three_test_live", Safe, [t|IO Int|])
+     , ("js_color", "halogen_three_test_color", Safe, [t|JSText -> IO Int|])
+     , ("js_watch_disposals", "halogen_three_test_watch_disposals", Safe, [t|JSText -> IO (Promise JSVal)|])
+     , ("js_disposed_geometries", "halogen_three_test_disposed_geometries", Safe, [t|IO Int|])
+     , ("js_disposed_materials", "halogen_three_test_disposed_materials", Safe, [t|IO Int|])
      ]
  )
 
@@ -51,7 +51,7 @@ colorOf name = unsafeIOToPageM $ do
 -- | Count the geometries and materials disposed of from now on.
 watchDisposals :: PageM s ()
 watchDisposals = unsafeIOToPageM $ do
-  outcome <- await =<< js_watch_disposals (toJSText moduleUrl)
+  outcome <- waitCatch =<< js_watch_disposals (toJSText moduleUrl)
   either (\problem -> throwIO (userError ("could not load Three.js: " <> show problem))) (const pass) outcome
 
 data Disposed = Disposed {geometries :: Int, materials :: Int}

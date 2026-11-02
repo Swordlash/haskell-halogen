@@ -18,23 +18,22 @@ module Halogen.Sound.Browser
 where
 
 import Halogen.JSBits
-import Halogen.JSBits.Promise (Promise (..), await)
+import Halogen.JSBits.Promise (Promise (..), waitCatch)
 import Halogen.Sound.Backend
-import Protolude
-
+import Protolude hiding (waitCatch)
 -- Natively nothing is fetched and a voice never ends: 'fetchClip' does not
 -- wait there.
 $( browserJS
      ["jsbits/sound.js"]
-     [ ("js_fetch", "halogen_sound_fetch", Unsafe, [t|JSText -> IO Promise|])
-     , ("js_release", "halogen_sound_release", Unsafe, [t|JSVal -> IO ()|])
-     , ("js_start", "halogen_sound_start", Unsafe, [t|JSVal -> Double -> Bool -> Bool -> Double -> Callback -> Callback -> IO JSVal|])
-     , ("js_stop", "halogen_sound_stop", Unsafe, [t|JSVal -> IO ()|])
-     , ("js_volume", "halogen_sound_volume", Unsafe, [t|JSVal -> Double -> IO ()|])
-     , ("js_pause", "halogen_sound_pause", Unsafe, [t|JSVal -> IO ()|])
-     , ("js_resume", "halogen_sound_resume", Unsafe, [t|JSVal -> IO ()|])
-     , ("js_time", "halogen_sound_time", Unsafe, [t|JSVal -> IO Double|])
-     , ("js_duration", "halogen_sound_duration", Unsafe, [t|JSVal -> IO Double|])
+     [ ("js_fetch", "halogen_sound_fetch", Safe, [t|JSText -> IO (Promise JSVal)|])
+     , ("js_release", "halogen_sound_release", Safe, [t|JSVal -> IO ()|])
+     , ("js_start", "halogen_sound_start", Safe, [t|JSVal -> Double -> Bool -> Bool -> Double -> Callback -> Callback -> IO JSVal|])
+     , ("js_stop", "halogen_sound_stop", Safe, [t|JSVal -> IO ()|])
+     , ("js_volume", "halogen_sound_volume", Safe, [t|JSVal -> Double -> IO ()|])
+     , ("js_pause", "halogen_sound_pause", Safe, [t|JSVal -> IO ()|])
+     , ("js_resume", "halogen_sound_resume", Safe, [t|JSVal -> IO ()|])
+     , ("js_time", "halogen_sound_time", Safe, [t|JSVal -> IO Double|])
+     , ("js_duration", "halogen_sound_duration", Safe, [t|JSVal -> IO Double|])
      ]
  )
 
@@ -65,7 +64,7 @@ data Voice = Voice JSVal Callback Callback
 fetchClip :: Text -> IO (Maybe Clip)
 fetchClip _ | not inBrowser = pure Nothing
 fetchClip url =
-  js_fetch (toJSText url) >>= await <&> \case
+  js_fetch (toJSText url) >>= waitCatch <&> \case
     Right blobUrl -> Just (Clip blobUrl)
     Left _ -> Nothing
 

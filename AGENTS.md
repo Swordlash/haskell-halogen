@@ -139,9 +139,10 @@ and wired into `test/Test.hs`.
   so every JS program linking core has them, test suites included. `POLYFILLS.md` lists each one
   with where its real fix belongs upstream; add a polyfill there, not in a package's own jsbits.
 - Two wasm facts the harness depends on: an async (`safe`) JSFFI import returns a *thunk*, and the
-  calling thread only waits for the promise when it is forced. `Halogen.JSBits.Promise.await` is
-  where a binding's wait is forced (its own are the only `safe` bindings), so the harness's page
-  actions return a `Promise` and await it, and the test does not run on while the page still acts.
+  calling thread only waits for the promise when it is forced. `browserJS` has no such imports:
+  the harness's page actions return a `Promise`, whose `then` got two callbacks as it was made
+  (`Halogen.JSBits.Promise.promise`), and `waitCatch` for it, sleeping in `STM` until a callback has
+  written the outcome, so the test does not run on while the page still acts.
   And a JS→Haskell callback is not run on the spot: the glue schedules the RTS scheduler loop as a
   task (`scheduler.postTask` in Chromium), which is why every harness action ends with `settle`.
 - `toolchain/test-learn.mjs` tests the deployed artefact rather than a component: it serves the built
@@ -276,9 +277,15 @@ objects. Sources must ship in `extra-source-files`; `addDependentFile` tracks ed
 Material's shared JS is already bundled with its external npm dependencies.
 On wasm, `foreign import javascript "wrapper"` callbacks run synchronously until
 they block; on JS, `syncCallback1 ContinueAsync` gives the same behaviour.
-A binding that starts asynchronous work returns a `Promise` (`Halogen.JSBits.Promise`)
-from an `Unsafe` import, and the program `await`s it, which gives a rejection back as a value,
-instead of declaring a `Safe` import and forcing its result with `evaluate`.
+A plain property read or method call needs no `.js` file: `Halogen.JSBits.Fields.jsFields`
+writes a `HasField` instance per member with the JavaScript inline (core's `Web.*` types are
+written with it, the instances beside each newtype), and `jsFieldFunctions` the same as functions.
+A `Safe` binding catches what its JavaScript throws and throws it as a `JSError` (on wasm an
+exception out of a synchronous import would end the program); `Unsafe` is for functions that cannot
+throw and are called on every render, such as core's DOM operations.
+A binding that starts asynchronous work returns `IO (Promise a)` (`Halogen.JSBits.Promise`): the
+generated code listens to the JavaScript promise at once, and the program waits for it with
+`async`'s vocabulary (`wait`, `waitCatch`, `waitAny`, `mapConcurrently`, ...). There are no async (`safe`) imports.
 
 ### Web Workers
 

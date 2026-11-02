@@ -34,30 +34,56 @@ A binding's result type needs an `Inert` instance: there is one for `()`,
 `Bool`, `Int`, `Double`, `Text`, `Maybe`, `JSVal`, functions and `IO`; a
 newtype over a `JSVal` derives it (`deriving newtype (Inert)`).
 
-A binding that starts asynchronous work returns a `Promise`
-(`Halogen.JSBits.Promise`), as an `Unsafe` binding: the JavaScript starts the
-work and returns its promise at once, and nothing waits until the program
-calls `await` (or `awaitAll` for several), which gives what it resolved with
-or what it was rejected with, as `Either JSError JSVal`, on every backend
-alike. That way a component can start the work in `H.liftEffect`, inside the
-dispatch of the event that asked for it, and await it later in `lift`, or
-never; and no call site has to force a thunk. Killing the thread that awaits
-stops the wait, not the work, which a promise cannot be told to stop: a
-binding for an API that takes an `AbortSignal` should take one and hand it
-on. Natively `await` gives `JSError "NotInBrowserError" _`. A module declaring
-such a binding imports `Promise (..)`, since the FFI passes a newtype only
-with its constructor in scope.
+A binding that starts asynchronous work returns `IO (Promise a)`
+(`Halogen.JSBits.Promise`): the JavaScript starts the work and returns its
+promise at once, and the generated code listens to it straight away, so a
+rejection is never left unhandled. `Promise` is to a JavaScript promise what
+`async`'s `Async` is to a thread, with the same vocabulary: `wait` (throws a
+rejection, a `JSError`), `waitCatch` (gives `Either JSError a`), `poll`, their
+`STM` forms, `waitAny`, `waitEither`, `waitBoth`, `waitAll`, and
+`mapConcurrently`, `concurrently` and `race`, which start several pieces of
+work and wait for them together. What it resolves with is read as `a`
+through `FromJS`. A component can start the work in `H.liftEffect`, inside
+the dispatch of the event that asked for it, and wait for it later in `lift`,
+or never. A promise cannot be cancelled: killing the thread that waits stops
+the wait, not the work, so a binding for an API that takes an `AbortSignal`
+should take one and hand it on. Natively every promise has been rejected
+with `JSError "NotInBrowserError" _`.
 
 ```haskell
 $(browserJS ["jsbits/net.js"]
   [ ("js_fetch_text", "halogen_net_fetch_text", Unsafe, [t| JSText -> IO Promise |]) ])
 ```
 
-A `Safe` binding awaits the function's Promise. On WebAssembly that is an async
-import; on the JavaScript backend an `interruptible` one, whose rejection is
-thrown as an `IOError`. There it must return `IO ()`, and the module splicing it
-needs `InterruptibleFFI`. The package depends on `haskell-halogen-jsbits` on
-every architecture.
+A plain property read or method call needs no `.js` file at all:
+`Halogen.JSBits.Fields.jsFields` writes a `HasField` instance for each member
+of a newtype over a `JSVal`, with the JavaScript inline in its import, so
+that `OverloadedRecordDot` reads it, and `jsFieldFunctions` writes the same
+members as plain functions, for a module imported qualified.
+
+```haskell
+$(jsFields ''Navigator [Live "onLine" ''Bool, Fixed "clipboard" [t| Maybe Clipboard |]])
+$(jsFields ''HTMLDocument [Writable "title" ''Text])
+$(jsFields ''History [Method "go" [t| Int -> IO () |]])
+$(jsFields ''Blob [Method "text" [t| IO (Promise Text) |]])
+```
+
+`Fixed` is read purely (`w.navigator`, so `w.navigator.onLine` chains),
+`Live` in `IO` each time, `Writable` also has a field `title_set :: Text ->
+IO ()` (no Web API name has `_set` in it), and `Method` holds the call; a
+method that returns a Promise gives it typed (`Promise Text`), for the caller
+to `await`. What a member's JavaScript throws comes back as a `JSError`.
+Natively every field is `inert`, unless `Natively` gives it
+an answer of its own. `jsCast` writes a checked cast (`instanceof`) giving
+`Maybe`, and `inlineJS` one import of an expression, for a constructor or a
+static method. haskell-halogen-core's `Web.*` modules are written with them.
+
+Every binding is synchronous. One whose function starts asynchronous work
+returns its JavaScript promise as `IO (Promise a)` (`Halogen.JSBits.Promise`):
+the generated code listens to the promise at once, and the program `await`s
+it where it wants the value. A `Safe` binding's JavaScript exception is
+thrown as a `JSError`; an `Unsafe` one's is not caught. The package
+depends on `haskell-halogen-jsbits` on every architecture.
 
 The splice reads sources relative to the package, records them with
 `addDependentFile`, and emits an initialization import plus small typed wrappers.

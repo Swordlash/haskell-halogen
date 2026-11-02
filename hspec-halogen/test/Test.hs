@@ -13,6 +13,7 @@ import Test.Agreement qualified
 import Test.Async qualified
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
 import Test.Busy qualified
+import Test.Fields qualified
 import Test.Islands qualified
 import Test.Window qualified
 #endif
@@ -62,6 +63,7 @@ main = runBrowserTests $ parallel $ do
   describe "Refs across a replacement" (Test.Reconcile.refSpec BrowserDOM)
   describe "Running again" (Test.LastRun.spec BrowserDOM)
   describe "Window" (Test.Window.spec BrowserDOM)
+  describe "Fields of Web types" (Test.Fields.spec BrowserDOM)
   describe "Dispatch to a subscription" (Test.Dispatch.subscribedSpec BrowserDOM)
 #endif
 

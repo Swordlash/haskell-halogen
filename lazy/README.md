@@ -115,7 +115,7 @@ What to keep in mind:
 ### How the library is linked and called
 
 There is nothing behind `Dyld.load` but dyld's own API, called from `lazy/jsbits/lazy.js` while the
-Haskell thread that asked waits for its promise (`Halogen.JSBits.Promise.await`):
+Haskell thread that asked waits for its promise (`Halogen.JSBits.Promise.waitCatch`):
 
 1. `fetch` the library, and write its bytes at `path` into the file system dyld reads (the
    `browser_wasi_shim` directory, with that module's `File` and `Directory`).

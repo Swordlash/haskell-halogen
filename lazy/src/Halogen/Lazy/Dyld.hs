@@ -60,15 +60,14 @@ import Data.Text qualified as Text
 import Foreign.Ptr (intPtrToPtr)
 import Foreign.StablePtr (castPtrToStablePtr, deRefStablePtr, freeStablePtr, newStablePtr)
 import Halogen.JSBits (JSText, JSVal, Safety (..), browserJS, toJSText)
-import Halogen.JSBits.Promise (JSError (..), Promise (..), await)
-import Protolude
-
+import Halogen.JSBits.Promise (JSError (..), Promise (..), waitCatch)
+import Protolude hiding (waitCatch)
 $( browserJS
      ["jsbits/lazy.js"]
-     [ ("js_available", "halogen_lazy_available", Unsafe, [t|IO Bool|])
-     , ("js_load", "halogen_lazy_load", Unsafe, [t|JSText -> JSText -> JSText -> IO Promise|])
-     , ("js_number", "halogen_lazy_number", Unsafe, [t|JSVal -> IO Int|])
-     , ("js_abandon", "halogen_lazy_abandon", Unsafe, [t|Promise -> IO ()|])
+     [ ("js_available", "halogen_lazy_available", Safe, [t|IO Bool|])
+     , ("js_load", "halogen_lazy_load", Safe, [t|JSText -> JSText -> JSText -> IO (Promise JSVal)|])
+     , ("js_number", "halogen_lazy_number", Safe, [t|JSVal -> IO Int|])
+     , ("js_abandon", "halogen_lazy_abandon", Safe, [t|JSVal -> IO ()|])
      ]
  )
 
@@ -153,7 +152,7 @@ load lib = do
       -- the entry is still called, and the StablePtr it makes would have
       -- nobody to free it, so the page is told to free it when it comes.
       -- From here to the free below, nothing else can interrupt.
-      outcome <- restore (await promise) `onException` js_abandon promise
+      outcome <- restore (waitCatch promise) `onException` js_abandon promise.rawPromise
       case outcome of
         Left e
           | e.name == "NotAvailableError" -> throwIO NotAvailable

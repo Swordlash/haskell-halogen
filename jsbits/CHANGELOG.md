@@ -2,6 +2,73 @@
 
 ## Unreleased
 
+`Halogen.JSBits.Fields` binds the members of JavaScript objects as record
+fields, with the JavaScript inline in each import, so a type needs no `.js`
+file. `jsFields ''T [...]` writes a `HasField` instance for each member of
+`T` (a newtype over a `JSVal`): a `Fixed` member is read purely
+(`w.navigator`), a `Live` one in `IO` (`nav.onLine :: IO Bool`), a
+`Writable` one also has a field named with `_set` after it (a `Live` or `Writable` member is given the value's type, `Live "onLine" ''Bool`; a member's type is a `Name` or a quote, `[t|Maybe Text|]`)
+(`doc.title_set :: Text -> IO ()`), a `Method` holds the call
+(`history.go :: Int -> IO ()`; one that returns a Promise gives it as a typed
+`Promise a`). A JavaScript exception out of a `Live`,
+`Writable` or `Method` member is thrown as a `JSError` too, so the caller
+catches it as any `IO` exception (on WebAssembly an exception out of a
+synchronous import would otherwise end the program). Strings, numbers, booleans, `Maybe` for `null` and
+`undefined`, newtypes over a `JSVal`, a `ByteString` result and a
+`Promise a` cross as the FFI passes them. Natively every field is `inert`,
+or what `Natively` gives it. `jsFieldFunctions ''T [...]` writes the same
+fields as plain functions (`go :: History -> Int -> IO ()`, `setTitle` for
+`title_set`), for a module meant to be imported qualified; `jsCast` writes a
+checked cast that asks `instanceof`; `inlineJS` declares one import of an
+expression over `$1`, `$2`, ..., for constructors and static methods.
+
+`Inert` has an instance for `ByteString` (empty).
+
+**Breaking: `Promise a` is a promise listened to from the moment it is
+made**, as `Control.Concurrent.Async`'s `Async` is to a thread: a record of
+the JavaScript promise (`rawPromise`) and the wait for its outcome
+(`wait :: STM (Either JSError a)`), and a `Functor`. A binding (`browserJS`)
+or a field (`jsFields`) whose type ends in `IO (Promise a)` makes one with
+`promise`, which hands the promise's `then` two callbacks at once, so a
+rejection that comes before anyone awaits is never an unhandled one. The
+resolved value is read as `a` through the new class `FromJS` (`JSVal`, `()`,
+`Text`, `ByteString`, `Int`, `Double`, `Bool`, `Maybe a` for `null` and
+`undefined`, `[a]` for an array; a newtype over a `JSVal` derives it), and a
+rejection is a `JSError`. Waiting has `async`'s names: `wait` (throws),
+`waitCatch` (gives the `Either`; the old `await`), `poll`, `waitSTM`,
+`waitCatchSTM`, `pollSTM`, `waitAny`, `waitAnyCatch`, `waitEither`,
+`waitEitherCatch`, `waitBoth`, `waitAll` (throws the first rejection as soon
+as it comes), and `mapConcurrently`, `forConcurrently`, `mapConcurrently_`,
+`forConcurrently_`, `concurrently` and `race`, which start several pieces of
+work and wait for them together. `resolved` and `rejected` make a settled
+promise in Haskell. There is no `cancel`: a promise cannot be stopped.
+`await`, `awaitOrThrow` and `awaitAll` are gone (`waitCatch`, `wait`,
+`traverse waitCatch`). A module importing `Protolude` or core's `HPrelude`,
+which export `async`'s `wait` and `waitCatch`, hides those. `Promise JSVal` is the old untyped promise. A binding that takes a
+promise takes its `rawPromise`, a `JSVal`. `jsbits/promise.js` is gone: the
+module's few imports are inline (`Halogen.JSBits.Inline`, where `inlineJS`
+now lives; `Halogen.JSBits.Fields` re-exports it).
+
+**Breaking: `Safety` is this package's own**, with two constructors whose
+meanings changed: `Safe` and `Unsafe`. The old `Safe`, the binding that
+awaited its function's promise (an async import on wasm, an `interruptible`
+one on the JavaScript backend), is gone: a binding returns
+`IO (Promise a)` and the program waits for it. A `Safe` binding (the old
+`Unsafe` ones become these) whose type ends in `IO`
+now catches what its JavaScript throws and throws it in Haskell as a
+`JSError`, which moved to `Halogen.JSBits.Value` (re-exported by
+`Halogen.JSBits` and `Halogen.JSBits.Promise`). On WebAssembly an exception
+out of a synchronous import cannot be caught in Haskell: it ends the program,
+whatever handler the caller has. The catching costs a small object and one
+more crossing per call, so `Unsafe` keeps the old behaviour of nothing
+caught, for a
+function that cannot throw for the values it is given and is called very
+often (core's DOM operations during a render). A binding of a pure type is
+not guarded. `Safety` was Template Haskell's before, so a module that
+imported it from `Language.Haskell.TH` imports it from `Halogen.JSBits` now.
+`checkThrown` (in `Halogen.JSBits.Value`) reads the outcome the generated
+code makes.
+
 The `wasi` flag builds inert browser bindings and checked Haskell values on
 WebAssembly, for standalone commands without JavaScript imports.
 

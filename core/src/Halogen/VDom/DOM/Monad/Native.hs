@@ -67,7 +67,7 @@ import System.IO.Unsafe (unsafePerformIO)
 import Web.DOM.Internal.Types
 import Web.DOM.Internal.Types qualified as DOMTypes
 import Web.DOM.ParentNode
-import Web.Event.Event
+import Web.Event.Event hiding (defaultPrevented, target, type_)
 import Web.Event.Internal.Types qualified as EventTypes
 import Web.HTML.Common
 import Web.HTML.HTMLDocument.ReadyState as ReadyState

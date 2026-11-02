@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+The suite tests haskell-halogen-core's Web fields in the browser
+(`Test.Fields`): one test for each kind of member, a Promise awaited and one
+rejected, and checked casts.
+
 Set `HSPEC_HALOGEN_JOBS` to run examples marked `parallel` in isolated browser
 contexts. Unmarked and `sequential` examples finish first. Each context has
 its own input, storage and runtime; failures in any context fail the command.

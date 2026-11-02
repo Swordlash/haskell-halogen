@@ -51,10 +51,10 @@ import Halogen qualified as H
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
-import Halogen.JSBits (Callback, Safety (..), browserJS, freeCallback, jsValText, mkSyncCallback)
-import Halogen.JSBits.Promise (Promise (..), await)
+import Halogen.JSBits (Callback, JSVal, Safety (..), browserJS, freeCallback, jsValText, mkSyncCallback)
+import Halogen.JSBits.Promise (Promise (..), waitCatch)
 import Halogen.Router qualified as Router
-import Protolude hiding (State)
+import Protolude hiding (State, waitCatch)
 import Web.Event.Event (EventType (..), preventDefault)
 import Web.UIEvent.MouseEvent (MouseEvent, toEvent)
 
@@ -63,8 +63,8 @@ import Web.UIEvent.MouseEvent (MouseEvent, toEvent)
 -- the suite only reports a skip there.
 $( browserJS
      ["test/jsbits/busy.js"]
-     [ ("js_click_link", "halogen_busy_click_link", Unsafe, [t|Int -> IO Int|])
-     , ("js_release_then_click", "halogen_busy_release_then_click", Unsafe, [t|Callback -> Int -> IO Promise|])
+     [ ("js_click_link", "halogen_busy_click_link", Safe, [t|Int -> IO Int|])
+     , ("js_release_then_click", "halogen_busy_release_then_click", Safe, [t|Callback -> Int -> IO (Promise JSVal)|])
      ]
  )
 
@@ -174,7 +174,7 @@ component =
         H.liftEffect (liftIO (writeIORef started True))
         modify $ \st -> st {filler = 3000}
         modify $ \st -> st {handled = st.handled <> ["Filled"]}
-        outcome <- await clicked
+        outcome <- waitCatch clicked
         liftIO (freeCallback release)
         modify $ \st -> st {preempted = either (const "failed") jsValText outcome}
 

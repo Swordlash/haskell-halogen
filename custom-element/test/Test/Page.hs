@@ -37,31 +37,31 @@ import GHC.Generics (Generic)
 import Halogen qualified as H
 import Halogen.CustomElement (Definition, Registration (..))
 import Halogen.CustomElement qualified as CE
-import Halogen.JSBits (JSText, Safety (..), browserJS, fromJSText, jsValText, toJSText)
-import Halogen.JSBits.Promise (JSError, Promise (..), await)
+import Halogen.JSBits (JSText, JSVal, Safety (..), browserJS, fromJSText, jsValText, toJSText)
+import Halogen.JSBits.Promise (JSError, Promise (..), waitCatch)
 import Halogen.VDom.DOM.Monad (MonadBrowserDOM)
 import Test.Hspec.Halogen (MonadBrowserTest (..), PageM, settle, unsafeIOToPageM)
 
 $( browserJS
      ["test/jsbits/elements.js"]
-     [ ("js_set_attribute", "halogen_ce_test_set_attribute", Unsafe, [t|JSText -> JSText -> JSText -> IO ()|])
-     , ("js_set_property", "halogen_ce_test_set_property", Unsafe, [t|JSText -> JSText -> JSText -> IO ()|])
-     , ("js_get_property", "halogen_ce_test_get_property", Unsafe, [t|JSText -> JSText -> IO JSText|])
-     , ("js_call", "halogen_ce_test_call", Unsafe, [t|JSText -> JSText -> JSText -> IO Promise|])
-     , ("js_set_then_call", "halogen_ce_test_set_then_call", Unsafe, [t|JSText -> JSText -> JSText -> JSText -> IO Promise|])
-     , ("js_has_method", "halogen_ce_test_has_method", Unsafe, [t|JSText -> JSText -> IO Bool|])
-     , ("js_move", "halogen_ce_test_move", Unsafe, [t|JSText -> JSText -> IO ()|])
-     , ("js_remove", "halogen_ce_test_remove", Unsafe, [t|JSText -> IO ()|])
-     , ("js_detach", "halogen_ce_test_detach", Unsafe, [t|JSText -> IO ()|])
-     , ("js_reattach", "halogen_ce_test_reattach", Unsafe, [t|JSText -> JSText -> IO ()|])
-     , ("js_create", "halogen_ce_test_create", Unsafe, [t|JSText -> JSText -> JSText -> JSText -> JSText -> IO ()|])
-     , ("js_shadow_text", "halogen_ce_test_shadow_text", Unsafe, [t|JSText -> IO JSText|])
-     , ("js_shadow_colour", "halogen_ce_test_shadow_colour", Unsafe, [t|JSText -> JSText -> IO JSText|])
-     , ("js_shadow_click", "halogen_ce_test_shadow_click", Unsafe, [t|JSText -> JSText -> IO ()|])
-     , ("js_light_html", "halogen_ce_test_light_html", Unsafe, [t|JSText -> IO JSText|])
-     , ("js_listen", "halogen_ce_test_listen", Unsafe, [t|JSText -> IO ()|])
-     , ("js_heard", "halogen_ce_test_heard", Unsafe, [t|JSText -> IO JSText|])
-     , ("js_dispatch", "halogen_ce_test_dispatch", Unsafe, [t|JSText -> JSText -> JSText -> IO ()|])
+     [ ("js_set_attribute", "halogen_ce_test_set_attribute", Safe, [t|JSText -> JSText -> JSText -> IO ()|])
+     , ("js_set_property", "halogen_ce_test_set_property", Safe, [t|JSText -> JSText -> JSText -> IO ()|])
+     , ("js_get_property", "halogen_ce_test_get_property", Safe, [t|JSText -> JSText -> IO JSText|])
+     , ("js_call", "halogen_ce_test_call", Safe, [t|JSText -> JSText -> JSText -> IO (Promise JSVal)|])
+     , ("js_set_then_call", "halogen_ce_test_set_then_call", Safe, [t|JSText -> JSText -> JSText -> JSText -> IO (Promise JSVal)|])
+     , ("js_has_method", "halogen_ce_test_has_method", Safe, [t|JSText -> JSText -> IO Bool|])
+     , ("js_move", "halogen_ce_test_move", Safe, [t|JSText -> JSText -> IO ()|])
+     , ("js_remove", "halogen_ce_test_remove", Safe, [t|JSText -> IO ()|])
+     , ("js_detach", "halogen_ce_test_detach", Safe, [t|JSText -> IO ()|])
+     , ("js_reattach", "halogen_ce_test_reattach", Safe, [t|JSText -> JSText -> IO ()|])
+     , ("js_create", "halogen_ce_test_create", Safe, [t|JSText -> JSText -> JSText -> JSText -> JSText -> IO ()|])
+     , ("js_shadow_text", "halogen_ce_test_shadow_text", Safe, [t|JSText -> IO JSText|])
+     , ("js_shadow_colour", "halogen_ce_test_shadow_colour", Safe, [t|JSText -> JSText -> IO JSText|])
+     , ("js_shadow_click", "halogen_ce_test_shadow_click", Safe, [t|JSText -> JSText -> IO ()|])
+     , ("js_light_html", "halogen_ce_test_light_html", Safe, [t|JSText -> IO JSText|])
+     , ("js_listen", "halogen_ce_test_listen", Safe, [t|JSText -> IO ()|])
+     , ("js_heard", "halogen_ce_test_heard", Safe, [t|JSText -> IO JSText|])
+     , ("js_dispatch", "halogen_ce_test_dispatch", Safe, [t|JSText -> JSText -> JSText -> IO ()|])
      ]
  )
 
@@ -81,14 +81,14 @@ propertyJSON element name = fromJSText <$> js_get_property (toJSText element) (t
 call :: Text -> Text -> [Value] -> IO (Either JSError Text)
 call element name args = do
   promise <- js_call (toJSText element) (toJSText name) (toJSText (json args))
-  fmap jsValText <$> await promise
+  fmap jsValText <$> waitCatch promise
 
 -- | Set an attribute and call a method of no arguments in the same
 -- JavaScript task, as a page's script would, and wait for the answer.
 setThenCall :: Text -> Text -> Text -> Text -> IO (Either JSError Text)
 setThenCall element attribute value name = do
   promise <- js_set_then_call (toJSText element) (toJSText attribute) (toJSText value) (toJSText name)
-  fmap jsValText <$> await promise
+  fmap jsValText <$> waitCatch promise
 
 hasMethod :: Text -> Text -> IO Bool
 hasMethod element name = js_has_method (toJSText element) (toJSText name)

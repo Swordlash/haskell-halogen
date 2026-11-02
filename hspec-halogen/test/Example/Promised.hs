@@ -5,7 +5,7 @@
 -- Pressing @start@ starts some JavaScript work in 'H.liftEffect', inside
 -- the dispatch of the click, without waiting for it: the binding returns a
 -- 'Promise' at once, which the component keeps in its state. Pressing
--- @collect@ later 'await's it, on a worker, while the rest of the tree goes
+-- @collect@ later waits for it ('waitCatch'), on a worker, while the rest of the tree goes
 -- on: pressing @tick@ meanwhile renders its count at once. Once the work is
 -- done the component shows what it resolved with, or what it was rejected
 -- with, as a value rather than an exception.
@@ -16,23 +16,22 @@ import Halogen qualified as H
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
-import Halogen.JSBits (JSText, Safety (..), browserJS, jsValText, toJSText)
-import Halogen.JSBits.Promise (JSError (..), Promise (..), await)
-import Protolude hiding (State)
-
+import Halogen.JSBits (JSText, JSVal, Safety (..), browserJS, jsValText, toJSText)
+import Halogen.JSBits.Promise (JSError (..), Promise (..), waitCatch)
+import Protolude hiding (State, waitCatch)
 -- The work is test/jsbits/promised.js's. Natively the stubs return a
 -- placeholder, which is never awaited, since the suite only reports a skip
 -- there.
 $( browserJS
      ["test/jsbits/promised.js"]
-     [ ("js_later", "halogen_promised_later", Unsafe, [t|Int -> JSText -> IO Promise|])
-     , ("js_failing", "halogen_promised_failing", Unsafe, [t|Int -> IO Promise|])
+     [ ("js_later", "halogen_promised_later", Safe, [t|Int -> JSText -> IO (Promise JSVal)|])
+     , ("js_failing", "halogen_promised_failing", Safe, [t|Int -> IO (Promise JSVal)|])
      ]
  )
 
 data State = State
   { delayMs :: Int
-  , pending :: Maybe Promise
+  , pending :: Maybe (Promise JSVal)
   , result :: Text
   , ticks :: Int
   }
@@ -72,9 +71,9 @@ component =
           Nothing -> pass
           Just promise -> do
             modify $ \st -> st {pending = Nothing, result = "waiting"}
-            -- Waits on a worker ('await' is a 'liftIO'), while the tree
+            -- Waits on a worker ('waitCatch' is a 'liftIO'), while the tree
             -- goes on.
-            outcome <- await promise
+            outcome <- waitCatch promise
             modify $ \st -> st {result = either failed (("resolved: " <>) . jsValText) outcome}
       Tick -> modify $ \st -> st {ticks = st.ticks + 1}
 

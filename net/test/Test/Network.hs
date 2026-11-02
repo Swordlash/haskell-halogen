@@ -17,10 +17,10 @@ import Halogen.JSBits (JSText, Safety (..), browserJS, toJSText)
 
 $( browserJS
      ["test/jsbits/network.js"]
-     [ ("js_started", "halogen_net_test_started", Unsafe, [t|JSText -> IO Bool|])
-     , ("js_aborted", "halogen_net_test_aborted", Unsafe, [t|JSText -> IO Bool|])
-     , ("js_release", "halogen_net_test_release", Unsafe, [t|JSText -> IO ()|])
-     , ("js_reset", "halogen_net_test_reset", Unsafe, [t|IO ()|])
+     [ ("js_started", "halogen_net_test_started", Safe, [t|JSText -> IO Bool|])
+     , ("js_aborted", "halogen_net_test_aborted", Safe, [t|JSText -> IO Bool|])
+     , ("js_release", "halogen_net_test_release", Safe, [t|JSText -> IO ()|])
+     , ("js_reset", "halogen_net_test_reset", Safe, [t|IO ()|])
      ]
  )
 

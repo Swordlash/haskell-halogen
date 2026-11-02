@@ -73,9 +73,9 @@ import Control.Monad.Trans.Identity (IdentityT (..))
 import Data.Map.Strict qualified as M
 import Data.Set qualified as S
 import Data.Text qualified as T
-import HPrelude hiding (get, getAll, put)
+import HPrelude hiding (get, getAll, put, waitCatch)
 import Halogen.JSBits (JSText, JSVal, Safety (..), browserJS, fromJSBytes, inBrowser, isNull, jsValText, toJSBytes, toJSText)
-import Halogen.JSBits.Promise (JSError (..), Promise (..), await)
+import Halogen.JSBits.Promise (JSError (..), Promise (..), waitCatch)
 import Halogen.VDom.DOM.Monad.Browser (BrowserDOM)
 import Halogen.VDom.DOM.Monad.Mem (MemDOM)
 import System.IO.Unsafe (unsafePerformIO)
@@ -230,24 +230,24 @@ itemDeletion store key = (store, key, Nothing)
 
 -- Each call is described by one binding, which returns at once, and done by
 -- 'js_idb_run', which returns the promise of its result for 'perform' to
--- await. See @jsbits/indexeddb.js@.
+-- wait for. See @jsbits/indexeddb.js@.
 $( browserJS
      ["jsbits/indexeddb.js"]
-     [ ("js_idb_database", "halogen_idb_database", Unsafe, [t|JSText -> Int -> IO JSVal|])
-     , ("js_idb_add_store", "halogen_idb_add_store", Unsafe, [t|JSVal -> JSText -> IO ()|])
-     , ("js_idb_get", "halogen_idb_get", Unsafe, [t|JSVal -> JSText -> JSText -> IO JSVal|])
-     , ("js_idb_put", "halogen_idb_put", Unsafe, [t|JSVal -> JSText -> JSText -> JSVal -> IO JSVal|])
-     , ("js_idb_delete", "halogen_idb_delete", Unsafe, [t|JSVal -> JSText -> JSText -> IO JSVal|])
-     , ("js_idb_keys", "halogen_idb_keys", Unsafe, [t|JSVal -> JSText -> IO JSVal|])
-     , ("js_idb_get_all", "halogen_idb_get_all", Unsafe, [t|JSVal -> JSText -> IO JSVal|])
-     , ("js_idb_clear", "halogen_idb_clear", Unsafe, [t|JSVal -> JSText -> IO JSVal|])
-     , ("js_idb_batch", "halogen_idb_batch", Unsafe, [t|JSVal -> IO JSVal|])
-     , ("js_idb_batch_put", "halogen_idb_batch_put", Unsafe, [t|JSVal -> JSText -> JSText -> JSVal -> IO ()|])
-     , ("js_idb_batch_delete", "halogen_idb_batch_delete", Unsafe, [t|JSVal -> JSText -> JSText -> IO ()|])
-     , ("js_idb_delete_database", "halogen_idb_delete_database", Unsafe, [t|JSText -> IO JSVal|])
-     , ("js_idb_run", "halogen_idb_run", Unsafe, [t|JSVal -> IO Promise|])
-     , ("js_idb_length", "halogen_idb_length", Unsafe, [t|JSVal -> IO Int|])
-     , ("js_idb_index", "halogen_idb_index", Unsafe, [t|JSVal -> Int -> IO JSVal|])
+     [ ("js_idb_database", "halogen_idb_database", Safe, [t|JSText -> Int -> IO JSVal|])
+     , ("js_idb_add_store", "halogen_idb_add_store", Safe, [t|JSVal -> JSText -> IO ()|])
+     , ("js_idb_get", "halogen_idb_get", Safe, [t|JSVal -> JSText -> JSText -> IO JSVal|])
+     , ("js_idb_put", "halogen_idb_put", Safe, [t|JSVal -> JSText -> JSText -> JSVal -> IO JSVal|])
+     , ("js_idb_delete", "halogen_idb_delete", Safe, [t|JSVal -> JSText -> JSText -> IO JSVal|])
+     , ("js_idb_keys", "halogen_idb_keys", Safe, [t|JSVal -> JSText -> IO JSVal|])
+     , ("js_idb_get_all", "halogen_idb_get_all", Safe, [t|JSVal -> JSText -> IO JSVal|])
+     , ("js_idb_clear", "halogen_idb_clear", Safe, [t|JSVal -> JSText -> IO JSVal|])
+     , ("js_idb_batch", "halogen_idb_batch", Safe, [t|JSVal -> IO JSVal|])
+     , ("js_idb_batch_put", "halogen_idb_batch_put", Safe, [t|JSVal -> JSText -> JSText -> JSVal -> IO ()|])
+     , ("js_idb_batch_delete", "halogen_idb_batch_delete", Safe, [t|JSVal -> JSText -> JSText -> IO ()|])
+     , ("js_idb_delete_database", "halogen_idb_delete_database", Safe, [t|JSText -> IO JSVal|])
+     , ("js_idb_run", "halogen_idb_run", Safe, [t|JSVal -> IO (Promise JSVal)|])
+     , ("js_idb_length", "halogen_idb_length", Safe, [t|JSVal -> IO Int|])
+     , ("js_idb_index", "halogen_idb_index", Safe, [t|JSVal -> Int -> IO JSVal|])
      ]
  )
 
@@ -301,7 +301,7 @@ perform :: Text -> IO JSVal -> IO JSVal
 perform database describe = do
   unless inBrowser $ throwIO (IndexedDBError database Unavailable)
   operation <- describe
-  js_idb_run operation >>= await >>= \case
+  js_idb_run operation >>= waitCatch >>= \case
     Right result -> pure result
     Left JSError {name, message} ->
       throwIO . IndexedDBError database $ case name of

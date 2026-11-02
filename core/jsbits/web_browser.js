@@ -1,8 +1,9 @@
-// The browser globals bound by the storage half of MonadBrowserDOM,
-// Web.HTML.Window, Web.HTML.HTMLDocument and the frame clock of
-// Halogen.Query.Event.Window. The GHC JavaScript backend links this file and
-// calls these by name; the wasm backend embeds it into its JSFFI module
-// (Halogen.JSBits).
+// The browser globals bound by the storage half of MonadBrowserDOM, the
+// frame clock of Halogen.Query.Event.Window and Control.Monad.UUID: the
+// bindings with logic of their own. A plain property read or method call is
+// a field (Halogen.JSBits.Fields) instead, declared where its type is.
+// The GHC JavaScript backend links this file and calls these by name; the
+// wasm backend embeds it into its JSFFI module (Halogen.JSBits).
 
 // A store can refuse: a write past its quota, and any use at all where the
 // browser denies the page its storage (a strict private window, storage
@@ -60,30 +61,6 @@ function js_storage_key(kind, index) {
   } catch (error) {
     return null;
   }
-}
-
-function js_window_inner_width(window) {
-  return window.innerWidth;
-}
-
-function js_window_inner_height(window) {
-  return window.innerHeight;
-}
-
-function js_window_location_hash(window) {
-  return window.location.hash;
-}
-
-function js_document_cookie(document) {
-  return document.cookie;
-}
-
-function js_document_set_cookie(value, document) {
-  document.cookie = value;
-}
-
-function js_document_visibility_state(document) {
-  return document.visibilityState;
 }
 
 // Ask for the next frame. An engine with no frames to draw (Node, where the

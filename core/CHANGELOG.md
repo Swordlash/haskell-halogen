@@ -2,6 +2,66 @@
 
 ## Unreleased
 
+The Web types have fields, written with jsbits' `Halogen.JSBits.Fields`,
+so that `OverloadedRecordDot` reads the platform directly:
+`w.navigator.onLine`, `w.document.title_set "Notes"`, `w.history.go (-1)`,
+`file.name`, `blob.text`. Each field is also a function in the module of its
+type, meant to be imported qualified (`History.go`, `HTMLDocument.setTitle`),
+and natively each gives its inert answer, as the other bindings do. The
+fields are the ones applications have needed so far, not the whole platform:
+
+- `Window`: `document`, `navigator`, `history`, `location`, `crypto`,
+  `console`, `isSecureContext`, `innerWidth`, `innerHeight`, `print`.
+- `HTMLDocument`: `title` (writable), `cookie` (writable),
+  `visibilityState`, `baseURI`, `fullscreenElement`, `querySelector`,
+  `getElementById`, `exitFullscreen` (awaited).
+- `Element`: `textContent` (writable), `getAttribute`, `hasAttribute`,
+  `closest`, `querySelector`, `scrollIntoView`; `HTMLElement`: `focus`,
+  `blur`, `click`.
+- `Event`: `type_`, `target`, `currentTarget`, `defaultPrevented`,
+  `preventDefault`, `stopPropagation`, `stopImmediatePropagation`;
+  `KeyboardEvent`: `key`, `code`, `altKey`, `ctrlKey`, `metaKey`,
+  `shiftKey`, `isComposing`; `MouseEvent`: `clientX`, `clientY`, `button`
+  and the four modifier keys; `DragEvent`'s `dataTransfer` and
+  `ClipboardEvent`'s `clipboardData`. An event made from JSON gives its
+  keyboard and mouse fields and its `currentTarget` natively, as before.
+
+New types, each in a module of its own: `Web.HTML.Navigator` (`onLine`,
+`clipboard`), `Web.Clipboard` (`writeText`, awaited), `Web.Crypto`
+(`randomUUID`), `Web.Console` (`warn`), `Web.HTML.History` (`length`,
+`state`, `go`, `back`, `forward`, `pushState`, `replaceState`),
+`Web.HTML.Location` (`href`, writable, `origin`, `pathname`, `search`,
+`hash`), `Web.Event.CustomEvent` (`detail`), `Web.HTML.Event.DataTransfer`
+(`files`), `Web.File.FileList` (`length`, `item`, and `items`),
+`Web.File.File` (`name`, `type_`, `size`, `lastModified`, `text`, `bytes`),
+`Web.File.Blob` (the same, and `fromBytes`; `bytes` is the browser's
+`Blob.bytes()`, which Chromium 132, Firefox 128 and Safari 18 have, and an
+older browser rejects as a `JSError`), `Web.URL` (`parse`, the parts
+of an address, `createObjectURL`, `revokeObjectURL`),
+`Web.HTML.HTMLDialogElement` (`open`, `show`, `showModal`, `close`),
+`Web.HTML.HTMLInputElement` (`value`, writable, `files`) and
+`Web.HTML.HTMLElement`. Checked casts ask the browser what a value is and
+give `Maybe`, natively `Nothing`: `fromEvent` in each event module,
+`fromElement` for a dialog, an input and an HTML element, and
+`Web.DOM.Element.fromEventTarget`.
+
+The functions that were there keep their types: `Web.HTML.Window`'s
+`innerWidth`, `innerHeight` and `locationHash`, `Web.HTML.HTMLDocument`'s
+`cookie`, `setCookie` and `visibilityState`, and `Web.Event.Event`'s
+`preventDefault` and the two others still take any `MonadIO`, and read the
+fields now. `jsbits/web_event.js` is gone and `jsbits/web_browser.js` keeps
+only what has logic of its own (the stores, the frame clock, the UUID that
+works outside a secure context).
+
+Some modules export more names than before, which can meet a name of the
+importing module's when it is imported whole and unqualified:
+`Web.Event.Event` exports `type_`, `target` and `defaultPrevented`,
+`Web.DOM.Element` the element's functions (`textContent`, `getAttribute`,
+`closest` and the rest, as `Test.Hspec.Halogen` also has some), the event
+modules `fromEvent`, and `Web.DOM.Internal.Types` and
+`Web.Event.Internal.Types` now have export lists (the same names as
+before). Import them qualified, or name what you use.
+
 Standalone WASI prerenderers can use `Halogen.Static` and MemDOM by enabling
 the `wasi` flag in core and jsbits. The browser build remains separate.
 

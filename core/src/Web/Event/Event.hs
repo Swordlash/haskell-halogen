@@ -1,43 +1,29 @@
 {-# LANGUAGE TemplateHaskell #-}
 
+-- | Events, and an event's fields as functions. The fields themselves
+-- (@e.target@, @e.defaultPrevented@) are 'Event''s instances, in
+-- "Web.Event.Internal.Types".
 module Web.Event.Event
   ( EventType (..)
   , Event (..)
   , EventTarget (..)
+  , type_
+  , target
   , currentTarget
+  , defaultPrevented
   , preventDefault
   , stopPropagation
   , stopImmediatePropagation
   )
 where
 
-import Data.Foreign
 import HPrelude
-import Halogen.JSBits (Safety (..), browserJS, inBrowser)
+import Halogen.JSBits.Fields (jsFieldFunctions)
 import Web.Event.Internal.Types
 
 newtype EventType = EventType Text
 
--- Natively nothing is listening and nothing is going to happen by default, so
--- the last three have nothing to prevent: they do nothing, so that a handler
--- written for the browser can still be run against the in-memory DOM in
--- "Halogen.VDom.DOM.Monad.Native".
-$( browserJS
-     ["jsbits/web_event.js"]
-     [ ("js_current_target", "js_current_target", Unsafe, [t|Event -> Nullable EventTarget|])
-     , ("js_prevent_default", "js_prevent_default", Unsafe, [t|Event -> IO ()|])
-     , ("js_stop_propagation", "js_stop_propagation", Unsafe, [t|Event -> IO ()|])
-     , ("js_stop_immediate_propagation", "js_stop_immediate_propagation", Unsafe, [t|Event -> IO ()|])
-     ]
- )
-
--- | The target whose handler is running. Natively it is the event's
--- @currentTarget@ property, which an event made from JSON (a test's, or one
--- a remote client sent) has and every other event lacks.
-currentTarget :: Event -> Maybe EventTarget
-currentTarget e@(Event value)
-  | inBrowser = EventTarget <$> nullableToMaybe (js_current_target e)
-  | otherwise = EventTarget <$> readProp "currentTarget" Just value
+$(jsFieldFunctions ''Event ["preventDefault", "stopPropagation", "stopImmediatePropagation"])
 
 -- | Ask the browser not to take its default action for this event: not to
 -- submit the form, not to follow the link, not to scroll the page.
@@ -45,14 +31,14 @@ currentTarget e@(Event value)
 -- Call it from the handler itself. By the time anything the handler forks or
 -- schedules runs, the browser has already decided.
 preventDefault :: (MonadIO m) => Event -> m ()
-preventDefault = liftIO . js_prevent_default
+preventDefault e = liftIO e.preventDefault
 
 -- | Stop the event travelling further up the tree. Handlers already attached
 -- to /this/ target still run; 'stopImmediatePropagation' stops those too.
 stopPropagation :: (MonadIO m) => Event -> m ()
-stopPropagation = liftIO . js_stop_propagation
+stopPropagation e = liftIO e.stopPropagation
 
 -- | Stop the event travelling further up the tree, and stop the other
 -- handlers on this target from running.
 stopImmediatePropagation :: (MonadIO m) => Event -> m ()
-stopImmediatePropagation = liftIO . js_stop_immediate_propagation
+stopImmediatePropagation e = liftIO e.stopImmediatePropagation

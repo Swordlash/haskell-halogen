@@ -29,7 +29,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import Halogen.JSBits (Callback, JSText, JSVal, Safety (..), browserJS, freeCallback, jsValText, mkCallback, toJSText)
-import Halogen.JSBits.Promise (JSError (..), Promise (..), await)
+import Halogen.JSBits.Promise (JSError (..), Promise (..), waitCatch)
 import Halogen.Subscription qualified as HS
 
 -- | Why a command gave no result.
@@ -64,14 +64,14 @@ data Scope = Anywhere | CurrentWindow
 
 $( browserJS
      ["jsbits/tauri.js"]
-     [ ("js_is_tauri", "halogen_tauri_is_tauri", Unsafe, [t|IO Bool|])
-     , ("js_invoke", "halogen_tauri_invoke", Unsafe, [t|JSText -> JSText -> IO Promise|])
-     , ("js_listen", "halogen_tauri_listen", Unsafe, [t|JSText -> Bool -> Callback -> IO JSVal|])
-     , ("js_unlisten", "halogen_tauri_unlisten", Unsafe, [t|JSText -> JSVal -> IO ()|])
-     , ("js_emit", "halogen_tauri_emit", Unsafe, [t|JSText -> JSText -> IO ()|])
-     , ("js_emit_to", "halogen_tauri_emit_to", Unsafe, [t|JSText -> JSText -> JSText -> IO ()|])
-     , ("js_report_payload", "halogen_tauri_report_payload", Unsafe, [t|JSText -> JSText -> IO ()|])
-     , ("js_destroy", "halogen_tauri_destroy", Unsafe, [t|IO Promise|])
+     [ ("js_is_tauri", "halogen_tauri_is_tauri", Safe, [t|IO Bool|])
+     , ("js_invoke", "halogen_tauri_invoke", Safe, [t|JSText -> JSText -> IO (Promise JSVal)|])
+     , ("js_listen", "halogen_tauri_listen", Safe, [t|JSText -> Bool -> Callback -> IO JSVal|])
+     , ("js_unlisten", "halogen_tauri_unlisten", Safe, [t|JSText -> JSVal -> IO ()|])
+     , ("js_emit", "halogen_tauri_emit", Safe, [t|JSText -> JSText -> IO ()|])
+     , ("js_emit_to", "halogen_tauri_emit_to", Safe, [t|JSText -> JSText -> JSText -> IO ()|])
+     , ("js_report_payload", "halogen_tauri_report_payload", Safe, [t|JSText -> JSText -> IO ()|])
+     , ("js_destroy", "halogen_tauri_destroy", Safe, [t|IO (Promise JSVal)|])
      ]
  )
 
@@ -96,14 +96,14 @@ decodeJSON json = either (Left . Text.pack) Right (eitherDecodeStrict' (encodeUt
 
 -- | Send a command with its arguments as JSON text, and give the promise of
 -- its result as JSON text.
-invokeText :: Text -> Text -> IO Promise
+invokeText :: Text -> Text -> IO (Promise JSVal)
 invokeText command args = js_invoke (toJSText command) (toJSText args)
 
 -- | Wait for a promise of JSON text, as jsbits/tauri.js's promises are, and
 -- decode what it resolved with.
-settled :: (FromJSON a) => Promise -> IO (Either TauriError a)
+settled :: (FromJSON a) => (Promise JSVal) -> IO (Either TauriError a)
 settled promise =
-  await promise >>= \case
+  waitCatch promise >>= \case
     Left e -> pure (Left (Rejected e))
     Right json -> pure (either (Left . BadResult) Right (decodeJSON (jsValText json)))
 
@@ -151,4 +151,4 @@ destroyCurrent = do
   tauri <- isTauri
   if not tauri
     then pure (Left NotInTauri)
-    else either (Left . Rejected) (const (Right ())) <$> (await =<< js_destroy)
+    else either (Left . Rejected) (const (Right ())) <$> (waitCatch =<< js_destroy)

@@ -9,11 +9,11 @@ import Halogen.JSBits (Safety (..), fromJSBytes, toJSBytes, wasmJS)
 
 $( wasmJS
      ["test/fixture.js", "test/boundary-a.js", "test/boundary-b.js"]
-     [ ("advance", "advance", Unsafe, [t|Int -> IO Int|])
-     , ("identityBool", "identity", Unsafe, [t|Bool -> IO Bool|])
-     , ("nullValue", "nullValue", Unsafe, [t|IO JSVal|])
-     , ("privateAPI", "privateAPI", Unsafe, [t|IO Bool|])
-     , ("boundaryResult", "boundaryResult", Unsafe, [t|IO Int|])
+     [ ("advance", "advance", Safe, [t|Int -> IO Int|])
+     , ("identityBool", "identity", Safe, [t|Bool -> IO Bool|])
+     , ("nullValue", "nullValue", Safe, [t|IO JSVal|])
+     , ("privateAPI", "privateAPI", Safe, [t|IO Bool|])
+     , ("boundaryResult", "boundaryResult", Safe, [t|IO Int|])
      ]
  )
 

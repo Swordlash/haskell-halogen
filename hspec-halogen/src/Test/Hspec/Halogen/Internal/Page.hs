@@ -40,40 +40,40 @@ where
 
 import Halogen.JSBits (JSText, JSVal, Safety (..), browserJS, fromJSText, jsValText, toJSText)
 import Halogen.JSBits qualified as JSBits
-import Halogen.JSBits.Promise (Promise (..), await)
-import Protolude
+import Halogen.JSBits.Promise (Promise (..), waitCatch)
+import Protolude hiding (waitCatch)
 import Web.DOM.Internal.Types (Element (..))
 
 $( browserJS
      ["jsbits/page.js"]
-     [ ("js_has_document", "halogen_test_has_document", Unsafe, [t|IO Bool|])
-     , ("js_shard", "halogen_test_shard", Unsafe, [t|IO JSText|])
-     , ("js_test_args", "halogen_test_test_args", Unsafe, [t|IO JSVal|])
-     , ("js_remove_leftovers", "halogen_test_remove_leftovers", Unsafe, [t|IO ()|])
-     , ("js_test_done", "halogen_test_test_done", Unsafe, [t|Int -> IO ()|])
-     , ("js_create_container", "halogen_test_create_container", Unsafe, [t|IO JSVal|])
-     , ("js_create_root_in", "halogen_test_create_root_in", Unsafe, [t|JSVal -> IO JSVal|])
-     , ("js_create_container_in", "halogen_test_create_container_in", Unsafe, [t|JSVal -> IO JSVal|])
-     , ("js_set_inner_html", "halogen_test_set_inner_html", Unsafe, [t|Element -> JSText -> IO ()|])
-     , ("js_remove", "halogen_test_remove", Unsafe, [t|JSVal -> IO ()|])
-     , ("js_query_selector", "halogen_test_query_selector", Unsafe, [t|Element -> JSText -> IO JSVal|])
-     , ("js_query_selector_all", "halogen_test_query_selector_all", Unsafe, [t|Element -> JSText -> IO JSVal|])
-     , ("js_act", "halogen_test_act", Unsafe, [t|JSText -> Element -> JSText -> IO Promise|])
-     , ("js_drag", "halogen_test_drag", Unsafe, [t|Element -> Element -> IO Promise|])
-     , ("js_press", "halogen_test_press", Unsafe, [t|JSText -> IO Promise|])
-     , ("js_settle", "halogen_test_settle", Unsafe, [t|IO Promise|])
-     , ("js_focus", "halogen_test_focus", Unsafe, [t|Element -> IO ()|])
-     , ("js_blur", "halogen_test_blur", Unsafe, [t|Element -> IO ()|])
-     , ("js_text_content", "halogen_test_text_content", Unsafe, [t|Element -> IO JSText|])
-     , ("js_get_property", "halogen_test_get_property", Unsafe, [t|Element -> JSText -> IO JSText|])
-     , ("js_get_attribute", "halogen_test_get_attribute", Unsafe, [t|Element -> JSText -> IO JSVal|])
-     , ("js_outer_html", "halogen_test_outer_html", Unsafe, [t|Element -> IO JSText|])
-     , ("js_is_visible", "halogen_test_is_visible", Unsafe, [t|Element -> IO Bool|])
-     , ("js_is_connected", "halogen_test_is_connected", Unsafe, [t|Element -> IO Bool|])
-     , ("js_same_element", "halogen_test_same_element", Unsafe, [t|Element -> Element -> Int|])
-     , ("js_is_null", "halogen_test_is_null", Unsafe, [t|JSVal -> Int|])
-     , ("js_length", "halogen_test_length", Unsafe, [t|JSVal -> Int|])
-     , ("js_index", "halogen_test_index", Unsafe, [t|JSVal -> Int -> JSVal|])
+     [ ("js_has_document", "halogen_test_has_document", Safe, [t|IO Bool|])
+     , ("js_shard", "halogen_test_shard", Safe, [t|IO JSText|])
+     , ("js_test_args", "halogen_test_test_args", Safe, [t|IO JSVal|])
+     , ("js_remove_leftovers", "halogen_test_remove_leftovers", Safe, [t|IO ()|])
+     , ("js_test_done", "halogen_test_test_done", Safe, [t|Int -> IO ()|])
+     , ("js_create_container", "halogen_test_create_container", Safe, [t|IO JSVal|])
+     , ("js_create_root_in", "halogen_test_create_root_in", Safe, [t|JSVal -> IO JSVal|])
+     , ("js_create_container_in", "halogen_test_create_container_in", Safe, [t|JSVal -> IO JSVal|])
+     , ("js_set_inner_html", "halogen_test_set_inner_html", Safe, [t|Element -> JSText -> IO ()|])
+     , ("js_remove", "halogen_test_remove", Safe, [t|JSVal -> IO ()|])
+     , ("js_query_selector", "halogen_test_query_selector", Safe, [t|Element -> JSText -> IO JSVal|])
+     , ("js_query_selector_all", "halogen_test_query_selector_all", Safe, [t|Element -> JSText -> IO JSVal|])
+     , ("js_act", "halogen_test_act", Safe, [t|JSText -> Element -> JSText -> IO (Promise JSVal)|])
+     , ("js_drag", "halogen_test_drag", Safe, [t|Element -> Element -> IO (Promise JSVal)|])
+     , ("js_press", "halogen_test_press", Safe, [t|JSText -> IO (Promise JSVal)|])
+     , ("js_settle", "halogen_test_settle", Safe, [t|IO (Promise JSVal)|])
+     , ("js_focus", "halogen_test_focus", Safe, [t|Element -> IO ()|])
+     , ("js_blur", "halogen_test_blur", Safe, [t|Element -> IO ()|])
+     , ("js_text_content", "halogen_test_text_content", Safe, [t|Element -> IO JSText|])
+     , ("js_get_property", "halogen_test_get_property", Safe, [t|Element -> JSText -> IO JSText|])
+     , ("js_get_attribute", "halogen_test_get_attribute", Safe, [t|Element -> JSText -> IO JSVal|])
+     , ("js_outer_html", "halogen_test_outer_html", Safe, [t|Element -> IO JSText|])
+     , ("js_is_visible", "halogen_test_is_visible", Safe, [t|Element -> IO Bool|])
+     , ("js_is_connected", "halogen_test_is_connected", Safe, [t|Element -> IO Bool|])
+     , ("js_same_element", "halogen_test_same_element", Safe, [t|Element -> Element -> Int|])
+     , ("js_is_null", "halogen_test_is_null", Safe, [t|JSVal -> Int|])
+     , ("js_length", "halogen_test_length", Safe, [t|JSVal -> Int|])
+     , ("js_index", "halogen_test_index", Safe, [t|JSVal -> Int -> JSVal|])
      ]
  )
 
@@ -188,10 +188,10 @@ isConnected = js_is_connected
 -- failed with (a Playwright action the runner could not perform, say) as a
 -- 'Halogen.JSBits.Promise.JSError', which fails the test with its name and
 -- message. Natively nothing was started, and there is nothing to wait for.
-awaitJS :: IO Promise -> IO ()
+awaitJS :: IO (Promise JSVal) -> IO ()
 awaitJS start
   | not JSBits.inBrowser = pass
-  | otherwise = start >>= await >>= either throwIO (const pass)
+  | otherwise = start >>= waitCatch >>= either throwIO (const pass)
 
 -- | @null@ or @undefined@: natively, always.
 absent :: JSVal -> Bool

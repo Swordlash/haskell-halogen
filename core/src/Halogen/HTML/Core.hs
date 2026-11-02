@@ -6,8 +6,8 @@ import HPrelude
 import Halogen.Query.Input
 import Halogen.VDom.DOM.Prop
 import Halogen.VDom.Types as VDom
-import Web.DOM.Element
-import Web.Event.Event
+import Web.DOM.Element (Element)
+import Web.Event.Event hiding (defaultPrevented, target, type_)
 import Web.HTML.Common
 
 newtype HTML w i = HTML {unHTML :: VDom [Prop (Input i)] w}

@@ -56,39 +56,39 @@ import Control.Monad.Fail (fail)
 import Data.Aeson (FromJSON (..), ToJSON (..), object, withObject, (.!=), (.:), (.:?), (.=))
 import Data.Aeson qualified as Aeson
 import Halogen.JSBits (Callback, JSText, JSVal, Safety (..), browserJS, freeCallback, fromJSText, jsValText, mkCallback, toJSText)
-import Halogen.JSBits.Promise (JSError (..), Promise (..), await)
+import Halogen.JSBits.Promise (JSError (..), Promise (..), waitCatch)
 import Learn.Diagnostics (Diagnostic, withoutMarks)
 import Learn.Types (Binding, splitTypes)
-import Protolude
+import Protolude hiding (waitCatch)
 import Web.DOM.Internal.Types (HTMLElement (..))
 
 $( browserJS
      ["jsbits/learn.js"]
-     [ ("js_rootfs", "halogen_learn_rootfs", Unsafe, [t|IO JSText|])
-     , ("js_narrow", "halogen_learn_narrow", Unsafe, [t|IO Bool|])
-     , ("js_confirm", "halogen_learn_confirm", Unsafe, [t|JSText -> IO Bool|])
-     , ("js_scroll_to_top", "halogen_learn_scroll_to_top", Unsafe, [t|IO ()|])
-     , ("js_describe", "halogen_learn_describe", Unsafe, [t|JSText -> IO Promise|])
-     , ("js_start", "halogen_learn_start", Unsafe, [t|JSText -> JSText -> Callback -> IO Promise|])
-     , ("js_ensure_layers", "halogen_learn_ensure_layers", Unsafe, [t|JSText -> IO Promise|])
-     , ("js_compile", "halogen_learn_compile", Unsafe, [t|JSText -> IO Promise|])
-     , ("js_check", "halogen_learn_check", Unsafe, [t|JSText -> IO Promise|])
-     , ("js_end_run", "halogen_learn_end_run", Unsafe, [t|IO Promise|])
-     , ("js_editor_create", "halogen_learn_editor_create", Unsafe, [t|HTMLElement -> JSText -> Bool -> Callback -> IO JSVal|])
-     , ("js_editor_text", "halogen_learn_editor_text", Unsafe, [t|JSVal -> IO JSText|])
-     , ("js_editor_compile_text", "halogen_learn_editor_compile_text", Unsafe, [t|JSVal -> IO JSText|])
-     , ("js_editor_compiled", "halogen_learn_editor_compiled", Unsafe, [t|JSVal -> IO ()|])
-     , ("js_editor_set_text", "halogen_learn_editor_set_text", Unsafe, [t|JSVal -> JSText -> IO ()|])
-     , ("js_editor_set_read_only", "halogen_learn_editor_set_read_only", Unsafe, [t|JSVal -> Bool -> IO ()|])
-     , ("js_editor_diagnostics", "halogen_learn_editor_diagnostics", Unsafe, [t|JSVal -> JSText -> IO ()|])
-     , ("js_editor_types", "halogen_learn_editor_types", Unsafe, [t|JSVal -> JSText -> IO ()|])
-     , ("js_editor_goto", "halogen_learn_editor_goto", Unsafe, [t|JSVal -> Int -> Int -> IO ()|])
-     , ("js_editor_show_source", "halogen_learn_editor_show_source", Unsafe, [t|JSVal -> Int -> IO ()|])
-     , ("js_editor_source_mode", "halogen_learn_editor_source_mode", Unsafe, [t|JSVal -> Bool -> IO ()|])
-     , ("js_editor_destroy", "halogen_learn_editor_destroy", Unsafe, [t|JSVal -> IO ()|])
-     , ("js_source_start", "halogen_learn_source_start", Unsafe, [t|HTMLElement -> JSVal -> Callback -> IO JSVal|])
-     , ("js_source_outline", "halogen_learn_source_outline", Unsafe, [t|JSVal -> Int -> Int -> IO ()|])
-     , ("js_source_stop", "halogen_learn_source_stop", Unsafe, [t|JSVal -> IO ()|])
+     [ ("js_rootfs", "halogen_learn_rootfs", Safe, [t|IO JSText|])
+     , ("js_narrow", "halogen_learn_narrow", Safe, [t|IO Bool|])
+     , ("js_confirm", "halogen_learn_confirm", Safe, [t|JSText -> IO Bool|])
+     , ("js_scroll_to_top", "halogen_learn_scroll_to_top", Safe, [t|IO ()|])
+     , ("js_describe", "halogen_learn_describe", Safe, [t|JSText -> IO (Promise JSVal)|])
+     , ("js_start", "halogen_learn_start", Safe, [t|JSText -> JSText -> Callback -> IO (Promise JSVal)|])
+     , ("js_ensure_layers", "halogen_learn_ensure_layers", Safe, [t|JSText -> IO (Promise JSVal)|])
+     , ("js_compile", "halogen_learn_compile", Safe, [t|JSText -> IO (Promise JSVal)|])
+     , ("js_check", "halogen_learn_check", Safe, [t|JSText -> IO (Promise JSVal)|])
+     , ("js_end_run", "halogen_learn_end_run", Safe, [t|IO (Promise JSVal)|])
+     , ("js_editor_create", "halogen_learn_editor_create", Safe, [t|HTMLElement -> JSText -> Bool -> Callback -> IO JSVal|])
+     , ("js_editor_text", "halogen_learn_editor_text", Safe, [t|JSVal -> IO JSText|])
+     , ("js_editor_compile_text", "halogen_learn_editor_compile_text", Safe, [t|JSVal -> IO JSText|])
+     , ("js_editor_compiled", "halogen_learn_editor_compiled", Safe, [t|JSVal -> IO ()|])
+     , ("js_editor_set_text", "halogen_learn_editor_set_text", Safe, [t|JSVal -> JSText -> IO ()|])
+     , ("js_editor_set_read_only", "halogen_learn_editor_set_read_only", Safe, [t|JSVal -> Bool -> IO ()|])
+     , ("js_editor_diagnostics", "halogen_learn_editor_diagnostics", Safe, [t|JSVal -> JSText -> IO ()|])
+     , ("js_editor_types", "halogen_learn_editor_types", Safe, [t|JSVal -> JSText -> IO ()|])
+     , ("js_editor_goto", "halogen_learn_editor_goto", Safe, [t|JSVal -> Int -> Int -> IO ()|])
+     , ("js_editor_show_source", "halogen_learn_editor_show_source", Safe, [t|JSVal -> Int -> IO ()|])
+     , ("js_editor_source_mode", "halogen_learn_editor_source_mode", Safe, [t|JSVal -> Bool -> IO ()|])
+     , ("js_editor_destroy", "halogen_learn_editor_destroy", Safe, [t|JSVal -> IO ()|])
+     , ("js_source_start", "halogen_learn_source_start", Safe, [t|HTMLElement -> JSVal -> Callback -> IO JSVal|])
+     , ("js_source_outline", "halogen_learn_source_outline", Safe, [t|JSVal -> Int -> Int -> IO ()|])
+     , ("js_source_stop", "halogen_learn_source_stop", Safe, [t|JSVal -> IO ()|])
      ]
  )
 
@@ -140,7 +140,7 @@ instance FromJSON Sizes where
 
 -- | Read the rootfs' manifest.
 describe :: Text -> IO (Either Text Sizes)
-describe root = decoded =<< await =<< js_describe (toJSText root)
+describe root = decoded =<< waitCatch =<< js_describe (toJSText root)
 
 -- | Where the compiler's loading is.
 data Progress
@@ -184,14 +184,14 @@ instance FromJSON Progress where
 startCompiler :: Text -> [Text] -> (Progress -> IO ()) -> IO (Either Text ())
 startCompiler root layers onProgress = do
   callback <- mkCallback $ \value -> either (const pass) onProgress (decode (jsValText value))
-  started <- void <$> (settled =<< await =<< js_start (toJSText root) (encodeText layers) callback)
+  started <- void <$> (settled =<< waitCatch =<< js_start (toJSText root) (encodeText layers) callback)
   when (isLeft started) (freeCallback callback)
   pure started
 
 -- | Extract the layers named that are not yet, once the compiler has
 -- started.
 ensureLayers :: [Text] -> IO (Either Text ())
-ensureLayers layers = void <$> (settled =<< await =<< js_ensure_layers (encodeText layers))
+ensureLayers layers = void <$> (settled =<< waitCatch =<< js_ensure_layers (encodeText layers))
 
 -- | A compile: the two modules, and what to pass to GHC beside what every
 -- compile passes (@-package haskell-halogen-core@, @-i\/tmp@).
@@ -240,18 +240,18 @@ instance FromJSON RunResult where
 -- | Compile the lesson and run its @Main.main@. One compile runs at a time;
 -- a second waits for the first.
 compile :: CompileRequest -> IO (Either Text RunResult)
-compile request = decoded =<< await =<< js_compile (encodeText request)
+compile request = decoded =<< waitCatch =<< js_compile (encodeText request)
 
 -- | Typecheck the lesson and run nothing: GHC's diagnostics, and the types
 -- of the lesson's bindings when it typechecks (then @ok@). It waits for a
 -- compile under way, and a compile asked for meanwhile waits for it.
 typecheck :: CompileRequest -> IO (Either Text RunResult)
-typecheck request = decoded =<< await =<< js_check (encodeText request)
+typecheck request = decoded =<< waitCatch =<< js_check (encodeText request)
 
 -- | End whatever the last compile mounted, before the page takes its
 -- element away (see @js\/playground.js@).
 endRun :: IO ()
-endRun = void (await =<< js_end_run)
+endRun = void (waitCatch =<< js_end_run)
 
 -- | A CodeMirror editor, and the callback it calls.
 data Editor = Editor JSVal Callback

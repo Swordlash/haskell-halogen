@@ -17,7 +17,7 @@ import Halogen.HTML.Core (IsProp (..), Namespace)
 import Halogen.HTML.Core qualified as Core
 import Halogen.Query.Input
 import Halogen.VDom.DOM.Prop
-import Web.DOM.Element
+import Web.DOM.Element (Element)
 import Web.HTML.Common
 
 newtype IProp (r :: Row Type) msg = IProp (Prop (Input msg))

@@ -77,14 +77,14 @@ import Halogen.Subscription qualified as HS
 
 $( browserJS
      ["jsbits/eventsource.js"]
-     [ ("js_names", "halogen_net_eventsource_names", Unsafe, [t|IO JSVal|])
-     , ("js_name_add", "halogen_net_eventsource_name_add", Unsafe, [t|JSVal -> JSText -> IO ()|])
-     , ("js_open", "halogen_net_eventsource_open", Unsafe, [t|JSText -> Bool -> JSVal -> Callback -> Callback -> Callback -> IO JSVal|])
-     , ("js_close", "halogen_net_eventsource_close", Unsafe, [t|JSVal -> IO ()|])
-     , ("js_event_name", "halogen_net_eventsource_event_name", Unsafe, [t|JSVal -> IO JSText|])
-     , ("js_event_data", "halogen_net_eventsource_event_data", Unsafe, [t|JSVal -> IO JSText|])
-     , ("js_event_id", "halogen_net_eventsource_event_id", Unsafe, [t|JSVal -> IO JSText|])
-     , ("js_ready_state", "halogen_net_eventsource_ready_state", Unsafe, [t|JSVal -> IO Int|])
+     [ ("js_names", "halogen_net_eventsource_names", Safe, [t|IO JSVal|])
+     , ("js_name_add", "halogen_net_eventsource_name_add", Safe, [t|JSVal -> JSText -> IO ()|])
+     , ("js_open", "halogen_net_eventsource_open", Safe, [t|JSText -> Bool -> JSVal -> Callback -> Callback -> Callback -> IO JSVal|])
+     , ("js_close", "halogen_net_eventsource_close", Safe, [t|JSVal -> IO ()|])
+     , ("js_event_name", "halogen_net_eventsource_event_name", Safe, [t|JSVal -> IO JSText|])
+     , ("js_event_data", "halogen_net_eventsource_event_data", Safe, [t|JSVal -> IO JSText|])
+     , ("js_event_id", "halogen_net_eventsource_event_id", Safe, [t|JSVal -> IO JSText|])
+     , ("js_ready_state", "halogen_net_eventsource_ready_state", Safe, [t|JSVal -> IO Int|])
      ]
  )
 

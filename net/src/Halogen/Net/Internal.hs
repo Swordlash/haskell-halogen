@@ -28,9 +28,9 @@ import Halogen.Subscription qualified as HS
 
 $( browserJS
      ["jsbits/net.js"]
-     [ ("js_refused", "halogen_net_refused", Unsafe, [t|JSVal -> IO Bool|])
-     , ("js_error_name", "halogen_net_error_name", Unsafe, [t|JSVal -> IO JSText|])
-     , ("js_error_message", "halogen_net_error_message", Unsafe, [t|JSVal -> IO JSText|])
+     [ ("js_refused", "halogen_net_refused", Safe, [t|JSVal -> IO Bool|])
+     , ("js_error_name", "halogen_net_error_name", Safe, [t|JSVal -> IO JSText|])
+     , ("js_error_message", "halogen_net_error_message", Safe, [t|JSVal -> IO JSText|])
      ]
  )
 
@@ -129,7 +129,7 @@ freeAll (Callbacks ref) = atomicModifyIORef' ref (Nothing,) >>= traverse_ (trave
 -- | What a binding that catches a browser's exception gave back: 'Nothing'
 -- for anything that is not an error (the binding's result, or @null@), and
 -- otherwise the error's @name@ and @message@, as
--- 'Halogen.JSBits.Promise.await' gives a rejection. Natively nothing is
+-- 'Halogen.JSBits.Promise.waitCatch' gives a rejection. Natively nothing is
 -- ever refused.
 refusal :: JSVal -> IO (Maybe JSError)
 refusal value = do

@@ -36,3 +36,8 @@ function halogen_promise_test_read_number(value) {
 function halogen_promise_test_is_string(value) {
   return typeof value === "string";
 }
+
+// Resolve with an array of numbers after a while.
+function halogen_promise_test_numbers(ms) {
+  return new Promise((resolve) => setTimeout(() => resolve([1, 2, 3]), ms));
+}

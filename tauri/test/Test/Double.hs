@@ -27,14 +27,14 @@ import Halogen.JSBits (JSText, Safety (..), browserJS, fromJSText, toJSText)
 
 $( browserJS
      ["test/jsbits/double.js"]
-     [ ("js_fire", "halogen_tauri_test_fire", Unsafe, [t|JSText -> JSText -> JSText -> IO ()|])
-     , ("js_listening", "halogen_tauri_test_listening", Unsafe, [t|JSText -> IO Int|])
-     , ("js_unlistens", "halogen_tauri_test_unlistens", Unsafe, [t|IO Int|])
-     , ("js_emitted", "halogen_tauri_test_emitted", Unsafe, [t|IO JSText|])
-     , ("js_destroyed", "halogen_tauri_test_destroyed", Unsafe, [t|IO Int|])
-     , ("js_release", "halogen_tauri_test_release", Unsafe, [t|JSText -> IO ()|])
-     , ("js_outside", "halogen_tauri_test_outside", Unsafe, [t|Bool -> IO ()|])
-     , ("js_reset", "halogen_tauri_test_reset", Unsafe, [t|IO ()|])
+     [ ("js_fire", "halogen_tauri_test_fire", Safe, [t|JSText -> JSText -> JSText -> IO ()|])
+     , ("js_listening", "halogen_tauri_test_listening", Safe, [t|JSText -> IO Int|])
+     , ("js_unlistens", "halogen_tauri_test_unlistens", Safe, [t|IO Int|])
+     , ("js_emitted", "halogen_tauri_test_emitted", Safe, [t|IO JSText|])
+     , ("js_destroyed", "halogen_tauri_test_destroyed", Safe, [t|IO Int|])
+     , ("js_release", "halogen_tauri_test_release", Safe, [t|JSText -> IO ()|])
+     , ("js_outside", "halogen_tauri_test_outside", Safe, [t|Bool -> IO ()|])
+     , ("js_reset", "halogen_tauri_test_reset", Safe, [t|IO ()|])
      ]
  )
 

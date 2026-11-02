@@ -27,11 +27,17 @@ import System.IO.Error (userError)
 import Web.DOM.Internal.Types
 import Web.DOM.Internal.Types qualified as DOMTypes
 import Web.DOM.ParentNode
-import Web.Event.Event
+import Web.Event.Event hiding (defaultPrevented, target, type_)
 import Web.Event.Internal.Types qualified as EventTypes
 import Web.HTML.Common
 import Web.HTML.HTMLDocument.ReadyState as ReadyState
 
+-- The structural operations a render makes thousands of times, on nodes
+-- the reconciler made itself, are 'Unsafe': they do not throw for those
+-- values, and catching would cost a crossing each. Setting an attribute or a
+-- property, which takes the program's own names and values (an attribute
+-- name with a space, a file input's value), and a selector are 'Safe', so
+-- what they throw comes back as a 'Halogen.JSBits.JSError'.
 $( browserJS
      ["jsbits/monad_dom.js", "jsbits/web_browser.js"]
      [ ("js_create_text_node", "js_create_text_node", Unsafe, [t|JSText -> Document -> IO Node|])
@@ -39,11 +45,11 @@ $( browserJS
      , ("js_create_element", "js_create_element", Unsafe, [t|JSVal -> JSText -> Document -> IO Element|])
      , ("js_insert_before", "js_insert_before", Unsafe, [t|Node -> Node -> ParentNode -> IO ()|])
      , ("js_get_window", "js_get_window", Unsafe, [t|IO Window|])
-     , ("js_storage_read", "js_storage_read", Unsafe, [t|JSText -> JSText -> IO (Nullable JSVal)|])
-     , ("js_storage_write", "js_storage_write", Unsafe, [t|JSText -> JSText -> JSText -> IO (Nullable JSVal)|])
-     , ("js_storage_remove", "js_storage_remove", Unsafe, [t|JSText -> JSText -> IO (Nullable JSVal)|])
-     , ("js_storage_length", "js_storage_length", Unsafe, [t|JSText -> IO (Foreign Int)|])
-     , ("js_storage_key", "js_storage_key", Unsafe, [t|JSText -> Int -> IO (Nullable JSVal)|])
+     , ("js_storage_read", "js_storage_read", Safe, [t|JSText -> JSText -> IO (Nullable JSVal)|])
+     , ("js_storage_write", "js_storage_write", Safe, [t|JSText -> JSText -> JSText -> IO (Nullable JSVal)|])
+     , ("js_storage_remove", "js_storage_remove", Safe, [t|JSText -> JSText -> IO (Nullable JSVal)|])
+     , ("js_storage_length", "js_storage_length", Safe, [t|JSText -> IO (Foreign Int)|])
+     , ("js_storage_key", "js_storage_key", Safe, [t|JSText -> Int -> IO (Nullable JSVal)|])
      , ("js_get_document", "js_get_document", Unsafe, [t|Window -> IO HTMLDocument|])
      , ("js_append_child", "js_append_child", Unsafe, [t|Node -> ParentNode -> IO ()|])
      , ("js_replace_child", "js_replace_child", Unsafe, [t|Node -> Node -> ParentNode -> IO ()|])
@@ -57,15 +63,15 @@ $( browserJS
      , ("js_namespace_uri", "js_namespace_uri", Unsafe, [t|Element -> IO (Nullable JSVal)|])
      , ("js_local_name", "js_local_name", Unsafe, [t|Element -> IO JSText|])
      , ("js_node_data", "js_node_data", Unsafe, [t|Node -> IO JSText|])
-     , ("js_set_attribute", "js_set_attribute", Unsafe, [t|JSVal -> JSText -> JSText -> Element -> IO ()|])
-     , ("js_set_property", "js_set_property", Unsafe, [t|JSText -> JSVal -> Element -> IO ()|])
+     , ("js_set_attribute", "js_set_attribute", Safe, [t|JSVal -> JSText -> JSText -> Element -> IO ()|])
+     , ("js_set_property", "js_set_property", Safe, [t|JSText -> JSVal -> Element -> IO ()|])
      , ("js_property_equals", "js_property_equals", Unsafe, [t|JSText -> JSVal -> Element -> IO Bool|])
      , ("js_remove_property", "js_remove_property", Unsafe, [t|JSText -> Element -> IO ()|])
      , ("js_remove_attribute", "js_remove_attribute", Unsafe, [t|JSVal -> JSText -> Element -> IO ()|])
      , ("js_has_attribute", "js_has_attribute", Unsafe, [t|JSVal -> JSText -> Element -> IO Bool|])
      , ("js_add_event_listener", "js_add_event_listener", Unsafe, [t|JSText -> EventListener -> EventTarget -> IO ()|])
      , ("js_remove_event_listener", "js_remove_event_listener", Unsafe, [t|JSText -> EventListener -> EventTarget -> IO ()|])
-     , ("js_query_selector", "js_query_selector", Unsafe, [t|JSText -> ParentNode -> IO (Nullable Element)|])
+     , ("js_query_selector", "js_query_selector", Safe, [t|JSText -> ParentNode -> IO (Nullable Element)|])
      , ("js_ready_state", "js_ready_state", Unsafe, [t|HTMLDocument -> IO JSText|])
      ]
  )
