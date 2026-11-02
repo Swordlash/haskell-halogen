@@ -61,3 +61,23 @@ A job someone no longer wants should not go on holding its worker. `Worker.cance
 In `examples/worker`, whose page names its `app.wasm`, the same count of the primes below two million takes about two seconds every way. Counted in the component's loop with `H.liftEffect`, the page draws no frame until it is done. Counted as a job where no worker can be made, the loop is free but the page's thread is not, and compiled code hardly ever gives it back: the page draws one frame. Counted as a job in a worker, the page draws some 120 frames, one every sixtieth of a second, and the spinner turns throughout.
 
 A worker costs something too: it takes the time the page took to load the program, the first time it is given a job, and it is another copy of the program's memory. Arguments and results are encoded and decoded on each side, so a job is worth sending when it is seconds of work, not milliseconds.
+
+## Many tasks at once
+
+A computation that needs a job at many independent points, such as a count over each part of a range or several counts combined, is better written with `Halogen.Worker.Par`, where each call is a `task`:
+
+```haskell
+{-# LANGUAGE ApplicativeDo #-}
+
+import Halogen.Worker.Par (runPar, task)
+
+counts <- liftIO (runPar pool (traverse (task primesBetween) parts))
+
+both <- liftIO $ runPar pool $ do
+  a <- task primes 100000
+  b <- task primes 200000
+  c <- task primes (a + b)
+  pure (a, b, c)
+```
+
+`traverse` collects a task for each part (`examples/worker` counts its range in sixteen tasks this way). `runPar` groups them by job, cuts them into batches (a few for each worker), and gives the next batch to whichever worker has answered its last, so that a worker given the quick parts is not left waiting while another does the slow ones; the counts come back in the parts' order. In a `do` block with `ApplicativeDo`, the statements that do not depend on one another are sent together: `a` and `b` go out at once, and `c` waits for both. A task that fails fails the whole `runPar` with a `Worker.WorkerError` naming the job and the index of the failing call, and the batches still running are cancelled. It is the same code an application ships; in this page, with no worker, the batches run on the page, one after the other.
