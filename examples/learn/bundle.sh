@@ -1,7 +1,8 @@
 #!/bin/sh
 # Bundle the tutorial's JavaScript into the learn.js its page loads before
 # app.wasm: the compiler's loader and the CodeMirror editor
-# (examples/learn/js/), with CodeMirror's packages from node_modules. The
+# (examples/learn/js/), with CodeMirror's packages from node_modules, and the
+# script a lesson's Web Workers import, lesson-worker.js. The
 # editor's styles come with it, as CodeMirror injects them; the page's own
 # are web/learn.css, copied as it is. Bundle web/index.js, which starts
 # app.wasm, with its browser_wasi_shim. Then put the compiler beside them.
@@ -15,10 +16,10 @@
 # build-rootfs), which this does not build: it copies the directory that
 # script wrote, LEARN_ROOTFS_DIR (default dist-newstyle/wasm/learn), to
 # rootfs/ in the output, where the page looks for it, without learn/'s own
-# page (its index.html and index.js). A copy rather than a link, because the
-# output directory is what Pages deploys. Without a rootfs it says so and
-# goes on: the page then says the compiler did not load, and everything else
-# works.
+# page (its index.html, index.js, compiler.js and worker.js). A copy rather
+# than a link, because the output directory is what Pages deploys. Without a
+# rootfs it says so and goes on: the page then says the compiler did not
+# load, and everything else works.
 set -eu
 
 cd "$(dirname "$0")/../.."
@@ -32,6 +33,12 @@ mkdir -p "$out_dir"
 npx esbuild examples/learn/js/learn.js \
   --bundle --minify --format=esm --target=es2022 --log-level=warning \
   --outfile="$out_dir/learn.js"
+
+# The script a lesson's Web Workers import (js/lesson-worker.js), with a
+# loader of its own: the page names it by its address beside learn.js.
+npx esbuild examples/learn/js/lesson-worker.js \
+  --bundle --minify --format=esm --target=es2022 --log-level=warning \
+  --outfile="$out_dir/lesson-worker.js"
 
 # The page's index.js, which starts app.wasm, with the app's own
 # browser_wasi_shim bundled in from node_modules rather than imported from a
@@ -51,7 +58,7 @@ if [ -f "$rootfs/rootfs.json" ]; then
   mkdir "$out_dir/rootfs"
   for file in "$rootfs"/*; do
     case ${file##*/} in
-      index.html | index.js) ;;
+      index.html | index.js | compiler.js | worker.js) ;;
       *) cp -R "$file" "$out_dir/rootfs/" ;;
     esac
   done
