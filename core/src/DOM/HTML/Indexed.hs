@@ -9,7 +9,7 @@ import Data.Time
 import HPrelude hiding (Any)
 import Halogen.Row.TH (flatRows)
 import Web.Clipboard.ClipboardEvent
-import Web.Event.Event
+import Web.Event.Event hiding (defaultPrevented, target, type_)
 import Web.HTML.Event.DragEvent
 import Web.UIEvent.FocusEvent
 import Web.UIEvent.KeyboardEvent (KeyboardEvent)

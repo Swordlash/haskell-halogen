@@ -1,47 +1,62 @@
 {-# LANGUAGE TemplateHaskell #-}
 
+-- | Mouse events. The fields (@e.clientX@, @e.button@) are 'MouseEvent''s
+-- instances, here; the same as functions are meant to be used qualified
+-- (@ME.clientX@).
 module Web.UIEvent.MouseEvent
   ( MouseEvent (..)
   , toEvent
+  , fromEvent
   , clientX
   , clientY
+  , button
+  , altKey
+  , ctrlKey
+  , metaKey
+  , shiftKey
   )
 where
 
-import Data.Foreign (foreignToNumber, readProp)
+import Data.Foreign (Foreign, foreignToBool, foreignToInt, foreignToNumber, readProp)
 import HPrelude
-import Halogen.JSBits (Safety (..), browserJS, inBrowser)
+import Halogen.JSBits (Inert)
+import Halogen.JSBits.Fields (Member (..), jsCast, jsFieldFunctions, jsFields)
 import Web.Event.Internal.Types
 
 newtype MouseEvent = MouseEvent Event
-
--- Pure, because where an event happened is fixed when it is made. Natively
--- an event made from JSON (a test's, or one a remote client sent) carries
--- its @clientX@ and @clientY@ properties, and any other reads as 0.
-$( browserJS
-     ["jsbits/web_event.js"]
-     [ ("js_mouse_client_x", "js_mouse_client_x", Unsafe, [t|MouseEvent -> Double|])
-     , ("js_mouse_client_y", "js_mouse_client_y", Unsafe, [t|MouseEvent -> Double|])
-     ]
- )
+  deriving newtype (Inert)
 
 -- | Every MouseEvent is an 'Event', which is what the operations on events take.
 toEvent :: MouseEvent -> Event
 toEvent (MouseEvent e) = e
 
--- | Where the pointer was, in CSS pixels from the left edge of the viewport
--- (not the page: scrolling does not change it). A 'Double', as the standard
--- has it, though a browser may round it to whole pixels.
-clientX :: MouseEvent -> Double
-clientX e
-  | inBrowser = js_mouse_client_x e
-  | otherwise = nativeProperty "clientX" e
+-- Natively an event made from JSON (a test's, or one a remote client sent)
+-- carries its properties, and any other reads as 0 or 'False'.
+nativeProperty :: Text -> (Foreign Event -> a) -> a -> MouseEvent -> a
+nativeProperty name readValue none (MouseEvent (Event value)) = fromMaybe none (readProp name (Just . readValue) value)
 
--- | Where the pointer was, in CSS pixels from the top edge of the viewport.
-clientY :: MouseEvent -> Double
-clientY e
-  | inBrowser = js_mouse_client_y e
-  | otherwise = nativeProperty "clientY" e
+-- Pure, because where and how an event happened is fixed when it is made.
+$( jsFields
+     ''MouseEvent
+     [ -- Where the pointer was, in CSS pixels from the left edge of the
+       -- viewport (not the page: scrolling does not change it). A 'Double',
+       -- as the standard has it, though a browser may round it to whole
+       -- pixels.
+       Natively [|nativeProperty "clientX" foreignToNumber 0|] (Fixed "clientX" [t|Double|])
+     , -- Where the pointer was, in CSS pixels from the top edge of the
+       -- viewport.
+       Natively [|nativeProperty "clientY" foreignToNumber 0|] (Fixed "clientY" [t|Double|])
+     , -- Which button changed: 0 the main one (usually the left), 1 the
+       -- middle, 2 the secondary.
+       Natively [|nativeProperty "button" foreignToInt 0|] (Fixed "button" [t|Int|])
+     , -- Whether each modifier was held.
+       Natively [|nativeProperty "altKey" foreignToBool False|] (Fixed "altKey" [t|Bool|])
+     , Natively [|nativeProperty "ctrlKey" foreignToBool False|] (Fixed "ctrlKey" [t|Bool|])
+     , Natively [|nativeProperty "metaKey" foreignToBool False|] (Fixed "metaKey" [t|Bool|])
+     , Natively [|nativeProperty "shiftKey" foreignToBool False|] (Fixed "shiftKey" [t|Bool|])
+     ]
+ )
 
-nativeProperty :: Text -> MouseEvent -> Double
-nativeProperty name (MouseEvent (Event value)) = fromMaybe 0 (readProp name (Just . foreignToNumber) value)
+$(jsFieldFunctions ''MouseEvent [])
+
+$(jsCast "fromEvent" ''Event ''MouseEvent)

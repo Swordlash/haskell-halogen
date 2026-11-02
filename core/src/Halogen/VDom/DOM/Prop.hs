@@ -19,9 +19,9 @@ import Halogen.VDom.DOM.Monad
 import Halogen.VDom.Machine qualified as V
 import Halogen.VDom.Types
 import Halogen.VDom.Utils qualified as Util
-import Web.DOM.Element
+import Web.DOM.Element (Element)
 import Web.DOM.Internal.Types qualified as DOM
-import Web.Event.Event
+import Web.Event.Event hiding (defaultPrevented, target, type_)
 import Web.Event.Event qualified as DOM
 import Web.HTML.Common
 

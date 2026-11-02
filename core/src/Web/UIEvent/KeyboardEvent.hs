@@ -1,49 +1,67 @@
 {-# LANGUAGE TemplateHaskell #-}
 
+-- | Keyboard events. The fields (@e.key@, @e.shiftKey@) are
+-- 'KeyboardEvent''s instances, here; the same as functions are meant to be
+-- used qualified (@KE.key@).
 module Web.UIEvent.KeyboardEvent
   ( KeyboardEvent (..)
   , toEvent
+  , fromEvent
   , key
   , code
+  , altKey
+  , ctrlKey
+  , metaKey
+  , shiftKey
+  , isComposing
   )
 where
 
-import Data.Foreign (foreignToString, readProp)
+import Data.Foreign (foreignToBool, foreignToString, readProp)
 import HPrelude
-import Halogen.JSBits (JSText, Safety (..), browserJS, fromJSText, inBrowser)
+import Halogen.JSBits (Inert)
+import Halogen.JSBits.Fields (Member (..), jsCast, jsFieldFunctions, jsFields)
 import Web.Event.Internal.Types
 
 newtype KeyboardEvent = KeyboardEvent Event
-
--- Pure, because what an event says about its key is fixed when it is made.
--- Natively an event made from JSON carries its @key@ and @code@ properties,
--- and any other reads as empty.
-$( browserJS
-     ["jsbits/web_event.js"]
-     [ ("js_keyboard_key", "js_keyboard_key", Unsafe, [t|KeyboardEvent -> JSText|])
-     , ("js_keyboard_code", "js_keyboard_code", Unsafe, [t|KeyboardEvent -> JSText|])
-     ]
- )
+  deriving newtype (Inert)
 
 -- | Every KeyboardEvent is an 'Event', which is what the operations on events take.
 toEvent :: KeyboardEvent -> Event
 toEvent (KeyboardEvent e) = e
 
--- | What the key means, under the keyboard's layout and the modifiers held:
--- @"a"@, @"A"@ with Shift, @"Enter"@, @"ArrowLeft"@, @"Dead"@ while a
--- composition is under way. This is what a shortcut or text entry wants.
-key :: KeyboardEvent -> Text
-key e
-  | inBrowser = fromJSText (js_keyboard_key e)
-  | otherwise = nativeProperty "key" e
+-- Natively an event made from JSON (a test's, or one a remote client sent)
+-- carries its properties, and any other reads as empty or 'False'.
+nativeText :: Text -> KeyboardEvent -> Text
+nativeText name (KeyboardEvent (Event value)) = fromMaybe "" (readProp name (Just . foreignToString) value)
 
--- | Which physical key it is, whatever the layout says it means: @"KeyA"@ is
--- the key where a QWERTY keyboard has A, also on an AZERTY one, where it
--- types Q. This is what a game's movement keys want.
-code :: KeyboardEvent -> Text
-code e
-  | inBrowser = fromJSText (js_keyboard_code e)
-  | otherwise = nativeProperty "code" e
+nativeBool :: Text -> KeyboardEvent -> Bool
+nativeBool name (KeyboardEvent (Event value)) = fromMaybe False (readProp name (Just . foreignToBool) value)
 
-nativeProperty :: Text -> KeyboardEvent -> Text
-nativeProperty name (KeyboardEvent (Event value)) = fromMaybe "" (readProp name (Just . foreignToString) value)
+-- Pure, because what an event says about its key is fixed when it is made.
+$( jsFields
+     ''KeyboardEvent
+     [ -- What the key means, under the keyboard's layout and the modifiers
+       -- held: @"a"@, @"A"@ with Shift, @"Enter"@, @"ArrowLeft"@, @"Dead"@
+       -- while a composition is under way. This is what a shortcut or text
+       -- entry wants.
+       Natively [|nativeText "key"|] (Fixed "key" [t|Text|])
+     , -- Which physical key it is, whatever the layout says it means:
+       -- @"KeyA"@ is the key where a QWERTY keyboard has A, also on an
+       -- AZERTY one, where it types Q. This is what a game's movement keys
+       -- want.
+       Natively [|nativeText "code"|] (Fixed "code" [t|Text|])
+     , -- Whether each modifier was held.
+       Natively [|nativeBool "altKey"|] (Fixed "altKey" [t|Bool|])
+     , Natively [|nativeBool "ctrlKey"|] (Fixed "ctrlKey" [t|Bool|])
+     , Natively [|nativeBool "metaKey"|] (Fixed "metaKey" [t|Bool|])
+     , Natively [|nativeBool "shiftKey"|] (Fixed "shiftKey" [t|Bool|])
+     , -- Whether the key is part of a composition under way (an input
+       -- method's), whose Enter chooses a word rather than submitting.
+       Natively [|nativeBool "isComposing"|] (Fixed "isComposing" [t|Bool|])
+     ]
+ )
+
+$(jsFieldFunctions ''KeyboardEvent [])
+
+$(jsCast "fromEvent" ''Event ''KeyboardEvent)

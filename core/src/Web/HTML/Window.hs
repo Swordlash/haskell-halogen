@@ -1,6 +1,8 @@
 {-# LANGUAGE TemplateHaskell #-}
 
--- | The window globals that are not about the document tree.
+-- | The window, as functions. Meant to be imported qualified
+-- (@Window.navigator@). The fields themselves (@w.navigator.onLine@) are
+-- 'Window''s instances, in "Web.DOM.Internal.Types".
 --
 -- The two stores are not here: they are the storage methods of
 -- 'Halogen.VDom.DOM.Monad.Class.MonadBrowserDOM', so that a backend with no
@@ -13,28 +15,30 @@ module Web.HTML.Window
   ( innerWidth
   , innerHeight
   , locationHash
+  , document
+  , navigator
+  , history
+  , location
+  , crypto
+  , console
+  , isSecureContext
+  , print
   )
 where
 
-import HPrelude
-import Halogen.JSBits (JSText, Safety (..), browserJS, fromJSText)
+import HPrelude hiding (print)
+import Halogen.JSBits.Fields (jsFieldFunctions)
 import Web.DOM.Internal.Types (Window (..))
 
-$( browserJS
-     ["jsbits/web_browser.js"]
-     [ ("js_window_inner_width", "js_window_inner_width", Unsafe, [t|Window -> IO Int|])
-     , ("js_window_inner_height", "js_window_inner_height", Unsafe, [t|Window -> IO Int|])
-     , ("js_window_location_hash", "js_window_location_hash", Unsafe, [t|Window -> IO JSText|])
-     ]
- )
+$(jsFieldFunctions ''Window ["innerWidth", "innerHeight"])
 
 -- | The width of the viewport, in CSS pixels. Natively, with no viewport, 0.
 innerWidth :: (MonadIO m) => Window -> m Int
-innerWidth = liftIO . js_window_inner_width
+innerWidth w = liftIO w.innerWidth
 
 -- | The height of the viewport, in CSS pixels. Natively 0.
 innerHeight :: (MonadIO m) => Window -> m Int
-innerHeight = liftIO . js_window_inner_height
+innerHeight w = liftIO w.innerHeight
 
 -- | The fragment of the page's URL, @#@ included, or empty when there is
 -- none. A link to @#/somewhere@ changes it without loading a page, adds a
@@ -43,4 +47,4 @@ innerHeight = liftIO . js_window_inner_height
 -- and deep links all arrive as the same event and the same read. A page that
 -- was not loaded from a URL, natively, has no fragment.
 locationHash :: (MonadIO m) => Window -> m Text
-locationHash w = liftIO $ fromJSText <$> js_window_location_hash w
+locationHash w = liftIO w.location.hash

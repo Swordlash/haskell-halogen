@@ -13,7 +13,7 @@ import Halogen.Query.ChildQuery qualified as CQ
 import Halogen.Query.Input
 import Halogen.Subscription hiding (Subscribe)
 import Halogen.Subscription qualified as HS
-import Web.DOM.Element
+import Web.DOM.Element (Element)
 
 newtype SubscriptionId = SubscriptionId Int
   deriving newtype (Eq, Ord, Show)

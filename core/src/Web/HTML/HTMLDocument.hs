@@ -1,45 +1,49 @@
 {-# LANGUAGE TemplateHaskell #-}
 
--- | The document, as HTML sees it.
+-- | The document, as HTML sees it, as functions. Meant to be imported
+-- qualified (@HTMLDocument.setTitle@). The fields themselves
+-- (@doc.title_set@) are 'HTMLDocument''s instances, in
+-- "Web.DOM.Internal.Types".
 module Web.HTML.HTMLDocument
   ( toParentNode
   , cookie
   , setCookie
   , visibilityState
+  , title
+  , setTitle
+  , baseURI
+  , fullscreenElement
+  , querySelector
+  , getElementById
+  , exitFullscreen
   )
 where
 
 import Data.Coerce
 import HPrelude
-import Halogen.JSBits (JSText, Safety (..), browserJS, fromJSText, toJSText)
+import Halogen.JSBits.Fields (jsFieldFunctions)
 import Web.DOM.Internal.Types
 import Web.DOM.ParentNode (ParentNode (..))
 import Web.HTML.HTMLDocument.VisibilityState (VisibilityState (..))
 import Web.HTML.HTMLDocument.VisibilityState qualified as VisibilityState
 
--- No browser, no cookie jar: natively reads find nothing and writes go
--- nowhere, as with "Web.Storage.Storage".
-$( browserJS
-     ["jsbits/web_browser.js"]
-     [ ("js_document_cookie", "js_document_cookie", Unsafe, [t|HTMLDocument -> IO JSText|])
-     , ("js_document_set_cookie", "js_document_set_cookie", Unsafe, [t|JSText -> HTMLDocument -> IO ()|])
-     , ("js_document_visibility_state", "js_document_visibility_state", Unsafe, [t|HTMLDocument -> IO JSText|])
-     ]
- )
+$(jsFieldFunctions ''HTMLDocument ["cookie", "cookie_set", "visibilityState"])
 
 toParentNode :: HTMLDocument -> ParentNode
 toParentNode = coerce
 
 -- | Every cookie the document can see, as the browser writes them: pairs
 -- separated by @"; "@. "Web.HTML.Cookie" reads and writes this in terms of
--- single cookies, which is almost always what is wanted.
+-- single cookies, which is almost always what is wanted. No browser, no
+-- cookie jar: natively it is empty, as with "Web.Storage.Storage".
 cookie :: (MonadIO m) => HTMLDocument -> m Text
-cookie doc = liftIO $ fromJSText <$> js_document_cookie doc
+cookie doc = liftIO doc.cookie
 
 -- | Write one cookie. The string is a single cookie and its attributes, and
 -- assigning it adds or replaces that cookie rather than replacing the lot.
+-- Natively it goes nowhere.
 setCookie :: (MonadIO m) => Text -> HTMLDocument -> m ()
-setCookie value doc = liftIO $ js_document_set_cookie (toJSText value) doc
+setCookie value doc = liftIO (doc.cookie_set value)
 
 -- | Whether the page can be seen now.
 --
@@ -49,4 +53,4 @@ setCookie value doc = liftIO $ js_document_set_cookie (toJSText value) doc
 -- is seen should go on with it.
 visibilityState :: (MonadIO m) => HTMLDocument -> m VisibilityState
 visibilityState doc =
-  liftIO $ fromMaybe Visible . VisibilityState.parse . fromJSText <$> js_document_visibility_state doc
+  liftIO $ fromMaybe Visible . VisibilityState.parse <$> doc.visibilityState

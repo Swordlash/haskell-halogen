@@ -2,7 +2,7 @@ module Halogen.Query.Input where
 
 import HPrelude
 import Halogen.VDom.DOM.Prop (ElemRef)
-import Web.DOM.Element
+import Web.DOM.Element (Element)
 
 newtype RefLabel = RefLabel Text
 

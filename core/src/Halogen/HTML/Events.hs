@@ -14,7 +14,7 @@ import Halogen.Query.Input
 import Halogen.VDom.DOM.Prop (HandlerOptions (..))
 import Web.Clipboard.ClipboardEvent
 import Web.Clipboard.ClipboardEvent.EventTypes qualified as CET
-import Web.Event.Event
+import Web.Event.Event hiding (defaultPrevented, target, type_)
 import Web.Event.Event qualified as EE
 import Web.HTML.Event.DragEvent
 import Web.HTML.Event.DragEvent.EventTypes qualified as DET

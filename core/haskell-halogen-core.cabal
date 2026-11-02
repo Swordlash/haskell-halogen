@@ -180,20 +180,33 @@ library
       Web.Clipboard
       Web.Clipboard.ClipboardEvent
       Web.Clipboard.ClipboardEvent.EventTypes
+      Web.Console
+      Web.Crypto
 
       Web.DOM.Internal.Types
       Web.DOM.Element
       Web.DOM.ParentNode
+      Web.Event.CustomEvent
       Web.Event.Internal.Types
       Web.Event.Event
+      Web.File.Blob
+      Web.File.File
+      Web.File.FileList
       Web.HTML.Common
       Web.HTML.Cookie
+      Web.HTML.Event.DataTransfer
       Web.HTML.Event.DragEvent
       Web.HTML.Event.DragEvent.EventTypes
       Web.HTML.Event.EventTypes
       Web.HTML.HTMLDocument
       Web.HTML.HTMLDocument.ReadyState
       Web.HTML.HTMLDocument.VisibilityState
+      Web.HTML.HTMLDialogElement
+      Web.HTML.HTMLElement
+      Web.HTML.HTMLInputElement
+      Web.HTML.History
+      Web.HTML.Location
+      Web.HTML.Navigator
       Web.HTML.Window
       Web.Storage.IndexedDB
       Web.Storage.Serialize
@@ -208,6 +221,7 @@ library
       Web.UIEvent.TouchEvent
       Web.UIEvent.WheelEvent
       Web.UIEvent.WheelEvent.EventTypes
+      Web.URL
       
     other-modules:
       HPrelude
@@ -227,7 +241,6 @@ library
         jsbits/indexeddb.js
         jsbits/monad_dom.js
         jsbits/web_browser.js
-        jsbits/web_event.js
 
       -- What GHC's JavaScript runtime lacks and other libraries need; every
       -- program that links core gets it, unless the flag is off (see
@@ -297,6 +310,7 @@ test-suite Halogen-core-test
                     Test.SvgAttributes
                     Test.Trace
                     Test.Utils
+                    Test.WebFields
                     Test.WindowEvents
 
 benchmark render-to-text
