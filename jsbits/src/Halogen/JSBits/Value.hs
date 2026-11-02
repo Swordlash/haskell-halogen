@@ -273,11 +273,13 @@ checkThrown outcome = do
 
 foreign import javascript unsafe "((o) => { return o.ok === true; })" js_thrown_ok :: JSVal -> IO Bool
 
-foreign import javascript unsafe "((o) => { const e = o.error; return e !== null && typeof e === \"object\" && typeof e.name === \"string\" ? e.name : \"Error\"; })"
+foreign import javascript unsafe "((o) => { const e = o.error; try { return e !== null && typeof e === \"object\" && typeof e.name === \"string\" ? e.name : \"Error\"; } catch (_) { return \"Error\"; } })"
   js_thrown_name :: JSVal -> IO JSText
 
--- Turning a value into a string can itself throw (an object whose toString
--- does); the message is then left empty.
+-- Reading what was thrown can itself throw (a getter for its name, an
+-- object whose toString throws): the name is then "Error" and the message
+-- empty, since an exception out of these imports would end the program on
+-- WebAssembly.
 foreign import javascript unsafe "((o) => { const e = o.error; try { return e !== null && typeof e === \"object\" && typeof e.name === \"string\" ? String(e.message ?? \"\") : String(e); } catch (_) { return \"\"; } })"
   js_thrown_message :: JSVal -> IO JSText
 
@@ -334,11 +336,13 @@ checkThrown outcome = do
 
 foreign import javascript unsafe "$1.ok === true" js_thrown_ok :: JSVal -> IO Bool
 
-foreign import javascript unsafe "((e) => e !== null && typeof e === \"object\" && typeof e.name === \"string\" ? e.name : \"Error\")($1.error)"
+foreign import javascript unsafe "((e) => { try { return e !== null && typeof e === \"object\" && typeof e.name === \"string\" ? e.name : \"Error\"; } catch (_) { return \"Error\"; } })($1.error)"
   js_thrown_name :: JSVal -> IO JSText
 
--- Turning a value into a string can itself throw (an object whose toString
--- does); the message is then left empty.
+-- Reading what was thrown can itself throw (a getter for its name, an
+-- object whose toString throws): the name is then "Error" and the message
+-- empty, since an exception out of these imports would end the program on
+-- WebAssembly.
 foreign import javascript unsafe "((e) => { try { return e !== null && typeof e === \"object\" && typeof e.name === \"string\" ? String(e.message ?? \"\") : String(e); } catch (_) { return \"\"; } })($1.error)"
   js_thrown_message :: JSVal -> IO JSText
 
