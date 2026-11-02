@@ -81,8 +81,8 @@ static method. haskell-halogen-core's `Web.*` modules are written with them.
 Every binding is synchronous. One whose function starts asynchronous work
 returns its JavaScript promise as `IO (Promise a)` (`Halogen.JSBits.Promise`):
 the generated code listens to the promise at once, and the program `await`s
-it where it wants the value. An `Unsafe` binding's JavaScript exception is
-thrown as a `JSError`; an `Unchecked` one's is not caught. The package
+it where it wants the value. A `Safe` binding's JavaScript exception is
+thrown as a `JSError`; an `Unsafe` one's is not caught. The package
 depends on `haskell-halogen-jsbits` on every architecture.
 
 The splice reads sources relative to the package, records them with

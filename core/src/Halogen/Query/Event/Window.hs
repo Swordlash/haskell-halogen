@@ -87,9 +87,9 @@ import Web.UIEvent.MouseEvent.EventTypes qualified as MET
 
 $( browserJS
      ["jsbits/web_browser.js"]
-     [ ("js_request_animation_frame", "js_request_animation_frame", Unsafe, [t|Callback -> IO Int|])
-     , ("js_cancel_animation_frame", "js_cancel_animation_frame", Unsafe, [t|Int -> IO ()|])
-     , ("js_frame_time", "js_frame_time", Unsafe, [t|JSVal -> Double|])
+     [ ("js_request_animation_frame", "js_request_animation_frame", Safe, [t|Callback -> IO Int|])
+     , ("js_cancel_animation_frame", "js_cancel_animation_frame", Safe, [t|Int -> IO ()|])
+     , ("js_frame_time", "js_frame_time", Safe, [t|JSVal -> Double|])
      ]
  )
 

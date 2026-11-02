@@ -35,12 +35,12 @@ data Safety
     -- otherwise ends the program, which no Haskell handler can stop. The
     -- catching costs a small object and one more crossing per call. A
     -- binding of a pure type is not guarded: its function must not throw.
-    Unsafe
+    Safe
   | -- | Nothing is caught, for a function that cannot throw for the values
     -- it is given and is called so often that the catching would show: the
     -- DOM operations a render makes. An exception out of it ends the program
     -- on WebAssembly.
-    Unchecked
+    Unsafe
   deriving (Eq, Show)
 
 -- | Each binding names a Haskell function, a JavaScript function, its
@@ -81,7 +81,7 @@ wasmJS files bindings = do
 -- the function's body (on WebAssembly, in the forcing of the splice's
 -- namespace).
 --
--- An 'Unsafe' binding whose type ends in @IO r@ calls the function inside a
+-- A 'Safe' binding whose type ends in @IO r@ calls the function inside a
 -- @try@, which makes an outcome object, @{ ok: true, value }@ or
 -- @{ ok: false, error }@; 'checkThrown' throws what it caught, and a second
 -- import reads the value with the FFI's conversion for @r@. The outcome is
@@ -103,7 +103,7 @@ binding named loaded (haskell, javascript, safety, quotedType) = do
       let (ffiResult, made) = case promiseOf result of
             Just _ -> (ConT ''JSVal, \e -> [|$e >>= promise|])
             Nothing -> (result, id)
-      if safety == Unchecked
+      if safety == Unsafe
         then do
           body <- made (pure applied)
           declare [importJS raw call (withResult ffiResult ty)] body

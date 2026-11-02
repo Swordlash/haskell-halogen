@@ -15,11 +15,11 @@ import Web.HTML.Window (innerHeight, innerWidth)
 -- for both browser backends.
 $( browserJS
      ["test/jsbits/window.js"]
-     [ ("js_dispatch", "halogen_window_dispatch", Unsafe, [t|JSText -> IO ()|])
-     , ("js_set_visibility", "halogen_window_set_visibility", Unsafe, [t|JSText -> IO ()|])
-     , ("js_restore_visibility", "halogen_window_restore_visibility", Unsafe, [t|IO ()|])
-     , ("js_throw", "halogen_window_throw", Unsafe, [t|JSText -> IO ()|])
-     , ("js_throw_number", "halogen_window_throw_number", Unsafe, [t|JSText -> IO Int|])
+     [ ("js_dispatch", "halogen_window_dispatch", Safe, [t|JSText -> IO ()|])
+     , ("js_set_visibility", "halogen_window_set_visibility", Safe, [t|JSText -> IO ()|])
+     , ("js_restore_visibility", "halogen_window_restore_visibility", Safe, [t|IO ()|])
+     , ("js_throw", "halogen_window_throw", Safe, [t|JSText -> IO ()|])
+     , ("js_throw_number", "halogen_window_throw_number", Safe, [t|JSText -> IO Int|])
      ]
  )
 
@@ -78,7 +78,7 @@ spec m = do
 
   it "gets what a binding's JavaScript throws as a JSError, and goes on" $ runPage $ do
     -- On WebAssembly an exception out of a synchronous import would end the
-    -- program; an Unsafe binding catches it and throws it in Haskell.
+    -- program; a Safe binding catches it and throws it in Haskell.
     thrown <- unsafeIOToPageM (try @JSError (js_throw (toJSText "OddError")))
     either (.name) (const "no exception") thrown `shouldBe` "OddError"
     thrownToo <- unsafeIOToPageM (try @JSError (js_throw_number (toJSText "OtherError")))

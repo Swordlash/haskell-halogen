@@ -116,18 +116,18 @@ import Halogen.Subscription qualified as HS
 
 $( browserJS
      ["jsbits/websocket.js"]
-     [ ("js_protocols", "halogen_net_websocket_protocols", Unsafe, [t|IO JSVal|])
-     , ("js_protocol_push", "halogen_net_websocket_protocol_push", Unsafe, [t|JSVal -> JSText -> IO ()|])
-     , ("js_open", "halogen_net_websocket_open", Unsafe, [t|JSText -> JSVal -> Callback -> Callback -> Callback -> Callback -> Callback -> IO JSVal|])
-     , ("js_close_code", "halogen_net_websocket_close_code", Unsafe, [t|JSVal -> IO Int|])
-     , ("js_close_reason", "halogen_net_websocket_close_reason", Unsafe, [t|JSVal -> IO JSText|])
-     , ("js_close_clean", "halogen_net_websocket_close_clean", Unsafe, [t|JSVal -> IO Bool|])
-     , ("js_send_text", "halogen_net_websocket_send", Unsafe, [t|JSVal -> JSText -> IO JSVal|])
-     , ("js_send_bytes", "halogen_net_websocket_send", Unsafe, [t|JSVal -> JSVal -> IO JSVal|])
-     , ("js_close", "halogen_net_websocket_close", Unsafe, [t|JSVal -> Int -> JSText -> IO JSVal|])
-     , ("js_close_plain", "halogen_net_websocket_close_plain", Unsafe, [t|JSVal -> IO ()|])
-     , ("js_ready_state", "halogen_net_websocket_ready_state", Unsafe, [t|JSVal -> IO Int|])
-     , ("js_protocol", "halogen_net_websocket_protocol", Unsafe, [t|JSVal -> IO JSText|])
+     [ ("js_protocols", "halogen_net_websocket_protocols", Safe, [t|IO JSVal|])
+     , ("js_protocol_push", "halogen_net_websocket_protocol_push", Safe, [t|JSVal -> JSText -> IO ()|])
+     , ("js_open", "halogen_net_websocket_open", Safe, [t|JSText -> JSVal -> Callback -> Callback -> Callback -> Callback -> Callback -> IO JSVal|])
+     , ("js_close_code", "halogen_net_websocket_close_code", Safe, [t|JSVal -> IO Int|])
+     , ("js_close_reason", "halogen_net_websocket_close_reason", Safe, [t|JSVal -> IO JSText|])
+     , ("js_close_clean", "halogen_net_websocket_close_clean", Safe, [t|JSVal -> IO Bool|])
+     , ("js_send_text", "halogen_net_websocket_send", Safe, [t|JSVal -> JSText -> IO JSVal|])
+     , ("js_send_bytes", "halogen_net_websocket_send", Safe, [t|JSVal -> JSVal -> IO JSVal|])
+     , ("js_close", "halogen_net_websocket_close", Safe, [t|JSVal -> Int -> JSText -> IO JSVal|])
+     , ("js_close_plain", "halogen_net_websocket_close_plain", Safe, [t|JSVal -> IO ()|])
+     , ("js_ready_state", "halogen_net_websocket_ready_state", Safe, [t|JSVal -> IO Int|])
+     , ("js_protocol", "halogen_net_websocket_protocol", Safe, [t|JSVal -> IO JSText|])
      ]
  )
 

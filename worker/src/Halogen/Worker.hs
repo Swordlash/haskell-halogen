@@ -60,16 +60,16 @@ import UnliftIO.Exception (tryAny)
 
 $( browserJS
      ["jsbits/worker.js"]
-     [ ("js_available", "halogen_worker_available", Unsafe, [t|JSText -> IO Bool|])
-     , ("js_pool", "halogen_worker_pool", Unsafe, [t|Int -> JSText -> IO JSVal|])
-     , ("js_run", "halogen_worker_run", Unsafe, [t|JSVal -> JSText -> JSText -> IO (Promise JSVal)|])
-     , ("js_terminate", "halogen_worker_terminate", Unsafe, [t|JSVal -> IO ()|])
-     , ("js_in_worker", "halogen_worker_in_worker", Unsafe, [t|IO Bool|])
-     , ("js_listen", "halogen_worker_listen", Unsafe, [t|Callback -> IO ()|])
-     , ("js_request_id", "halogen_worker_request_id", Unsafe, [t|JSVal -> IO Int|])
-     , ("js_request_job", "halogen_worker_request_job", Unsafe, [t|JSVal -> IO JSText|])
-     , ("js_request_args", "halogen_worker_request_args", Unsafe, [t|JSVal -> IO JSText|])
-     , ("js_reply", "halogen_worker_reply", Unsafe, [t|Int -> Bool -> JSText -> IO ()|])
+     [ ("js_available", "halogen_worker_available", Safe, [t|JSText -> IO Bool|])
+     , ("js_pool", "halogen_worker_pool", Safe, [t|Int -> JSText -> IO JSVal|])
+     , ("js_run", "halogen_worker_run", Safe, [t|JSVal -> JSText -> JSText -> IO (Promise JSVal)|])
+     , ("js_terminate", "halogen_worker_terminate", Safe, [t|JSVal -> IO ()|])
+     , ("js_in_worker", "halogen_worker_in_worker", Safe, [t|IO Bool|])
+     , ("js_listen", "halogen_worker_listen", Safe, [t|Callback -> IO ()|])
+     , ("js_request_id", "halogen_worker_request_id", Safe, [t|JSVal -> IO Int|])
+     , ("js_request_job", "halogen_worker_request_job", Safe, [t|JSVal -> IO JSText|])
+     , ("js_request_args", "halogen_worker_request_args", Safe, [t|JSVal -> IO JSText|])
+     , ("js_reply", "halogen_worker_reply", Safe, [t|Int -> Bool -> JSText -> IO ()|])
      ]
  )
 

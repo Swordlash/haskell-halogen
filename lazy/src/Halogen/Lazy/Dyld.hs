@@ -64,10 +64,10 @@ import Halogen.JSBits.Promise (JSError (..), Promise (..), waitCatch)
 import Protolude hiding (waitCatch)
 $( browserJS
      ["jsbits/lazy.js"]
-     [ ("js_available", "halogen_lazy_available", Unsafe, [t|IO Bool|])
-     , ("js_load", "halogen_lazy_load", Unsafe, [t|JSText -> JSText -> JSText -> IO (Promise JSVal)|])
-     , ("js_number", "halogen_lazy_number", Unsafe, [t|JSVal -> IO Int|])
-     , ("js_abandon", "halogen_lazy_abandon", Unsafe, [t|JSVal -> IO ()|])
+     [ ("js_available", "halogen_lazy_available", Safe, [t|IO Bool|])
+     , ("js_load", "halogen_lazy_load", Safe, [t|JSText -> JSText -> JSText -> IO (Promise JSVal)|])
+     , ("js_number", "halogen_lazy_number", Safe, [t|JSVal -> IO Int|])
+     , ("js_abandon", "halogen_lazy_abandon", Safe, [t|JSVal -> IO ()|])
      ]
  )
 

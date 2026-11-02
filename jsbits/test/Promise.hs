@@ -18,17 +18,17 @@ import System.IO (BufferMode (..), hSetBuffering, stdout)
 
 $( browserJS
      ["test/promise.js"]
-     [ ("text", "halogen_promise_test_text", Unsafe, [t|Int -> JSText -> IO (Promise JSVal)|])
-     , ("number", "halogen_promise_test_number", Unsafe, [t|Int -> Int -> IO (Promise JSVal)|])
-     , ("failing", "halogen_promise_test_error", Unsafe, [t|Int -> JSText -> JSText -> IO (Promise JSVal)|])
-     , ("rejectWithText", "halogen_promise_test_reject_with", Unsafe, [t|Int -> JSText -> IO (Promise JSVal)|])
-     , ("rejectWithNumber", "halogen_promise_test_reject_with", Unsafe, [t|Int -> Int -> IO (Promise JSVal)|])
-     , ("plain", "halogen_promise_test_plain", Unsafe, [t|JSText -> IO (Promise JSVal)|])
-     , ("typedText", "halogen_promise_test_text", Unsafe, [t|Int -> JSText -> IO (Promise Text)|])
-     , ("typedNumber", "halogen_promise_test_number", Unsafe, [t|Int -> Int -> IO (Promise Int)|])
-     , ("typedNumbers", "halogen_promise_test_numbers", Unsafe, [t|Int -> IO (Promise [Int])|])
-     , ("readNumber", "halogen_promise_test_read_number", Unsafe, [t|JSVal -> IO Int|])
-     , ("isString", "halogen_promise_test_is_string", Unsafe, [t|JSVal -> IO Bool|])
+     [ ("text", "halogen_promise_test_text", Safe, [t|Int -> JSText -> IO (Promise JSVal)|])
+     , ("number", "halogen_promise_test_number", Safe, [t|Int -> Int -> IO (Promise JSVal)|])
+     , ("failing", "halogen_promise_test_error", Safe, [t|Int -> JSText -> JSText -> IO (Promise JSVal)|])
+     , ("rejectWithText", "halogen_promise_test_reject_with", Safe, [t|Int -> JSText -> IO (Promise JSVal)|])
+     , ("rejectWithNumber", "halogen_promise_test_reject_with", Safe, [t|Int -> Int -> IO (Promise JSVal)|])
+     , ("plain", "halogen_promise_test_plain", Safe, [t|JSText -> IO (Promise JSVal)|])
+     , ("typedText", "halogen_promise_test_text", Safe, [t|Int -> JSText -> IO (Promise Text)|])
+     , ("typedNumber", "halogen_promise_test_number", Safe, [t|Int -> Int -> IO (Promise Int)|])
+     , ("typedNumbers", "halogen_promise_test_numbers", Safe, [t|Int -> IO (Promise [Int])|])
+     , ("readNumber", "halogen_promise_test_read_number", Safe, [t|JSVal -> IO Int|])
+     , ("isString", "halogen_promise_test_is_string", Safe, [t|JSVal -> IO Bool|])
      ]
  )
 

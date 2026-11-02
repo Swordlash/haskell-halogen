@@ -39,7 +39,7 @@ import Protolude hiding (State, waitCatch)
 -- which is never seen, since the suite only reports a skip there.
 $( browserJS
      ["test/jsbits/islands.js"]
-     [("js_islands_wait", "halogen_islands_wait", Unsafe, [t|Int -> IO (Promise JSVal)|])]
+     [("js_islands_wait", "halogen_islands_wait", Safe, [t|Int -> IO (Promise JSVal)|])]
  )
 
 -- | The routes: the plain page, or the slow page of this number.

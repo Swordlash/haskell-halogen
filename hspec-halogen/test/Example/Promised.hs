@@ -24,8 +24,8 @@ import Protolude hiding (State, waitCatch)
 -- there.
 $( browserJS
      ["test/jsbits/promised.js"]
-     [ ("js_later", "halogen_promised_later", Unsafe, [t|Int -> JSText -> IO (Promise JSVal)|])
-     , ("js_failing", "halogen_promised_failing", Unsafe, [t|Int -> IO (Promise JSVal)|])
+     [ ("js_later", "halogen_promised_later", Safe, [t|Int -> JSText -> IO (Promise JSVal)|])
+     , ("js_failing", "halogen_promised_failing", Safe, [t|Int -> IO (Promise JSVal)|])
      ]
  )
 

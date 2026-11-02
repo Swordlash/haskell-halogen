@@ -16,7 +16,7 @@
 -- time it returns, and nothing has waited.
 --
 -- > $(browserJS ["jsbits/net.js"]
--- >   [("js_fetch_text", "halogen_net_fetch_text", Unsafe, [t| JSText -> IO (Promise Text) |])])
+-- >   [("js_fetch_text", "halogen_net_fetch_text", Safe, [t| JSText -> IO (Promise Text) |])])
 --
 -- 'Halogen.JSBits.browserJS' and the fields of "Halogen.JSBits.Fields" make
 -- a 'Promise' of the JavaScript promise a function returns with 'promise',

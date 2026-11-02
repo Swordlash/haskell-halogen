@@ -87,10 +87,10 @@ import Web.DOM.Internal.Types (Element (..), HTMLElement (..), Node (..), toDocu
 
 $( browserJS
      ["jsbits/devtools.js"]
-     [ ("js_rect_left", "halogen_devtools_rect_left", Unsafe, [t|JSVal -> IO Double|])
-     , ("js_rect_top", "halogen_devtools_rect_top", Unsafe, [t|JSVal -> IO Double|])
-     , ("js_rect_width", "halogen_devtools_rect_width", Unsafe, [t|JSVal -> IO Double|])
-     , ("js_rect_height", "halogen_devtools_rect_height", Unsafe, [t|JSVal -> IO Double|])
+     [ ("js_rect_left", "halogen_devtools_rect_left", Safe, [t|JSVal -> IO Double|])
+     , ("js_rect_top", "halogen_devtools_rect_top", Safe, [t|JSVal -> IO Double|])
+     , ("js_rect_width", "halogen_devtools_rect_width", Safe, [t|JSVal -> IO Double|])
+     , ("js_rect_height", "halogen_devtools_rect_height", Safe, [t|JSVal -> IO Double|])
      ]
  )
 

@@ -33,8 +33,8 @@ import Web.Event.Event (Event, EventType (..), preventDefault, stopPropagation)
 -- shown, since the suite only reports a skip there.
 $( browserJS
      ["test/jsbits/dispatch.js"]
-     [ ("js_poke", "halogen_dispatch_poke", Unsafe, [t|HTMLElement -> IO Bool|])
-     , ("js_click_box", "halogen_dispatch_click_box", Unsafe, [t|HTMLElement -> IO Bool|])
+     [ ("js_poke", "halogen_dispatch_poke", Safe, [t|HTMLElement -> IO Bool|])
+     , ("js_click_box", "halogen_dispatch_click_box", Safe, [t|HTMLElement -> IO Bool|])
      ]
  )
 

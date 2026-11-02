@@ -174,7 +174,7 @@ invokeCallback :: Callback -> JSVal -> IO ()
 -- @SyntaxError@ or an @AbortError@ keeps its name). Anything else thrown, a
 -- string say, has the name @Error@ and itself, as a string, as its message.
 --
--- A synchronous binding ('Halogen.JSBits.browserJS''s @Unsafe@, and the
+-- A synchronous binding ('Halogen.JSBits.browserJS''s @Safe@, and the
 -- fields "Halogen.JSBits.Fields" writes) throws it in 'IO' for an exception
 -- its JavaScript throws, and an awaited one for a rejection.
 data JSError = JSError

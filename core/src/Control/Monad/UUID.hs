@@ -16,7 +16,7 @@ class (Monad m) => MonadUUID m where
 
 $( browserJS
      ["jsbits/web_browser.js"]
-     [ ("js_crypto_random_uuid", "js_crypto_random_uuid", Unsafe, [t|IO JSText|])
+     [ ("js_crypto_random_uuid", "js_crypto_random_uuid", Safe, [t|IO JSText|])
      ]
  )
 

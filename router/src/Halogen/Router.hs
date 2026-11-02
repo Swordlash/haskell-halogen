@@ -75,11 +75,11 @@ import Web.UIEvent.MouseEvent (MouseEvent (..), toEvent)
 
 $( browserJS
      ["jsbits/router.js"]
-     [ ("js_router_location", "js_router_location", Unsafe, [t|IO JSText|])
-     , ("js_router_push_state", "js_router_push_state", Unsafe, [t|JSText -> IO ()|])
-     , ("js_router_replace_state", "js_router_replace_state", Unsafe, [t|JSText -> IO ()|])
-     , ("js_router_page_base", "js_router_page_base", Unsafe, [t|IO JSText|])
-     , ("js_router_plain_left_click", "js_router_plain_left_click", Unsafe, [t|Event -> Bool|])
+     [ ("js_router_location", "js_router_location", Safe, [t|IO JSText|])
+     , ("js_router_push_state", "js_router_push_state", Safe, [t|JSText -> IO ()|])
+     , ("js_router_replace_state", "js_router_replace_state", Safe, [t|JSText -> IO ()|])
+     , ("js_router_page_base", "js_router_page_base", Safe, [t|IO JSText|])
+     , ("js_router_plain_left_click", "js_router_plain_left_click", Safe, [t|Event -> Bool|])
      ]
  )
 

@@ -63,8 +63,8 @@ import Web.UIEvent.MouseEvent (MouseEvent, toEvent)
 -- the suite only reports a skip there.
 $( browserJS
      ["test/jsbits/busy.js"]
-     [ ("js_click_link", "halogen_busy_click_link", Unsafe, [t|Int -> IO Int|])
-     , ("js_release_then_click", "halogen_busy_release_then_click", Unsafe, [t|Callback -> Int -> IO (Promise JSVal)|])
+     [ ("js_click_link", "halogen_busy_click_link", Safe, [t|Int -> IO Int|])
+     , ("js_release_then_click", "halogen_busy_release_then_click", Safe, [t|Callback -> Int -> IO (Promise JSVal)|])
      ]
  )
 

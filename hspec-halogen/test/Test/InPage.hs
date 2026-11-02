@@ -21,8 +21,8 @@ import Test.Todo qualified
 
 $( browserJS
      ["test/jsbits/inpage.js"]
-     [ ("js_hide_runner", "halogen_inpage_hide_runner", Unsafe, [t|IO ()|])
-     , ("js_restore_runner", "halogen_inpage_restore_runner", Unsafe, [t|IO ()|])
+     [ ("js_hide_runner", "halogen_inpage_hide_runner", Safe, [t|IO ()|])
+     , ("js_restore_runner", "halogen_inpage_restore_runner", Safe, [t|IO ()|])
      ]
  )
 

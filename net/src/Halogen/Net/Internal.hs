@@ -28,9 +28,9 @@ import Halogen.Subscription qualified as HS
 
 $( browserJS
      ["jsbits/net.js"]
-     [ ("js_refused", "halogen_net_refused", Unsafe, [t|JSVal -> IO Bool|])
-     , ("js_error_name", "halogen_net_error_name", Unsafe, [t|JSVal -> IO JSText|])
-     , ("js_error_message", "halogen_net_error_message", Unsafe, [t|JSVal -> IO JSText|])
+     [ ("js_refused", "halogen_net_refused", Safe, [t|JSVal -> IO Bool|])
+     , ("js_error_name", "halogen_net_error_name", Safe, [t|JSVal -> IO JSText|])
+     , ("js_error_message", "halogen_net_error_message", Safe, [t|JSVal -> IO JSText|])
      ]
  )
 

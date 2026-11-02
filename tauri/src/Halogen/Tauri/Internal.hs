@@ -64,14 +64,14 @@ data Scope = Anywhere | CurrentWindow
 
 $( browserJS
      ["jsbits/tauri.js"]
-     [ ("js_is_tauri", "halogen_tauri_is_tauri", Unsafe, [t|IO Bool|])
-     , ("js_invoke", "halogen_tauri_invoke", Unsafe, [t|JSText -> JSText -> IO (Promise JSVal)|])
-     , ("js_listen", "halogen_tauri_listen", Unsafe, [t|JSText -> Bool -> Callback -> IO JSVal|])
-     , ("js_unlisten", "halogen_tauri_unlisten", Unsafe, [t|JSText -> JSVal -> IO ()|])
-     , ("js_emit", "halogen_tauri_emit", Unsafe, [t|JSText -> JSText -> IO ()|])
-     , ("js_emit_to", "halogen_tauri_emit_to", Unsafe, [t|JSText -> JSText -> JSText -> IO ()|])
-     , ("js_report_payload", "halogen_tauri_report_payload", Unsafe, [t|JSText -> JSText -> IO ()|])
-     , ("js_destroy", "halogen_tauri_destroy", Unsafe, [t|IO (Promise JSVal)|])
+     [ ("js_is_tauri", "halogen_tauri_is_tauri", Safe, [t|IO Bool|])
+     , ("js_invoke", "halogen_tauri_invoke", Safe, [t|JSText -> JSText -> IO (Promise JSVal)|])
+     , ("js_listen", "halogen_tauri_listen", Safe, [t|JSText -> Bool -> Callback -> IO JSVal|])
+     , ("js_unlisten", "halogen_tauri_unlisten", Safe, [t|JSText -> JSVal -> IO ()|])
+     , ("js_emit", "halogen_tauri_emit", Safe, [t|JSText -> JSText -> IO ()|])
+     , ("js_emit_to", "halogen_tauri_emit_to", Safe, [t|JSText -> JSText -> JSText -> IO ()|])
+     , ("js_report_payload", "halogen_tauri_report_payload", Safe, [t|JSText -> JSText -> IO ()|])
+     , ("js_destroy", "halogen_tauri_destroy", Safe, [t|IO (Promise JSVal)|])
      ]
  )
 

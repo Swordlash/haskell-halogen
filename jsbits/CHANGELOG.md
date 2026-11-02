@@ -49,17 +49,19 @@ promise takes its `rawPromise`, a `JSVal`. `jsbits/promise.js` is gone: the
 module's few imports are inline (`Halogen.JSBits.Inline`, where `inlineJS`
 now lives; `Halogen.JSBits.Fields` re-exports it).
 
-**Breaking: `Safety` is this package's own**, with two constructors,
-`Unsafe` and `Unchecked`; `Safe`, the binding that awaited its function's
-promise (an async import on wasm, an `interruptible` one on the JavaScript
-backend), is gone: a binding returns `IO (Promise a)` and the program awaits
-it. An `Unsafe` binding whose type ends in `IO`
+**Breaking: `Safety` is this package's own**, with two constructors whose
+meanings changed: `Safe` and `Unsafe`. The old `Safe`, the binding that
+awaited its function's promise (an async import on wasm, an `interruptible`
+one on the JavaScript backend), is gone: a binding returns
+`IO (Promise a)` and the program waits for it. A `Safe` binding (the old
+`Unsafe` ones become these) whose type ends in `IO`
 now catches what its JavaScript throws and throws it in Haskell as a
 `JSError`, which moved to `Halogen.JSBits.Value` (re-exported by
 `Halogen.JSBits` and `Halogen.JSBits.Promise`). On WebAssembly an exception
 out of a synchronous import cannot be caught in Haskell: it ends the program,
 whatever handler the caller has. The catching costs a small object and one
-more crossing per call, so `Unchecked` keeps the old behaviour, for a
+more crossing per call, so `Unsafe` keeps the old behaviour of nothing
+caught, for a
 function that cannot throw for the values it is given and is called very
 often (core's DOM operations during a render). A binding of a pure type is
 not guarded. `Safety` was Template Haskell's before, so a module that

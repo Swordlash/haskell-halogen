@@ -18,10 +18,10 @@ import Protolude
 
 $( browserJS
      ["jsbits/remote.js"]
-     [ ("js_parse", "halogen_remote_parse", Unsafe, [t|JSText -> IO JSVal|])
-     , ("js_loopback", "halogen_remote_loopback", Unsafe, [t|JSVal -> Callback -> IO JSVal|])
-     , ("js_apply", "halogen_remote_apply", Unsafe, [t|JSVal -> JSText -> IO ()|])
-     , ("js_detach", "halogen_remote_detach", Unsafe, [t|JSVal -> IO ()|])
+     [ ("js_parse", "halogen_remote_parse", Safe, [t|JSText -> IO JSVal|])
+     , ("js_loopback", "halogen_remote_loopback", Safe, [t|JSVal -> Callback -> IO JSVal|])
+     , ("js_apply", "halogen_remote_apply", Safe, [t|JSVal -> JSText -> IO ()|])
+     , ("js_detach", "halogen_remote_detach", Safe, [t|JSVal -> IO ()|])
      ]
  )
 

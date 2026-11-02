@@ -221,19 +221,19 @@ instance HasField "headers" Response [(Text, Text)] where getField r = r.respons
 
 $( browserJS
      ["jsbits/fetch.js"]
-     [ ("js_request", "halogen_net_fetch_request", Unsafe, [t|JSText -> JSText -> JSText -> JSText -> IO JSVal|])
-     , ("js_header", "halogen_net_fetch_header", Unsafe, [t|JSVal -> JSText -> JSText -> IO ()|])
-     , ("js_text_body", "halogen_net_fetch_body", Unsafe, [t|JSVal -> JSText -> IO ()|])
-     , ("js_bytes_body", "halogen_net_fetch_body", Unsafe, [t|JSVal -> JSVal -> IO ()|])
-     , ("js_start", "halogen_net_fetch_start", Unsafe, [t|JSVal -> IO (Promise JSVal)|])
-     , ("js_abort", "halogen_net_fetch_abort", Unsafe, [t|JSVal -> IO ()|])
-     , ("js_status", "halogen_net_response_status", Unsafe, [t|JSVal -> IO Int|])
-     , ("js_status_text", "halogen_net_response_status_text", Unsafe, [t|JSVal -> IO JSText|])
-     , ("js_ok", "halogen_net_response_ok", Unsafe, [t|JSVal -> IO Bool|])
-     , ("js_url", "halogen_net_response_url", Unsafe, [t|JSVal -> IO JSText|])
-     , ("js_headers", "halogen_net_response_headers", Unsafe, [t|JSVal -> IO JSText|])
-     , ("js_text", "halogen_net_response_text", Unsafe, [t|JSVal -> IO (Promise JSVal)|])
-     , ("js_bytes", "halogen_net_response_bytes", Unsafe, [t|JSVal -> IO (Promise JSVal)|])
+     [ ("js_request", "halogen_net_fetch_request", Safe, [t|JSText -> JSText -> JSText -> JSText -> IO JSVal|])
+     , ("js_header", "halogen_net_fetch_header", Safe, [t|JSVal -> JSText -> JSText -> IO ()|])
+     , ("js_text_body", "halogen_net_fetch_body", Safe, [t|JSVal -> JSText -> IO ()|])
+     , ("js_bytes_body", "halogen_net_fetch_body", Safe, [t|JSVal -> JSVal -> IO ()|])
+     , ("js_start", "halogen_net_fetch_start", Safe, [t|JSVal -> IO (Promise JSVal)|])
+     , ("js_abort", "halogen_net_fetch_abort", Safe, [t|JSVal -> IO ()|])
+     , ("js_status", "halogen_net_response_status", Safe, [t|JSVal -> IO Int|])
+     , ("js_status_text", "halogen_net_response_status_text", Safe, [t|JSVal -> IO JSText|])
+     , ("js_ok", "halogen_net_response_ok", Safe, [t|JSVal -> IO Bool|])
+     , ("js_url", "halogen_net_response_url", Safe, [t|JSVal -> IO JSText|])
+     , ("js_headers", "halogen_net_response_headers", Safe, [t|JSVal -> IO JSText|])
+     , ("js_text", "halogen_net_response_text", Safe, [t|JSVal -> IO (Promise JSVal)|])
+     , ("js_bytes", "halogen_net_response_bytes", Safe, [t|JSVal -> IO (Promise JSVal)|])
      ]
  )
 

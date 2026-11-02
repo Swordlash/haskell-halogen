@@ -280,8 +280,8 @@ they block; on JS, `syncCallback1 ContinueAsync` gives the same behaviour.
 A plain property read or method call needs no `.js` file: `Halogen.JSBits.Fields.jsFields`
 writes a `HasField` instance per member with the JavaScript inline (core's `Web.*` types are
 written with it, the instances beside each newtype), and `jsFieldFunctions` the same as functions.
-An `Unsafe` binding catches what its JavaScript throws and throws it as a `JSError` (on wasm an
-exception out of a synchronous import would end the program); `Unchecked` is for functions that cannot
+A `Safe` binding catches what its JavaScript throws and throws it as a `JSError` (on wasm an
+exception out of a synchronous import would end the program); `Unsafe` is for functions that cannot
 throw and are called on every render, such as core's DOM operations.
 A binding that starts asynchronous work returns `IO (Promise a)` (`Halogen.JSBits.Promise`): the
 generated code listens to the JavaScript promise at once, and the program waits for it with
