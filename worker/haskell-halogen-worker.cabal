@@ -50,6 +50,7 @@ library
         base >= 4.20 && < 5,
         binary >= 0.8.9,
         bytestring,
+        containers,
         text,
         unliftio,
         haskell-halogen-jsbits
