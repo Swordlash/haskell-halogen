@@ -2,7 +2,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- The program around lesson 17 is the one an application with Web Workers
--- ships: Worker.program serves the lesson's jobs in a worker and, on the
+-- ships: Worker.program serves the program's jobs in a worker (it finds each
+-- by its static pointer's key, so there is no table to hand it) and, on the
 -- page, goes on to mount the component, with a pool to run the jobs on. In
 -- the tutorial there is no binary for a worker to start (the page runs this
 -- program in GHC's interpreter, and says nothing in halogenWorker), so the
@@ -15,11 +16,11 @@ import Halogen.IO.Util qualified as HA
 import Halogen.VDom.DOM.Monad (runBrowserDOM)
 import Halogen.VDom.Driver (runUI)
 import Halogen.Worker qualified as Worker
-import Lesson (component, jobs)
+import Lesson (component)
 import Web.DOM.ParentNode (QuerySelector (..))
 
 main :: IO ()
-main = Worker.program jobs $ runBrowserDOM $ do
+main = Worker.program $ runBrowserDOM $ do
   HA.endPreviousRun
   result <- HA.selectElement (QuerySelector "#learn-result") >>= maybe (error "the page has no #learn-result") pure
   pool <- Worker.newPool 1

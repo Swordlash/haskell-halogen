@@ -385,8 +385,9 @@ elements into `#learn-result`, opens `Halogen.DevTools`' panel in the second
 (after `DevTools.showing @State`, which is why its `Lesson` exports `State`
 beside `component`) and then mounts the component in the first, and keeps
 both sockets' `dispose` and the elements' removal. Lesson 17's is the
-program an application with Web Workers ships: `Worker.program jobs` (the
-table its `Lesson` exports beside `component`) around the rest, which makes
+program an application with Web Workers ships: `Worker.program` (a worker
+finds the lesson's jobs, static pointers, by their keys, so there is no table
+to hand it) around the rest, which makes
 a pool and mounts `component pool`, and keeps the socket's `dispose` and
 `Worker.terminate pool`; in the tutorial the pool starts no worker (the
 interpreted program has no binary for one to load), and the jobs run on the
