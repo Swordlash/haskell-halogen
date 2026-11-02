@@ -39,7 +39,8 @@ Code written against the earlier, unreleased form of the package, in which a job
 under a name in a table given to `program`, with aeson JSON for its data, changes in three
 places. Where jobs are defined, add `{-# LANGUAGE StaticPointers #-}`, give each the type
 `StaticPtr (Job a b)` and the body `static (Worker.job f)` in place of `Worker.job "name" f`, and
-export it from its module, since GHC 9.14 can fail to link a static pointer its module keeps to
-itself when it optimises. The types a job takes and gives derive `Binary` (`deriving anyclass
+export it from its module, since GHC before 10.0 ([issue
+#24773](https://gitlab.haskell.org/ghc/ghc/-/issues/24773)) can fail to link a module whose static
+binding is not exported and is used more than once. The types a job takes and gives derive `Binary` (`deriving anyclass
 (Binary)` with `Generic`) in place of `FromJSON` and `ToJSON`. And `Worker.program` and
 `Worker.serve` take no table: `SomeJob` and `some` are gone.

@@ -12,10 +12,9 @@
 -- and on one no page would send. And stopping a job there, which in the
 -- fallback is killing the thread 'Worker.start' forked for it.
 --
--- The jobs are exported, as "Halogen.Worker"'s documentation advises: with
--- optimisation GHC 9.14 can rename a static pointer's binding that its
--- module keeps to itself while still naming the old binding in the
--- module's static pointer table, which fails to link.
+-- The jobs are exported, as "Halogen.Worker"'s documentation advises: GHC
+-- before 10.0 (issue #24773) can fail to link a module whose static binding
+-- is not exported and is used more than once, as several of these are.
 module Test.Run
   ( spec
   , double

@@ -128,11 +128,11 @@ $( browserJS
 -- resolved where it is written and kept inside the static value: there is no
 -- table of jobs and no class of serialisable functions to keep up.
 --
--- Export the binding of each @static@ from its module. With optimisation,
--- GHC 9.14 can give a binding its module keeps to itself a new name while
--- the module's static pointer table still refers to the old one, and the
--- program then fails to link, with an undefined reference to the binding's
--- closure; an exported binding keeps its name.
+-- Export every binding that holds a @static@ from its module. GHC before
+-- 10.0 (issue #24773) can fail to link a module whose static binding is not
+-- exported and is used more than once: with optimisation the binding stays
+-- internal to the module, and the entry of its static pointer table that
+-- refers to it has nothing to link to.
 --
 -- The function runs in 'IO', for a job that reads a clock or uses an
 -- 'Data.IORef.IORef' of its own (each copy of the program has its own); a
