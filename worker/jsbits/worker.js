@@ -9,12 +9,19 @@
 // Halogen.Worker.serve first, which finds itself in a worker and answers
 // messages rather than going on to mount the page.
 //
-// The messages are plain objects holding strings:
-//   worker to page   { ready: true }                 serve is listening
-//                    { failed: message }             the program did not start
-//                    { id, result: json }            a job's result
-//                    { id, error: message }          a job that failed
-//   page to worker   { id, job: name, args: json }   run a job
+// The messages are plain objects, a job's data in them as bytes, each in an
+// ArrayBuffer of its own that is transferred (postMessage's second
+// argument) rather than copied:
+//   worker to page   { ready: true }                     serve is listening
+//                    { failed: message }                 the program did not start
+//                    { id, ok: true, reply: buffer }     a request's results
+//                    { id, ok: false, error: message }   a request that failed
+//   page to worker   { id, request: buffer }             run a job
+// What the bytes say is Haskell's business (Halogen.Worker.Internal): a
+// request is the job's static key and a list of arguments, a reply the list
+// of their results, in order. A list, though the page sends one argument
+// for now, so that a batch of calls of one job can be one request without a
+// second protocol.
 //
 // A worker is told which it is by halogenWorker.worker, a number, which is
 // also how serve tells a worker of a pool from the page.
@@ -126,7 +133,7 @@ function halogen_worker_start(pool, index) {
       // the jobs given until now were kept for this.
       entry.ready = true;
       URL.revokeObjectURL(url);
-      for (const message of entry.queue) worker.postMessage(message);
+      for (const { message, transfer } of entry.queue) worker.postMessage(message, transfer);
       entry.queue = [];
     } else if (data.failed !== undefined) {
       halogen_worker_fail(pool, index, entry, `the worker did not start: ${data.failed}`);
@@ -134,8 +141,8 @@ function halogen_worker_start(pool, index) {
       const waiting = entry.pending.get(data.id);
       if (waiting === undefined) return;
       entry.pending.delete(data.id);
-      if (data.error !== undefined) waiting.reject(new Error(data.error));
-      else waiting.resolve(data.result);
+      if (data.ok === true) waiting.resolve(new Uint8Array(data.reply));
+      else waiting.reject(new Error(data.error));
     }
   };
   // An error the worker's script did not catch (one that did not load at
@@ -148,12 +155,19 @@ function halogen_worker_start(pool, index) {
   return entry;
 }
 
-// Run a job in the next worker of the pool, starting that worker if it has
-// not been, and give a promise of the result's JSON, rejected with the job's
-// error. The promise is marked as handled here, since the program may stop
-// waiting for it (its fiber killed), and its rejection should not be
-// reported as unhandled then.
-function halogen_worker_run(pool, job, args) {
+// A Uint8Array's bytes as an ArrayBuffer of their own, to transfer: the
+// array itself when it is the whole of its buffer (the arrays Haskell makes
+// are), a copy otherwise, so that nothing else's bytes are given away.
+function halogen_worker_buffer(bytes) {
+  return bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength ? bytes.buffer : bytes.slice().buffer;
+}
+
+// Send a request, the Uint8Array of its bytes, to the next worker of the
+// pool, starting that worker if it has not been, and give a promise of the
+// reply's bytes (a Uint8Array), rejected with what went wrong. The promise
+// is marked as handled here, since the program may stop waiting for it (its
+// fiber killed), and its rejection should not be reported as unhandled then.
+function halogen_worker_run(pool, request) {
   const index = pool.next;
   pool.next = (pool.next + 1) % pool.size;
   let entry = pool.workers[index];
@@ -172,9 +186,10 @@ function halogen_worker_run(pool, job, args) {
   const id = ++pool.ids;
   const promise = new Promise((resolve, reject) => entry.pending.set(id, { resolve: resolve, reject: reject }));
   promise.catch(() => {});
-  const message = { id: id, job: job, args: args };
-  if (entry.ready) entry.worker.postMessage(message);
-  else entry.queue.push(message);
+  const buffer = halogen_worker_buffer(request);
+  const message = { id: id, request: buffer };
+  if (entry.ready) entry.worker.postMessage(message, [buffer]);
+  else entry.queue.push({ message: message, transfer: [buffer] });
   return promise;
 }
 
@@ -198,18 +213,24 @@ function halogen_worker_listen(callback) {
   self.postMessage({ ready: true });
 }
 
-function halogen_worker_request_id(request) {
-  return request.id;
+// Which of its pool's workers this is; asked only inside one.
+function halogen_worker_which_worker() {
+  return globalThis.halogenWorker.worker;
 }
 
-function halogen_worker_request_job(request) {
-  return String(request.job);
+function halogen_worker_request_id(message) {
+  return message.id;
 }
 
-function halogen_worker_request_args(request) {
-  return String(request.args);
+function halogen_worker_request_bytes(message) {
+  return new Uint8Array(message.request);
 }
 
-function halogen_worker_reply(id, ok, text) {
-  self.postMessage(ok ? { id: id, result: text } : { id: id, error: text });
+function halogen_worker_reply(id, bytes) {
+  const buffer = halogen_worker_buffer(bytes);
+  self.postMessage({ id: id, ok: true, reply: buffer }, [buffer]);
+}
+
+function halogen_worker_reply_error(id, message) {
+  self.postMessage({ id: id, ok: false, error: message });
 }
