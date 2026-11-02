@@ -303,7 +303,9 @@ generated code listens to the JavaScript promise at once, and the program waits 
 
 `worker`'s `Halogen.Worker` starts a worker from a `Blob` script that loads the program the way
 the page's loader did (the files `globalThis.halogenWorker` names: on wasm the binary, the JSFFI
-glue and the WASI shim; on the JavaScript backend its `all.js`) and runs `main`, whose
+glue and the WASI shim; on the JavaScript backend its `all.js`; or, for a program that is no such
+binary, `halogenWorker.script`, a module of the page's own that the worker imports, with
+`halogenWorker.data` copied to it) and runs `main`, whose
 `Worker.program`/`serve` finds the number the script set in `halogenWorker.worker` and answers
 `{id, request}` messages instead of going on to the UI. A job is `static (Worker.job f)`, its
 `Binary` codecs inside the `Job`: the request's bytes (`Halogen.Worker.Internal`) are the
@@ -311,7 +313,7 @@ pointer's `StaticKey` and a list of arguments, which the worker looks up with
 `unsafeLookupStaticPtr`, and the reply is the list of results, each crossing in a transferred
 `ArrayBuffer`. `start` gives a `Halogen.JSBits.Promise` (rejected with a `JSError` named
 `WorkerError`), `run` waits and throws a `WorkerError`; the fallback (no configuration,
-natively, in Node, in GHCi, in the tutorial's interpreter) runs the job's function on the same
+natively, in Node, in GHCi, a browser without `Worker`) runs the job's function on the same
 bytes in process, with no lookup, on a thread `start` forks. A job is stopped with `cancel`
 (the promise rejected at once, `{cancel: id}` posted, seen at the job's next `checkpoint`, which
 yields a turn of the worker's event loop) or `kill` (its worker terminated, the worker's other
@@ -361,7 +363,14 @@ events (`hspec-halogen/jsbits/page.js`'s in-page mode, which `hspec-halogen-test
 examples through), and hspec's report is the program's stdout. Lesson 21's `Main.hs` mounts the
 lesson's component in `RemoteDOM` through `Halogen.Remote.Loopback` in an element of a page
 component of its own, whose `<pre>` shows the wire's traffic as it crosses (the rootfs' `live`
-layer).
+layer). A compiled program can start Web Workers of itself (lesson 17's pool): before each compile
+`playground.js` sets `halogenWorker.script` to `lesson-worker.js` (bundled beside `learn.js`) with
+the compile's request as its `data`, and a worker the pool starts boots a second compiler there
+(the same module, which keeps to what a worker has), compiles the same modules with the same flags,
+so that its static pointer keys are the page's, and runs that `main`, which serves; the first job
+after a compile waits for that boot (about 12 s, and the worker is half a gigabyte more of the
+renderer's memory: `learn/README.md`'s measurements). `learn/web/`'s page does the same with its
+`worker.js`.
 
 The deploy is that tree and nothing else: `build-deploy.yml` builds the rootfs (`build-learn-rootfs.sh`,
 restored instead from a cache keyed by its `--key`, a hash of the plan's units in the closure of the

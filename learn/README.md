@@ -47,6 +47,12 @@ What is here:
 - `web/index.html`, `web/index.js`: a minimal page (a text area, the GHC
   arguments, a button per layer, Run, stdout and stderr, `#app`, and the
   timings it measured). Plain modules, no bundler, no editor.
+  `web/compiler.js` is how it starts the compiler, and `web/worker.js`, which
+  shares it, is the script it names in `halogenWorker.script` before each
+  Run: a Web Worker a program starts (`haskell-halogen-worker`'s pools) is a
+  second compiler, which compiles the same source with the same arguments
+  and runs its `main`, the program's own worker (see Memory below for what
+  it costs).
 - `../toolchain/build-learn-rootfs.sh` (`npm run build-rootfs`): builds
   everything the page loads into `dist-newstyle/wasm/learn/`.
 - `../toolchain/learn-inject.py`: registers a layer of packages in the
@@ -314,13 +320,13 @@ quasi-quoter runs ghc-lib-parser in the page's interpreter; hspec, an
 acts with synthetic events, and hspec's report (`2 examples, 0 failures`)
 is the program's stdout, with `#app` empty afterwards; store, a tree
 in `StoreT` run with `runStoreT`, whose button's `updateStore` a component
-`connect`ed to the store shows; worker, `Halogen.Worker.program` serving two
-jobs that are static pointers, `Worker.available` saying no worker can be
-made (the interpreted program has no binary for one to load), one job run
-through `Worker.run` on the page and mapped over a list with
+`connect`ed to the store shows; worker, `Halogen.Worker.program` serving
+three jobs that are static pointers, `Worker.available` saying workers can
+be made (the page names `worker.js`, a second compiler, as the worker's
+script), one job answering from the pool's worker 0 (`Worker.whichWorker`),
+another run through `Worker.run` in that worker and mapped over a list with
 `Worker.start` and `mapConcurrently` and in `Halogen.Worker.Par` tasks with
-`runPar`, and the other's exception given back
-as a `WorkerError`; lazy, `Halogen.Lazy`'s placeholder while
+`runPar`, and the third's exception given back as a `WorkerError`; lazy, `Halogen.Lazy`'s placeholder while
 `Halogen.Lazy.Dyld` fetches `layers/lazy/liblazy-demo.so` and has dyld link it
 into the program, then the component its entry handed over, clicked and told
 to wave by its parent, which hears it each time; live, a counter in `RemoteDOM` mounted into
@@ -516,6 +522,10 @@ output directory is 84.8 MB.
 | a layer but `th`: load, then its first run | 20–65 ms, then 0.6–3.5 s (table above) |
 | the `th` layer: load, then its first run | 2.1–3.9 s, then 8.0–12.0 s |
 | for comparison: `main = putStrLn "hello"` before anything else | 0.4 s |
+| a program's Web Worker (`haskell-halogen-worker`), this page: from the run's end to the answers of its first jobs, the worker started | 9.0–11.2 s |
+| the same, every layer loaded first (the worker extracts them all, `th`'s too) | 23.8 s |
+| the same in the tutorial, lesson 17's first count after a Compile, the worker started | 11.5–11.9 s |
+| lesson 17's second count, the worker already up | 1.0–1.1 s |
 
 So the page is ready about 7 s after the archive has arrived, and the counter
 is on screen 4 s after the first Run; after that an edit runs in about 1.2 s.
@@ -526,6 +536,21 @@ layer takes 2–4 s to fetch and extract its 195 MB, and its first run another
 all, into dyld: run again it takes 0.6 s, and 1.1 s with the quote edited
 (measured once, in a page that loaded only `th`). Over the network the download dominates:
 56 MB is about 18 s at 25 Mbit/s, 4.5 s at 100 Mbit/s; `th` adds 7.5 s or 2 s.
+
+A worker a program starts is a second compiler (`web/worker.js`, and the
+tutorial's `lesson-worker.js`): it fetches the archives again (the tutorial
+reads them from the Cache API), extracts them, starts dyld and compiles the
+program, about the page's own start-up without the download, before its first
+job runs; later jobs of the same run go to it at once. The rows above are
+from three runs of `LEARN_ONLY=worker npm run test-playground` (the time from
+the run's end to the component's text, a job asking which worker it ran in,
+and three more) and three runs of lesson 17 in the built tutorial
+(`Solution.hs` compiled, then Count twice, the second count's second being
+the count itself, at some 55 frames a second on the page), and the
+every-layer row from one run of the whole test, where the worker extracts all
+fourteen layers the page had loaded, `th`'s 195 MB among them. In
+`npm run test-learn`, beside the second page's compiles, lesson 17's first
+count took 20.5 s.
 
 **dyld patch.** GHC's `dyld.mjs`, as it ships, builds each library's import
 object with `{ ...this.exportFuncs }`: a copy of every function every library
@@ -546,9 +571,17 @@ there, it ships it unpatched. Unpatched: dyld load 4.7–5.1 s, run 1
 | run 1 | 225 MB | 66 MB | 1.15 GB |
 | run 8 (every layer but `th` loaded and run) | 229 MB | 122 MB | 1.22 GB |
 | run 9 (`th`) | 321 MB | 165 MB | 1.72 GB |
+| a program's worker up (the `worker` layer alone loaded) | | | 1.83 GB |
+| a program's worker up, every layer loaded first | | | 2.70 GB |
+| lesson 17's worker up, in the tutorial | | | 1.77 GB |
 
 The renderer's peak resident memory (VmHWM) was 1.29–1.42 GB until the `th`
-run and 1.81 GB after it. `performance.memory` (which the page shows) is
+run and 1.81 GB after it. A worker runs in the page's renderer process, and
+is a second compiler with its own file system and dyld: it adds about 0.7 GB
+to the page (1.13 GB before it, in the same runs), 1.0 GB when it extracts
+every layer, and 0.5 GB in the tutorial (1.28 GB after the compile, in the
+same runs), with a peak of 1.95–2.4 GB while it extracts and loads (3.0 GB
+with every layer). It goes when the next run ends the pool. `performance.memory` (which the page shows) is
 rounded by Chrome and lags; the test reads the heap through the DevTools
 protocol and the renderer's memory from `/proc`.
 
@@ -594,8 +627,9 @@ layer):
   archive grow past `LEARN_PART_MB` (95 MB), the build splits it into parts
   and the page joins them (above), so the limit cannot be hit unnoticed.
 - **What is deployed**: the tutorial (`examples/learn`), whose build copies
-  this directory, but for `index.html` and `index.js`, to `rootfs/` beside
-  the app; this page is not deployed.
+  this directory, but for the page's own files (`index.html`, `index.js`,
+  `compiler.js`, `worker.js`), to `rootfs/` beside the app; this page is not
+  deployed.
 - **Site size**: 88 MB, the rootfs 85 MB of it (61 MB without the `th`
   layer), far from the 1 GB limit.
 - **Bandwidth per cold load**: the page, `bsdtar.wasm`, the manifest and
@@ -675,7 +709,9 @@ It does not show:
 
 ## Risks for the tutorial
 
-- **Memory**: 1.2–1.4 GB of renderer memory, 1.8 GB once `th` has run.
+- **Memory**: 1.2–1.4 GB of renderer memory, 1.8 GB once `th` has run,
+  and half a gigabyte more while lesson 17's worker, a second compiler, is
+  up.
   Desktop browsers are fine; many phones kill a tab well before that, and
   iOS Safari's limits are tighter still. A mobile reader may need a
   "read-only" fallback (prerendered results) rather than a live compiler, and
