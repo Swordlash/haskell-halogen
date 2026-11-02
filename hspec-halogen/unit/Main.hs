@@ -13,16 +13,26 @@ import Test.Hspec.Runner
 import Prelude
 
 labels :: Shard -> Spec -> IO [String]
-labels shard spec = map Spec.itemRequirement . concatMap toList . snd <$> Spec.runSpecM (shardSpec WithoutWorkers shard spec)
+labels = labelsWith WithoutWorkers
+
+labelsWith :: Workers -> Shard -> Spec -> IO [String]
+labelsWith workers shard spec = map Spec.itemRequirement . concatMap toList . snd <$> Spec.runSpecM (shardSpec workers shard spec)
+
+-- Every shard of a run with two pages and two workers, in the runner's order.
+withWorkers :: Spec -> IO [[String]]
+withWorkers spec = traverse (\shard -> labelsWith WithWorkers shard spec) [Serial, Parallel 0 2, Parallel 1 2, Worker 0 2, Worker 1 2]
 
 -- Run all partitions with the real hspec options, without printing the
 -- expected failures of a focused example to the outer suite's report.
 runShards :: Config -> Spec -> IO [Summary]
-runShards config spec =
+runShards = runShardsWith WithoutWorkers [Serial, Parallel 0 2, Parallel 1 2]
+
+runShardsWith :: Workers -> [Shard] -> Config -> Spec -> IO [Summary]
+runShardsWith workers shards config spec =
   withArgs [] $
     traverse
-      (\shard -> hspecWithResult quiet (onePage (shardSpec WithoutWorkers shard spec)))
-      [Serial, Parallel 0 2, Parallel 1 2]
+      (\shard -> hspecWithResult quiet (onePage (shardSpec workers shard spec)))
+      shards
   where
     quiet = config {configFormat = Just (\_ -> pure (\_ -> pure ()))}
 
@@ -34,6 +44,19 @@ examples = do
     it "second" (pure () :: IO ())
     sequential $ it "sequential" (pure () :: IO ())
     describe "nested" $ it "third" (pure () :: IO ())
+
+-- The examples above, and some for workers: marked parallel or not, and
+-- nested in a group the pages also have examples in.
+mixed :: Spec
+mixed = do
+  examples
+  inWorker $ it "pure" (pure () :: IO ())
+  parallel $ inWorker $ do
+    it "computed" (pure () :: IO ())
+    it "forked" (pure () :: IO ())
+  describe "nested" $ do
+    it "on a page" (pure () :: IO ())
+    inWorker $ it "in a worker" (pure () :: IO ())
 
 main :: IO ()
 main = hspec $ do
@@ -103,3 +126,29 @@ main = hspec $ do
     result <- hspecWithResult defaultConfig {configFilterPredicate = Just (\(_, label) -> label == "first")} (shardSpec WithoutWorkers (Parallel 1 2) examples)
     summaryExamples result `shouldBe` 1
     summaryFailures result `shouldBe` 0
+  it "gives marked examples only to workers, and each to exactly one" $ do
+    [serial, page0, page1, worker0, worker1] <- withWorkers mixed
+    sort (serial <> page0 <> page1) `shouldBe` sort ["unmarked", "sequential", "first", "second", "third", "on a page"]
+    sort (worker0 <> worker1) `shouldBe` sort ["pure", "computed", "forked", "in a worker"]
+  it "divides marked examples between workers by their number in the whole spec" $ do
+    -- Numbered from zero over the whole spec: pure is 5, computed 6, forked
+    -- 7, on a page 8 and in a worker 9.
+    labelsWith WithWorkers (Worker 0 2) mixed `shouldReturn` ["computed"]
+    labelsWith WithWorkers (Worker 1 2) mixed `shouldReturn` ["pure", "forked", "in a worker"]
+    labelsWith WithWorkers (Worker 0 1) mixed `shouldReturn` ["pure", "computed", "forked", "in a worker"]
+  it "leaves marked examples on the pages when there are no workers" $ do
+    labels Serial mixed `shouldReturn` ["unmarked", "sequential", "pure", "on a page", "in a worker"]
+    selected <- traverse (\i -> labels (Parallel i 2) mixed) [0 .. 1]
+    sort (concat selected) `shouldBe` sort ["first", "second", "third", "computed", "forked"]
+  it "resolves focus across pages and workers" $ do
+    let focusedInWorker = mixed >> inWorker (fit "focused" (pure () :: IO ()))
+    shards <- withWorkers focusedInWorker
+    concat shards `shouldBe` ["focused"]
+    let focusedOnPage = mixed >> fit "focused" (pure () :: IO ())
+    [serial, _, _, worker0, worker1] <- withWorkers focusedOnPage
+    serial `shouldBe` ["focused"]
+    worker0 <> worker1 `shouldBe` []
+  it "runs every example once with hspec's runner across pages and workers" $ do
+    results <- runShardsWith WithWorkers [Serial, Parallel 0 2, Parallel 1 2, Worker 0 2, Worker 1 2] defaultConfig {configFailOnFocused = True} mixed
+    map summaryExamples results `shouldBe` [3, 2, 1, 1, 3]
+    sum (map summaryFailures results) `shouldBe` 0
