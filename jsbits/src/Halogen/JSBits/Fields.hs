@@ -46,9 +46,9 @@
 --
 -- ['Method'] A method, as a field holding the call: @history.go :: Int ->
 --   IO ()@, @crypto.randomUUID :: IO Text@. A method that returns a Promise
---   gives it typed with what it resolves with, for the caller to await:
+--   gives it typed with what it resolves with, for the caller to wait for:
 --   @blob.text :: IO (Promise Text)@, then
---   @'Halogen.JSBits.Promise.await' =<< blob.text@.
+--   @'Halogen.JSBits.Promise.wait' =<< blob.text@.
 --
 -- A member whose JavaScript name is a Haskell keyword gets an underscore
 -- after its field name: @File@'s @type@ is @f.type_@.
@@ -78,7 +78,7 @@
 -- the program on WebAssembly, where it cannot be caught as a Haskell
 -- exception. A 'Fixed' member is read purely and is not guarded: it is for
 -- values whose read does not throw. A Promise's rejection comes back from
--- 'Halogen.JSBits.Promise.await' as a 'Left'.
+-- 'Halogen.JSBits.Promise.waitCatch' as a 'Left'.
 --
 -- = Where instances go
 --

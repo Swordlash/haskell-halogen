@@ -38,7 +38,7 @@ import Halogen qualified as H
 import Halogen.CustomElement (Definition, Registration (..))
 import Halogen.CustomElement qualified as CE
 import Halogen.JSBits (JSText, JSVal, Safety (..), browserJS, fromJSText, jsValText, toJSText)
-import Halogen.JSBits.Promise (JSError, Promise (..), await)
+import Halogen.JSBits.Promise (JSError, Promise (..), waitCatch)
 import Halogen.VDom.DOM.Monad (MonadBrowserDOM)
 import Test.Hspec.Halogen (MonadBrowserTest (..), PageM, settle, unsafeIOToPageM)
 
@@ -81,14 +81,14 @@ propertyJSON element name = fromJSText <$> js_get_property (toJSText element) (t
 call :: Text -> Text -> [Value] -> IO (Either JSError Text)
 call element name args = do
   promise <- js_call (toJSText element) (toJSText name) (toJSText (json args))
-  fmap jsValText <$> await promise
+  fmap jsValText <$> waitCatch promise
 
 -- | Set an attribute and call a method of no arguments in the same
 -- JavaScript task, as a page's script would, and wait for the answer.
 setThenCall :: Text -> Text -> Text -> Text -> IO (Either JSError Text)
 setThenCall element attribute value name = do
   promise <- js_set_then_call (toJSText element) (toJSText attribute) (toJSText value) (toJSText name)
-  fmap jsValText <$> await promise
+  fmap jsValText <$> waitCatch promise
 
 hasMethod :: Text -> Text -> IO Bool
 hasMethod element name = js_has_method (toJSText element) (toJSText name)

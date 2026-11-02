@@ -141,7 +141,7 @@ and wired into `test/Test.hs`.
 - Two wasm facts the harness depends on: an async (`safe`) JSFFI import returns a *thunk*, and the
   calling thread only waits for the promise when it is forced. `browserJS` has no such imports:
   the harness's page actions return a `Promise`, whose `then` got two callbacks as it was made
-  (`Halogen.JSBits.Promise.promise`), and `await` it, sleeping in `STM` until a callback has
+  (`Halogen.JSBits.Promise.promise`), and `waitCatch` for it, sleeping in `STM` until a callback has
   written the outcome, so the test does not run on while the page still acts.
   And a JS→Haskell callback is not run on the spot: the glue schedules the RTS scheduler loop as a
   task (`scheduler.postTask` in Chromium), which is why every harness action ends with `settle`.
@@ -284,8 +284,8 @@ An `Unsafe` binding catches what its JavaScript throws and throws it as a `JSErr
 exception out of a synchronous import would end the program); `Unchecked` is for functions that cannot
 throw and are called on every render, such as core's DOM operations.
 A binding that starts asynchronous work returns `IO (Promise a)` (`Halogen.JSBits.Promise`): the
-generated code listens to the JavaScript promise at once, and the program `await`s it, which gives a
-rejection back as a value. There are no async (`safe`) imports.
+generated code listens to the JavaScript promise at once, and the program waits for it with
+`async`'s vocabulary (`wait`, `waitCatch`, `waitAny`, `mapConcurrently`, ...). There are no async (`safe`) imports.
 
 ### Web Workers
 

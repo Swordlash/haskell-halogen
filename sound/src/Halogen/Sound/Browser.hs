@@ -18,10 +18,9 @@ module Halogen.Sound.Browser
 where
 
 import Halogen.JSBits
-import Halogen.JSBits.Promise (Promise (..), await)
+import Halogen.JSBits.Promise (Promise (..), waitCatch)
 import Halogen.Sound.Backend
-import Protolude
-
+import Protolude hiding (waitCatch)
 -- Natively nothing is fetched and a voice never ends: 'fetchClip' does not
 -- wait there.
 $( browserJS
@@ -65,7 +64,7 @@ data Voice = Voice JSVal Callback Callback
 fetchClip :: Text -> IO (Maybe Clip)
 fetchClip _ | not inBrowser = pure Nothing
 fetchClip url =
-  js_fetch (toJSText url) >>= await <&> \case
+  js_fetch (toJSText url) >>= waitCatch <&> \case
     Right blobUrl -> Just (Clip blobUrl)
     Left _ -> Nothing
 

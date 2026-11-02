@@ -25,7 +25,7 @@ import Data.MediaType (MediaType (..))
 import Data.Text (Text)
 import Data.Either (isLeft)
 import Halogen.JSBits (Inert (..))
-import Halogen.JSBits.Promise (await)
+import Halogen.JSBits.Promise (waitCatch)
 import Test.Hspec (Spec, describe, it, shouldBe, shouldReturn, shouldSatisfy)
 import Web.DOM.Element qualified as Element
 import Web.DOM.Internal.Types (Element, HTMLDocument, Window)
@@ -85,11 +85,11 @@ spec = describe "Web fields, natively" $ do
     FileList.items inert >>= (`shouldBe` 0) . length
 
   it "gives a promise that waits for nothing and resolves with nothing" $ do
-    (doc.exitFullscreen >>= await) >>= (`shouldSatisfy` isLeft)
-    ((inert :: File).bytes >>= await) >>= (`shouldSatisfy` isLeft)
+    (doc.exitFullscreen >>= waitCatch) >>= (`shouldSatisfy` isLeft)
+    ((inert :: File).bytes >>= waitCatch) >>= (`shouldSatisfy` isLeft)
     blob <- Blob.fromBytes "hello" (MediaType "text/plain")
-    (blob.text >>= await) >>= (`shouldSatisfy` isLeft)
-    (File.text inert >>= await) >>= (`shouldSatisfy` isLeft)
+    (blob.text >>= waitCatch) >>= (`shouldSatisfy` isLeft)
+    (File.text inert >>= waitCatch) >>= (`shouldSatisfy` isLeft)
 
   it "casts nothing" $ do
     null (KE.fromEvent ev) `shouldBe` True

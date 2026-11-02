@@ -52,9 +52,9 @@ import Halogen.HTML qualified as HH
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
 import Halogen.JSBits (Callback, JSVal, Safety (..), browserJS, freeCallback, jsValText, mkSyncCallback)
-import Halogen.JSBits.Promise (Promise (..), await)
+import Halogen.JSBits.Promise (Promise (..), waitCatch)
 import Halogen.Router qualified as Router
-import Protolude hiding (State)
+import Protolude hiding (State, waitCatch)
 import Web.Event.Event (EventType (..), preventDefault)
 import Web.UIEvent.MouseEvent (MouseEvent, toEvent)
 
@@ -174,7 +174,7 @@ component =
         H.liftEffect (liftIO (writeIORef started True))
         modify $ \st -> st {filler = 3000}
         modify $ \st -> st {handled = st.handled <> ["Filled"]}
-        outcome <- await clicked
+        outcome <- waitCatch clicked
         liftIO (freeCallback release)
         modify $ \st -> st {preempted = either (const "failed") jsValText outcome}
 

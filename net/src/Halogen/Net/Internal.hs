@@ -129,7 +129,7 @@ freeAll (Callbacks ref) = atomicModifyIORef' ref (Nothing,) >>= traverse_ (trave
 -- | What a binding that catches a browser's exception gave back: 'Nothing'
 -- for anything that is not an error (the binding's result, or @null@), and
 -- otherwise the error's @name@ and @message@, as
--- 'Halogen.JSBits.Promise.await' gives a rejection. Natively nothing is
+-- 'Halogen.JSBits.Promise.waitCatch' gives a rejection. Natively nothing is
 -- ever refused.
 refusal :: JSVal -> IO (Maybe JSError)
 refusal value = do

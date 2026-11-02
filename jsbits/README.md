@@ -34,19 +34,21 @@ A binding's result type needs an `Inert` instance: there is one for `()`,
 `Bool`, `Int`, `Double`, `Text`, `Maybe`, `JSVal`, functions and `IO`; a
 newtype over a `JSVal` derives it (`deriving newtype (Inert)`).
 
-A binding that starts asynchronous work returns a `Promise`
-(`Halogen.JSBits.Promise`), as an `Unsafe` binding: the JavaScript starts the
-work and returns its promise at once, and nothing waits until the program
-calls `await` (or `awaitAll` for several), which gives what it resolved with
-or what it was rejected with, as `Either JSError JSVal`, on every backend
-alike. That way a component can start the work in `H.liftEffect`, inside the
-dispatch of the event that asked for it, and await it later in `lift`, or
-never; and no call site has to force a thunk. Killing the thread that awaits
-stops the wait, not the work, which a promise cannot be told to stop: a
-binding for an API that takes an `AbortSignal` should take one and hand it
-on. Natively `await` gives `JSError "NotInBrowserError" _`. A module declaring
-such a binding imports `Promise (..)`, since the FFI passes a newtype only
-with its constructor in scope.
+A binding that starts asynchronous work returns `IO (Promise a)`
+(`Halogen.JSBits.Promise`): the JavaScript starts the work and returns its
+promise at once, and the generated code listens to it straight away, so a
+rejection is never left unhandled. `Promise` is to a JavaScript promise what
+`async`'s `Async` is to a thread, with the same vocabulary: `wait` (throws a
+rejection, a `JSError`), `waitCatch` (gives `Either JSError a`), `poll`, their
+`STM` forms, `waitAny`, `waitEither`, `waitBoth`, `waitAll`, and
+`mapConcurrently`, `concurrently` and `race`, which start several pieces of
+work and wait for them together. What it resolves with is read as `a`
+through `FromJS`. A component can start the work in `H.liftEffect`, inside
+the dispatch of the event that asked for it, and wait for it later in `lift`,
+or never. A promise cannot be cancelled: killing the thread that waits stops
+the wait, not the work, so a binding for an API that takes an `AbortSignal`
+should take one and hand it on. Natively every promise has been rejected
+with `JSError "NotInBrowserError" _`.
 
 ```haskell
 $(browserJS ["jsbits/net.js"]

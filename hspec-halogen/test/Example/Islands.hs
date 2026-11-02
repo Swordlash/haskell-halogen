@@ -31,12 +31,11 @@ import Halogen.HTML qualified as HH
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
 import Halogen.JSBits (JSVal, Safety (..), browserJS)
-import Halogen.JSBits.Promise (Promise (..), await)
+import Halogen.JSBits.Promise (Promise (..), waitCatch)
 import Halogen.Router qualified as Router
-import Protolude hiding (State)
-
+import Protolude hiding (State, waitCatch)
 -- What an island waits for is test/jsbits/islands.js's: a promise that
--- settles after so many milliseconds. Natively 'await' returns at once,
+-- settles after so many milliseconds. Natively 'waitCatch' returns at once,
 -- which is never seen, since the suite only reports a skip there.
 $( browserJS
      ["test/jsbits/islands.js"]
@@ -201,6 +200,6 @@ island =
       get >>= \case
         Waiting ms -> do
           -- On a worker, while the tree goes on.
-          liftIO (js_islands_wait ms >>= void . await)
+          liftIO (js_islands_wait ms >>= void . waitCatch)
           put Loaded
         Loaded -> pass

@@ -29,7 +29,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import Halogen.JSBits (Callback, JSText, JSVal, Safety (..), browserJS, freeCallback, jsValText, mkCallback, toJSText)
-import Halogen.JSBits.Promise (JSError (..), Promise (..), await)
+import Halogen.JSBits.Promise (JSError (..), Promise (..), waitCatch)
 import Halogen.Subscription qualified as HS
 
 -- | Why a command gave no result.
@@ -103,7 +103,7 @@ invokeText command args = js_invoke (toJSText command) (toJSText args)
 -- decode what it resolved with.
 settled :: (FromJSON a) => (Promise JSVal) -> IO (Either TauriError a)
 settled promise =
-  await promise >>= \case
+  waitCatch promise >>= \case
     Left e -> pure (Left (Rejected e))
     Right json -> pure (either (Left . BadResult) Right (decodeJSON (jsValText json)))
 
@@ -151,4 +151,4 @@ destroyCurrent = do
   tauri <- isTauri
   if not tauri
     then pure (Left NotInTauri)
-    else either (Left . Rejected) (const (Right ())) <$> (await =<< js_destroy)
+    else either (Left . Rejected) (const (Right ())) <$> (waitCatch =<< js_destroy)

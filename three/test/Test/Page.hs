@@ -13,8 +13,8 @@ module Test.Page
 where
 
 import Halogen.JSBits (JSText, JSVal, Safety (..), browserJS, toJSText)
-import Halogen.JSBits.Promise (Promise (..), await)
-import Protolude
+import Halogen.JSBits.Promise (Promise (..), waitCatch)
+import Protolude hiding (waitCatch)
 import System.IO.Error (userError)
 import Test.Hspec.Halogen (PageM, unsafeIOToPageM)
 
@@ -51,7 +51,7 @@ colorOf name = unsafeIOToPageM $ do
 -- | Count the geometries and materials disposed of from now on.
 watchDisposals :: PageM s ()
 watchDisposals = unsafeIOToPageM $ do
-  outcome <- await =<< js_watch_disposals (toJSText moduleUrl)
+  outcome <- waitCatch =<< js_watch_disposals (toJSText moduleUrl)
   either (\problem -> throwIO (userError ("could not load Three.js: " <> show problem))) (const pass) outcome
 
 data Disposed = Disposed {geometries :: Int, materials :: Int}

@@ -1,17 +1,19 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 
--- | 'await' and 'awaitAll' against promises that settle later: under Node on
--- both browser backends, and natively, where there is nothing to await.
+-- | Waiting for promises that settle later: under Node on
+-- both browser backends, and natively, where there is nothing to wait for.
 module Main (main) where
 
 import Control.Concurrent (forkIO, newEmptyMVar, putMVar, takeMVar)
+import Control.Exception (try)
 import Control.Monad (unless)
 import Data.Text (Text)
 import Halogen.JSBits (JSText, JSVal, Safety (..), browserJS, inBrowser, jsValText, toJSText)
-import Halogen.JSBits.Promise (JSError (..), Promise (..), await, awaitAll, awaitAny)
+import Halogen.JSBits.Promise (JSError (..), Promise (..), mapConcurrently, race, waitAll, waitAnyCatch, waitCatch)
 import System.IO (BufferMode (..), hSetBuffering, stdout)
 
 $( browserJS
@@ -38,53 +40,57 @@ main = do
 
 inEngine :: IO ()
 inEngine = do
-  resolved <- await =<< text 20 (toJSText "done")
+  resolved <- waitCatch =<< text 20 (toJSText "done")
   check "a resolved promise gives its value" =<< isText "done" resolved
-  checkNumber "a number comes back as it went" 42 =<< (await =<< number 10 42)
-  typed <- await =<< typedText 10 (toJSText "typed")
+  checkNumber "a number comes back as it went" 42 =<< (waitCatch =<< number 10 42)
+  typed <- waitCatch =<< typedText 10 (toJSText "typed")
   check "a Promise Text resolves with its text" (typed == Right "typed")
-  typedN <- await =<< typedNumber 10 41
+  typedN <- waitCatch =<< typedNumber 10 41
   check "a Promise Int resolves with its number" (typedN == Right 41)
-  earliest <- awaitAny =<< sequence [typedNumber 40 1, typedNumber 10 2]
-  check "awaitAny gives the promise that settles first" (earliest == Right 2)
-  typedList <- await =<< typedNumbers 10
+  earliest <- waitAnyCatch =<< sequence [typedNumber 40 1, typedNumber 10 2]
+  check "waitAnyCatch gives the promise that settles first" (snd earliest == Right 2)
+  check "mapConcurrently gives each result in order" . (== [3, 1, 2]) =<< mapConcurrently (\n -> typedNumber (10 * n) n) [3, 1, 2]
+  check "race gives the first to settle" . (== Right 2) =<< race (typedNumber 40 1) (typedNumber 10 2)
+  early <- try (waitAll =<< sequence [number 200 1, failing 10 (toJSText "TypeError") (toJSText "early")])
+  check "waitAll throws a rejection as soon as it comes" (either (\(e :: JSError) -> e.name == "TypeError") (const False) (early :: Either JSError [JSVal]))
+  typedList <- waitCatch =<< typedNumbers 10
   check "a Promise [Int] resolves with its numbers" (typedList == Right [1, 2, 3])
 
-  failed <- await =<< failing 10 (toJSText "NotFoundError") (toJSText "no such thing")
+  failed <- waitCatch =<< failing 10 (toJSText "NotFoundError") (toJSText "no such thing")
   check "an Error's rejection gives its name and message" (failed `isError` JSError "NotFoundError" "no such thing")
-  rejectedText <- await =<< rejectWithText 10 (toJSText "nope")
+  rejectedText <- waitCatch =<< rejectWithText 10 (toJSText "nope")
   check "a string's rejection is an Error with the string as its message" (rejectedText `isError` JSError "Error" "nope")
-  rejectedNumber <- await =<< rejectWithNumber 10 7
+  rejectedNumber <- waitCatch =<< rejectWithNumber 10 7
   check "a number's rejection is an Error with the number as its message" (rejectedNumber `isError` JSError "Error" "7")
 
-  check "a value that is no promise stands for one resolved with it" =<< (isText "plain" =<< (await =<< plain (toJSText "plain")))
+  check "a value that is no promise stands for one resolved with it" =<< (isText "plain" =<< (waitCatch =<< plain (toJSText "plain")))
 
   -- Started in this order, settling in the other.
   outcomes <-
-    awaitAll
+    traverse waitCatch
       =<< sequence [number 30 1, failing 20 (toJSText "TypeError") (toJSText "second"), text 10 (toJSText "third")]
   case outcomes of
     [first, second, third] -> do
-      checkNumber "awaitAll gives the first outcome first" 1 first
-      check "awaitAll gives the second outcome second" (second `isError` JSError "TypeError" "second")
-      check "awaitAll gives the third outcome third" =<< isText "third" third
-    _ -> failure ("awaitAll gives one outcome for each promise, not " <> show (length outcomes))
-  check "awaitAll of nothing gives nothing" . null =<< awaitAll ([] :: [Promise JSVal])
+      checkNumber "waitCatch on each gives the first outcome first" 1 first
+      check "waitCatch on each gives the second outcome second" (second `isError` JSError "TypeError" "second")
+      check "waitCatch on each gives the third outcome third" =<< isText "third" third
+    _ -> failure ("waitCatch on each gives one outcome for each promise, not " <> show (length outcomes))
+  check "waitCatch on nothing gives nothing" . null =<< traverse waitCatch ([] :: [Promise JSVal])
 
   shared <- number 20 5
-  checkNumber "the first await of a promise gets its value" 5 =<< await shared
-  checkNumber "a second await of the same promise, once it has settled, gets it too" 5 =<< await shared
+  checkNumber "the first waitCatch of a promise gets its value" 5 =<< waitCatch shared
+  checkNumber "a second waitCatch of the same promise, once it has settled, gets it too" 5 =<< waitCatch shared
   concurrent <- number 20 7
   box <- newEmptyMVar
-  _ <- forkIO (await concurrent >>= putMVar box)
-  checkNumber "a thread awaiting a promise gets its value" 7 =<< await concurrent
+  _ <- forkIO (waitCatch concurrent >>= putMVar box)
+  checkNumber "a thread awaiting a promise gets its value" 7 =<< waitCatch concurrent
   checkNumber "another thread awaiting the same promise at the same time gets it too" 7 =<< takeMVar box
   again <- number 20 6
-  awaitAll [again, again] >>= \case
+  traverse waitCatch [again, again] >>= \case
     [one, two] -> do
       checkNumber "awaiting the same promise twice at once gives it to the first" 6 one
       checkNumber "awaiting the same promise twice at once gives it to the second" 6 two
-    _ -> failure "awaitAll gives one outcome for each promise"
+    _ -> failure "waitCatch on each gives one outcome for each promise"
   where
     isText expected = \case
       Right value -> (\s -> s && jsValText value == expected) <$> isString value
@@ -95,10 +101,10 @@ inEngine = do
 
 natively :: IO ()
 natively = do
-  outcome <- await =<< text 0 (toJSText "done")
-  check "natively await gives NotInBrowserError" (outcome `isError` JSError "NotInBrowserError" "")
-  outcomes <- awaitAll =<< sequence [number 0 1, number 0 2]
-  check "natively awaitAll gives NotInBrowserError for each" (length outcomes == 2 && all (`isError` JSError "NotInBrowserError" "") outcomes)
+  outcome <- waitCatch =<< text 0 (toJSText "done")
+  check "natively waitCatch gives NotInBrowserError" (outcome `isError` JSError "NotInBrowserError" "")
+  outcomes <- traverse waitCatch =<< sequence [number 0 1, number 0 2]
+  check "natively waitCatch on each gives NotInBrowserError for each" (length outcomes == 2 && all (`isError` JSError "NotInBrowserError" "") outcomes)
 
 -- | Whether the outcome is this rejection; natively only the name is
 -- compared, its message being the package's own sentence.

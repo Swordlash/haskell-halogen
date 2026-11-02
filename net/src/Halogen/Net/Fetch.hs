@@ -59,7 +59,7 @@
 --
 -- There is no engine to make a request natively, and this is no HTTP client
 -- of its own: 'fetch' and 'response' give @'JSError' "NotInBrowserError" _@
--- at once, as 'Halogen.JSBits.Promise.await' does, and 'abort' does nothing.
+-- at once, as 'Halogen.JSBits.Promise.waitCatch' does, and 'abort' does nothing.
 module Halogen.Net.Fetch
   ( -- * Requests
     Request (..)
@@ -96,7 +96,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import GHC.Records (HasField (..))
 import Halogen.JSBits (JSText, JSVal, Safety (..), browserJS, fromJSBytes, fromJSText, jsValText, toJSBytes, toJSText)
-import Halogen.JSBits.Promise (JSError (..), Promise (..), await)
+import Halogen.JSBits.Promise (JSError (..), Promise (..), waitCatch)
 
 -- | What to ask for: the arguments of the browser's @fetch@.
 data Request = Request
@@ -282,13 +282,13 @@ bytes :: (MonadIO m) => Response -> m (Either JSError ByteString)
 bytes r = liftIO $ traverse fromJSBytes =<< reading r (js_bytes r.raw)
 
 waitFor :: Maybe Fetch -> Fetch -> IO (Either JSError Response)
-waitFor owner started = traverse (responseOf owner) =<< await started.promise
+waitFor owner started = traverse (responseOf owner) =<< waitCatch started.promise
 
 -- | Wait for the body, aborting the request of a response that owns it if
 -- the wait is killed. Masked until the wait has begun, so that no kill comes
 -- between starting the read and being ready to abort.
 reading :: Response -> IO (Promise JSVal) -> IO (Either JSError JSVal)
-reading r begin = bracketOnError begin (const (traverse_ abort r.owner)) await
+reading r begin = bracketOnError begin (const (traverse_ abort r.owner)) waitCatch
 
 responseOf :: Maybe Fetch -> JSVal -> IO Response
 responseOf owner raw = do

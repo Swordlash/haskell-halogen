@@ -27,7 +27,7 @@ import System.IO.Unsafe (unsafePerformIO)
 -- | How a binding calls its JavaScript function. Both are synchronous: a
 -- function that starts asynchronous work returns a promise, which a binding
 -- whose type ends in @IO ('Promise' a)@ gives as a "Halogen.JSBits.Promise"
--- 'Promise', listened to at once, for the program to await.
+-- 'Promise', listened to at once, for the program to wait for.
 data Safety
   = -- | What the function throws is caught. A binding whose type ends in
     -- 'IO' throws a JavaScript exception as a 'JSError' the caller can

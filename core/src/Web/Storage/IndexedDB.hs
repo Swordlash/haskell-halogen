@@ -73,9 +73,9 @@ import Control.Monad.Trans.Identity (IdentityT (..))
 import Data.Map.Strict qualified as M
 import Data.Set qualified as S
 import Data.Text qualified as T
-import HPrelude hiding (get, getAll, put)
+import HPrelude hiding (get, getAll, put, waitCatch)
 import Halogen.JSBits (JSText, JSVal, Safety (..), browserJS, fromJSBytes, inBrowser, isNull, jsValText, toJSBytes, toJSText)
-import Halogen.JSBits.Promise (JSError (..), Promise (..), await)
+import Halogen.JSBits.Promise (JSError (..), Promise (..), waitCatch)
 import Halogen.VDom.DOM.Monad.Browser (BrowserDOM)
 import Halogen.VDom.DOM.Monad.Mem (MemDOM)
 import System.IO.Unsafe (unsafePerformIO)
@@ -230,7 +230,7 @@ itemDeletion store key = (store, key, Nothing)
 
 -- Each call is described by one binding, which returns at once, and done by
 -- 'js_idb_run', which returns the promise of its result for 'perform' to
--- await. See @jsbits/indexeddb.js@.
+-- wait for. See @jsbits/indexeddb.js@.
 $( browserJS
      ["jsbits/indexeddb.js"]
      [ ("js_idb_database", "halogen_idb_database", Unsafe, [t|JSText -> Int -> IO JSVal|])
@@ -301,7 +301,7 @@ perform :: Text -> IO JSVal -> IO JSVal
 perform database describe = do
   unless inBrowser $ throwIO (IndexedDBError database Unavailable)
   operation <- describe
-  js_idb_run operation >>= await >>= \case
+  js_idb_run operation >>= waitCatch >>= \case
     Right result -> pure result
     Left JSError {name, message} ->
       throwIO . IndexedDBError database $ case name of

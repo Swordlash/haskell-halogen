@@ -40,8 +40,8 @@ where
 
 import Halogen.JSBits (JSText, JSVal, Safety (..), browserJS, fromJSText, jsValText, toJSText)
 import Halogen.JSBits qualified as JSBits
-import Halogen.JSBits.Promise (Promise (..), await)
-import Protolude
+import Halogen.JSBits.Promise (Promise (..), waitCatch)
+import Protolude hiding (waitCatch)
 import Web.DOM.Internal.Types (Element (..))
 
 $( browserJS
@@ -191,7 +191,7 @@ isConnected = js_is_connected
 awaitJS :: IO (Promise JSVal) -> IO ()
 awaitJS start
   | not JSBits.inBrowser = pass
-  | otherwise = start >>= await >>= either throwIO (const pass)
+  | otherwise = start >>= waitCatch >>= either throwIO (const pass)
 
 -- | @null@ or @undefined@: natively, always.
 absent :: JSVal -> Bool

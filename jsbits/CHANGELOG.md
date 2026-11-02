@@ -34,9 +34,17 @@ rejection that comes before anyone awaits is never an unhandled one. The
 resolved value is read as `a` through the new class `FromJS` (`JSVal`, `()`,
 `Text`, `ByteString`, `Int`, `Double`, `Bool`, `Maybe a` for `null` and
 `undefined`, `[a]` for an array; a newtype over a `JSVal` derives it), and a
-rejection is a `JSError`. `await` waits in `IO`, `awaitOrThrow` throws the
-rejection, `awaitAll` waits for each and `awaitAny` for the first, through
-`STM`. `Promise JSVal` is the old untyped promise. A binding that takes a
+rejection is a `JSError`. Waiting has `async`'s names: `wait` (throws),
+`waitCatch` (gives the `Either`; the old `await`), `poll`, `waitSTM`,
+`waitCatchSTM`, `pollSTM`, `waitAny`, `waitAnyCatch`, `waitEither`,
+`waitEitherCatch`, `waitBoth`, `waitAll` (throws the first rejection as soon
+as it comes), and `mapConcurrently`, `forConcurrently`, `mapConcurrently_`,
+`forConcurrently_`, `concurrently` and `race`, which start several pieces of
+work and wait for them together. `resolved` and `rejected` make a settled
+promise in Haskell. There is no `cancel`: a promise cannot be stopped.
+`await`, `awaitOrThrow` and `awaitAll` are gone (`waitCatch`, `wait`,
+`traverse waitCatch`). A module importing `Protolude` or core's `HPrelude`,
+which export `async`'s `wait` and `waitCatch`, hides those. `Promise JSVal` is the old untyped promise. A binding that takes a
 promise takes its `rawPromise`, a `JSVal`. `jsbits/promise.js` is gone: the
 module's few imports are inline (`Halogen.JSBits.Inline`, where `inlineJS`
 now lives; `Halogen.JSBits.Fields` re-exports it).

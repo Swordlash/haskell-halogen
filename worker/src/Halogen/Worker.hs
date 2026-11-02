@@ -53,7 +53,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Lazy qualified as Lazy
 import Halogen.JSBits
-import Halogen.JSBits.Promise (Promise (..), await)
+import Halogen.JSBits.Promise (Promise (..), waitCatch)
 import System.IO.Unsafe (unsafePerformIO)
 import System.Info qualified
 import UnliftIO.Exception (tryAny)
@@ -195,7 +195,7 @@ run (Pool pool) j argument = liftIO $ do
   outcome <-
     if inWorker
       then
-        js_run pool (toJSText j.name) (toJSText arguments) >>= await >>= \case
+        js_run pool (toJSText j.name) (toJSText arguments) >>= waitCatch >>= \case
           Left failure -> pure (Left failure.message)
           Right result -> pure (Right (jsValText result))
       else do

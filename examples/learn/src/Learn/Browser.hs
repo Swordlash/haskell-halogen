@@ -56,10 +56,10 @@ import Control.Monad.Fail (fail)
 import Data.Aeson (FromJSON (..), ToJSON (..), object, withObject, (.!=), (.:), (.:?), (.=))
 import Data.Aeson qualified as Aeson
 import Halogen.JSBits (Callback, JSText, JSVal, Safety (..), browserJS, freeCallback, fromJSText, jsValText, mkCallback, toJSText)
-import Halogen.JSBits.Promise (JSError (..), Promise (..), await)
+import Halogen.JSBits.Promise (JSError (..), Promise (..), waitCatch)
 import Learn.Diagnostics (Diagnostic, withoutMarks)
 import Learn.Types (Binding, splitTypes)
-import Protolude
+import Protolude hiding (waitCatch)
 import Web.DOM.Internal.Types (HTMLElement (..))
 
 $( browserJS
@@ -140,7 +140,7 @@ instance FromJSON Sizes where
 
 -- | Read the rootfs' manifest.
 describe :: Text -> IO (Either Text Sizes)
-describe root = decoded =<< await =<< js_describe (toJSText root)
+describe root = decoded =<< waitCatch =<< js_describe (toJSText root)
 
 -- | Where the compiler's loading is.
 data Progress
@@ -184,14 +184,14 @@ instance FromJSON Progress where
 startCompiler :: Text -> [Text] -> (Progress -> IO ()) -> IO (Either Text ())
 startCompiler root layers onProgress = do
   callback <- mkCallback $ \value -> either (const pass) onProgress (decode (jsValText value))
-  started <- void <$> (settled =<< await =<< js_start (toJSText root) (encodeText layers) callback)
+  started <- void <$> (settled =<< waitCatch =<< js_start (toJSText root) (encodeText layers) callback)
   when (isLeft started) (freeCallback callback)
   pure started
 
 -- | Extract the layers named that are not yet, once the compiler has
 -- started.
 ensureLayers :: [Text] -> IO (Either Text ())
-ensureLayers layers = void <$> (settled =<< await =<< js_ensure_layers (encodeText layers))
+ensureLayers layers = void <$> (settled =<< waitCatch =<< js_ensure_layers (encodeText layers))
 
 -- | A compile: the two modules, and what to pass to GHC beside what every
 -- compile passes (@-package haskell-halogen-core@, @-i\/tmp@).
@@ -240,18 +240,18 @@ instance FromJSON RunResult where
 -- | Compile the lesson and run its @Main.main@. One compile runs at a time;
 -- a second waits for the first.
 compile :: CompileRequest -> IO (Either Text RunResult)
-compile request = decoded =<< await =<< js_compile (encodeText request)
+compile request = decoded =<< waitCatch =<< js_compile (encodeText request)
 
 -- | Typecheck the lesson and run nothing: GHC's diagnostics, and the types
 -- of the lesson's bindings when it typechecks (then @ok@). It waits for a
 -- compile under way, and a compile asked for meanwhile waits for it.
 typecheck :: CompileRequest -> IO (Either Text RunResult)
-typecheck request = decoded =<< await =<< js_check (encodeText request)
+typecheck request = decoded =<< waitCatch =<< js_check (encodeText request)
 
 -- | End whatever the last compile mounted, before the page takes its
 -- element away (see @js\/playground.js@).
 endRun :: IO ()
-endRun = void (await =<< js_end_run)
+endRun = void (waitCatch =<< js_end_run)
 
 -- | A CodeMirror editor, and the callback it calls.
 data Editor = Editor JSVal Callback
