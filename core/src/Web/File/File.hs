@@ -34,14 +34,14 @@ toBlob = coerce
 $( jsFields
      ''File
      [ -- Its name, without a directory.
-       Fixed "name" [t|Text|]
+       Fixed "name" ''Text
      , -- Its media type, as the browser guessed it from the name, or
        -- empty.
-       Fixed "type" [t|Text|]
+       Fixed "type" ''Text
      , -- How many bytes it holds.
-       Fixed "size" [t|Double|]
+       Fixed "size" ''Double
      , -- When it was last changed, in milliseconds since 1970.
-       Fixed "lastModified" [t|Double|]
+       Fixed "lastModified" ''Double
      , -- Its bytes read as UTF-8 text, once the promise resolves.
        Method "text" [t|IO (Promise Text)|]
      , -- Its bytes, copied out, once the promise resolves.

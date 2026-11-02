@@ -45,20 +45,20 @@ $( jsFields
        -- held: @"a"@, @"A"@ with Shift, @"Enter"@, @"ArrowLeft"@, @"Dead"@
        -- while a composition is under way. This is what a shortcut or text
        -- entry wants.
-       Natively [|nativeText "key"|] (Fixed "key" [t|Text|])
+       Natively [|nativeText "key"|] (Fixed "key" ''Text)
      , -- Which physical key it is, whatever the layout says it means:
        -- @"KeyA"@ is the key where a QWERTY keyboard has A, also on an
        -- AZERTY one, where it types Q. This is what a game's movement keys
        -- want.
-       Natively [|nativeText "code"|] (Fixed "code" [t|Text|])
+       Natively [|nativeText "code"|] (Fixed "code" ''Text)
      , -- Whether each modifier was held.
-       Natively [|nativeBool "altKey"|] (Fixed "altKey" [t|Bool|])
-     , Natively [|nativeBool "ctrlKey"|] (Fixed "ctrlKey" [t|Bool|])
-     , Natively [|nativeBool "metaKey"|] (Fixed "metaKey" [t|Bool|])
-     , Natively [|nativeBool "shiftKey"|] (Fixed "shiftKey" [t|Bool|])
+       Natively [|nativeBool "altKey"|] (Fixed "altKey" ''Bool)
+     , Natively [|nativeBool "ctrlKey"|] (Fixed "ctrlKey" ''Bool)
+     , Natively [|nativeBool "metaKey"|] (Fixed "metaKey" ''Bool)
+     , Natively [|nativeBool "shiftKey"|] (Fixed "shiftKey" ''Bool)
      , -- Whether the key is part of a composition under way (an input
        -- method's), whose Enter chooses a word rather than submitting.
-       Natively [|nativeBool "isComposing"|] (Fixed "isComposing" [t|Bool|])
+       Natively [|nativeBool "isComposing"|] (Fixed "isComposing" ''Bool)
      ]
  )
 

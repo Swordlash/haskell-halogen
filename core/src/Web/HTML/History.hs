@@ -30,10 +30,10 @@ newtype History = History (Foreign History)
 $( jsFields
      ''History
      [ -- How many entries the session history has.
-       Live "length" [t|IO Int|]
+       Live "length" ''Int
      , -- The state the current entry was pushed or replaced with: @null@
        -- for an entry nobody gave one.
-       Live "state" [t|IO JSVal|]
+       Live "state" ''JSVal
      , -- Move that many entries, back for a negative number, as Back and
        -- Forward do; 0 reloads the page. The move happens later, with a
        -- @popstate@ event on the window.

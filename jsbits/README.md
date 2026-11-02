@@ -62,8 +62,8 @@ that `OverloadedRecordDot` reads it, and `jsFieldFunctions` writes the same
 members as plain functions, for a module imported qualified.
 
 ```haskell
-$(jsFields ''Navigator [Live "onLine" [t| IO Bool |], Fixed "clipboard" [t| Maybe Clipboard |]])
-$(jsFields ''HTMLDocument [Writable "title" [t| IO Text |]])
+$(jsFields ''Navigator [Live "onLine" ''Bool, Fixed "clipboard" [t| Maybe Clipboard |]])
+$(jsFields ''HTMLDocument [Writable "title" ''Text])
 $(jsFields ''History [Method "go" [t| Int -> IO () |]])
 $(jsFields ''Blob [Method "text" [t| IO (Promise Text) |]])
 ```

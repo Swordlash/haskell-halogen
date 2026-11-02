@@ -27,9 +27,9 @@ newtype Blob = Blob (Foreign Blob)
 $( jsFields
      ''Blob
      [ -- How many bytes it holds.
-       Fixed "size" [t|Double|]
+       Fixed "size" ''Double
      , -- Its media type, or empty when nobody gave one.
-       Fixed "type" [t|Text|]
+       Fixed "type" ''Text
      , -- Its bytes read as UTF-8 text, once the promise resolves.
        Method "text" [t|IO (Promise Text)|]
      , -- Its bytes, copied out (@Blob.bytes()@), once the promise resolves.

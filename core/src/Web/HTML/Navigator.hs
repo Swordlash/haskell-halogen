@@ -24,7 +24,7 @@ $( jsFields
      [ -- Whether the browser thinks it is online. 'False' means certainly
        -- offline; 'True' only that some network is there. The window's
        -- @online@ and @offline@ events tell when it changes.
-       Live "onLine" [t|IO Bool|]
+       Live "onLine" ''Bool
      , -- The system clipboard, which only a secure context (HTTPS, or a
        -- page on localhost) has.
        Fixed "clipboard" [t|Maybe Clipboard|]

@@ -42,18 +42,18 @@ $( jsFields
        -- viewport (not the page: scrolling does not change it). A 'Double',
        -- as the standard has it, though a browser may round it to whole
        -- pixels.
-       Natively [|nativeProperty "clientX" foreignToNumber 0|] (Fixed "clientX" [t|Double|])
+       Natively [|nativeProperty "clientX" foreignToNumber 0|] (Fixed "clientX" ''Double)
      , -- Where the pointer was, in CSS pixels from the top edge of the
        -- viewport.
-       Natively [|nativeProperty "clientY" foreignToNumber 0|] (Fixed "clientY" [t|Double|])
+       Natively [|nativeProperty "clientY" foreignToNumber 0|] (Fixed "clientY" ''Double)
      , -- Which button changed: 0 the main one (usually the left), 1 the
        -- middle, 2 the secondary.
-       Natively [|nativeProperty "button" foreignToInt 0|] (Fixed "button" [t|Int|])
+       Natively [|nativeProperty "button" foreignToInt 0|] (Fixed "button" ''Int)
      , -- Whether each modifier was held.
-       Natively [|nativeProperty "altKey" foreignToBool False|] (Fixed "altKey" [t|Bool|])
-     , Natively [|nativeProperty "ctrlKey" foreignToBool False|] (Fixed "ctrlKey" [t|Bool|])
-     , Natively [|nativeProperty "metaKey" foreignToBool False|] (Fixed "metaKey" [t|Bool|])
-     , Natively [|nativeProperty "shiftKey" foreignToBool False|] (Fixed "shiftKey" [t|Bool|])
+       Natively [|nativeProperty "altKey" foreignToBool False|] (Fixed "altKey" ''Bool)
+     , Natively [|nativeProperty "ctrlKey" foreignToBool False|] (Fixed "ctrlKey" ''Bool)
+     , Natively [|nativeProperty "metaKey" foreignToBool False|] (Fixed "metaKey" ''Bool)
+     , Natively [|nativeProperty "shiftKey" foreignToBool False|] (Fixed "shiftKey" ''Bool)
      ]
  )
 

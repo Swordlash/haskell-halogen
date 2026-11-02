@@ -23,7 +23,7 @@ newtype EventTarget = EventTarget (Foreign EventTarget)
 $( jsFields
      ''Event
      [ -- The event's type: @"click"@, @"keydown"@.
-       Fixed "type" [t|Text|]
+       Fixed "type" ''Text
      , -- The node the event was dispatched to.
        Fixed "target" [t|Maybe EventTarget|]
      , -- The target whose handler is running. The browser changes it as
@@ -36,7 +36,7 @@ $( jsFields
          [|\(Event value) -> EventTarget <$> readProp "currentTarget" Just value|]
          (Fixed "currentTarget" [t|Maybe EventTarget|])
      , -- Whether a handler has prevented the browser's default action.
-       Live "defaultPrevented" [t|IO Bool|]
+       Live "defaultPrevented" ''Bool
      , -- Natively nothing is listening and nothing is going to happen by
        -- default, so these three have nothing to do there, and a handler
        -- written for the browser still runs against the in-memory DOM.

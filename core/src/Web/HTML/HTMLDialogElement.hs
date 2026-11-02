@@ -29,7 +29,7 @@ toElement = coerce
 $( jsFields
      ''HTMLDialogElement
      [ -- Whether the dialog is shown.
-       Live "open" [t|IO Bool|]
+       Live "open" ''Bool
      , -- Show it in place, without making the rest of the page inert.
        Method "show" [t|IO ()|]
      , -- Show it as a modal: above the page, with a backdrop, the rest of

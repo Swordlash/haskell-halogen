@@ -30,9 +30,9 @@ $( jsFields
      ''HTMLInputElement
      [ -- What the input holds. Setting a file input's value to empty
        -- forgets the files chosen; any other value throws there.
-       Writable "value" [t|IO Text|]
+       Writable "value" ''Text
      , -- The files chosen in a file input; 'Nothing' for any other input.
-       Live "files" [t|IO (Maybe FileList)|]
+       Live "files" [t|Maybe FileList|]
      ]
  )
 

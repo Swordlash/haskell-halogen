@@ -29,15 +29,15 @@ newtype URL = URL (Foreign URL)
 $( jsFields
      ''URL
      [ -- The whole address, written out. Setting it parses the new one.
-       Writable "href" [t|IO Text|]
+       Writable "href" ''Text
      , -- The scheme, host and port: @https://example.com@.
-       Live "origin" [t|IO Text|]
+       Live "origin" ''Text
      , -- The path, from its first @/@.
-       Live "pathname" [t|IO Text|]
+       Live "pathname" ''Text
      , -- The query, @?@ included, or empty.
-       Live "search" [t|IO Text|]
+       Live "search" ''Text
      , -- The fragment, @#@ included, or empty.
-       Live "hash" [t|IO Text|]
+       Live "hash" ''Text
      ]
  )
 

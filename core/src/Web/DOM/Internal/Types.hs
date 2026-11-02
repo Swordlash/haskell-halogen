@@ -71,19 +71,19 @@ toNode = unsafeCoerce
 $( jsFields
      ''Window
      [ -- The objects a window keeps for as long as the page lives.
-       Fixed "document" [t|HTMLDocument|]
-     , Fixed "navigator" [t|Navigator|]
-     , Fixed "history" [t|History|]
-     , Fixed "location" [t|Location|]
-     , Fixed "crypto" [t|Crypto|]
-     , Fixed "console" [t|Console|]
+       Fixed "document" ''HTMLDocument
+     , Fixed "navigator" ''Navigator
+     , Fixed "history" ''History
+     , Fixed "location" ''Location
+     , Fixed "crypto" ''Crypto
+     , Fixed "console" ''Console
      , -- Whether the page is a secure context (HTTPS, or a page on
        -- localhost), which some APIs ask for: the clipboard,
        -- 'Web.Crypto.randomUUID'.
-       Fixed "isSecureContext" [t|Bool|]
+       Fixed "isSecureContext" ''Bool
      , -- The size of the viewport, in CSS pixels.
-       Live "innerWidth" [t|IO Int|]
-     , Live "innerHeight" [t|IO Int|]
+       Live "innerWidth" ''Int
+     , Live "innerHeight" ''Int
      , -- The browser's print dialog, from which a page can also be saved
        -- as a PDF. It returns once the dialog has closed.
        Method "print" [t|IO ()|]
@@ -93,18 +93,18 @@ $( jsFields
 $( jsFields
      ''HTMLDocument
      [ -- The title the browser shows in its tab and history.
-       Writable "title" [t|IO Text|]
+       Writable "title" ''Text
      , -- Every cookie the document can see, as pairs separated by @"; "@;
        -- setting it writes one cookie ("Web.HTML.Cookie").
-       Writable "cookie" [t|IO Text|]
+       Writable "cookie" ''Text
      , -- @"visible"@ or @"hidden"@ ("Web.HTML.HTMLDocument.visibilityState"
        -- reads it as a 'Web.HTML.HTMLDocument.VisibilityState.VisibilityState').
-       Live "visibilityState" [t|IO Text|]
+       Live "visibilityState" ''Text
      , -- The address relative links are read against: the page's, or its
        -- @\<base href>@.
-       Live "baseURI" [t|IO Text|]
+       Live "baseURI" ''Text
      , -- The element shown full screen, if one is.
-       Live "fullscreenElement" [t|IO (Maybe Element)|]
+       Live "fullscreenElement" [t|Maybe Element|]
      , -- The first element a CSS selector matches. A selector that does not
        -- parse throws a 'Halogen.JSBits.Promise.JSError' (a @SyntaxError@).
        Method "querySelector" [t|Text -> IO (Maybe Element)|]
@@ -118,7 +118,7 @@ $( jsFields
      ''Element
      [ -- The text of the element and everything in it; setting it replaces
        -- everything in it with that text.
-       Writable "textContent" [t|IO Text|]
+       Writable "textContent" ''Text
      , Method "getAttribute" [t|Text -> IO (Maybe Text)|]
      , Method "hasAttribute" [t|Text -> IO Bool|]
      , -- The element itself or its nearest ancestor that a CSS selector

@@ -25,15 +25,15 @@ newtype Location = Location (Foreign Location)
 $( jsFields
      ''Location
      [ -- The whole address. Setting it loads that address.
-       Writable "href" [t|IO Text|]
+       Writable "href" ''Text
      , -- The scheme, host and port: @https://example.com@.
-       Live "origin" [t|IO Text|]
+       Live "origin" ''Text
      , -- The path, from its first @/@.
-       Live "pathname" [t|IO Text|]
+       Live "pathname" ''Text
      , -- The query, @?@ included, or empty.
-       Live "search" [t|IO Text|]
+       Live "search" ''Text
      , -- The fragment, @#@ included, or empty.
-       Live "hash" [t|IO Text|]
+       Live "hash" ''Text
      ]
  )
 

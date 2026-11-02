@@ -24,7 +24,7 @@ $( jsFields
        -- browser hands the same list each time it is asked; its files can
        -- be read only while the event that carries them is dispatched, so
        -- read them in the handler.
-       Fixed "files" [t|FileList|]
+       Fixed "files" ''FileList
      ]
  )
 

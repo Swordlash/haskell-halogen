@@ -27,7 +27,7 @@ $( jsFields
      [ -- The value the event was made with (@new CustomEvent(type, {
        -- detail })@), @null@ when it was made without one. Read it with
        -- "Data.Foreign".
-       Fixed "detail" [t|JSVal|]
+       Fixed "detail" ''JSVal
      ]
  )
 

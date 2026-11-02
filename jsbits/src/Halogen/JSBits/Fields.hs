@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TemplateHaskell #-}
 
@@ -20,8 +21,8 @@
 -- >   deriving newtype (Inert)
 -- >
 -- > $( jsFields ''Navigator
--- >      [ Live "onLine" [t|IO Bool|]
--- >      , Fixed "clipboard" [t|Clipboard|]
+-- >      [ Live "onLine" ''Bool
+-- >      , Fixed "clipboard" ''Clipboard
 -- >      ]
 -- >  )
 --
@@ -86,6 +87,7 @@
 -- module of a type the field returns, so that it is not an orphan.
 module Halogen.JSBits.Fields
   ( Member (..)
+  , ToType (..)
   , jsFields
   , jsFieldFunctions
   , jsCast
@@ -109,20 +111,34 @@ import Language.Haskell.TH.Syntax (addModFinalizer)
 
 -- | One member of a JavaScript object: its JavaScript name and the type of
 -- its field. See the module's description for what each kind means.
-data Member
-  = -- | A value that does not change, read purely.
-    Fixed String (Q Type)
-  | -- | A value that changes, read in 'IO': the type is @IO a@.
-    Live String (Q Type)
-  | -- | A value that changes and that the page can set: the type is @IO a@,
-    -- and a second field, @name_set :: a -> IO ()@, sets it.
-    Writable String (Q Type)
-  | -- | A method: the type is @a -> b -> ... -> IO r@, or @IO r@ for none.
-    Method String (Q Type)
-  | -- | The member, with this expression as its field natively instead of
-    -- 'inert'. It has the field's type (for a 'Writable' member, the
-    -- read's). The browsers ignore it.
-    Natively (Q Exp) Member
+--
+-- The type is given as a 'Name' when it is one (@''Bool@, @''Navigator@)
+-- or quoted (@[t|Maybe Element|]@).
+data Member where
+  -- | A value that does not change, read purely: the field has the type.
+  Fixed :: (ToType t) => String -> t -> Member
+  -- | A value that changes, read in 'IO': the field is @IO a@ for the type
+  -- @a@ given.
+  Live :: (ToType t) => String -> t -> Member
+  -- | A value that changes and that the page can set: the field is @IO a@,
+  -- and a second field, @name_set :: a -> IO ()@, sets it.
+  Writable :: (ToType t) => String -> t -> Member
+  -- | A method: the type is @a -> b -> ... -> IO r@, or @IO r@ for none.
+  Method :: (ToType t) => String -> t -> Member
+  -- | The member, with this expression as its field natively instead of
+  -- 'inert'. It has the field's type (for a 'Writable' member, the
+  -- read's). The browsers ignore it.
+  Natively :: Q Exp -> Member -> Member
+
+-- | A member's type, as a 'Name' (@''Bool@) or quoted (@[t|Maybe Text|]@).
+class ToType t where
+  toType :: t -> Q Type
+
+instance ToType Name where toType = conT
+
+-- A quote is polymorphic in its monad (@Quote m => m Type@), so the
+-- instance takes any @m a@ and fixes both.
+instance (m ~ Q, a ~ Type) => ToType (m a) where toType = id
 
 -- | A 'HasField' instance for each member of the type, which must be a
 -- newtype over a 'JSVal' (or over another such newtype, as an event type is
@@ -191,7 +207,7 @@ member :: Name -> Maybe (Q Exp) -> Member -> Q [Dec]
 member receiver native = \case
   Natively e m -> member receiver (Just (fromMaybe e native)) m
   Fixed js quoted -> do
-    ty <- quoted
+    ty <- toType quoted
     shape <- valueShape js ty
     when (shape `elem` [Unit, Bytes, PromiseOf]) $ failFor js "a fixed member cannot be (), a ByteString or a Promise; read it as Live"
     get <- browser native $ do
@@ -199,13 +215,15 @@ member receiver native = \case
       pure ([importJS raw (nullish shape ("$1." <> js)) (self `arrow` ffiType shape ty)], [|\o -> $(pureResult shape) ($(varE raw) o)|])
     pure (field js ty get)
   Live js quoted -> do
-    ty <- quoted
-    (shape, result) <- ioResult js ty
+    result <- notIO js =<< toType quoted
+    shape <- valueShape js result
+    let ty = AppT (ConT ''IO) result
     get <- browser native (readLive js shape result)
     pure (field js ty get)
   Writable js quoted -> do
-    ty <- quoted
-    (shape, result) <- ioResult js ty
+    result <- notIO js =<< toType quoted
+    shape <- valueShape js result
+    let ty = AppT (ConT ''IO) result
     get <- browser native (readLive js shape result)
     argument <- argumentShape js result
     set <- browser Nothing $ do
@@ -214,7 +232,7 @@ member receiver native = \case
       pure (decls, [|\o -> $(lamE [varP v] (guard [|$(varE raw) o $(toForeign argument (varE v))|]))|])
     pure (field js ty get <> field (js <> "_set") (result `arrow` AppT (ConT ''IO) (TupleT 0)) set)
   Method js quoted -> do
-    ty <- quoted
+    ty <- toType quoted
     let (arguments, io) = splitArrows ty
     (shape, result) <- ioResult js io
     shapes <- mapM (argumentShape js) arguments
@@ -377,6 +395,13 @@ toForeign shape v = case shape of
   MaybeText -> [|maybe jsNull toJSText $v|]
   MaybeValue -> [|maybe jsNull coerce $v|]
   _ -> v
+
+-- A live or writable member's type is the value's: the IO is the
+-- generator's.
+notIO :: String -> Type -> Q Type
+notIO js = \case
+  AppT (ConT io) _ | io == ''IO -> failFor js "give the value's type, without IO: a live member is read in IO already"
+  ty -> pure ty
 
 failFor :: String -> String -> Q a
 failFor js message = fail ("jsFields: the member " <> js <> ": " <> message)

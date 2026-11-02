@@ -26,7 +26,7 @@ $( jsFields
      [ -- How many files it holds. Read each time: the list a drop's
        -- 'Web.HTML.Event.DataTransfer.files' gives is live, and an input's
        -- list empties when the input is cleared.
-       Live "length" [t|IO Int|]
+       Live "length" ''Int
      , -- The file at a position, from 0, or 'Nothing' past the end.
        Method "item" [t|Int -> IO (Maybe File)|]
      ]

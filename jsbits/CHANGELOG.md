@@ -7,7 +7,7 @@ fields, with the JavaScript inline in each import, so a type needs no `.js`
 file. `jsFields ''T [...]` writes a `HasField` instance for each member of
 `T` (a newtype over a `JSVal`): a `Fixed` member is read purely
 (`w.navigator`), a `Live` one in `IO` (`nav.onLine :: IO Bool`), a
-`Writable` one also has a field named with `_set` after it
+`Writable` one also has a field named with `_set` after it (a `Live` or `Writable` member is given the value's type, `Live "onLine" ''Bool`; a member's type is a `Name` or a quote, `[t|Maybe Text|]`)
 (`doc.title_set :: Text -> IO ()`), a `Method` holds the call
 (`history.go :: Int -> IO ()`; one that returns a Promise gives it as a typed
 `Promise a`). A JavaScript exception out of a `Live`,
