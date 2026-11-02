@@ -20,9 +20,9 @@
 //                    { cancel: id }                      stop it at its next checkpoint
 // What the bytes say is Haskell's business (Halogen.Worker.Internal): a
 // request is the job's static key and a list of arguments, a reply the list
-// of their results, in order. A list, though the page sends one argument
-// for now, so that a batch of calls of one job can be one request without a
-// second protocol.
+// of their results, in order, up to the first call that failed, and that
+// one's failure. A list, so that a batch of calls of one job
+// (Halogen.Worker.Par's) is one request; Halogen.Worker.start sends one.
 //
 // A worker is told which it is by halogenWorker.worker, a number, which is
 // also how serve tells a worker of a pool from the page.
@@ -211,6 +211,14 @@ function halogen_worker_buffer(bytes) {
 function halogen_worker_run(pool, request) {
   const index = pool.next;
   pool.next = (pool.next + 1) % pool.size;
+  return halogen_worker_run_on(pool, index, request);
+}
+
+// The same, to the pool's worker of this number rather than the next in
+// turn: Halogen.Worker.Par gives each batch to the worker that is free. A
+// number outside the pool is taken modulo its size.
+function halogen_worker_run_on(pool, given, request) {
+  const index = ((given % pool.size) + pool.size) % pool.size;
   let entry = pool.workers[index];
   if (entry === undefined) {
     // A worker that cannot be made is this job's failure, through the

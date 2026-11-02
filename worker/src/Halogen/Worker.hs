@@ -47,6 +47,7 @@ module Halogen.Worker
     -- * Pools
   , Pool
   , newPool
+  , size
   , terminate
   , available
 
@@ -60,6 +61,9 @@ module Halogen.Worker
   , kill
   , checkpoint
   , Cancelled (..)
+
+    -- * For "Halogen.Worker.Par"
+  , sendTo
   )
 where
 
@@ -83,7 +87,7 @@ import GHC.Conc (STM, atomically, newTVarIO, readTVar, retry, writeTVar)
 import GHC.StaticPtr (StaticPtr, deRefStaticPtr, staticKey)
 import Halogen.JSBits
 import Halogen.JSBits.Promise (Promise (..), wait)
-import Halogen.Worker.Internal (Job (..), Request (..), answer, decodeReply, decodeStrict, encodeRequest, jobName, runCall)
+import Halogen.Worker.Internal (Job (..), Reply (..), Request (..), answer, decodeReply, decodeStrict, encodeRequest, jobName, runCall)
 import System.IO.Unsafe (unsafePerformIO)
 import System.Info qualified
 import System.Mem.StableName (StableName, makeStableName)
@@ -93,6 +97,7 @@ $( browserJS
      [ ("js_available", "halogen_worker_available", Safe, [t|JSText -> IO Bool|])
      , ("js_pool", "halogen_worker_pool", Safe, [t|Int -> JSText -> IO JSVal|])
      , ("js_run", "halogen_worker_run", Safe, [t|JSVal -> JSVal -> IO (Promise ByteString)|])
+     , ("js_run_on", "halogen_worker_run_on", Safe, [t|JSVal -> Int -> JSVal -> IO (Promise ByteString)|])
      , ("js_terminate", "halogen_worker_terminate", Safe, [t|JSVal -> IO ()|])
      , ("js_in_worker", "halogen_worker_in_worker", Safe, [t|IO Bool|])
      , ("js_which_worker", "halogen_worker_which_worker", Safe, [t|IO Int|])
@@ -226,6 +231,7 @@ program onPage = do
 -- worker can be made.
 data Pool = Pool
   { workers :: JSVal
+  , count :: Int
   , local :: IORef [(StableName JSVal, Local)]
   -- ^ The jobs running in the program itself, by the 'rawPromise' of the
   -- promise 'start' gave for each, for 'cancel' and 'kill' to find. That
@@ -248,7 +254,20 @@ data Local = Local
 -- caches, and running @main@ to 'serve'). Natively, and wherever 'available'
 -- is 'False', a pool starts nothing.
 newPool :: (MonadIO m) => Int -> m Pool
-newPool size = liftIO (Pool <$> js_pool size arch <*> newIORef [])
+newPool n = liftIO (Pool <$> js_pool n arch <*> pure (max 1 n) <*> newIORef [])
+
+-- | How many workers the pool has (the number 'newPool' was given, or one),
+-- whether or not they have started.
+size :: Pool -> Int
+size pool = pool.count
+
+-- | Send a request's bytes to the pool's worker of this number (from 0, below
+-- 'size'), starting it if it has not been, and give a promise of the reply's
+-- bytes: what "Halogen.Worker.Par" hands each batch to the worker that is
+-- free. Not for applications, which give jobs to the pool with 'start' and
+-- 'run', and let it choose the worker. 'cancel' and 'kill' take the promise.
+sendTo :: Pool -> Int -> ByteString -> IO (Promise ByteString)
+sendTo pool index request = toJSBytes request >>= js_run_on pool.workers index
 
 -- | End the pool's workers, and the jobs it runs in the program itself.
 -- What they were running fails with a 'WorkerError'; a later job starts the
@@ -464,8 +483,9 @@ instance Exception Cancelled where
 fromReply :: Job a b -> ByteString -> Either Text b
 fromReply theJob reply = case decodeReply reply of
   Left problem -> Left ("the reply does not decode: " <> Text.pack problem)
-  Right [result] -> decoded theJob result
-  Right results -> Left ("the reply has " <> Text.pack (show (length results)) <> " results for one argument")
+  Right Reply {failure = Just problem} -> Left problem
+  Right Reply {results = [result]} -> decoded theJob result
+  Right Reply {results} -> Left ("the reply has " <> Text.pack (show (length results)) <> " results for one argument")
 
 decoded :: Job a b -> ByteString -> Either Text b
 decoded theJob = first (\problem -> "its result does not decode: " <> Text.pack problem) . theJob.decodeResult

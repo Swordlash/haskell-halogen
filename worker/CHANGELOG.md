@@ -35,6 +35,18 @@ losing side of a `race` and a `timeout` stop the job rather than leave it to fin
 no worker can be made, `start` runs the job on a thread it forks, which `cancel`, `kill` and
 `terminate` kill.
 
+`Halogen.Worker.Par` runs a computation whose independent parts go to the pool's workers at once:
+a `task` is one call of a job, `Par`'s `<*>` runs both sides together and its `>>=` waits for
+the left, so that with `ApplicativeDo` a `do` block sends what does not depend on what came before
+in one round, and `traverse (task job) xs` maps a job over a list on every worker. `runPar` cuts
+each round's calls of a job into batches, several for each worker, each one request, and gives
+the next batch to whichever worker has answered its last, so that uneven calls do not leave a
+worker idle. A failing call fails the whole computation with a `WorkerError` naming its job and
+its index, and the batches still running are cancelled, as they are when `runPar`'s thread is
+interrupted. Where no worker can be made the batches run on the calling thread. `size` gives a
+pool's number of workers. A worker now answers a request with the results of its calls up to the
+first that failed, and that call's failure, rather than one failure for the whole request.
+
 Code written against the earlier, unreleased form of the package, in which a job was a function
 under a name in a table given to `program`, with aeson JSON for its data, changes in three
 places. Where jobs are defined, add `{-# LANGUAGE StaticPointers #-}`, give each the type
