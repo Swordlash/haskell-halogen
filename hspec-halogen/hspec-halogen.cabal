@@ -127,6 +127,7 @@ test-suite hspec-halogen-test
                       Test.Timeline
                       Test.Todo
                       Test.Window
+                      Test.Worker
     ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists -Wunused-packages
     default-extensions:
         OverloadedStrings
@@ -150,9 +151,9 @@ test-suite hspec-halogen-test
         hspec-halogen
 
     -- The Busy example's click, the Islands example's wait, the
-    -- Promised example's work and the in-page tests' hiding of the runner
-    -- are JavaScript of the suite's own (test/jsbits), declared with
-    -- browserJS as a package's is.
+    -- Promised example's work, the in-page tests' hiding of the runner and
+    -- what the worker tests ask of where they run are JavaScript of the
+    -- suite's own (test/jsbits), declared with browserJS as a package's is.
     if arch(javascript)
         js-sources: test/jsbits/busy.js
                     test/jsbits/dispatch.js
@@ -160,6 +161,7 @@ test-suite hspec-halogen-test
                     test/jsbits/islands.js
                     test/jsbits/promised.js
                     test/jsbits/window.js
+                    test/jsbits/worker.js
 
     if arch(wasm32) && !flag(interactive)
         ghc-options:

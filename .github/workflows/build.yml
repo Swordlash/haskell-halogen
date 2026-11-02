@@ -275,6 +275,7 @@ jobs:
     - name: Test
       env:
         HSPEC_HALOGEN_JOBS: '2'
+        HSPEC_HALOGEN_WORKERS: '2'
       run: npm run test-ghcjs
 
   # The wasm build is two jobs that run side by side: test-wasm, the test
@@ -326,6 +327,7 @@ jobs:
     - name: Test
       env:
         HSPEC_HALOGEN_JOBS: '2'
+        HSPEC_HALOGEN_WORKERS: '2'
       run: npm run test-wasm
 
     - name: Test standalone WASI rendering

@@ -13,6 +13,7 @@ module Test.Hspec.Halogen.Internal.Page
   ( inBrowser
   , runnerArgs
   , runnerShard
+  , runnerWorkers
   , reportDone
   , removeLeftovers
   , createContainer
@@ -49,6 +50,7 @@ $( browserJS
      [ ("js_has_document", "halogen_test_has_document", Safe, [t|IO Bool|])
      , ("js_shard", "halogen_test_shard", Safe, [t|IO JSText|])
      , ("js_test_args", "halogen_test_test_args", Safe, [t|IO JSVal|])
+     , ("js_workers", "halogen_test_workers", Safe, [t|IO Int|])
      , ("js_remove_leftovers", "halogen_test_remove_leftovers", Safe, [t|IO ()|])
      , ("js_test_done", "halogen_test_test_done", Safe, [t|Int -> IO ()|])
      , ("js_create_container", "halogen_test_create_container", Safe, [t|IO JSVal|])
@@ -89,8 +91,17 @@ runnerArgs = do
   args <- js_test_args
   pure $ if absent args then Nothing else Just (map jsValText (elements args))
 
+-- | The part of the suite the runner gave this copy of it to run (see
+-- "Test.Hspec.Halogen.Internal.Shard"): empty for all of it, @serial@,
+-- @<i>/<n>@ for a parallel page, @worker/<i>/<n>@ for a Web Worker.
 runnerShard :: IO Text
 runnerShard = fromJSText <$> js_shard
+
+-- | How many Web Workers the runner started beside the pages, which take the
+-- examples marked 'Test.Hspec.Halogen.Internal.Shard.inWorker': none without
+-- the runner, and with a runner that predates them.
+runnerWorkers :: IO Int
+runnerWorkers = js_workers
 
 -- | Tell the runner how many tests failed. Outside the runner (a page opened
 -- by hand) there is nobody to tell.

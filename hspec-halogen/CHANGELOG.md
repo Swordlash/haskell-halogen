@@ -11,6 +11,15 @@ contexts. Unmarked and `sequential` examples finish first. Each context has
 its own input, storage and runtime; failures in any context fail the command.
 Sharding preserves the behavior of `--fail-on=focused` and `--focused-only`.
 
+Examples that need no page can run in Web Workers. Mark them with
+`inWorker` and set `HSPEC_HALOGEN_WORKERS` to the number of workers: the
+runner starts that many copies of the suite in workers, beside the parallel
+pages, and divides the marked examples between them, while the pages leave
+them out. Each worker's report is printed on its own, and anything that
+fails a page's run fails a worker's. Without workers, which is the default,
+`inWorker` changes nothing. A `runPage` in a worker fails its example with a
+message saying it should not be marked, since a worker has no page.
+
 * A test that fails says what the tree did before it failed: while a test
   runs, `runPage` keeps the last 50 events of core's trace
   (`Halogen.Trace`), and the failure's message ends with a section "What
