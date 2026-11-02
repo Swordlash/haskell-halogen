@@ -53,7 +53,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Lazy qualified as Lazy
 import Halogen.JSBits
-import Halogen.JSBits.Promise (JSError (..), Promise (..), await)
+import Halogen.JSBits.Promise (Promise (..), await)
 import System.IO.Unsafe (unsafePerformIO)
 import System.Info qualified
 import UnliftIO.Exception (tryAny)
