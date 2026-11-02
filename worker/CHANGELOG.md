@@ -22,7 +22,10 @@ workers, and `whichWorker` tells a job which worker runs it. The page's loader s
 program is in `globalThis.halogenWorker`. Where no worker can be made (natively, in Node, in GHCi,
 in a page that says nothing) the job runs in the program itself, through the same bytes, and
 `available` says which it will be. On the GHC JavaScript backend a loader that names the program's
-`all.js` gets classic workers that import it.
+`all.js` gets classic workers that import it. A program that is not a binary such a script could
+load (the tutorial's lessons, which run in GHC's interpreter) names a module script of its own in
+`halogenWorker.script`, with `halogenWorker.data` for it to read: each worker imports it, and it
+loads the program however it likes and runs its `main`.
 
 A job can be stopped. `cancel pool promise` rejects the promise at once (a `JSError` named
 `Cancelled`) and tells the worker, where the job stops at its next `checkpoint`, a call a job

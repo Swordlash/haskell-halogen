@@ -6,9 +6,14 @@ import ghcWasmImports from "./ghc_wasm_jsffi.js";
 // it beside the page as wasi.js). It must be set before Haskell starts.
 //
 // With ?workers=none in the address the page says nothing, and the jobs run
-// on the page instead, as wherever no worker can be made (the tutorial's
-// lesson 17 is such a place).
-if (new URLSearchParams(location.search).get("workers") !== "none") {
+// on the page instead, as wherever no worker can be made. With
+// ?workers=script it names a worker script of its own instead of the files,
+// worker-script.js, which loads them itself: the form a program that is not
+// a binary uses (the tutorial's lessons, run in GHC's interpreter).
+const workers = new URLSearchParams(location.search).get("workers");
+if (workers === "script") {
+  globalThis.halogenWorker = { script: new URL("./worker-script.js", import.meta.url).href };
+} else if (workers !== "none") {
   globalThis.halogenWorker = {
     wasm: new URL("./app.wasm", import.meta.url).href,
     jsffi: new URL("./ghc_wasm_jsffi.js", import.meta.url).href,

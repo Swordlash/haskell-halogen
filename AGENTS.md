@@ -170,8 +170,10 @@ and wired into `test/Test.hs`.
   count against a sieve, in order, both workers used), a slow count stopped by Cancel at its next
   checkpoint (its logged chunks stop), Kill ending a count's worker, a race's loser cancelled,
   the same count on the page drawing none, a failing job,
-  `terminate`, and the page with `?workers=none`, which leaves `halogenWorker` unset and so runs
-  `Worker.run`'s fallback. CI's `learn-wasm` job runs it after `test-playground`; the example bundles its
+  `terminate`, the page with `?workers=script`, whose loader names a worker script of its own
+  (`web/worker-script.js`, the form a program that is not a binary uses) and counts through it in
+  a worker and in sixteen tasks, and the page with `?workers=none`, which leaves `halogenWorker`
+  unset and so runs `Worker.run`'s fallback. CI's `learn-wasm` job runs it after `test-playground`; the example bundles its
   WASI shim (`bundle.sh`), so it needs no network.
 
 ## Architecture
