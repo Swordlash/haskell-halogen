@@ -17,6 +17,7 @@
 //                    { id, ok: true, reply: buffer }     a request's results
 //                    { id, ok: false, error: message }   a request that failed
 //   page to worker   { id, request: buffer }             run a job
+//                    { cancel: id }                      stop it at its next checkpoint
 // What the bytes say is Haskell's business (Halogen.Worker.Internal): a
 // request is the job's static key and a list of arguments, a reply the list
 // of their results, in order. A list, though the page sends one argument
@@ -25,6 +26,12 @@
 //
 // A worker is told which it is by halogenWorker.worker, a number, which is
 // also how serve tells a worker of a pool from the page.
+//
+// The page keeps every request it has not had an answer to, under its id,
+// with a copy of its bytes: a worker that is killed takes the requests it
+// was given with it, and those are sent again to the worker started in its
+// place. An answer to an id the page no longer keeps (a cancelled or killed
+// job's) is dropped.
 
 // Whether a pool can start workers here: the page has said where the
 // program is, for the backend it was built with ("wasm32" or "javascript"),
@@ -38,8 +45,10 @@ function halogen_worker_available(arch) {
     : typeof config.js === "string";
 }
 
+// started: which worker each promise the pool gave was sent to, and under
+// which id, for cancel and kill to find the job from the promise alone.
 function halogen_worker_pool(size, arch) {
-  return { size: Math.max(1, size), arch: arch, workers: [], next: 0, ids: 0 };
+  return { size: Math.max(1, size), arch: arch, workers: [], next: 0, ids: 0, started: new WeakMap() };
 }
 
 // An address the page gave, made absolute: a worker started from a blob has
@@ -102,15 +111,38 @@ try {
   };
 }
 
-// Reject everything the worker was given and end it, and forget it, so that
-// the next job for its place in the pool starts a new one.
-function halogen_worker_fail(pool, index, entry, message) {
+// A rejection's error, named as the Haskell side reads it (JSError's name).
+function halogen_worker_error(name, message) {
+  const error = new Error(message);
+  error.name = name;
+  return error;
+}
+
+// End the worker and forget it, so that the next job for its place in the
+// pool starts a new one; give back what it had not answered, in the order
+// it was given.
+function halogen_worker_end(pool, index, entry) {
   entry.worker.terminate();
   URL.revokeObjectURL(entry.url);
-  for (const { reject } of entry.pending.values()) reject(new Error(message));
+  const unanswered = [...entry.pending];
   entry.pending.clear();
   entry.queue = [];
   if (pool.workers[index] === entry) pool.workers[index] = undefined;
+  return unanswered;
+}
+
+// Reject everything the worker was given and end it.
+function halogen_worker_fail(pool, index, entry, message) {
+  for (const [, { reject }] of halogen_worker_end(pool, index, entry)) reject(new Error(message));
+}
+
+// Post a request the worker keeps, a copy of its bytes transferred, the
+// page's own staying for a worker that may have to be sent it again.
+function halogen_worker_post(entry, id) {
+  const waiting = entry.pending.get(id);
+  if (waiting === undefined) return;
+  const buffer = waiting.request.slice().buffer;
+  entry.worker.postMessage({ id: id, request: buffer }, [buffer]);
 }
 
 function halogen_worker_start(pool, index) {
@@ -130,10 +162,11 @@ function halogen_worker_start(pool, index) {
     const data = event.data;
     if (data.ready) {
       // Messages posted before serve listened would have gone to nobody, so
-      // the jobs given until now were kept for this.
+      // the jobs given until now were kept for this; those cancelled
+      // meanwhile are no longer pending, and are not posted.
       entry.ready = true;
       URL.revokeObjectURL(url);
-      for (const { message, transfer } of entry.queue) worker.postMessage(message, transfer);
+      for (const id of entry.queue) halogen_worker_post(entry, id);
       entry.queue = [];
     } else if (data.failed !== undefined) {
       halogen_worker_fail(pool, index, entry, `the worker did not start: ${data.failed}`);
@@ -153,6 +186,14 @@ function halogen_worker_start(pool, index) {
     halogen_worker_fail(pool, index, entry, `the worker failed: ${event.message || "its script did not load"}`);
   };
   return entry;
+}
+
+// Give a request to a worker: posted at once to one that is ready, kept in
+// its queue until it is otherwise.
+function halogen_worker_give(entry, id, waiting) {
+  entry.pending.set(id, waiting);
+  if (entry.ready) halogen_worker_post(entry, id);
+  else entry.queue.push(id);
 }
 
 // A Uint8Array's bytes as an ArrayBuffer of their own, to transfer: the
@@ -184,13 +225,55 @@ function halogen_worker_run(pool, request) {
     }
   }
   const id = ++pool.ids;
-  const promise = new Promise((resolve, reject) => entry.pending.set(id, { resolve: resolve, reject: reject }));
+  let waiting;
+  const promise = new Promise((resolve, reject) => (waiting = { resolve: resolve, reject: reject, request: request }));
   promise.catch(() => {});
-  const buffer = halogen_worker_buffer(request);
-  const message = { id: id, request: buffer };
-  if (entry.ready) entry.worker.postMessage(message, [buffer]);
-  else entry.queue.push({ message: message, transfer: [buffer] });
+  pool.started.set(promise, { index: index, id: id });
+  halogen_worker_give(entry, id, waiting);
   return promise;
+}
+
+// The worker a promise's job was given to and the job's entry there, if it
+// is still waiting for an answer.
+function halogen_worker_find(pool, promise) {
+  const place = promise !== null && typeof promise === "object" ? pool.started.get(promise) : undefined;
+  if (place === undefined) return undefined;
+  const entry = pool.workers[place.index];
+  const waiting = entry?.pending.get(place.id);
+  return waiting === undefined ? undefined : { index: place.index, id: place.id, entry: entry, waiting: waiting };
+}
+
+// Reject the job's promise and forget it; a worker that has been posted it
+// is told, and stops it at its next checkpoint. One still in a queue is
+// simply not posted.
+function halogen_worker_cancel(pool, promise) {
+  const found = halogen_worker_find(pool, promise);
+  if (found === undefined) return;
+  const { id, entry, waiting } = found;
+  entry.pending.delete(id);
+  waiting.reject(halogen_worker_error("Cancelled", "the job was cancelled"));
+  if (entry.ready) entry.worker.postMessage({ cancel: id });
+}
+
+// End the worker the job runs in, rejecting the job's promise, and give what
+// else the worker had to a new one in its place, in order. A worker with
+// nothing else to do is not replaced until the pool gives its place a job.
+function halogen_worker_kill(pool, promise) {
+  const found = halogen_worker_find(pool, promise);
+  if (found === undefined) return;
+  const { index, id, entry, waiting } = found;
+  entry.pending.delete(id);
+  waiting.reject(halogen_worker_error("Killed", "the job was killed, and the worker it ran in"));
+  const unanswered = halogen_worker_end(pool, index, entry);
+  if (unanswered.length === 0) return;
+  let fresh;
+  try {
+    fresh = pool.workers[index] = halogen_worker_start(pool, index);
+  } catch (error) {
+    for (const [, { reject }] of unanswered) reject(new Error(`the worker did not start: ${error?.message ?? error}`));
+    return;
+  }
+  for (const [other, rest] of unanswered) halogen_worker_give(fresh, other, rest);
 }
 
 function halogen_worker_terminate(pool) {
@@ -207,10 +290,33 @@ function halogen_worker_in_worker() {
   return typeof globalThis.halogenWorker?.worker === "number";
 }
 
+// Listen to the page. A cancel is noted here, for the job's next
+// checkpoint to find; only requests go to Haskell.
 function halogen_worker_listen(callback) {
-  globalThis.halogenWorker.serving = true;
-  self.onmessage = (event) => callback(event.data);
+  const config = globalThis.halogenWorker;
+  config.serving = true;
+  config.cancelled = new Set();
+  self.onmessage = (event) => {
+    const data = event.data;
+    if (data.cancel !== undefined) config.cancelled.add(data.cancel);
+    else callback(data);
+  };
   self.postMessage({ ready: true });
+}
+
+// A turn of the worker's event loop, for a checkpoint: a macrotask, so that
+// the messages that arrived meanwhile are delivered first.
+function halogen_worker_turn() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function halogen_worker_is_cancelled(id) {
+  return globalThis.halogenWorker.cancelled?.has(id) === true;
+}
+
+// The request is answered: a cancel of it is of no more use.
+function halogen_worker_forget(id) {
+  globalThis.halogenWorker.cancelled?.delete(id);
 }
 
 // Which of its pool's workers this is; asked only inside one.

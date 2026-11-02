@@ -22,14 +22,25 @@ workers, and `whichWorker` tells a job which worker runs it. The page's loader s
 program is in `globalThis.halogenWorker`. Where no worker can be made (natively, in Node, in GHCi,
 in a page that says nothing) the job runs in the program itself, through the same bytes, and
 `available` says which it will be. On the GHC JavaScript backend a loader that names the program's
-`all.js` gets classic workers that import it. There is no cancelling a job yet: killing the
-waiting fiber abandons the result.
+`all.js` gets classic workers that import it.
+
+A job can be stopped. `cancel pool promise` rejects the promise at once (a `JSError` named
+`Cancelled`) and tells the worker, where the job stops at its next `checkpoint`, a call a job
+makes between pieces of its work that hands the worker's event loop a turn and throws `Cancelled`
+there; a job not yet begun is never run. A job that does not checkpoint cannot be stopped that way,
+and `kill pool promise` ends the worker that runs it instead, rejecting the promise (`Killed`) and
+sending what else that worker had to a new one in its place, which loads the program again.
+`run` cancels its job when its wait is interrupted, so a component's fiber that is killed, the
+losing side of a `race` and a `timeout` stop the job rather than leave it to finish unread. Where
+no worker can be made, `start` runs the job on a thread it forks, which `cancel`, `kill` and
+`terminate` kill.
 
 Code written against the earlier, unreleased form of the package, in which a job was a function
 under a name in a table given to `program`, with aeson JSON for its data, changes in three
 places. Where jobs are defined, add `{-# LANGUAGE StaticPointers #-}`, give each the type
 `StaticPtr (Job a b)` and the body `static (Worker.job f)` in place of `Worker.job "name" f`, and
-export it from its module, since GHC 9.14 can fail to link a static pointer its module keeps to
-itself when it optimises. The types a job takes and gives derive `Binary` (`deriving anyclass
+export it from its module, since GHC before 10.0 ([issue
+#24773](https://gitlab.haskell.org/ghc/ghc/-/issues/24773)) can fail to link a module whose static
+binding is not exported and is used more than once. The types a job takes and gives derive `Binary` (`deriving anyclass
 (Binary)` with `Generic`) in place of `FromJSON` and `ToJSON`. And `Worker.program` and
 `Worker.serve` take no table: `SomeJob` and `some` are gone.

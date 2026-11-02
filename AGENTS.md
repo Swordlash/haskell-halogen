@@ -161,7 +161,9 @@ and wired into `test/Test.hs`.
   and drives real Web Workers, each a second instance of the page's `app.wasm`: the count in each
   of the pool's workers while the page draws (it samples the component's frame counter at the
   page's own animation frames), the range in four parts through `Worker.start` and
-  `mapConcurrently`, back in order from both workers, the same count on the page drawing none, a failing job,
+  `mapConcurrently`, back in order from both workers, a slow count stopped by Cancel at its next
+  checkpoint (its logged chunks stop), Kill ending a count's worker, a race's loser cancelled,
+  the same count on the page drawing none, a failing job,
   `terminate`, and the page with `?workers=none`, which leaves `halogenWorker` unset and so runs
   `Worker.run`'s fallback. CI's `learn-wasm` job runs it after `test-playground`; the example bundles its
   WASI shim (`bundle.sh`), so it needs no network.
@@ -302,9 +304,15 @@ pointer's `StaticKey` and a list of arguments, which the worker looks up with
 `ArrayBuffer`. `start` gives a `Halogen.JSBits.Promise` (rejected with a `JSError` named
 `WorkerError`), `run` waits and throws a `WorkerError`; the fallback (no configuration,
 natively, in Node, in GHCi, in the tutorial's interpreter) runs the job's function on the same
-bytes in process, with no lookup. Static pointer bindings are exported from their modules: GHC
-9.14 with `-O` can rename a private one while the module's static pointer table keeps the old
-name, which fails to link. On wasm a computation
+bytes in process, with no lookup, on a thread `start` forks. A job is stopped with `cancel`
+(the promise rejected at once, `{cancel: id}` posted, seen at the job's next `checkpoint`, which
+yields a turn of the worker's event loop) or `kill` (its worker terminated, the worker's other
+requests, whose bytes the page keeps until answered, re-posted to a new one); `run` cancels on
+an interrupted wait, and in the fallback both kill the forked thread, which the pool finds by
+the stable name of the promise's `rawPromise`. Static pointer bindings are exported from their modules: GHC
+before 10.0 (issue #24773) can fail to link a module whose static binding is not exported and is
+used more than once (with `-O` the binding stays internal, and the static pointer table's entry
+has nothing to link to). On wasm a computation
 that does not wait holds the page's thread until it ends, whichever Haskell thread runs it: in
 `examples/worker` two seconds of counting in a component's `liftIO` without a worker let the
 page draw one frame, against about 120 in a worker.

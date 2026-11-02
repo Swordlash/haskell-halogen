@@ -76,11 +76,12 @@ calculation needs as its argument. `Worker.job` resolves the `Binary` instances
 where it is written and keeps the codecs inside the job, so the static value
 carries everything needed to encode the argument and decode the result.
 
-Export each static pointer binding from its module. When optimising, GHC 9.14
-can rename a static pointer binding that its module keeps private while the
-module's static pointer table still refers to the old name, and the program
-then fails to link with an undefined reference to the binding's closure. An
-exported binding keeps its name.
+Export every binding that holds a static from its module. GHC before 10.0
+([issue #24773](https://gitlab.haskell.org/ghc/ghc/-/issues/24773)) can fail to
+link a module whose static binding is not exported and is used more than once:
+with optimisation the binding stays internal to the module, and the module's
+static pointer table refers to a symbol that is not there (an undefined
+reference to the binding's closure).
 
 A job can call `Worker.whichWorker` to learn which of its pool's workers runs
 it (`Just 0`, `Just 1`, ...), or `Nothing` when it runs on the page.
@@ -130,16 +131,50 @@ These are classic workers that load the program with `importScripts`.
   result the page cannot decode, a key the worker's program does not have, a
   worker that did not start and a pool terminated while the job ran. In the
   worker the job's exception is caught and sent back; it does not stop the
-  worker.
-- `terminate pool` stops all workers and fails outstanding requests. The next
-  job starts workers again.
-- Cancelling a thread waiting in `run` cancels the wait. The worker continues
-  computing. Use `terminate` to stop its computation; that affects the whole pool.
+  worker. A job stopped with `cancel` or `kill` is rejected with a `JSError`
+  named `"Cancelled"` or `"Killed"` (and `run` throws a `WorkerError` with that
+  message).
+- `terminate pool` stops all workers, and the jobs the pool runs in the program
+  itself, and fails outstanding requests. The next job starts workers again.
 - `available` reports whether workers can be used. Without the loader
-  configuration, outside a browser, in GHCi or inside a worker, the job runs on
-  the caller's thread, through the same encoding, and `start`'s promise has
-  settled by the time `start` returns. This fallback keeps the API usable, but
-  does not prevent a long calculation from blocking the page.
+  configuration, outside a browser, in GHCi or inside a worker, `start` runs the
+  job on a thread it forks, through the same encoding. This fallback keeps the
+  API usable, but does not prevent a long calculation from blocking the page:
+  the thread holds the page's thread between its waits and checkpoints.
+
+## Stop a job
+
+```haskell
+p <- liftIO (Worker.start pool primesSlowly 6000000)
+-- later, from another action:
+Worker.cancel pool p   -- the job stops at its next checkpoint
+Worker.kill pool p     -- the job's worker is ended, now
+```
+
+- `cancel pool promise` rejects the promise at once and tells the worker. A job
+  the worker has not begun is never run. A running job learns of the cancel at
+  its next `checkpoint`, which throws `Cancelled` there, and the worker is then
+  free for its next job.
+- `checkpoint` is what a job calls between pieces of its work. A worker has one
+  thread, which a computation keeps until it waits, so a cancel the page sends
+  arrives only when the job hands the worker's event loop a turn: `checkpoint`
+  does that (a `setTimeout` of 0, a macrotask) and then checks. Call it once per
+  chunk of work, not per element. A job that never calls it cannot be
+  cancelled; it runs to the end, holding its worker.
+- `kill pool promise` ends the worker that runs the job, at once, whatever the
+  job is doing. The other requests that worker had are sent again, in order,
+  to a new worker in its place, so only the killed job is lost; the page keeps a
+  copy of every request's bytes until it is answered for this. The new worker
+  loads the program again (the binary from the browser's cache, `main` run up
+  to `serve`), which is what makes `kill` the dearer way to stop a job.
+- `run` cancels its job when its wait is interrupted: a component's fiber that
+  is killed, the losing side of `race` and a `timeout` stop the job instead of
+  leaving it to finish unread. Waiting for `start`'s promise does not: a promise
+  can have several waiters or none, so stopping its job is `cancel`'s business.
+- A promise the pool did not start, or one that has settled, is left alone by
+  both.
+- Where no worker can be made, `cancel` and `kill` kill the job's thread, which
+  stops at its next wait or checkpoint.
 
 `serve` is the lower-level entry point used by `program`. It returns `False`
 after installing a worker's message handler, or `True` when the caller should
@@ -167,8 +202,8 @@ components call.
 ## Tests
 
 `Halogen-worker-test` checks encoding, decoding, the lookup by static key,
-failures, `start`'s promises and the fallback natively and under Node on both
-browser backends. Real workers are
+failures, `start`'s promises, stopping jobs and the fallback natively and under
+Node on both browser backends. Real workers are
 checked in Chromium through `examples/worker`:
 
 ```sh
@@ -178,4 +213,6 @@ npm run test-worker
 
 That test checks results, UI responsiveness during a calculation, a range
 counted in parts by both workers through `start` and `mapConcurrently`,
-failures, termination and the fallback without loader configuration.
+cancelling a job that checkpoints, killing one that does not, a race whose
+loser is cancelled, failures, termination and the fallback without loader
+configuration.

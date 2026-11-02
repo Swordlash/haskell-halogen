@@ -9,12 +9,12 @@
 -- bytes, the result's bytes decoded. And the worker's own side,
 -- 'Internal.answer', which finds a job by its static key in the program's
 -- static pointer table, is run here on requests made as a page makes them,
--- and on one no page would send.
+-- and on one no page would send. And stopping a job there, which in the
+-- fallback is killing the thread 'Worker.start' forked for it.
 --
--- The jobs are exported, as "Halogen.Worker"'s documentation advises: with
--- optimisation GHC 9.14 can rename a static pointer's binding that its
--- module keeps to itself while still naming the old binding in the
--- module's static pointer table, which fails to link.
+-- The jobs are exported, as "Halogen.Worker"'s documentation advises: GHC
+-- before 10.0 (issue #24773) can fail to link a module whose static binding
+-- is not exported and is used more than once, as several of these are.
 module Test.Run
   ( spec
   , double
@@ -23,23 +23,30 @@ module Test.Run
   , lazyError
   , broken
   , where_
+  , sleeper
+  , spin
+  , selfKilled
   )
 where
 
-import Control.Exception (throwIO)
+import Control.Concurrent (threadDelay)
+import Control.Exception (AsyncException (..), throwIO)
+import Control.Monad (forever)
 import Data.Binary (Binary (..), encode)
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy qualified as Lazy
-import Data.IORef (newIORef, readIORef, writeIORef)
+import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import GHC.Fingerprint (Fingerprint (..))
 import GHC.Generics (Generic)
 import GHC.StaticPtr (StaticPtr, deRefStaticPtr, staticKey)
-import Halogen.JSBits.Promise (JSError (..), mapConcurrently, poll)
+import Halogen.JSBits.Promise (JSError (..), mapConcurrently, poll, resolved, wait, waitCatch)
 import Halogen.Worker (Job, WorkerError (..))
 import Halogen.Worker qualified as Worker
 import Halogen.Worker.Internal qualified as Internal
+import System.IO.Unsafe (unsafePerformIO)
+import System.Timeout (timeout)
 import Test.Hspec
 
 data Tile = Tile {x :: Int, y :: Int, rows :: [[Double]], label :: Text}
@@ -70,8 +77,46 @@ lazyError = static (Worker.job (\n -> pure (if n > 0 then error "found too late"
 broken :: StaticPtr (Job () Broken)
 broken = static (Worker.job (\() -> pure Broken))
 
+-- A job that ends its thread with an exception 'runCall' does not catch:
+-- ThreadKilled counts as asynchronous, whoever throws it.
+selfKilled :: StaticPtr (Job () Int)
+selfKilled = static (Worker.job (\() -> throwIO ThreadKilled))
+
 where_ :: StaticPtr (Job () (Maybe Int))
 where_ = static (Worker.job (\() -> Worker.whichWorker))
+
+-- | How many of 'sleeper''s sleeps have ended, and how many turns 'spin''s
+-- loop has made: what a test reads to see that a stopped job stopped.
+sleeps, spins :: IORef Int
+sleeps = unsafePerformIO (newIORef 0)
+{-# NOINLINE sleeps #-}
+spins = unsafePerformIO (newIORef 0)
+{-# NOINLINE spins #-}
+
+bump :: IORef Int -> IO ()
+bump ref = atomicModifyIORef' ref (\n -> (n + 1, ()))
+
+-- | Sleeps for this many milliseconds, then counts the sleep.
+sleeper :: StaticPtr (Job Int ())
+sleeper = static (Worker.job (\ms -> threadDelay (ms * 1000) >> bump sleeps))
+
+-- | Counts its turns for ever, a checkpoint after each.
+spin :: StaticPtr (Job () ())
+spin = static (Worker.job (\() -> forever (bump spins >> Worker.checkpoint)))
+
+-- | Whether the counter has stopped: what it reads now, and again a while
+-- later.
+stopped :: IORef Int -> IO Bool
+stopped ref = do
+  threadDelay 20000
+  earlier <- readIORef ref
+  threadDelay 100000
+  (== earlier) <$> readIORef ref
+
+rejectedAs :: Text -> Either JSError a -> Expectation
+rejectedAs name = \case
+  Left e -> e.name `shouldBe` name
+  Right _ -> expectationFailure ("settled rather than rejected as " <> Text.unpack name)
 
 -- | A request for one call, as the page makes it.
 request :: StaticPtr (Job a b) -> a -> ByteString
@@ -108,6 +153,13 @@ spec = describe "Halogen.Worker" $ do
     pool <- Worker.newPool 1
     Worker.run pool fails 1 `shouldThrow` failsWith "no luck"
 
+  it "settles the promise of a job whose thread ends by an exception it does not catch" $ do
+    pool <- Worker.newPool 1
+    Worker.run pool selfKilled () `shouldThrow` failsWith "thread killed"
+    p <- Worker.start pool selfKilled ()
+    outcome <- waitCatch p
+    either (.name) (const "resolved") outcome `shouldBe` "WorkerError"
+
   it "counts an error in the result, found as it is encoded, as the job's" $ do
     pool <- Worker.newPool 1
     Worker.run pool lazyError 1 `shouldThrow` failsWith "found too late"
@@ -117,10 +169,12 @@ spec = describe "Halogen.Worker" $ do
     pool <- Worker.newPool 1
     Worker.run pool broken () `shouldThrow` failsWith "its result does not decode: a Broken never decodes"
 
-  it "gives a settled promise from start, rejected with a JSError named WorkerError" $ do
+  it "gives a promise from start, rejected with a JSError named WorkerError" $ do
     pool <- Worker.newPool 1
-    (poll =<< Worker.start pool double 4) `shouldReturn` Just (Right 8)
-    (poll =<< Worker.start pool fails 1) >>= \case
+    (wait =<< Worker.start pool double 4) `shouldReturn` 8
+    failing <- Worker.start pool fails 1
+    _ <- waitCatch failing
+    poll failing >>= \case
       Just (Left e) -> do
         e.name `shouldBe` "WorkerError"
         Text.unpack e.message `shouldStartWith` "the job at Test.Run:"
@@ -148,6 +202,74 @@ spec = describe "Halogen.Worker" $ do
     Internal.answer wrong >>= \case
       Left problem -> Text.unpack problem `shouldContain` "its argument does not decode"
       Right _ -> expectationFailure "an argument that does not decode was answered"
+
+  it "runs the job on a thread of its own: start returns before the job ends" $ do
+    pool <- Worker.newPool 1
+    earlier <- readIORef sleeps
+    p <- Worker.start pool sleeper 100
+    poll p >>= (`shouldSatisfy` (\case Nothing -> True; Just _ -> False))
+    wait p
+    readIORef sleeps `shouldReturn` earlier + 1
+
+  it "cancels a job while it sleeps, which then never ends its sleep" $ do
+    pool <- Worker.newPool 1
+    earlier <- readIORef sleeps
+    p <- Worker.start pool sleeper 200
+    Worker.cancel pool p
+    waitCatch p >>= rejectedAs "Cancelled"
+    threadDelay 400000
+    readIORef sleeps `shouldReturn` earlier
+
+  it "cancels the job of a run whose wait a timeout interrupts" $ do
+    pool <- Worker.newPool 1
+    earlier <- readIORef sleeps
+    timeout 20000 (Worker.run pool sleeper 200) `shouldReturn` Nothing
+    threadDelay 400000
+    readIORef sleeps `shouldReturn` earlier
+
+  it "stops a loop that checkpoints, by cancelling or killing it" $ do
+    pool <- Worker.newPool 1
+    p <- Worker.start pool spin ()
+    threadDelay 20000
+    Worker.cancel pool p
+    waitCatch p >>= rejectedAs "Cancelled"
+    stopped spins `shouldReturn` True
+    q <- Worker.start pool spin ()
+    threadDelay 20000
+    Worker.kill pool q
+    waitCatch q >>= rejectedAs "Killed"
+    stopped spins `shouldReturn` True
+
+  it "names the job in a cancelled promise's rejection, and cancels only once" $ do
+    pool <- Worker.newPool 1
+    p <- Worker.start pool sleeper 100
+    Worker.cancel pool p
+    Worker.cancel pool p
+    (wait p >> pure ()) `shouldThrow` (\(e :: JSError) -> e.name == "Cancelled" && "the job at Test.Run:" `Text.isPrefixOf` e.message)
+
+  it "leaves alone a promise the pool did not start, or one that has settled" $ do
+    pool <- Worker.newPool 1
+    other <- Worker.newPool 1
+    Worker.cancel pool (resolved (3 :: Int))
+    Worker.kill pool (resolved (3 :: Int))
+    p <- Worker.start pool double 2
+    _ <- wait p
+    Worker.cancel pool p
+    Worker.kill pool p
+    waitCatch p `shouldReturn` Right 4
+    q <- Worker.start other sleeper 50
+    Worker.cancel pool q
+    waitCatch q `shouldReturn` Right ()
+
+  it "ends the jobs it runs here when a pool is terminated" $ do
+    pool <- Worker.newPool 1
+    p <- Worker.start pool spin ()
+    threadDelay 10000
+    Worker.terminate pool
+    waitCatch p >>= \case
+      Left e -> Text.unpack e.message `shouldEndWith` "the pool was terminated"
+      Right () -> expectationFailure "the job outlived the pool"
+    stopped spins `shouldReturn` True
 
   it "has nothing to end when a pool is terminated, and runs after it" $ do
     pool <- Worker.newPool 1

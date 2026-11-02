@@ -382,8 +382,10 @@ main = Worker.program $ runBrowserDOM $ do
 `Worker.program` serves the jobs in a worker and goes on to the UI on the page. The page's
 loader names the program's files in `globalThis.halogenWorker` before starting it (see
 [worker/README.md](worker/README.md)); where nothing names them, natively, or in GHCi,
-the job runs in the program itself, through the same bytes. `examples/worker` counts primes on
-the page, in a worker and in both of its pool's workers beside a spinner the component turns,
+the job runs in the program itself, through the same bytes. A job is stopped with `Worker.cancel`
+(at its next `Worker.checkpoint`) or `Worker.kill` (its worker ended), and `Worker.run` cancels its
+job when its wait is interrupted. `examples/worker` counts primes on the page, in a worker and in
+both of its pool's workers beside a spinner the component turns, cancels, kills and races counts,
 and lesson 17 of the tutorial teaches the API (in the tutorial's interpreter, without a worker).
 
 ## Tauri
