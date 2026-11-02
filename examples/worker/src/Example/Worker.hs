@@ -8,6 +8,9 @@
 -- each result says how many frames the component drew while it was being
 -- computed.
 --
+-- With "Halogen.Worker.Par" the range is counted in sixteen parts, a task
+-- each, which runPar sends to the workers in batches as each is free.
+--
 -- A job can be stopped: a slow count that checkpoints after each chunk is
 -- cancelled by Cancel, a count that does not is ended with its worker by
 -- Kill, and a race between a quick count and the slow one cancels the
@@ -25,6 +28,7 @@ module Example.Worker
   , countPrimes
   , size
   , parts
+  , manyParts
   , slowSize
   , raceSize
   )
@@ -41,6 +45,7 @@ import Halogen.JSBits.Promise qualified as Promise
 import Halogen.Query.Event.Window qualified as Window
 import Halogen.Worker (WorkerError (..))
 import Halogen.Worker qualified as Worker
+import Halogen.Worker.Par (runPar, task)
 import Protolude hiding (State)
 import System.IO (hFlush)
 import System.IO.Error (userError)
@@ -67,6 +72,13 @@ parts :: [(Int, Int)]
 parts = [(lo, lo + quarter) | lo <- [0, quarter .. size - quarter]]
   where
     quarter = size `div` 4
+
+-- | The range below 'size' in sixteen parts, for 'runPar' to cut into
+-- batches.
+manyParts :: [(Int, Int)]
+manyParts = [(lo, lo + sixteenth) | lo <- [0, sixteenth .. size - sixteenth]]
+  where
+    sixteenth = size `div` 16
 
 primes :: StaticPtr (Worker.Job Int Int)
 primes = static (Worker.job (\n -> pure (countPrimes n)))
@@ -134,7 +146,7 @@ data State = State
   , note :: Text
   }
 
-data Action = Frame | Here | InWorker | Spread | Slow | Race | Cancel | Kill | Fail | Terminate
+data Action = Frame | Here | InWorker | Spread | InTasks | Slow | Race | Cancel | Kill | Fail | Terminate
 
 -- | The page, with the pool its jobs run on.
 component :: forall q i o m. (MonadIO m) => Worker.Pool -> H.Component q i o m
@@ -177,6 +189,7 @@ component pool =
             [ button "here" Here "Count here, on the page"
             , button "worker" InWorker (if st.workers then "Count in a worker" else "Count with Worker.start (here, on the page)")
             , button "spread" Spread (if st.workers then "Count in both workers, a part each" else "Count in parts with Worker.start (here, on the page)")
+            , button "tasks" InTasks (if st.workers then "Count in sixteen tasks with runPar" else "Count in sixteen tasks with runPar (here, on the page)")
             , button "fail" Fail "Run a job that fails"
             , HH.button [HP.id "terminate", HE.onClick (const Terminate)] [HH.text "Terminate the workers"]
             ]
@@ -277,6 +290,25 @@ component pool =
             Left (e :: JSError) -> pure (Left e.message, millis)
             Right counted -> do
               let spread = zipWith (\range (worker, count) -> Part {range, count, worker}) parts counted
+              modify (\st -> st {spread})
+              pure (Right (sum (map (.count) spread)), millis)
+      -- The range in sixteen tasks: traverse collects them, and runPar cuts
+      -- them into batches (four for each worker here, of two tasks each)
+      -- and gives the next batch to whichever worker has answered its
+      -- last; the counts come back in the parts' order. Where no worker
+      -- can be made the batches run here, one after the other.
+      InTasks -> do
+        inWorker <- gets (.workers)
+        measure (if inWorker then "in tasks" else "in tasks, here") size $ do
+          (result, millis) <- liftIO $ do
+            start <- getMonotonicTime
+            result <- try (runPar pool (traverse (task primesBetween) manyParts))
+            end <- getMonotonicTime
+            pure (result, (end - start) * 1000)
+          case result of
+            Left (e :: WorkerError) -> pure (Left e.message, millis)
+            Right counted -> do
+              let spread = zipWith (\range (worker, count) -> Part {range, count, worker}) manyParts counted
               modify (\st -> st {spread})
               pure (Right (sum (map (.count) spread)), millis)
       Fail -> measure "the failing job" size $ liftIO $ do

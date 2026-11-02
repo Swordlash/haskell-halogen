@@ -14,7 +14,9 @@
 // gives the same count, and the component draws no frame until it is done;
 // the range counted in four parts with Worker.start and mapConcurrently
 // comes back in order, from both of the pool's workers, while the page
-// draws, and on the page where no worker can be made; a slow count that
+// draws, and on the page where no worker can be made; the range counted in
+// sixteen tasks with Halogen.Worker.Par's runPar comes back in order, each
+// part's count right, from both workers; a slow count that
 // checkpoints stops soon after Cancel (its log of chunks, which the
 // workers' console relays to the page's, stops), a count that does not is
 // stopped at once by Kill, which ends its worker, and the pool's places
@@ -212,6 +214,41 @@ try {
       `ok  in both workers, a part each in turn: ${count} primes in ${ms(millis)}, the parts in order from workers ${parts.map((part) => part.worker).join(", ")}, the component drew ${drew} frames, the page showed ${run.shown} different counts`,
     );
     noErrors("counting in parts");
+  }
+
+  // The range in sixteen tasks, which runPar sends in batches to whichever
+  // worker is free: each part's count, against a sieve's, in the range's
+  // order, and both workers used.
+  {
+    const sixteenth = 2000000 / 16;
+    const composite = new Uint8Array(2000000);
+    for (let i = 2; i * i < 2000000; i++) if (!composite[i]) for (let j = i * i; j < 2000000; j += i) composite[j] = 1;
+    const primesIn = (from, to) => {
+      let n = 0;
+      for (let k = Math.max(2, from); k < to; k++) if (!composite[k]) n++;
+      return n;
+    };
+    const run = await runJob("tasks", "in tasks");
+    const { count, millis, drew } = counted(run.text);
+    assert.equal(count, expected, "the tasks' total");
+    const parts = await page.locator("#parts li").evaluateAll((items) =>
+      items.map((item) => ({ text: item.textContent, worker: item.dataset.worker })),
+    );
+    assert.equal(parts.length, 16, `a line for each task: ${JSON.stringify(parts)}`);
+    parts.forEach((part, index) => {
+      const from = index * sixteenth;
+      const to = from + sixteenth;
+      assert.ok(
+        part.text.startsWith(`${primesIn(from, to)} primes from ${from} up to ${to}, counted `),
+        `task ${index} in its place, with its count: ${part.text}`,
+      );
+    });
+    const used = [...new Set(parts.map((part) => part.worker))].sort();
+    assert.deepEqual(used, ["0", "1"], `the tasks were counted in both workers: ${JSON.stringify(parts)}`);
+    console.log(
+      `ok  runPar: ${count} primes in 16 tasks in ${ms(millis)}, in order, from workers ${parts.map((part) => part.worker).join("")}, the component drew ${drew} frames`,
+    );
+    noErrors("counting in tasks");
   }
 
   // The slow count logs each chunk it counts, and checkpoints after each.
