@@ -179,6 +179,8 @@ instance Inert Text where inert = Text.empty
 
 instance Inert (Maybe a) where inert = Nothing
 
+instance Inert ByteString where inert = ByteString.empty
+
 instance (Inert b) => Inert (a -> b) where inert = const inert
 
 instance (Inert a) => Inert (IO a) where inert = pure inert

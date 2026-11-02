@@ -17,7 +17,7 @@ flag wasi
   manual: True
 
 library
-  exposed-modules: Halogen.JSBits, Halogen.JSBits.Promise, Halogen.JSBits.Value
+  exposed-modules: Halogen.JSBits, Halogen.JSBits.Fields, Halogen.JSBits.Promise, Halogen.JSBits.Value
   hs-source-dirs: src
   default-language: GHC2021
   ghc-options: -Wall -Wextra -Wredundant-constraints -Wunused-packages

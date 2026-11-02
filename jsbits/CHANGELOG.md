@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+`Halogen.JSBits.Fields` binds the members of JavaScript objects as record
+fields, with the JavaScript inline in each import, so a type needs no `.js`
+file. `jsFields ''T [...]` writes a `HasField` instance for each member of
+`T` (a newtype over a `JSVal`): a `Fixed` member is read purely
+(`w.navigator`), a `Live` one in `IO` (`nav.onLine :: IO Bool`), a
+`Writable` one also has a field named with `_set` after it
+(`doc.title_set :: Text -> IO ()`), a `Method` holds the call
+(`history.go :: Int -> IO ()`) and an `Awaited` one the call and the wait for
+the Promise it returns, through `Halogen.JSBits.Promise.await`, throwing a
+rejection as a `JSError`. Strings, numbers, booleans, `Maybe` for `null` and
+`undefined`, newtypes over a `JSVal` and, for an awaited result, a
+`ByteString` cross as the FFI passes them. Natively every field is `inert`,
+or what `Natively` gives it. `jsFieldFunctions ''T [...]` writes the same
+fields as plain functions (`go :: History -> Int -> IO ()`, `setTitle` for
+`title_set`), for a module meant to be imported qualified; `jsCast` writes a
+checked cast that asks `instanceof`; `inlineJS` declares one import of an
+expression over `$1`, `$2`, ..., for constructors and static methods.
+
+`Inert` has an instance for `ByteString` (empty).
+
 The `wasi` flag builds inert browser bindings and checked Haskell values on
 WebAssembly, for standalone commands without JavaScript imports.
 

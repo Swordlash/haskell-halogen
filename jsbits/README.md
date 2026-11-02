@@ -53,6 +53,28 @@ $(browserJS ["jsbits/net.js"]
   [ ("js_fetch_text", "halogen_net_fetch_text", Unsafe, [t| JSText -> IO Promise |]) ])
 ```
 
+A plain property read or method call needs no `.js` file at all:
+`Halogen.JSBits.Fields.jsFields` writes a `HasField` instance for each member
+of a newtype over a `JSVal`, with the JavaScript inline in its import, so
+that `OverloadedRecordDot` reads it, and `jsFieldFunctions` writes the same
+members as plain functions, for a module imported qualified.
+
+```haskell
+$(jsFields ''Navigator [Live "onLine" [t| IO Bool |], Fixed "clipboard" [t| Maybe Clipboard |]])
+$(jsFields ''HTMLDocument [Writable "title" [t| IO Text |]])
+$(jsFields ''History [Method "go" [t| Int -> IO () |]])
+$(jsFields ''Blob [Awaited "text" [t| IO Text |]])
+```
+
+`Fixed` is read purely (`w.navigator`, so `w.navigator.onLine` chains),
+`Live` in `IO` each time, `Writable` also has a field `title_set :: Text ->
+IO ()` (no Web API name has `_set` in it), `Method` holds the call and
+`Awaited` holds the call and the wait for its Promise, throwing a rejection
+as a `JSError`. Natively every field is `inert`, unless `Natively` gives it
+an answer of its own. `jsCast` writes a checked cast (`instanceof`) giving
+`Maybe`, and `inlineJS` one import of an expression, for a constructor or a
+static method. haskell-halogen-core's `Web.*` modules are written with them.
+
 A `Safe` binding awaits the function's Promise. On WebAssembly that is an async
 import; on the JavaScript backend an `interruptible` one, whose rejection is
 thrown as an `IOError`. There it must return `IO ()`, and the module splicing it
