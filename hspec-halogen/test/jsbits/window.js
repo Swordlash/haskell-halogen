@@ -23,3 +23,17 @@ function halogen_window_set_visibility(state) {
 function halogen_window_restore_visibility() {
   delete document.visibilityState;
 }
+
+// Throw, as a page's function may: a binding to it must hand the exception
+// back to Haskell as a JSError rather than end the program.
+function halogen_window_throw(name) {
+  const error = new Error("thrown on purpose");
+  error.name = name;
+  throw error;
+}
+
+// Throw from a function that returns a value, to check the value path too.
+function halogen_window_throw_number(name) {
+  halogen_window_throw(name);
+  return 1;
+}

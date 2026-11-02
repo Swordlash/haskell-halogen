@@ -25,8 +25,20 @@ expression over `$1`, `$2`, ..., for constructors and static methods.
 
 `Inert` has an instance for `ByteString` (empty).
 
-`Halogen.JSBits.Promise.checkThrown` throws the exception a synchronous call
-caught, for the code `jsFields` writes.
+**Breaking: `Safety` is this package's own**, with three constructors:
+`Unsafe`, `Unchecked` and `Safe`. An `Unsafe` binding whose type ends in `IO`
+now catches what its JavaScript throws and throws it in Haskell as a
+`JSError`, which moved to `Halogen.JSBits.Value` (re-exported by
+`Halogen.JSBits` and `Halogen.JSBits.Promise`). On WebAssembly an exception
+out of a synchronous import cannot be caught in Haskell: it ends the program,
+whatever handler the caller has. The catching costs a small object and one
+more crossing per call, so `Unchecked` keeps the old behaviour, for a
+function that cannot throw for the values it is given and is called very
+often (core's DOM operations during a render). A binding of a pure type is
+not guarded. `Safety` was Template Haskell's before, so a module that
+imported it from `Language.Haskell.TH` imports it from `Halogen.JSBits` now.
+`checkThrown` (in `Halogen.JSBits.Value`) reads the outcome the generated
+code makes.
 
 The `wasi` flag builds inert browser bindings and checked Haskell values on
 WebAssembly, for standalone commands without JavaScript imports.

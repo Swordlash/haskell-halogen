@@ -104,8 +104,8 @@ import Data.List (intercalate, isSuffixOf, sortOn)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import GHC.Records (HasField (..))
-import Halogen.JSBits.Promise (Promise (..), await, checkThrown)
-import Halogen.JSBits.Value (Inert (..), JSText, JSVal, fromJSBytes, fromJSText, isNull, jsNull, jsValText, toJSText)
+import Halogen.JSBits.Promise (Promise (..), await)
+import Halogen.JSBits.Value (Inert (..), JSText, JSVal, checkThrown, fromJSBytes, fromJSText, isNull, jsNull, jsValText, toJSText)
 import Language.Haskell.TH
 import Language.Haskell.TH.Syntax (addModFinalizer)
 

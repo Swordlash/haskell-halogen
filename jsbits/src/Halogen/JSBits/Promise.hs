@@ -44,12 +44,10 @@ module Halogen.JSBits.Promise
   )
 where
 
-import Control.Exception (Exception (..), evaluate, throwIO)
+import Control.Exception (evaluate)
 import Control.Monad.IO.Class (MonadIO (..))
-import Data.Text (Text)
-import Data.Text qualified as Text
 import Halogen.JSBits (Safety (..), browserJS)
-import Halogen.JSBits.Value (Inert, JSText, JSVal, fromJSText, inBrowser)
+import Halogen.JSBits.Value (Inert, JSError (..), JSText, JSVal, checkThrown, fromJSText, inBrowser)
 
 -- | A JavaScript promise, or any value, which then stands for a promise that
 -- has resolved with it. Natively, where no engine makes one, a placeholder,
@@ -57,38 +55,21 @@ import Halogen.JSBits.Value (Inert, JSText, JSVal, fromJSText, inBrowser)
 newtype Promise = Promise JSVal
   deriving newtype (Inert)
 
--- | What a promise was rejected with: an @Error@'s @name@ and @message@ (a
--- @DOMException@ is one, so a @TypeError@ or an @AbortError@ keeps its
--- name). Anything else a promise is rejected with, a string say, has the
--- name @Error@ and itself, as a string, as its message.
---
--- Natively 'await' gives the name @NotInBrowserError@, since there is no
--- engine to run the work at all.
-data JSError = JSError
-  { name :: Text
-  , message :: Text
-  }
-  deriving stock (Eq, Show)
-
-instance Exception JSError where
-  displayException e = Text.unpack (e.name <> ": " <> e.message)
-
 -- The outcome of a wait is an object of jsbits/promise.js's, holding the
 -- promise until it settles and then what it settled with: the one awaited
 -- binding on the JavaScript backend may only return nothing (see
 -- 'browserJS'), so what it resolved with is read afterwards.
 $( browserJS
      ["jsbits/promise.js"]
-     [ ("js_outcome", "halogen_promise_outcome", Unsafe, [t|Promise -> IO JSVal|])
+     [ ("js_outcome", "halogen_promise_outcome", Unchecked, [t|Promise -> IO JSVal|])
      , ("js_settle", "halogen_promise_settle", Safe, [t|JSVal -> IO ()|])
-     , ("js_outcomes", "halogen_promise_outcomes", Unsafe, [t|IO JSVal|])
-     , ("js_push", "halogen_promise_push", Unsafe, [t|JSVal -> JSVal -> IO ()|])
+     , ("js_outcomes", "halogen_promise_outcomes", Unchecked, [t|IO JSVal|])
+     , ("js_push", "halogen_promise_push", Unchecked, [t|JSVal -> JSVal -> IO ()|])
      , ("js_settle_all", "halogen_promise_settle_all", Safe, [t|JSVal -> IO ()|])
-     , ("js_ok", "halogen_promise_ok", Unsafe, [t|JSVal -> IO Bool|])
-     , ("js_value", "halogen_promise_value", Unsafe, [t|JSVal -> IO JSVal|])
-     , ("js_name", "halogen_promise_name", Unsafe, [t|JSVal -> IO JSText|])
-     , ("js_message", "halogen_promise_message", Unsafe, [t|JSVal -> IO JSText|])
-     , ("js_sync_ok", "halogen_sync_ok", Unsafe, [t|JSVal -> IO Bool|])
+     , ("js_ok", "halogen_promise_ok", Unchecked, [t|JSVal -> IO Bool|])
+     , ("js_value", "halogen_promise_value", Unchecked, [t|JSVal -> IO JSVal|])
+     , ("js_name", "halogen_promise_name", Unchecked, [t|JSVal -> IO JSText|])
+     , ("js_message", "halogen_promise_message", Unchecked, [t|JSVal -> IO JSText|])
      ]
  )
 
@@ -142,22 +123,6 @@ outcomeOf outcome = do
       name <- fromJSText <$> js_name outcome
       message <- fromJSText <$> js_message outcome
       pure (Left JSError {name, message})
-
--- | Throw the JavaScript exception a synchronous call caught, as a
--- 'JSError'. The call is one that 'Halogen.JSBits.Fields.jsFields' writes:
--- its JavaScript returns @{ ok: true, value }@, or @{ ok: false, error }@
--- with what it caught, and this reads that. Natively it does nothing.
-checkThrown :: JSVal -> IO ()
-checkThrown outcome
-  | not inBrowser = pure ()
-  | otherwise = do
-      ok <- js_sync_ok outcome
-      if ok
-        then pure ()
-        else do
-          name <- fromJSText <$> js_name outcome
-          message <- fromJSText <$> js_message outcome
-          throwIO JSError {name, message}
 
 notInBrowser :: JSError
 notInBrowser = JSError {name = "NotInBrowserError", message = "there is no JavaScript engine here to run a promise"}

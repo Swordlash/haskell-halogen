@@ -1,5 +1,8 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE NoFieldSelectors #-}
 
 -- | The values a binding passes, under one name on every backend. This is
 -- where the backends differ, so that the modules declaring bindings need not:
@@ -30,11 +33,13 @@ module Halogen.JSBits.Value
   , invokeCallback
   , inBrowser
   , Inert (..)
+  , JSError (..)
+  , checkThrown
   )
 where
 
 import Control.Concurrent (ThreadId, myThreadId)
-import Control.Exception (finally, mask)
+import Control.Exception (Exception (..), finally, mask)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as ByteString
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
@@ -43,6 +48,7 @@ import Data.Text qualified as Text
 import System.IO.Unsafe (unsafePerformIO)
 
 #if !defined(HALOGEN_WASI) && (defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH))
+import Control.Exception (throwIO)
 import Data.ByteString.Internal qualified as ByteString (create)
 import Data.ByteString.Unsafe (unsafeUseAsCStringLen)
 import Data.Word (Word8)
@@ -163,6 +169,33 @@ freeCallback :: Callback -> IO ()
 -- | Call a callback from Haskell.
 invokeCallback :: Callback -> JSVal -> IO ()
 
+-- | A JavaScript exception, or what a promise was rejected with: an
+-- @Error@'s @name@ and @message@ (a @DOMException@ is one, so a
+-- @SyntaxError@ or an @AbortError@ keeps its name). Anything else thrown, a
+-- string say, has the name @Error@ and itself, as a string, as its message.
+--
+-- A synchronous binding ('Halogen.JSBits.browserJS''s @Unsafe@, and the
+-- fields "Halogen.JSBits.Fields" writes) throws it in 'IO' for an exception
+-- its JavaScript throws, and an awaited one for a rejection.
+data JSError = JSError
+  { name :: Text
+  , message :: Text
+  }
+  deriving stock (Eq, Show)
+
+instance Exception JSError where
+  displayException e = Text.unpack (e.name <> Text.pack ": " <> e.message)
+
+-- | Throw the exception a synchronous call caught, as a 'JSError'. The call
+-- is one the generated bindings make: its JavaScript returns
+-- @{ ok: true, value }@, or @{ ok: false, error }@ with what it caught, and
+-- this reads that. Natively it does nothing.
+--
+-- On WebAssembly an exception out of a synchronous import cannot be caught
+-- as a Haskell exception: it unwinds through the runtime and ends the
+-- program. So a binding catches it in JavaScript and hands it over this way.
+checkThrown :: JSVal -> IO ()
+
 -- | The value a native stub returns: nothing to report, nothing done.
 class Inert a where
   inert :: a
@@ -229,6 +262,25 @@ invokeCallback callback = js_invoke (unsafeCoerce callback)
 
 foreign import javascript unsafe "(($1, $2) => { $1($2); })" js_invoke :: JSVal -> JSVal -> IO ()
 
+checkThrown outcome = do
+  ok <- js_thrown_ok outcome
+  if ok
+    then pure ()
+    else do
+      name <- fromJSText <$> js_thrown_name outcome
+      message <- fromJSText <$> js_thrown_message outcome
+      throwIO JSError {name, message}
+
+foreign import javascript unsafe "((o) => { return o.ok === true; })" js_thrown_ok :: JSVal -> IO Bool
+
+foreign import javascript unsafe "((o) => { const e = o.error; return e !== null && typeof e === \"object\" && typeof e.name === \"string\" ? e.name : \"Error\"; })"
+  js_thrown_name :: JSVal -> IO JSText
+
+-- Turning a value into a string can itself throw (an object whose toString
+-- does); the message is then left empty.
+foreign import javascript unsafe "((o) => { const e = o.error; try { return e !== null && typeof e === \"object\" && typeof e.name === \"string\" ? String(e.message ?? \"\") : String(e); } catch (_) { return \"\"; } })"
+  js_thrown_message :: JSVal -> IO JSText
+
 instance Inert JSVal where inert = JS.jsNull
 #elif defined(wasm32_HOST_ARCH) && !defined(HALOGEN_WASI)
 inBrowser = True
@@ -270,6 +322,25 @@ foreign import javascript unsafe "$1.length" js_bytes_length :: JSVal -> IO Int
 
 foreign import javascript unsafe "new Uint8Array(__exports.memory.buffer, $2 >>> 0, $3).set($1)"
   js_bytes_into :: JSVal -> Ptr Word8 -> Int -> IO ()
+
+checkThrown outcome = do
+  ok <- js_thrown_ok outcome
+  if ok
+    then pure ()
+    else do
+      name <- fromJSText <$> js_thrown_name outcome
+      message <- fromJSText <$> js_thrown_message outcome
+      throwIO JSError {name, message}
+
+foreign import javascript unsafe "$1.ok === true" js_thrown_ok :: JSVal -> IO Bool
+
+foreign import javascript unsafe "((e) => e !== null && typeof e === \"object\" && typeof e.name === \"string\" ? e.name : \"Error\")($1.error)"
+  js_thrown_name :: JSVal -> IO JSText
+
+-- Turning a value into a string can itself throw (an object whose toString
+-- does); the message is then left empty.
+foreign import javascript unsafe "((e) => { try { return e !== null && typeof e === \"object\" && typeof e.name === \"string\" ? String(e.message ?? \"\") : String(e); } catch (_) { return \"\"; } })($1.error)"
+  js_thrown_message :: JSVal -> IO JSText
 
 type Callback = JSVal
 
@@ -320,6 +391,8 @@ foreign import javascript unsafe "null" js_null :: JSVal
 instance Inert JSVal where inert = js_null
 #else
 inBrowser = False
+
+checkThrown _ = pure ()
 
 type JSText = Text
 

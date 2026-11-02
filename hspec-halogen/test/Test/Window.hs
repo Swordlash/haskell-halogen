@@ -5,7 +5,7 @@ module Test.Window (spec) where
 import Data.IORef (IORef, newIORef, readIORef)
 import Example.Window qualified as Window
 import Halogen qualified as H
-import Halogen.JSBits (JSText, Safety (..), browserJS, toJSText)
+import Halogen.JSBits (JSError (..), JSText, Safety (..), browserJS, toJSText)
 import Halogen.VDom.DOM.Monad (MonadBrowserDOM, window)
 import Protolude hiding (find)
 import Test.Hspec.Halogen
@@ -18,6 +18,8 @@ $( browserJS
      [ ("js_dispatch", "halogen_window_dispatch", Unsafe, [t|JSText -> IO ()|])
      , ("js_set_visibility", "halogen_window_set_visibility", Unsafe, [t|JSText -> IO ()|])
      , ("js_restore_visibility", "halogen_window_restore_visibility", Unsafe, [t|IO ()|])
+     , ("js_throw", "halogen_window_throw", Unsafe, [t|JSText -> IO ()|])
+     , ("js_throw_number", "halogen_window_throw_number", Unsafe, [t|JSText -> IO Int|])
      ]
  )
 
@@ -73,6 +75,17 @@ spec m = do
     -- The component is still there, and heard none of it.
     find ui ".keys" >>= (`shouldHaveText` "")
     find ui ".online" >>= (`shouldHaveText` "")
+
+  it "gets what a binding's JavaScript throws as a JSError, and goes on" $ runPage $ do
+    -- On WebAssembly an exception out of a synchronous import would end the
+    -- program; an Unsafe binding catches it and throws it in Haskell.
+    thrown <- unsafeIOToPageM (try @JSError (js_throw (toJSText "OddError")))
+    either (.name) (const "no exception") thrown `shouldBe` "OddError"
+    thrownToo <- unsafeIOToPageM (try @JSError (js_throw_number (toJSText "OtherError")))
+    either (.name) (show) thrownToo `shouldBe` "OtherError"
+    -- The program goes on: the page still answers.
+    (_, ui) <- mountIt m
+    started ui
 
   it "hears nothing more once it is gone" $ runPage $ do
     (counter, ui) <- mountIt m

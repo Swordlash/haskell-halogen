@@ -20,15 +20,35 @@ import GHC.JS.Prim (fromJSString)
 #endif
 import Data.List (intercalate)
 import Halogen.JSBits.Value
-import Language.Haskell.TH
+import Language.Haskell.TH hiding (Safety (..))
+import Language.Haskell.TH qualified as TH
 import Language.Haskell.TH.Syntax (addDependentFile)
 import System.Directory (doesFileExist, makeAbsolute)
 import System.FilePath (takeDirectory, (</>))
 import System.IO.Unsafe (unsafePerformIO)
 
--- | Each binding names a Haskell function, a JavaScript function, its FFI
--- safety and its type. Safe imports await a Promise; unsafe ones return on
--- the spot. Callbacks and representation conversions stay backend-specific.
+-- | How a binding calls its JavaScript function.
+data Safety
+  = -- | A synchronous call, with what the function throws caught. A
+    -- binding whose type ends in 'IO' throws a JavaScript exception as a
+    -- 'JSError' the caller can catch. On WebAssembly an exception out of a
+    -- synchronous import otherwise ends the program, which no Haskell
+    -- handler can stop. The catching costs a small object and one more
+    -- crossing per call. A binding of a pure type is not guarded: its
+    -- function must not throw.
+    Unsafe
+  | -- | A synchronous call with nothing caught, for a function that cannot
+    -- throw for the values it is given and is called so often that the
+    -- catching would show: the DOM operations a render makes. An exception
+    -- out of it ends the program on WebAssembly.
+    Unchecked
+  | -- | A call that awaits the Promise the function returns.
+    Safe
+  deriving (Eq, Show)
+
+-- | Each binding names a Haskell function, a JavaScript function, its
+-- 'Safety' and its type. Callbacks and representation conversions stay
+-- backend-specific.
 --
 -- Source files are tracked as compilation dependencies and embedded once per
 -- splice. A NOINLINE unit CAF initializes a splice-specific Symbol-keyed API once. Keeping
@@ -49,7 +69,7 @@ wasmJS files bindings = do
   let names = [name | (_, name, _, _) <- bindings]
       body = namespace <> " = (() => {\n" <> intercalate "\n;\n" sources <> "\nreturn {" <> intercalate "," names <> "};})();"
       valueType = TupleT 0
-      loader = ForeignD (ImportF JavaScript Unsafe body load (AppT (ConT ''IO) valueType))
+      loader = ForeignD (ImportF JavaScript TH.Unsafe body load (AppT (ConT ''IO) valueType))
       cache =
         [ SigD api valueType
         , ValD (VarP api) (NormalB (AppE (VarE 'unsafePerformIO) (VarE load))) []
@@ -60,20 +80,83 @@ wasmJS files bindings = do
     raw <- newName (haskell <> "Raw")
     arguments <- mapM (const (newName "argument")) [1 .. arity ty]
     let call = namespace <> "." <> javascript <> "(" <> intercalate "," ["$" <> show n | n <- [1 .. length arguments]] <> ")"
-        expression = if safety == Safe then "await " <> call else call
-        foreignType = ty
         function = mkName haskell
-    pure
-      [ ForeignD (ImportF JavaScript safety expression raw foreignType)
-      , SigD function ty
-      , FunD function [Clause (map VarP arguments) (NormalB (InfixE (Just (VarE api)) (VarE 'seq) (Just (foldl AppE (VarE raw) (map VarE arguments))))) []]
-      ]
+        applied = foldl AppE (VarE raw) (map VarE arguments)
+        loaded e = InfixE (Just (VarE api)) (VarE 'seq) (Just e)
+    case guardedResult safety ty of
+      Nothing ->
+        let expression = if safety == Safe then "await " <> call else call
+         in pure
+              [ ForeignD (ImportF JavaScript (ffiSafety safety) expression raw ty)
+              , SigD function ty
+              , FunD function [Clause (map VarP arguments) (NormalB (loaded applied)) []]
+              ]
+      Just result -> do
+        (values, check) <- guarded "$1.value" haskell result
+        checked <- check (pure applied)
+        pure $
+          [ ForeignD (ImportF JavaScript TH.Unsafe (caught call) raw (withResult (ConT ''JSVal) ty))
+          , SigD function ty
+          , FunD function [Clause (map VarP arguments) (NormalB (loaded checked)) []]
+          ]
+            <> values
   pure (loader : cache <> concat declarations)
+
+-- The arguments a binding's type takes.
+arity :: Type -> Int
+arity (AppT (AppT ArrowT _) result) = 1 + arity result
+arity (SigT ty _) = arity ty
+arity _ = 0
+
+-- The type with its IO result replaced.
+withResult :: Type -> Type -> Type
+withResult new = \case
+  AppT (AppT ArrowT argument) result -> AppT (AppT ArrowT argument) (withResult new result)
+  _ -> AppT (ConT ''IO) new
+
+ffiSafety :: Safety -> TH.Safety
+ffiSafety = \case
+  Safe -> TH.Safe
+  _ -> TH.Unsafe
+
+-- The result of a binding whose JavaScript exception is caught: an 'Unsafe'
+-- one whose type ends in @IO r@.
+guardedResult :: Safety -> Type -> Maybe Type
+guardedResult safety ty
+  | safety /= Unsafe = Nothing
+  | otherwise = go ty
   where
-    arity :: Type -> Int
-    arity (AppT (AppT ArrowT _) result) = 1 + arity result
-    arity (SigT ty _) = arity ty
-    arity _ = 0
+    go = \case
+      AppT (AppT ArrowT _) rest -> go rest
+      SigT t _ -> go t
+      AppT (ConT io) result | io == ''IO -> Just result
+      _ -> Nothing
+
+-- A call, in JavaScript, made into an outcome object: @{ ok: true, value }@
+-- with what it returned, or @{ ok: false, error }@ with what it threw.
+caught :: String -> String
+caught call = "(() => { try { return { ok: true, value: " <> call <> " }; } catch (e) { return { ok: false, error: e }; } })()"
+
+-- What turns an outcome into the binding's result: 'checkThrown', which
+-- throws a caught exception, and for a result other than @()@ an import
+-- (of the JavaScript given) that reads the value with the FFI's conversion
+-- for its type. The outcome is made and read with nothing in between, so no
+-- other Haskell thread can see it.
+guarded :: String -> String -> Type -> Q ([Dec], Q Exp -> Q Exp)
+guarded readValue haskell result
+  | isUnit result = pure ([], \call -> [|$call >>= checkThrown|])
+  | otherwise = do
+      value <- newName (haskell <> "Value")
+      r <- newName "outcome"
+      pure
+        ( [ForeignD (ImportF JavaScript TH.Unsafe readValue value (AppT (AppT ArrowT (ConT ''JSVal)) (AppT (ConT ''IO) result)))]
+        , \call -> [|$call >>= \ $(varP r) -> checkThrown $(varE r) >> $(varE value) $(varE r)|]
+        )
+  where
+    isUnit = \case
+      TupleT 0 -> True
+      ConT u -> u == ''()
+      _ -> False
 
 -- | One list of bindings for every backend: on WebAssembly it is 'wasmJS'; on
 -- the JavaScript backend, where Cabal links the same files through
@@ -94,9 +177,22 @@ browserJS _ bindings = concat <$> forM bindings importByName
     importByName (haskell, javascript, safety, quotedType) = do
       ty <- quotedType
       let function = mkName haskell
-      if safety /= Safe
-        then pure [ForeignD (ImportF JavaScript safety javascript function ty)]
-        else do
+      case (safety, guardedResult safety ty) of
+        (Unsafe, Just result) -> do
+          raw <- newName (haskell <> "Raw")
+          arguments <- mapM (const (newName "argument")) [1 .. arity ty]
+          let names = ["a" <> show n | n <- [1 .. length arguments]]
+              wrapper = "((" <> intercalate ", " names <> ") => { return " <> caught (javascript <> "(" <> intercalate ", " names <> ")") <> "; })"
+          (values, check) <- guarded "((r) => { return r.value; })" haskell result
+          body <- check (pure (foldl AppE (VarE raw) (map VarE arguments)))
+          pure $
+            [ ForeignD (ImportF JavaScript TH.Unsafe wrapper raw (withResult (ConT ''JSVal) ty))
+            , SigD function ty
+            , FunD function [Clause (map VarP arguments) (NormalB body) []]
+            ]
+              <> values
+        _ | safety /= Safe -> pure [ForeignD (ImportF JavaScript TH.Unsafe javascript function ty)]
+        _ -> do
           unless (returnsUnit ty) $
             fail ("browserJS: the safe binding " <> haskell <> " must return IO () on the JavaScript backend")
           raw <- newName (haskell <> "Raw")
@@ -106,7 +202,7 @@ browserJS _ bindings = concat <$> forM bindings importByName
                 <> ").then(() => done(null), error => done(String(error?.message ?? error))); })"
           outcome <- newName "outcome"
           pure
-            [ ForeignD (ImportF JavaScript Interruptible wrapper raw (withResult (ConT ''JSVal) ty))
+            [ ForeignD (ImportF JavaScript TH.Interruptible wrapper raw (withResult (ConT ''JSVal) ty))
             , SigD function ty
             , FunD function
                 [ Clause (map VarP arguments)
@@ -120,13 +216,6 @@ browserJS _ bindings = concat <$> forM bindings importByName
       AppT (AppT ArrowT _) result -> returnsUnit result
       AppT (ConT io) (TupleT 0) -> io == ''IO
       _ -> False
-    -- The type with its IO result replaced.
-    withResult new = \case
-      AppT (AppT ArrowT argument) result -> AppT (AppT ArrowT argument) (withResult new result)
-      _ -> AppT (ConT ''IO) new
-    arity :: Type -> Int
-    arity (AppT (AppT ArrowT _) result) = 1 + arity result
-    arity _ = 0
 #elif defined(wasm32_HOST_ARCH) && !defined(HALOGEN_WASI)
 browserJS = wasmJS
 #else
