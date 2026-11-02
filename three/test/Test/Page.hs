@@ -12,7 +12,7 @@ module Test.Page
   )
 where
 
-import Halogen.JSBits (JSText, Safety (..), browserJS, toJSText)
+import Halogen.JSBits (JSText, JSVal, Safety (..), browserJS, toJSText)
 import Halogen.JSBits.Promise (Promise (..), await)
 import Protolude
 import System.IO.Error (userError)
@@ -28,7 +28,7 @@ $( browserJS
      [ ("js_drawn", "halogen_three_test_drawn", Unsafe, [t|IO Int|])
      , ("js_live", "halogen_three_test_live", Unsafe, [t|IO Int|])
      , ("js_color", "halogen_three_test_color", Unsafe, [t|JSText -> IO Int|])
-     , ("js_watch_disposals", "halogen_three_test_watch_disposals", Unsafe, [t|JSText -> IO Promise|])
+     , ("js_watch_disposals", "halogen_three_test_watch_disposals", Unsafe, [t|JSText -> IO (Promise JSVal)|])
      , ("js_disposed_geometries", "halogen_three_test_disposed_geometries", Unsafe, [t|IO Int|])
      , ("js_disposed_materials", "halogen_three_test_disposed_materials", Unsafe, [t|IO Int|])
      ]

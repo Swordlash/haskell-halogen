@@ -9,18 +9,21 @@ module Main (main) where
 
 import Control.Concurrent (forkIO, newEmptyMVar, putMVar, takeMVar)
 import Control.Monad (unless)
+import Data.Text (Text)
 import Halogen.JSBits (JSText, JSVal, Safety (..), browserJS, inBrowser, jsValText, toJSText)
 import Halogen.JSBits.Promise (JSError (..), Promise (..), await, awaitAll)
 import System.IO (BufferMode (..), hSetBuffering, stdout)
 
 $( browserJS
      ["test/promise.js"]
-     [ ("text", "halogen_promise_test_text", Unsafe, [t|Int -> JSText -> IO Promise|])
-     , ("number", "halogen_promise_test_number", Unsafe, [t|Int -> Int -> IO Promise|])
-     , ("failing", "halogen_promise_test_error", Unsafe, [t|Int -> JSText -> JSText -> IO Promise|])
-     , ("rejectWithText", "halogen_promise_test_reject_with", Unsafe, [t|Int -> JSText -> IO Promise|])
-     , ("rejectWithNumber", "halogen_promise_test_reject_with", Unsafe, [t|Int -> Int -> IO Promise|])
-     , ("plain", "halogen_promise_test_plain", Unsafe, [t|JSText -> IO Promise|])
+     [ ("text", "halogen_promise_test_text", Unsafe, [t|Int -> JSText -> IO (Promise JSVal)|])
+     , ("number", "halogen_promise_test_number", Unsafe, [t|Int -> Int -> IO (Promise JSVal)|])
+     , ("failing", "halogen_promise_test_error", Unsafe, [t|Int -> JSText -> JSText -> IO (Promise JSVal)|])
+     , ("rejectWithText", "halogen_promise_test_reject_with", Unsafe, [t|Int -> JSText -> IO (Promise JSVal)|])
+     , ("rejectWithNumber", "halogen_promise_test_reject_with", Unsafe, [t|Int -> Int -> IO (Promise JSVal)|])
+     , ("plain", "halogen_promise_test_plain", Unsafe, [t|JSText -> IO (Promise JSVal)|])
+     , ("typedText", "halogen_promise_test_text", Unsafe, [t|Int -> JSText -> IO (Promise Text)|])
+     , ("typedNumber", "halogen_promise_test_number", Unsafe, [t|Int -> Int -> IO (Promise Int)|])
      , ("readNumber", "halogen_promise_test_read_number", Unsafe, [t|JSVal -> IO Int|])
      , ("isString", "halogen_promise_test_is_string", Unsafe, [t|JSVal -> IO Bool|])
      ]
@@ -37,6 +40,10 @@ inEngine = do
   resolved <- await =<< text 20 (toJSText "done")
   check "a resolved promise gives its value" =<< isText "done" resolved
   checkNumber "a number comes back as it went" 42 =<< (await =<< number 10 42)
+  typed <- await =<< typedText 10 (toJSText "typed")
+  check "a Promise Text resolves with its text" (typed == Right "typed")
+  typedN <- await =<< typedNumber 10 41
+  check "a Promise Int resolves with its number" (typedN == Right 41)
 
   failed <- await =<< failing 10 (toJSText "NotFoundError") (toJSText "no such thing")
   check "an Error's rejection gives its name and message" (failed `isError` JSError "NotFoundError" "no such thing")
@@ -57,7 +64,7 @@ inEngine = do
       check "awaitAll gives the second outcome second" (second `isError` JSError "TypeError" "second")
       check "awaitAll gives the third outcome third" =<< isText "third" third
     _ -> failure ("awaitAll gives one outcome for each promise, not " <> show (length outcomes))
-  check "awaitAll of nothing gives nothing" . null =<< awaitAll []
+  check "awaitAll of nothing gives nothing" . null =<< awaitAll ([] :: [Promise JSVal])
 
   shared <- number 20 5
   checkNumber "the first await of a promise gets its value" 5 =<< await shared

@@ -17,6 +17,7 @@ import Data.MediaType (MediaType (..))
 import HPrelude
 import Halogen.JSBits (Inert, JSText, JSVal, toJSBytes, toJSText)
 import Halogen.JSBits.Fields (Member (..), inlineJS, jsFieldFunctions, jsFields)
+import Halogen.JSBits.Promise (Promise (..))
 
 -- | A @Blob@: bytes the browser holds, which a page reads asynchronously
 -- and can hand to the browser by address ("Web.URL"'s 'Web.URL.createObjectURL').
@@ -29,10 +30,10 @@ $( jsFields
        Fixed "size" [t|Double|]
      , -- Its media type, or empty when nobody gave one.
        Fixed "type" [t|Text|]
-     , -- Its bytes read as UTF-8 text.
-       Awaited "text" [t|IO Text|]
-     , -- Its bytes, copied out (@Blob.bytes()@).
-       Awaited "bytes" [t|IO ByteString|]
+     , -- Its bytes read as UTF-8 text, once the promise resolves.
+       Method "text" [t|IO (Promise Text)|]
+     , -- Its bytes, copied out (@Blob.bytes()@), once the promise resolves.
+       Method "bytes" [t|IO (Promise ByteString)|]
      ]
  )
 

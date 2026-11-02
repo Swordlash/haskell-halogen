@@ -63,14 +63,15 @@ members as plain functions, for a module imported qualified.
 $(jsFields ''Navigator [Live "onLine" [t| IO Bool |], Fixed "clipboard" [t| Maybe Clipboard |]])
 $(jsFields ''HTMLDocument [Writable "title" [t| IO Text |]])
 $(jsFields ''History [Method "go" [t| Int -> IO () |]])
-$(jsFields ''Blob [Awaited "text" [t| IO Text |]])
+$(jsFields ''Blob [Method "text" [t| IO (Promise Text) |]])
 ```
 
 `Fixed` is read purely (`w.navigator`, so `w.navigator.onLine` chains),
 `Live` in `IO` each time, `Writable` also has a field `title_set :: Text ->
-IO ()` (no Web API name has `_set` in it), `Method` holds the call and
-`Awaited` holds the call and the wait for its Promise, throwing a rejection
-as a `JSError`. Natively every field is `inert`, unless `Natively` gives it
+IO ()` (no Web API name has `_set` in it), and `Method` holds the call; a
+method that returns a Promise gives it typed (`Promise Text`), for the caller
+to `await`. What a member's JavaScript throws comes back as a `JSError`.
+Natively every field is `inert`, unless `Natively` gives it
 an answer of its own. `jsCast` writes a checked cast (`instanceof`) giving
 `Maybe`, and `inlineJS` one import of an expression, for a constructor or a
 static method. haskell-halogen-core's `Web.*` modules are written with them.

@@ -23,8 +23,10 @@ import Data.Aeson (object, (.=))
 import Data.Foreign (toForeign)
 import Data.MediaType (MediaType (..))
 import Data.Text (Text)
+import Data.Either (isLeft)
 import Halogen.JSBits (Inert (..))
-import Test.Hspec (Spec, describe, it, shouldBe, shouldReturn)
+import Halogen.JSBits.Promise (await)
+import Test.Hspec (Spec, describe, it, shouldBe, shouldReturn, shouldSatisfy)
 import Web.DOM.Element qualified as Element
 import Web.DOM.Internal.Types (Element, HTMLDocument, Window)
 import Web.Event.CustomEvent qualified as CustomEvent
@@ -82,12 +84,12 @@ spec = describe "Web fields, natively" $ do
     (inert :: FileList).item 0 >>= (`shouldBe` True) . null
     FileList.items inert >>= (`shouldBe` 0) . length
 
-  it "awaits nothing for a method that returns a promise" $ do
-    doc.exitFullscreen
-    (inert :: File).bytes `shouldReturn` mempty
+  it "gives a promise that waits for nothing and resolves with nothing" $ do
+    (doc.exitFullscreen >>= await) >>= (`shouldSatisfy` isLeft)
+    ((inert :: File).bytes >>= await) >>= (`shouldSatisfy` isLeft)
     blob <- Blob.fromBytes "hello" (MediaType "text/plain")
-    blob.text `shouldReturn` ""
-    File.text inert `shouldReturn` ""
+    (blob.text >>= await) >>= (`shouldSatisfy` isLeft)
+    (File.text inert >>= await) >>= (`shouldSatisfy` isLeft)
 
   it "casts nothing" $ do
     null (KE.fromEvent ev) `shouldBe` True

@@ -245,7 +245,7 @@ $( browserJS
      , ("js_idb_batch_put", "halogen_idb_batch_put", Unsafe, [t|JSVal -> JSText -> JSText -> JSVal -> IO ()|])
      , ("js_idb_batch_delete", "halogen_idb_batch_delete", Unsafe, [t|JSVal -> JSText -> JSText -> IO ()|])
      , ("js_idb_delete_database", "halogen_idb_delete_database", Unsafe, [t|JSText -> IO JSVal|])
-     , ("js_idb_run", "halogen_idb_run", Unsafe, [t|JSVal -> IO Promise|])
+     , ("js_idb_run", "halogen_idb_run", Unsafe, [t|JSVal -> IO (Promise JSVal)|])
      , ("js_idb_length", "halogen_idb_length", Unsafe, [t|JSVal -> IO Int|])
      , ("js_idb_index", "halogen_idb_index", Unsafe, [t|JSVal -> Int -> IO JSVal|])
      ]

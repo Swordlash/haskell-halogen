@@ -83,3 +83,17 @@ function halogen_promise_name(outcome) {
 function halogen_promise_message(outcome) {
   return outcome.message;
 }
+
+// A resolved value read as a number or a boolean: the FFI converts what an
+// import returns, so each type has an import over this.
+function halogen_promise_number(value) {
+  return Number(value);
+}
+
+function halogen_promise_boolean(value) {
+  return value === true;
+}
+
+function halogen_promise_absent(value) {
+  return value === null || value === undefined;
+}

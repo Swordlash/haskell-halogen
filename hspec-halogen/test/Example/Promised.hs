@@ -16,7 +16,7 @@ import Halogen qualified as H
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
-import Halogen.JSBits (JSText, Safety (..), browserJS, jsValText, toJSText)
+import Halogen.JSBits (JSText, JSVal, Safety (..), browserJS, jsValText, toJSText)
 import Halogen.JSBits.Promise (JSError (..), Promise (..), await)
 import Protolude hiding (State)
 
@@ -25,14 +25,14 @@ import Protolude hiding (State)
 -- there.
 $( browserJS
      ["test/jsbits/promised.js"]
-     [ ("js_later", "halogen_promised_later", Unsafe, [t|Int -> JSText -> IO Promise|])
-     , ("js_failing", "halogen_promised_failing", Unsafe, [t|Int -> IO Promise|])
+     [ ("js_later", "halogen_promised_later", Unsafe, [t|Int -> JSText -> IO (Promise JSVal)|])
+     , ("js_failing", "halogen_promised_failing", Unsafe, [t|Int -> IO (Promise JSVal)|])
      ]
  )
 
 data State = State
   { delayMs :: Int
-  , pending :: Maybe Promise
+  , pending :: Maybe (Promise JSVal)
   , result :: Text
   , ticks :: Int
   }

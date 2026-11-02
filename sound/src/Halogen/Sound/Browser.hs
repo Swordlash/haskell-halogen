@@ -26,7 +26,7 @@ import Protolude
 -- wait there.
 $( browserJS
      ["jsbits/sound.js"]
-     [ ("js_fetch", "halogen_sound_fetch", Unsafe, [t|JSText -> IO Promise|])
+     [ ("js_fetch", "halogen_sound_fetch", Unsafe, [t|JSText -> IO (Promise JSVal)|])
      , ("js_release", "halogen_sound_release", Unsafe, [t|JSVal -> IO ()|])
      , ("js_start", "halogen_sound_start", Unsafe, [t|JSVal -> Double -> Bool -> Bool -> Double -> Callback -> Callback -> IO JSVal|])
      , ("js_stop", "halogen_sound_stop", Unsafe, [t|JSVal -> IO ()|])

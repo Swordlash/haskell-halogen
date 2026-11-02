@@ -51,7 +51,7 @@ import Halogen qualified as H
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
-import Halogen.JSBits (Callback, Safety (..), browserJS, freeCallback, jsValText, mkSyncCallback)
+import Halogen.JSBits (Callback, JSVal, Safety (..), browserJS, freeCallback, jsValText, mkSyncCallback)
 import Halogen.JSBits.Promise (Promise (..), await)
 import Halogen.Router qualified as Router
 import Protolude hiding (State)
@@ -64,7 +64,7 @@ import Web.UIEvent.MouseEvent (MouseEvent, toEvent)
 $( browserJS
      ["test/jsbits/busy.js"]
      [ ("js_click_link", "halogen_busy_click_link", Unsafe, [t|Int -> IO Int|])
-     , ("js_release_then_click", "halogen_busy_release_then_click", Unsafe, [t|Callback -> Int -> IO Promise|])
+     , ("js_release_then_click", "halogen_busy_release_then_click", Unsafe, [t|Callback -> Int -> IO (Promise JSVal)|])
      ]
  )
 

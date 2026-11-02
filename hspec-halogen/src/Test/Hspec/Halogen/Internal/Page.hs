@@ -58,10 +58,10 @@ $( browserJS
      , ("js_remove", "halogen_test_remove", Unsafe, [t|JSVal -> IO ()|])
      , ("js_query_selector", "halogen_test_query_selector", Unsafe, [t|Element -> JSText -> IO JSVal|])
      , ("js_query_selector_all", "halogen_test_query_selector_all", Unsafe, [t|Element -> JSText -> IO JSVal|])
-     , ("js_act", "halogen_test_act", Unsafe, [t|JSText -> Element -> JSText -> IO Promise|])
-     , ("js_drag", "halogen_test_drag", Unsafe, [t|Element -> Element -> IO Promise|])
-     , ("js_press", "halogen_test_press", Unsafe, [t|JSText -> IO Promise|])
-     , ("js_settle", "halogen_test_settle", Unsafe, [t|IO Promise|])
+     , ("js_act", "halogen_test_act", Unsafe, [t|JSText -> Element -> JSText -> IO (Promise JSVal)|])
+     , ("js_drag", "halogen_test_drag", Unsafe, [t|Element -> Element -> IO (Promise JSVal)|])
+     , ("js_press", "halogen_test_press", Unsafe, [t|JSText -> IO (Promise JSVal)|])
+     , ("js_settle", "halogen_test_settle", Unsafe, [t|IO (Promise JSVal)|])
      , ("js_focus", "halogen_test_focus", Unsafe, [t|Element -> IO ()|])
      , ("js_blur", "halogen_test_blur", Unsafe, [t|Element -> IO ()|])
      , ("js_text_content", "halogen_test_text_content", Unsafe, [t|Element -> IO JSText|])
@@ -188,7 +188,7 @@ isConnected = js_is_connected
 -- failed with (a Playwright action the runner could not perform, say) as a
 -- 'Halogen.JSBits.Promise.JSError', which fails the test with its name and
 -- message. Natively nothing was started, and there is nothing to wait for.
-awaitJS :: IO Promise -> IO ()
+awaitJS :: IO (Promise JSVal) -> IO ()
 awaitJS start
   | not JSBits.inBrowser = pass
   | otherwise = start >>= await >>= either throwIO (const pass)

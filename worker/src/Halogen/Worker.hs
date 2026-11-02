@@ -62,7 +62,7 @@ $( browserJS
      ["jsbits/worker.js"]
      [ ("js_available", "halogen_worker_available", Unsafe, [t|JSText -> IO Bool|])
      , ("js_pool", "halogen_worker_pool", Unsafe, [t|Int -> JSText -> IO JSVal|])
-     , ("js_run", "halogen_worker_run", Unsafe, [t|JSVal -> JSText -> JSText -> IO Promise|])
+     , ("js_run", "halogen_worker_run", Unsafe, [t|JSVal -> JSText -> JSText -> IO (Promise JSVal)|])
      , ("js_terminate", "halogen_worker_terminate", Unsafe, [t|JSVal -> IO ()|])
      , ("js_in_worker", "halogen_worker_in_worker", Unsafe, [t|IO Bool|])
      , ("js_listen", "halogen_worker_listen", Unsafe, [t|Callback -> IO ()|])

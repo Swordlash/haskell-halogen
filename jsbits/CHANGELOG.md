@@ -9,14 +9,13 @@ file. `jsFields ''T [...]` writes a `HasField` instance for each member of
 (`w.navigator`), a `Live` one in `IO` (`nav.onLine :: IO Bool`), a
 `Writable` one also has a field named with `_set` after it
 (`doc.title_set :: Text -> IO ()`), a `Method` holds the call
-(`history.go :: Int -> IO ()`) and an `Awaited` one the call and the wait for
-the Promise it returns, through `Halogen.JSBits.Promise.await`, throwing a
-rejection as a `JSError`. A JavaScript exception out of a `Live`,
+(`history.go :: Int -> IO ()`; one that returns a Promise gives it as a typed
+`Promise a`). A JavaScript exception out of a `Live`,
 `Writable` or `Method` member is thrown as a `JSError` too, so the caller
 catches it as any `IO` exception (on WebAssembly an exception out of a
 synchronous import would otherwise end the program). Strings, numbers, booleans, `Maybe` for `null` and
-`undefined`, newtypes over a `JSVal` and, for an awaited result, a
-`ByteString` cross as the FFI passes them. Natively every field is `inert`,
+`undefined`, newtypes over a `JSVal`, a `ByteString` result and a
+`Promise a` cross as the FFI passes them. Natively every field is `inert`,
 or what `Natively` gives it. `jsFieldFunctions ''T [...]` writes the same
 fields as plain functions (`go :: History -> Int -> IO ()`, `setTitle` for
 `title_set`), for a module meant to be imported qualified; `jsCast` writes a
@@ -24,6 +23,13 @@ checked cast that asks `instanceof`; `inlineJS` declares one import of an
 expression over `$1`, `$2`, ..., for constructors and static methods.
 
 `Inert` has an instance for `ByteString` (empty).
+
+**Breaking: `Promise` takes the type of what it resolves with**, `Promise a`,
+and `await :: Promise a -> m (Either JSError a)` reads the resolved value as
+that type through the new class `FromJS` (`JSVal`, `()`, `Text`,
+`ByteString`, `Int`, `Double`, `Bool`, `Maybe a` for `null` and `undefined`;
+a newtype over a `JSVal` derives it). `Promise JSVal` is the old behaviour.
+`awaitOrThrow` throws a rejection instead of returning it.
 
 **Breaking: `Safety` is this package's own**, with three constructors:
 `Unsafe`, `Unchecked` and `Safe`. An `Unsafe` binding whose type ends in `IO`

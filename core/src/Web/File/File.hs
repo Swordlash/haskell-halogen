@@ -18,6 +18,7 @@ import Data.Foreign (Foreign)
 import HPrelude
 import Halogen.JSBits (Inert)
 import Halogen.JSBits.Fields (Member (..), jsFieldFunctions, jsFields)
+import Halogen.JSBits.Promise (Promise (..))
 import Web.File.Blob (Blob (..))
 
 -- | A @File@, from a 'Web.File.FileList.FileList'.
@@ -41,10 +42,10 @@ $( jsFields
        Fixed "size" [t|Double|]
      , -- When it was last changed, in milliseconds since 1970.
        Fixed "lastModified" [t|Double|]
-     , -- Its bytes read as UTF-8 text.
-       Awaited "text" [t|IO Text|]
-     , -- Its bytes, copied out.
-       Awaited "bytes" [t|IO ByteString|]
+     , -- Its bytes read as UTF-8 text, once the promise resolves.
+       Method "text" [t|IO (Promise Text)|]
+     , -- Its bytes, copied out, once the promise resolves.
+       Method "bytes" [t|IO (Promise ByteString)|]
      ]
  )
 

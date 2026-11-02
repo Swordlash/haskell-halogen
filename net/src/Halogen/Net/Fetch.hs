@@ -174,7 +174,7 @@ data Mode
 -- @AbortController@ it was started with, and the promise of its response.
 data Fetch = Fetch
   { handle :: JSVal
-  , promise :: Promise
+  , promise :: (Promise JSVal)
   }
 
 -- | A response, once its status and headers have arrived, read through its
@@ -225,15 +225,15 @@ $( browserJS
      , ("js_header", "halogen_net_fetch_header", Unsafe, [t|JSVal -> JSText -> JSText -> IO ()|])
      , ("js_text_body", "halogen_net_fetch_body", Unsafe, [t|JSVal -> JSText -> IO ()|])
      , ("js_bytes_body", "halogen_net_fetch_body", Unsafe, [t|JSVal -> JSVal -> IO ()|])
-     , ("js_start", "halogen_net_fetch_start", Unsafe, [t|JSVal -> IO Promise|])
+     , ("js_start", "halogen_net_fetch_start", Unsafe, [t|JSVal -> IO (Promise JSVal)|])
      , ("js_abort", "halogen_net_fetch_abort", Unsafe, [t|JSVal -> IO ()|])
      , ("js_status", "halogen_net_response_status", Unsafe, [t|JSVal -> IO Int|])
      , ("js_status_text", "halogen_net_response_status_text", Unsafe, [t|JSVal -> IO JSText|])
      , ("js_ok", "halogen_net_response_ok", Unsafe, [t|JSVal -> IO Bool|])
      , ("js_url", "halogen_net_response_url", Unsafe, [t|JSVal -> IO JSText|])
      , ("js_headers", "halogen_net_response_headers", Unsafe, [t|JSVal -> IO JSText|])
-     , ("js_text", "halogen_net_response_text", Unsafe, [t|JSVal -> IO Promise|])
-     , ("js_bytes", "halogen_net_response_bytes", Unsafe, [t|JSVal -> IO Promise|])
+     , ("js_text", "halogen_net_response_text", Unsafe, [t|JSVal -> IO (Promise JSVal)|])
+     , ("js_bytes", "halogen_net_response_bytes", Unsafe, [t|JSVal -> IO (Promise JSVal)|])
      ]
  )
 
@@ -287,7 +287,7 @@ waitFor owner started = traverse (responseOf owner) =<< await started.promise
 -- | Wait for the body, aborting the request of a response that owns it if
 -- the wait is killed. Masked until the wait has begun, so that no kill comes
 -- between starting the read and being ready to abort.
-reading :: Response -> IO Promise -> IO (Either JSError JSVal)
+reading :: Response -> IO (Promise JSVal) -> IO (Either JSError JSVal)
 reading r begin = bracketOnError begin (const (traverse_ abort r.owner)) await
 
 responseOf :: Maybe Fetch -> JSVal -> IO Response

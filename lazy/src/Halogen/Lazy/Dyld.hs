@@ -66,9 +66,9 @@ import Protolude
 $( browserJS
      ["jsbits/lazy.js"]
      [ ("js_available", "halogen_lazy_available", Unsafe, [t|IO Bool|])
-     , ("js_load", "halogen_lazy_load", Unsafe, [t|JSText -> JSText -> JSText -> IO Promise|])
+     , ("js_load", "halogen_lazy_load", Unsafe, [t|JSText -> JSText -> JSText -> IO (Promise JSVal)|])
      , ("js_number", "halogen_lazy_number", Unsafe, [t|JSVal -> IO Int|])
-     , ("js_abandon", "halogen_lazy_abandon", Unsafe, [t|Promise -> IO ()|])
+     , ("js_abandon", "halogen_lazy_abandon", Unsafe, [t|(Promise JSVal) -> IO ()|])
      ]
  )
 

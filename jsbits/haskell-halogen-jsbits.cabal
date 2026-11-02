@@ -52,7 +52,7 @@ test-suite jsbits-promise-test
   hs-source-dirs: test
   default-language: GHC2021
   ghc-options: -Wall -Wextra -Wredundant-constraints -Wunused-packages
-  build-depends: base, haskell-halogen-jsbits
+  build-depends: base, haskell-halogen-jsbits, text
   if arch(javascript)
     js-sources: test/promise.js
   if arch(wasm32)

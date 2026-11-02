@@ -25,6 +25,7 @@ import Data.Foreign (Foreign)
 import HPrelude hiding (Location)
 import Halogen.JSBits (Callback, Inert)
 import Halogen.JSBits.Fields (Member (..), jsFields)
+import Halogen.JSBits.Promise (Promise (..))
 import Unsafe.Coerce (unsafeCoerce)
 import Web.Console (Console (..))
 import Web.Crypto (Crypto (..))
@@ -109,7 +110,7 @@ $( jsFields
        Method "querySelector" [t|Text -> IO (Maybe Element)|]
      , Method "getElementById" [t|Text -> IO (Maybe Element)|]
      , -- Leave full screen. Rejected when nothing is full screen.
-       Awaited "exitFullscreen" [t|IO ()|]
+       Method "exitFullscreen" [t|IO (Promise ())|]
      ]
  )
 

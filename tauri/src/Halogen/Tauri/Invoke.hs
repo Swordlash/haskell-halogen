@@ -83,12 +83,13 @@ import Control.Monad.IO.Class (MonadIO (..))
 import Data.Aeson (FromJSON, ToJSON, Value (..))
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Text (Text)
+import Halogen.JSBits (JSVal)
 import Halogen.JSBits.Promise (Promise)
 import Halogen.Tauri.Internal
 
 -- | A command under way, from 'start': the promise of its result, or
 -- nothing outside Tauri, where nothing was sent.
-newtype Invocation = Invocation (Maybe Promise)
+newtype Invocation = Invocation (Maybe (Promise JSVal))
 
 -- | Call the command and wait for its result, decoded. Call it from
 -- @lift@; see /Waiting/ above for what killing the wait does.

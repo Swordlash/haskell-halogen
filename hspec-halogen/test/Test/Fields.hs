@@ -12,7 +12,7 @@ import Data.MediaType (MediaType (..))
 import Data.Text qualified as T
 import Halogen.JSBits (JSText, toJSText)
 import Halogen.JSBits.Fields (inlineJS)
-import Halogen.JSBits.Promise (JSError (..))
+import Halogen.JSBits.Promise (JSError (..), await, awaitOrThrow)
 import Halogen.VDom.DOM.Monad (MonadBrowserDOM, window)
 import Protolude
 import Test.Hspec.Halogen
@@ -72,13 +72,13 @@ spec m = do
     inPage (\w -> if w.isSecureContext then T.length <$> w.crypto.randomUUID else pure 36) `shouldReturn` 36
 
   it "awaits the Promise a method returns" $ runPage $ do
-    inPage (const (newFile >>= (.text))) `shouldReturn` "hello"
-    inPage (const (newFile >>= (.bytes))) `shouldReturn` "hello"
-    inPage (const (Blob.fromBytes "bytes" (MediaType "text/plain") >>= Blob.text)) `shouldReturn` "bytes"
+    inPage (const (newFile >>= (.text) >>= awaitOrThrow)) `shouldReturn` "hello"
+    inPage (const (newFile >>= (.bytes) >>= awaitOrThrow)) `shouldReturn` "hello"
+    inPage (const (Blob.fromBytes "bytes" (MediaType "text/plain") >>= Blob.text >>= await)) `shouldReturn` Right "bytes"
 
-  it "throws the rejection of a Promise it awaits" $ runPage $ do
+  it "gives back the rejection of a Promise it awaits" $ runPage $ do
     -- Nothing is full screen, so leaving full screen is rejected.
-    outcome <- inPage (\w -> try @JSError w.document.exitFullscreen)
+    outcome <- inPage (\w -> w.document.exitFullscreen >>= await)
     outcome `shouldSatisfy` isLeft
 
   it "throws a JavaScript exception out of a method as a JSError" $ runPage $ do

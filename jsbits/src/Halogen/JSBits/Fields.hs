@@ -27,7 +27,7 @@
 --
 -- = The kinds of member
 --
--- A member is one of five things, and its constructor says which:
+-- A member is one of four things, and its constructor says which:
 --
 -- ['Fixed'] A value that does not change while the object lives, read
 --   purely: @w.navigator :: Navigator@, @e.key :: Text@. Objects that a
@@ -45,12 +45,10 @@
 --   field is read-only.
 --
 -- ['Method'] A method, as a field holding the call: @history.go :: Int ->
---   IO ()@, @crypto.randomUUID :: IO Text@.
---
--- ['Awaited'] A method that returns a Promise, as a field holding the call
---   and the wait for the Promise: @blob.text :: IO Text@. A rejection is
---   thrown as a 'Halogen.JSBits.Promise.JSError', and so is an exception
---   the method throws before it returns its Promise.
+--   IO ()@, @crypto.randomUUID :: IO Text@. A method that returns a Promise
+--   gives it typed with what it resolves with, for the caller to await:
+--   @blob.text :: IO (Promise Text)@, then
+--   @'Halogen.JSBits.Promise.await' =<< blob.text@.
 --
 -- A member whose JavaScript name is a Haskell keyword gets an underscore
 -- after its field name: @File@'s @type@ is @f.type_@.
@@ -60,9 +58,9 @@
 -- A member's type is built from 'Bool', 'Int', 'Double', 'Text', 'JSVal',
 -- a newtype over a 'JSVal' (an object, such as @Navigator@), and 'Maybe'
 -- around 'Text', a 'JSVal' or such a newtype, which reads JavaScript's
--- @null@ and @undefined@ as 'Nothing'. An 'IO' result can also be @()@, and
--- an 'Awaited' one a 'Data.ByteString.ByteString' (a @Uint8Array@ copied
--- out). As for any foreign import, the constructor of each newtype in the
+-- @null@ and @undefined@ as 'Nothing'. An 'IO' result can also be @()@, a
+-- 'Data.ByteString.ByteString' (a @Uint8Array@ copied out), or a
+-- @'Halogen.JSBits.Promise.Promise' a@. As for any foreign import, the constructor of each newtype in the
 -- type must be in scope where the splice is.
 --
 -- Natively a member's type needs an 'Inert' instance; a newtype over a
@@ -79,8 +77,8 @@
 -- Without that, a JavaScript exception out of a synchronous import would end
 -- the program on WebAssembly, where it cannot be caught as a Haskell
 -- exception. A 'Fixed' member is read purely and is not guarded: it is for
--- values whose read does not throw. An 'Awaited' member throws a rejection
--- the same way, and so what its method throws before returning its Promise.
+-- values whose read does not throw. A Promise's rejection comes back from
+-- 'Halogen.JSBits.Promise.await' as a 'Left'.
 --
 -- = Where instances go
 --
@@ -95,7 +93,6 @@ module Halogen.JSBits.Fields
   )
 where
 
-import Control.Exception (throwIO)
 import Control.Monad (forM, when)
 import Data.ByteString (ByteString)
 import Data.Char (toUpper)
@@ -104,7 +101,7 @@ import Data.List (intercalate, isSuffixOf, sortOn)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import GHC.Records (HasField (..))
-import Halogen.JSBits.Promise (Promise (..), await)
+import Halogen.JSBits.Promise (Promise)
 import Halogen.JSBits.Value (Inert (..), JSText, JSVal, checkThrown, fromJSBytes, fromJSText, isNull, jsNull, jsValText, toJSText)
 import Language.Haskell.TH
 import Language.Haskell.TH.Syntax (addModFinalizer)
@@ -121,9 +118,6 @@ data Member
     Writable String (Q Type)
   | -- | A method: the type is @a -> b -> ... -> IO r@, or @IO r@ for none.
     Method String (Q Type)
-  | -- | A method that returns a Promise, which the field awaits: the type
-    -- is @a -> ... -> IO r@, with @r@ what the Promise resolves with.
-    Awaited String (Q Type)
   | -- | The member, with this expression as its field natively instead of
     -- 'inert'. It has the field's type (for a 'Writable' member, the
     -- read's). The browsers ignore it.
@@ -264,26 +258,6 @@ member receiver native = \case
       let applied = foldl appE (varE raw) (varE o : zipWith toForeign shapes (map varE vs))
       pure (decls, lamE (varP o : map varP vs) (guard applied))
     pure (field js ty call)
-  Awaited js quoted -> do
-    ty <- quoted
-    let (arguments, io) = splitArrows ty
-    (shape, result) <- ioResult js io
-    shapes <- mapM (argumentShape js) arguments
-    call <- browser native $ do
-      raw <- rawName "call" js
-      (conversions, settled) <- awaitedResult shape result
-      vs <- mapM (const (newName "a")) arguments
-      o <- newName "o"
-      let ffi = foldr arrow (AppT (ConT ''IO) (ConT ''JSVal)) (self : zipWith ffiType shapes arguments)
-          applied = foldl appE (varE raw) (varE o : zipWith toForeign shapes (map varE vs))
-          awaitedCall
-            | isMaybe shape = "(async () => (await " <> callOf js (length arguments) <> ") ?? null)()"
-            | otherwise = "(async () => " <> callOf js (length arguments) <> ")()"
-      pure
-        ( importJS raw awaitedCall ffi : conversions
-        , lamE (varP o : map varP vs) [|$applied >>= await . Promise >>= either throwIO $settled|]
-        )
-    pure (field js ty call)
   where
     self = ConT receiver
     typeName = nameBase receiver
@@ -370,6 +344,7 @@ valueShape js ty = maybe (failFor js ("cannot pass a value of type " <> pprint t
         | n == ''ByteString -> Just Bytes
         | n `elem` [''Bool, ''Int, ''Double] -> Just Primitive
         | otherwise -> Just Plain
+      AppT (ConT p) _ | p == ''Promise -> Just Plain
       AppT (ConT m) a | m == ''Maybe -> case shapeOf a of
         Just AsText -> Just MaybeText
         Just Plain -> Just MaybeValue
@@ -422,20 +397,6 @@ ioFrom shape call = case shape of
   Plain -> call
   Bytes -> [|$call >>= fromJSBytes|]
   _ -> [|fmap $(pureResult shape) $call|]
-
--- From what a Promise resolved with to the field's value, in IO, and the
--- imports that takes: a number or a boolean is read by an import of its
--- own, since the FFI converts only what an import returns.
-awaitedResult :: Shape -> Type -> Q ([Dec], Q Exp)
-awaitedResult shape ty = case shape of
-  Unit -> pure ([], [|\_ -> pure ()|])
-  Bytes -> pure ([], [|fromJSBytes|])
-  AsText -> pure ([], [|pure . jsValText|])
-  Plain -> pure ([], [|pure . coerce|])
-  Primitive -> do
-    raw <- newName ("js_resolved_" <> concat [nameBase n | ConT n <- [ty]])
-    pure ([importJS raw "$1" (ConT ''JSVal `arrow` ty)], [|pure . $(varE raw)|])
-  _ -> pure ([], [|pure . $(pureResult shape)|])
 
 -- From the field's argument to what the import takes.
 toForeign :: Shape -> Q Exp -> Q Exp

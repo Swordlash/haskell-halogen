@@ -65,13 +65,13 @@ data Scope = Anywhere | CurrentWindow
 $( browserJS
      ["jsbits/tauri.js"]
      [ ("js_is_tauri", "halogen_tauri_is_tauri", Unsafe, [t|IO Bool|])
-     , ("js_invoke", "halogen_tauri_invoke", Unsafe, [t|JSText -> JSText -> IO Promise|])
+     , ("js_invoke", "halogen_tauri_invoke", Unsafe, [t|JSText -> JSText -> IO (Promise JSVal)|])
      , ("js_listen", "halogen_tauri_listen", Unsafe, [t|JSText -> Bool -> Callback -> IO JSVal|])
      , ("js_unlisten", "halogen_tauri_unlisten", Unsafe, [t|JSText -> JSVal -> IO ()|])
      , ("js_emit", "halogen_tauri_emit", Unsafe, [t|JSText -> JSText -> IO ()|])
      , ("js_emit_to", "halogen_tauri_emit_to", Unsafe, [t|JSText -> JSText -> JSText -> IO ()|])
      , ("js_report_payload", "halogen_tauri_report_payload", Unsafe, [t|JSText -> JSText -> IO ()|])
-     , ("js_destroy", "halogen_tauri_destroy", Unsafe, [t|IO Promise|])
+     , ("js_destroy", "halogen_tauri_destroy", Unsafe, [t|IO (Promise JSVal)|])
      ]
  )
 
@@ -96,12 +96,12 @@ decodeJSON json = either (Left . Text.pack) Right (eitherDecodeStrict' (encodeUt
 
 -- | Send a command with its arguments as JSON text, and give the promise of
 -- its result as JSON text.
-invokeText :: Text -> Text -> IO Promise
+invokeText :: Text -> Text -> IO (Promise JSVal)
 invokeText command args = js_invoke (toJSText command) (toJSText args)
 
 -- | Wait for a promise of JSON text, as jsbits/tauri.js's promises are, and
 -- decode what it resolved with.
-settled :: (FromJSON a) => Promise -> IO (Either TauriError a)
+settled :: (FromJSON a) => (Promise JSVal) -> IO (Either TauriError a)
 settled promise =
   await promise >>= \case
     Left e -> pure (Left (Rejected e))
