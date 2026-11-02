@@ -78,7 +78,7 @@ module Halogen.JSBits.Promise
   )
 where
 
-import Control.Concurrent.MVar (newEmptyMVar, putMVar, readMVar)
+import Control.Concurrent.MVar (newEmptyMVar, putMVar, tryTakeMVar)
 import Control.Exception (SomeException, displayException, try)
 import Control.Monad (forM_, void, (<=<))
 import Control.Monad.IO.Class (MonadIO (..))
@@ -187,11 +187,16 @@ promise raw
   | otherwise = do
       box <- newTVarIO Nothing
       made <- newEmptyMVar
-      let settle outcome = do
-            (resolve, reject) <- readMVar made
-            freeCallback resolve
-            freeCallback reject
-            atomically (writeTVar box (Just outcome))
+      -- A promise calls one of its callbacks, once. Should a second call
+      -- come all the same, the callbacks are not freed twice and the first
+      -- outcome stays: the pair is taken out of 'made' by the first.
+      let settle outcome =
+            tryTakeMVar made >>= \case
+              Nothing -> pure ()
+              Just (resolve, reject) -> do
+                freeCallback resolve
+                freeCallback reject
+                atomically (writeTVar box (Just outcome))
       resolve <- mkCallback $ \value ->
         try (fromJS value)
           >>= settle . \case
