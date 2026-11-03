@@ -45,6 +45,29 @@ give `Maybe`, natively `Nothing`: `fromEvent` in each event module,
 `fromElement` for a dialog, an input and an HTML element, and
 `Web.DOM.Element.fromEventTarget`.
 
+More of the platform, for what an application's own JavaScript did in a line
+each: `Web.HTML.Window.window`, the window itself in `IO` for a program that
+only runs in a browser, and the window's `getSelection` and `caches`;
+`HTMLDocument.head`, `body`, `activeElement`, `createElement`, `createRange`
+and `execCommand`; `Element.isConnected`, `nextElementSibling`,
+`setAttribute`, `contains`, `appendChild`, `remove`, `requestFullscreen`
+(awaited) and `scrollIntoViewBlock`, which says where in the viewport;
+`HTMLElement.focusWithoutScrolling`; `HTMLInputElement.select`;
+`Web.HTML.HTMLTextAreaElement` (`value`, `selectionStart`, `selectionEnd`,
+all writable); `EventTarget.dispatchEvent` and `Web.Event.Event.newEvent`;
+`FocusEvent.relatedTarget`; `TouchEvent.touches`
+and `changedTouches`, with `TouchList` (`length`, `item`) and `Touch`
+(`clientX`, `clientY`); `Web.DOM.Range` (`selectNodeContents`),
+`Web.Selection` (`removeAllRanges`, `addRange`) and `Web.Cache`
+(`CacheStorage.keys` and `delete`, awaited). Four reads are pure, for a
+handler that decides in the event's listener, where `handler'` gives it a
+pure function of the event and the browser can still be kept from the event's
+default: `Element.closestNow`, `Element.getAttributeNow`,
+`Event.defaultPreventedNow`, `FileList.now` (the files copied out when
+forced, since a drop's list empties once the drop is dispatched) and
+`TouchEvent.firstChangedTouch`. `History.pushState` and `replaceState` take
+the address as a `Maybe`, `Nothing` keeping the page's.
+
 The functions that were there keep their types: `Web.HTML.Window`'s
 `innerWidth`, `innerHeight` and `locationHash`, `Web.HTML.HTMLDocument`'s
 `cookie`, `setCookie` and `visibilityState`, and `Web.Event.Event`'s

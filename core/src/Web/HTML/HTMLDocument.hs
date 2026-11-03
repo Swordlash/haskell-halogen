@@ -16,11 +16,17 @@ module Web.HTML.HTMLDocument
   , querySelector
   , getElementById
   , exitFullscreen
+  , head
+  , body
+  , activeElement
+  , createElement
+  , createRange
+  , execCommand
   )
 where
 
 import Data.Coerce
-import HPrelude
+import HPrelude hiding (head)
 import Halogen.JSBits.Fields (jsFieldFunctions)
 import Web.DOM.Internal.Types
 import Web.DOM.ParentNode (ParentNode (..))

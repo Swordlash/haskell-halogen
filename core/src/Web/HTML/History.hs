@@ -41,12 +41,13 @@ $( jsFields
      , Method "back" [t|IO ()|]
      , Method "forward" [t|IO ()|]
      , -- A new entry after the current one, with a state, a title browsers
-       -- ignore, and an address. The browser throws, and on WebAssembly
-       -- the program ends, for a state it cannot copy (a function) or an
-       -- address of another origin.
-       Method "pushState" [t|JSVal -> Text -> Text -> IO ()|]
+       -- ignore, and an address, or 'Nothing' for the address the page is
+       -- at. The browser throws, as a 'Halogen.JSBits.Promise.JSError',
+       -- for a state it cannot copy (a function) or an address of another
+       -- origin.
+       Method "pushState" [t|JSVal -> Text -> Maybe Text -> IO ()|]
      , -- The current entry replaced, as with 'pushState'.
-       Method "replaceState" [t|JSVal -> Text -> Text -> IO ()|]
+       Method "replaceState" [t|JSVal -> Text -> Maybe Text -> IO ()|]
      ]
  )
 

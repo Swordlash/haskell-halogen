@@ -28,8 +28,9 @@ import Halogen.JSBits (Inert (..))
 import Halogen.JSBits.Promise (waitCatch)
 import Test.Hspec (Spec, describe, it, shouldBe, shouldReturn, shouldSatisfy)
 import Web.DOM.Element qualified as Element
-import Web.DOM.Internal.Types (Element, HTMLDocument, Window)
+import Web.DOM.Internal.Types (Element, HTMLDocument, Node, Window)
 import Web.Event.CustomEvent qualified as CustomEvent
+import Web.Event.Event (EventType (..))
 import Web.Event.Event qualified as Event
 import Web.Event.Internal.Types (Event (..), EventTarget)
 import Web.File.Blob qualified as Blob
@@ -39,10 +40,14 @@ import Web.File.FileList (FileList)
 import Web.File.FileList qualified as FileList
 import Web.HTML.HTMLDialogElement qualified as HTMLDialogElement
 import Web.HTML.HTMLDocument qualified as HTMLDocument
+import Web.HTML.HTMLElement qualified as HTMLElement
+import Web.HTML.HTMLTextAreaElement (HTMLTextAreaElement)
 import Web.HTML.History qualified as History
 import Web.HTML.Window qualified as Window
+import Web.UIEvent.FocusEvent qualified as FE
 import Web.UIEvent.KeyboardEvent qualified as KE
 import Web.UIEvent.MouseEvent qualified as ME
+import Web.UIEvent.TouchEvent qualified as TE
 import Web.URL qualified as URL
 
 spec :: Spec
@@ -90,6 +95,33 @@ spec = describe "Web fields, natively" $ do
     blob <- Blob.fromBytes "hello" (MediaType "text/plain")
     (blob.text >>= waitCatch) >>= (`shouldSatisfy` isLeft)
     (File.text inert >>= waitCatch) >>= (`shouldSatisfy` isLeft)
+
+  it "reads purely what a listener needs, as nothing" $ do
+    null (Element.closestNow el "a") `shouldBe` True
+    null (Element.getAttributeNow el "href") `shouldBe` True
+    length (FileList.now inert) `shouldBe` 0
+    null (TE.firstChangedTouch (inert :: TE.TouchEvent)) `shouldBe` True
+    (inert :: TE.TouchEvent).changedTouches.length `shouldBe` 0
+    null (FE.relatedTarget (inert :: FE.FocusEvent)) `shouldBe` True
+    Event.defaultPreventedNow ev `shouldBe` False
+
+  it "has a window whose fields are inert, and does nothing to a page" $ do
+    page <- Window.window
+    page.caches >>= (`shouldBe` True) . null
+    page.getSelection >>= (`shouldBe` True) . null
+    doc.activeElement >>= (`shouldBe` True) . null
+    doc.execCommand "copy" `shouldReturn` False
+    el.isConnected `shouldReturn` False
+    el.contains (inert :: Node) `shouldReturn` False
+    (inert :: EventTarget).dispatchEvent ev `shouldReturn` False
+    made <- Event.newEvent (EventType "fields-test") False
+    Event.type_ made `shouldBe` ""
+    HTMLElement.focusWithoutScrolling inert
+    Element.scrollIntoViewBlock el Element.ToNearest
+    (inert :: HTMLTextAreaElement).selectionStart `shouldReturn` 0
+    doc.body >>= (`shouldBe` True) . null
+    el.remove
+    w.history.replaceState inert "" Nothing
 
   it "casts nothing" $ do
     null (KE.fromEvent ev) `shouldBe` True

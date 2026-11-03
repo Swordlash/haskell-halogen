@@ -180,12 +180,14 @@ library
       Web.Clipboard
       Web.Clipboard.ClipboardEvent
       Web.Clipboard.ClipboardEvent.EventTypes
+      Web.Cache
       Web.Console
       Web.Crypto
 
       Web.DOM.Internal.Types
       Web.DOM.Element
       Web.DOM.ParentNode
+      Web.DOM.Range
       Web.Event.CustomEvent
       Web.Event.Internal.Types
       Web.Event.Event
@@ -204,10 +206,12 @@ library
       Web.HTML.HTMLDialogElement
       Web.HTML.HTMLElement
       Web.HTML.HTMLInputElement
+      Web.HTML.HTMLTextAreaElement
       Web.HTML.History
       Web.HTML.Location
       Web.HTML.Navigator
       Web.HTML.Window
+      Web.Selection
       Web.Storage.IndexedDB
       Web.Storage.Serialize
       Web.Storage.Storage

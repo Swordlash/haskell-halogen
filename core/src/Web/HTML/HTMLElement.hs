@@ -13,14 +13,23 @@ module Web.HTML.HTMLElement
   , fromElement
   , toElement
   , focus
+  , focusWithoutScrolling
   , blur
   , click
   )
 where
 
 import HPrelude
-import Halogen.JSBits.Fields (jsCast, jsFieldFunctions)
+import Halogen.JSBits.Fields (inlineJS, jsCast, jsFieldFunctions)
 import Web.DOM.Internal.Types (Element (..), HTMLElement (..))
+
+$(inlineJS "js_focus_without_scrolling" "$1.focus({ preventScroll: true })" [t|HTMLElement -> IO ()|])
+
+-- | Give the element the focus, as 'focus' does, without scrolling it into
+-- view: for a control the page shows where it is, such as the text of an
+-- editor coming back from its preview.
+focusWithoutScrolling :: HTMLElement -> IO ()
+focusWithoutScrolling = js_focus_without_scrolling
 
 -- | Every HTML element is an 'Element'.
 toElement :: HTMLElement -> Element

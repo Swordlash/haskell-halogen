@@ -45,3 +45,12 @@ $( jsFields
      , Method "stopImmediatePropagation" [t|IO ()|]
      ]
  )
+
+$( jsFields
+     ''EventTarget
+     [ -- Dispatch an event to the target, whose listeners run before this
+       -- returns; whether none of them prevented its default. For an event
+       -- a program makes ('Web.Event.Event.newEvent'), for listeners of its own.
+       Method "dispatchEvent" [t|Event -> IO Bool|]
+     ]
+ )

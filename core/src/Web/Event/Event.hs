@@ -14,16 +14,40 @@ module Web.Event.Event
   , preventDefault
   , stopPropagation
   , stopImmediatePropagation
+  , newEvent
+  , dispatchEvent
+  , defaultPreventedNow
   )
 where
 
 import HPrelude
-import Halogen.JSBits.Fields (jsFieldFunctions)
+import Halogen.JSBits (JSText, toJSText)
+import Halogen.JSBits.Fields (inlineJS, jsFieldFunctions)
 import Web.Event.Internal.Types
 
 newtype EventType = EventType Text
 
 $(jsFieldFunctions ''Event ["preventDefault", "stopPropagation", "stopImmediatePropagation"])
+
+$(jsFieldFunctions ''EventTarget [])
+
+$(inlineJS "js_new_event" "new Event($1, { bubbles: $2 })" [t|JSText -> Bool -> IO Event|])
+
+$(inlineJS "js_default_prevented_now" "$1.defaultPrevented" [t|Event -> Bool|])
+
+-- | 'defaultPrevented', read purely, as the event is when the answer is
+-- forced: for a handler that decides in the event's listener
+-- ('Halogen.HTML.Events.handler'' gives it a pure function of the event),
+-- which leaves an event an earlier listener has handled alone. Natively
+-- 'False'.
+defaultPreventedNow :: Event -> Bool
+defaultPreventedNow = js_default_prevented_now
+
+-- | A new event of a type, for 'dispatchEvent' to send to a target: one a
+-- program makes for listeners of its own, saying whether it bubbles up
+-- from the target through the elements around it. Natively a placeholder.
+newEvent :: EventType -> Bool -> IO Event
+newEvent (EventType eventType) bubbles = js_new_event (toJSText eventType) bubbles
 
 -- | Ask the browser not to take its default action for this event: not to
 -- submit the form, not to follow the link, not to scroll the page.

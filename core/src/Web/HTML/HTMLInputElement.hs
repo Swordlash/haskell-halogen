@@ -9,6 +9,7 @@ module Web.HTML.HTMLInputElement
   , value
   , setValue
   , files
+  , select
   )
 where
 
@@ -33,6 +34,8 @@ $( jsFields
        Writable "value" ''Text
      , -- The files chosen in a file input; 'Nothing' for any other input.
        Live "files" [t|Maybe FileList|]
+     , -- Select all the text in the input.
+       Method "select" [t|IO ()|]
      ]
  )
 
