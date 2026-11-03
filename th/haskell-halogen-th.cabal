@@ -8,7 +8,8 @@ description:
   of "Halogen.HTML"), and @clay@ turns CSS with Haskell inside into Clay's
   @Css@. Both take @{{ expression }}@ for values, and
   @{% if %}@, @{% for %}@ and @{% let %}@ for control; the expressions are
-  parsed by GHC's own parser, with the extensions of the module they are in.
+  parsed by the parser of the compiling GHC itself (its @ghc@ library),
+  with the extensions of the module they are in.
 homepage:           https://github.com/Swordlash/haskell-halogen
 license:            Apache-2.0
 license-file:       LICENSE
@@ -53,14 +54,19 @@ library
         css-syntax >= 0.1,
         clay >= 0.16,
         row-types,
-        ghc-lib-parser >= 9.14 && < 9.15,
+        -- The compiler's own library, for its parser: a quote's Haskell
+        -- is read by the GHC that compiles the module around it.
+        ghc >= 9.12 && < 9.15,
         haskell-halogen-core
 
-    -- ghc-lib-parser does not build with the JavaScript backend: its
-    -- ghc-heap part (FFIClosures_ProfilingDisabled.hsc) includes Rts.h,
-    -- and that backend's rts/include/Stg.h asks for stg/DLL.h, which it
-    -- does not ship ("fatal error: 'stg/DLL.h' file not found"). So
-    -- neither does this package: native and WebAssembly only.
+    -- The library builds with the JavaScript backend (the CPP for GHC 9.12
+    -- in Halogen.TH.Haskell is there for that backend's compiler and any
+    -- native 9.12), but a quote does not: that backend runs Template
+    -- Haskell in node, after linking the splice's dependencies into
+    -- JavaScript inside the compiler, and here that is the ghc library,
+    -- 1.7 GB of objects. examples/th's module of five quotes took two
+    -- minutes and 12.7 GB, and the tests' module of 45 was killed past
+    -- 17 GB. So the package is for native and WebAssembly builds only.
     if arch(javascript)
         buildable: False
 

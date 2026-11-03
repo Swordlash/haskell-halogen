@@ -70,9 +70,9 @@
 # learn/README.md for why a DB of its own rather than the global one.
 #
 # The boot libraries are trimmed to what a reader's program and GHC itself
-# use (BOOT_TRIM below), and the ghc package, whose interfaces only a program
-# importing the GHC API reads, is hidden and its interfaces left out, unless
-# LEARN_GHC_API=1. Its library stays: the playground is linked with it.
+# use (BOOT_TRIM below), and the ghc package is hidden and its interfaces
+# moved to the layer that depends on it (th), unless LEARN_GHC_API=1. Its
+# library stays in the base layer: the playground is linked with it.
 #
 # This follows GHC's own browser playground (its testsuite's
 # ghc-api-browser/playground001.sh) and try-miso's build-root.sh.
@@ -94,8 +94,8 @@
 #                  100 MB a file on GitHub may have); a larger archive is
 #                  split into parts of this size
 #   LEARN_GHC_API  when set to 1, keep the ghc package exposed, with its
-#                  interfaces (32 MB, 9 MB compressed), for programs that
-#                  import the GHC API
+#                  interfaces (32 MB, 9 MB compressed) in the base layer
+#                  rather than th's, for programs that import the GHC API
 #   WASM_SO_OPT    when set, wasm-opt flags the layers' .so are run through,
 #                  as GHC's own build does its libraries' (see learn/README.md
 #                  for what that gains)
@@ -143,9 +143,10 @@ BASE_LAYER="haskell-halogen-jsbits haskell-halogen-core"
 # elements (haskell-halogen-custom-element), devtools, pixi, three, store,
 # worker and live (haskell-halogen-remote, whose server is native and not in
 # it) only themselves;
-# material also clock and extra; th also ghc-lib-parser (as big as GHC's own
-# library) and the parsers it uses, which is why it is a layer of its own
-# that only a lesson about quasi-quotes loads;
+# material also clock and extra; th also the parsers it uses and the ghc
+# package's interfaces (32 MB, most of the layer: its quoter parses with the
+# compiler's own parser, libHSghc, already in the base layer for the
+# playground, and a module that imports it reads some of ghc's interfaces);
 # hspec (hspec-halogen, the test harness, which runs a suite in the page with
 # synthetic events where it has no Playwright) also hspec, hspec-core, HUnit,
 # ansi-terminal and the rest of hspec's closure that the base layer lacks;
@@ -294,17 +295,23 @@ printf '    unregistered and deleted %s: %s\n' "$BOOT_TRIM" "$(mb "$(size $(cat 
 while read -r path; do rm -rf "${path:?}"; done <"$work/trimmed.txt"
 # The documentation is gone, so the boot packages' .conf no longer name it
 # (ghc-pkg check would warn about every one). Unless LEARN_GHC_API=1, ghc is
-# hidden and its interfaces left out, and its .conf no longer lists the
-# modules it has no interfaces for, so that ghc-pkg check holds and
-# -package ghc says there is no such module rather than failing on a missing
-# interface. Only its library is used, by libplayground.so, which dyld loads
-# by its file name.
+# hidden and its interfaces taken out of the base layer, and its .conf no
+# longer lists the modules, so that -package ghc says there is no such module
+# rather than failing on a missing interface. Its library is used by
+# libplayground.so, which dyld loads by its file name, and by a layer whose
+# packages depend on ghc (th, whose quoter parses with the compiler's own
+# parser): a module importing such a package reads some of ghc's interfaces
+# (its orphan instances' modules, the types it names), so they go into that
+# layer (step 6) and ghc's import-dirs point there.
 ghc_id=$(pkg field ghc id --simple-output)
+ghc_hi=$work/ghc-hi
 if [ "${LEARN_GHC_API-}" != 1 ]; then
-  printf '    hid ghc and left out its interfaces: %s\n' \
+  printf '    hid ghc and took its interfaces out of the base layer: %s\n' \
     "$(mb "$(find "$searchdir/$ghc_id" -name '*.dyn_hi' -printf '%s\n' | awk '{ s += $1 } END { print s + 0 }')")"
-  find "$searchdir/$ghc_id" -name '*.dyn_hi' -delete
-  find "$searchdir/$ghc_id" -mindepth 1 -type d -empty -delete
+  mv "$searchdir/$ghc_id" "$ghc_hi"
+  mkdir "$searchdir/$ghc_id"
+  find "$ghc_hi" -type f ! -name '*.dyn_hi' -delete
+  find "$ghc_hi" -mindepth 1 -type d -empty -delete
   hide=$ghc_id
 else
   hide=
@@ -359,6 +366,26 @@ for layer in $layers; do
   # shellcheck disable=SC2046,SC2086
   inject --db "$root/package.conf.d" --so-dir "$root/lib" --hi-dir "$root" \
     --present "$global_db" $taken --listing "$work/$name.txt" $(layer_packages "$layer")
+  # A layer whose packages depend on ghc carries its interfaces (step 4),
+  # and ghc's import-dirs name them there; only one layer can.
+  if [ -d "$ghc_hi" ] && grep -qsF "$ghc_id" "$root/package.conf.d"/*.conf; then
+    printf '    with ghc'"'"'s interfaces: %s\n' "$(mb "$(size "$ghc_hi")")"
+    mv "$ghc_hi" "$root/ghc"
+    python3 -I - "$global_db/$ghc_id.conf" "\${pkgroot}/../layers/$name/ghc" <<'PY'
+import re
+import sys
+
+path, dirs = sys.argv[1:]
+text = open(path, encoding="utf-8").read()
+text = re.sub(r"(?m)^import-dirs:.*(\n[ \t].*)*", f"import-dirs:\n    {dirs}", text)
+open(path, "w", encoding="utf-8").write(text)
+PY
+    pkg recache
+    pkg check
+  elif grep -qsF "$ghc_id" "$root/package.conf.d"/*.conf && [ "${LEARN_GHC_API-}" != 1 ]; then
+    printf 'layer %s depends on ghc, whose interfaces another layer carries already\n' "$name" >&2
+    exit 1
+  fi
   pkg --package-db="$root/package.conf.d" recache
   pkg --package-db="$root/package.conf.d" check
   taken="$taken --taken $root/package.conf.d"
