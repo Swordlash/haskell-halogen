@@ -16,7 +16,7 @@ The `HH` functions of the earlier lessons are exact, but they do not look like H
 
 Whitespace follows JSX's rule: a line break next to a tag, with the spaces around it, is nothing, while spaces within a line are text, as in `{{ ... }} likes`. On a quote of one line the spaces around the element would be text too, and `hh` makes exactly one element: so the element goes on lines of its own.
 
-The first compile here takes a while, as the compiler loads `ghc-lib-parser`, the copy of GHC's parser that reads the Haskell in a quote. GHC's JavaScript backend cannot build that library, so `haskell-halogen-th` is not for that backend; this page's compiler is the WebAssembly one.
+The Haskell in a quote is read by the compiler's own parser, the one that reads the rest of the module. `haskell-halogen-th` is not for GHC's JavaScript backend, whose compiler links that parser into JavaScript to run a quote and needs more memory for it than most machines have; this page's compiler is the WebAssembly one.
 
 ## CSS
 

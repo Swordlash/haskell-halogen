@@ -175,15 +175,20 @@ by hand, from what the base layer and the layers depend on today.
 `parsec` and `text` are not in GHC's closure either, but the base layer
 needs them.
 
-The `ghc` package itself is **hidden**, and its interfaces (32.2 MB) are left
-out: only a program that imports the GHC API reads them, and no lesson does.
-Its `.conf` keeps its library directory but lists no modules, so `ghc-pkg
-check` holds and `-package ghc` with `import GHC.Data.FastString` says
-"Could not find module" rather than failing on a missing interface. Its
-library stays, as `libplayground.so` is linked with it and dyld loads it by
-file name. `LEARN_GHC_API=1` keeps `ghc` exposed with its interfaces (the
-archive is then about 9 MB larger); a program using the GHC API was checked to
-compile and run in the page with it, and to fail as above without.
+The `ghc` package itself is **hidden**, and its interfaces (32.2 MB) are not
+in the base layer: no lesson imports the GHC API. They are in the `th`
+layer, whose quoter parses with the compiler's own parser: a module that
+imports `haskell-halogen-th` reads some of `ghc`'s interfaces (the modules of
+the orphan instances below it, the types it names), so `ghc`'s
+`import-dirs` name `/tmp/hslib/layers/th/ghc`, which is there once that
+layer is. Its `.conf` keeps its library directory but lists no modules, so
+`ghc-pkg check` holds and `-package ghc` with `import GHC.Data.FastString`
+says "Could not find module" rather than failing on a missing interface. Its
+library stays in the base layer, as `libplayground.so` is linked with it and
+dyld loads it by file name, and `th`'s quoter runs on it. `LEARN_GHC_API=1`
+keeps `ghc` exposed with its interfaces in the base layer (the archive is
+then about 9 MB larger); a program using the GHC API was checked to compile
+and run in the page with it, and to fail as above without.
 
 What it saved, at `zstd -12` (the parts each compressed alone, as
 `LEARN_REPORT=1` does; the archive before is one built with only `Cabal` and
@@ -221,7 +226,7 @@ two copies of one library in a session would be two libraries to dyld. Today
 no two layers share anything: hooks, router, net, elements, devtools, pixi,
 three, store, worker and live need only themselves beyond the base layer, lazy its two packages
 (`haskell-halogen-lazy` and `haskell-halogen-lazy-demo`), material also `clock` and `extra`, th its
-parsers, hspec hspec's own closure (`hspec`, `hspec-core`, `HUnit`,
+parsers and `ghc`'s interfaces (above), hspec hspec's own closure (`hspec`, `hspec-core`, `HUnit`,
 `ansi-terminal` and the rest; `QuickCheck` and its generators are in the
 base layer already), none of it a boot package the script trims.
 
@@ -242,13 +247,13 @@ program using it, which loads its libraries into dyld and compiles. Three runs o
 | `material` | `haskell-halogen-material` (+ `clock`, `extra`) | 3 | 2.62 MB | 0.40 MB | `material.js` 127 KB, `material.css` 206 KB; the Material Icons font from fonts.gstatic.com | 56–65 ms | 0.7–1.3 s |
 | `pixi` | `haskell-halogen-pixi` | 1 | 0.97 MB | 0.17 MB | none; PixiJS 8.20.1 from jsDelivr (0.8 MB), which the library imports itself | 27–31 ms | 1.4–1.6 s |
 | `three` | `haskell-halogen-three` | 1 | 1.17 MB | 0.20 MB | none; Three.js 0.186.1 from jsDelivr (0.75 MB, 0.19 MB with brotli), which the library imports itself | 26 ms | 2.0–2.1 s |
-| `th` | `haskell-halogen-th` (+ `ghc-lib-parser`, `megaparsec`, `parser-combinators`, `tagsoup`, `css-syntax`, `case-insensitive`) | 7 | 194.7 MB | 23.4 MB | none | 2.1–3.9 s | 8.0–12.0 s |
+| `th` | `haskell-halogen-th` (+ `megaparsec`, `parser-combinators`, `tagsoup`, `css-syntax`, `case-insensitive`, and `ghc`'s interfaces) | 6 | 46.0 MB | 11.0 MB | none | 0.74–0.99 s | 3.1–4.2 s |
 | `hspec` | `hspec-halogen` (+ `hspec`, `hspec-core`, `hspec-expectations`, `hspec-discover`, `HUnit`, `quickcheck-io`, `ansi-terminal`, `ansi-terminal-types`, `colour`, `call-stack`, `haskell-lexer`) | 12 | 12.7 MB | 1.48 MB | none | 98–100 ms | 3.6–4.1 s |
 | `store` | `haskell-halogen-store` | 1 | 0.52 MB | 0.09 MB | none | 23–25 ms | 0.9–1.7 s |
 | `worker` | `haskell-halogen-worker` | 1 | 0.20 MB | 0.04 MB | none | 20–21 ms | 7.4–9.5 s |
 | `lazy` | `haskell-halogen-lazy`, `haskell-halogen-lazy-demo` | 2 | 0.28 MB | 0.06 MB | none; `liblazy-demo.so` (64 KB), which its program fetches itself (below) | 19–27 ms | 6.2–7.2 s |
 | `live` | `haskell-halogen-remote` | 1 | 1.25 MB | 0.21 MB | none | 24–31 ms | 9.4–10.2 s |
-| **all fourteen** | | 34 | 217.9 MB | 26.7 MB | 0.33 MB | 2.3–2.5 s | |
+| **all fourteen** | | 33 | 70.0 MB | 14.4 MB | 0.33 MB | 1.2 s | |
 | all but `th` | | 27 | 23.2 MB | 3.29 MB | 0.33 MB | 0.41–0.47 s | |
 
 (The times are from runs of rootfs builds at `zstd -19`, before 12 was the
@@ -286,16 +291,28 @@ the totals add up (`th`'s archive 21.9 MB in it); `th` loaded in 1.8–2.1 s.
 6.2–6.5 s and `lazy`'s 7.3–7.7 s in the same runs, and 1.4 s in a run with
 only that layer (`LEARN_ONLY=live`): it compiles the program, loads the
 layer's library, and clicks the counter the layer's client built from the
-session's JSON.)
+session's JSON. The `th` row and the first total are from a rootfs whose
+`th` layer has no parser of its own (its quoter's is the base layer's
+`libHSghc`), at `zstd -12`: its sizes and units are that build's, its times
+three runs of `LEARN_ONLY=th npm run test-playground` and one run of the
+whole test, and the total's load time that run's. In that run every first
+run after `th`'s was as quick as the others, `store`'s 0.8 s, `lazy`'s 0.8 s
+and `live`'s 2.3 s: what slowed them above was `ghc-lib-parser`, 159 MB of
+`.so` more in dyld, which the layer held then, 7 units, 194.7 MB and 23.4 MB
+compressed, loaded in 2.1–3.9 s and first run in 8.0–12.0 s.)
 `hspec`'s archive is small enough that the harness is a layer like any
 other, with `hspec` itself rather than `hspec-core` alone: `hspec-core` is
 4.1 MB of its 10.9 MB of `.so`, `haskell-lexer` 3.0 MB and `colour` 1.4 MB,
 and `hspec` adds 0.1 MB.
 
-Of `th`'s, `ghc-lib-parser` is 158.8 MB of `.so` and 22.0 MB of interfaces:
-it is about as big as `libHSghc`, and its archive (23.4 MB) is 42% of the
-base one, so it stays a layer of its own that only a lesson about the
-quasi-quoters loads. It is well under the per-file limit, so it is one file.
+`th`'s quoter parses with the compiler's own parser, the base layer's
+`libHSghc`, so its layer holds no parser of its own: 11.6 MB of `.so` (its
+own and the parsers of HTML and CSS it uses), 2.2 MB of their interfaces and
+`ghc`'s 32.2 MB of interfaces, which a module importing it reads (above).
+Its parser used to be `ghc-lib-parser`, a second copy of GHC's (158.8 MB of
+`.so` and 22.0 MB of interfaces), and the layer was then 194.7 MB, 23.4 MB
+compressed. It stays a layer of its own, for `ghc`'s interfaces, which only
+a lesson about the quasi-quoters needs.
 
 What each test run does, so that the layer's `.so` loads and its JavaScript
 runs: hooks, a `Hooks.useState` counter, clicked; router, a
@@ -314,7 +331,8 @@ colour from `material.css`, clicked; pixi, a rectangle on a Pixi canvas
 initialises asynchronously); three, a box at the origin of a Three.js scene
 (Three.js from the CDN), clicked at the canvas's centre until the click,
 raycast into the scene, reaches the box's handler; th, an `[hh| ... |]` with a `{{ }}` in it, whose
-quasi-quoter runs ghc-lib-parser in the page's interpreter; hspec, an
+quasi-quoter runs GHC's own parser, the base layer's `libHSghc`, in the
+page's interpreter; hspec, an
 `hspec-halogen` spec of two tests, a click and a `typeText`, run with
 `runBrowserTestsIn` in `#app`, where with no runner in the page the harness
 acts with synthetic events, and hspec's report (`2 examples, 0 failures`)
@@ -497,7 +515,7 @@ percent from one build to the next.)
 | rest of the libdir (settings, package DB) | 1.3 MB | 0.2 MB |
 | **`rootfs.tar.zst`** | **365.4 MB** | **56.3 MB** |
 | the layers but `th` (thirteen archives) | 23.2 MB | 3.3 MB |
-| the `th` layer | 194.7 MB | 23.4 MB |
+| the `th` layer | 46.0 MB | 11.0 MB |
 | material's assets (`material.js`, `material.css`) | 0.33 MB | |
 | `bsdtar.wasm` | | 1.2 MB |
 | `dyld.mjs` + `post-link.mjs` + `prelude.mjs`, `browser_wasi_shim.js`, page, manifest | | 0.16 MB |
@@ -520,10 +538,10 @@ output directory is 84.8 MB.
 | run 2: the same source again | 1.2–1.4 s |
 | run 3: the source edited | 1.1–1.2 s |
 | a layer but `th`: load, then its first run | 20–65 ms, then 0.6–3.5 s (table above) |
-| the `th` layer: load, then its first run | 2.1–3.9 s, then 8.0–12.0 s |
+| the `th` layer: load, then its first run | 0.85–0.99 s, then 3.1–4.2 s |
 | for comparison: `main = putStrLn "hello"` before anything else | 0.4 s |
 | a program's Web Worker (`haskell-halogen-worker`), this page: from the run's end to the answers of its first jobs, the worker started | 9.0–11.2 s |
-| the same, every layer loaded first (the worker extracts them all, `th`'s too) | 23.8 s |
+| the same, every layer loaded first (the worker extracts them all, `th`'s too) | 11.0 s |
 | the same in the tutorial, lesson 17's first count after a Compile, the worker started | 11.5–11.9 s |
 | lesson 17's second count, the worker already up | 1.0–1.1 s |
 
@@ -531,11 +549,14 @@ So the page is ready about 7 s after the archive has arrived, and the counter
 is on screen 4 s after the first Run; after that an edit runs in about 1.2 s.
 The small layers cost nothing to load; their first run is mostly compiling
 (the router's codec, `Duplex.sum` over a row, takes the longest). The `th`
-layer takes 2–4 s to fetch and extract its 195 MB, and its first run another
-8–12 s, which is loading its libraries, `ghc-lib-parser`'s 159 MB above
-all, into dyld: run again it takes 0.6 s, and 1.1 s with the quote edited
-(measured once, in a page that loaded only `th`). Over the network the download dominates:
-56 MB is about 18 s at 25 Mbit/s, 4.5 s at 100 Mbit/s; `th` adds 7.5 s or 2 s.
+layer takes about a second to fetch and extract its 46 MB, most of it
+`ghc`'s interfaces, and its first run 3–4 s, which is loading its
+libraries into dyld (its parser is the `libHSghc` dyld has loaded already)
+and running the quoter (three runs of `LEARN_ONLY=th npm run
+test-playground`). It took 8–12 s while the parser was `ghc-lib-parser`'s
+159 MB of `.so` to load. Over the network the download
+dominates: 56 MB is about 18 s at 25 Mbit/s, 4.5 s at 100 Mbit/s; `th` adds
+3.5 s or 0.9 s.
 
 A worker a program starts is a second compiler (`web/worker.js`, and the
 tutorial's `lesson-worker.js`): it fetches the archives again (the tutorial
@@ -548,7 +569,8 @@ and three more) and three runs of lesson 17 in the built tutorial
 (`Solution.hs` compiled, then Count twice, the second count's second being
 the count itself, at some 55 frames a second on the page), and the
 every-layer row from one run of the whole test, where the worker extracts all
-fourteen layers the page had loaded, `th`'s 195 MB among them. In
+fourteen layers the page had loaded, `th`'s 46 MB among them (23.8 s while
+that layer was 195 MB, `ghc-lib-parser` in it). In
 `npm run test-learn`, beside the second page's compiles, lesson 17's first
 count took 20.5 s.
 
@@ -570,13 +592,15 @@ there, it ships it unpatched. Unpatched: dyld load 4.7–5.1 s, run 1
 | load | 168 MB | 33 MB | 1.12 GB |
 | run 1 | 225 MB | 66 MB | 1.15 GB |
 | run 8 (every layer but `th` loaded and run) | 229 MB | 122 MB | 1.22 GB |
-| run 9 (`th`) | 321 MB | 165 MB | 1.72 GB |
+| `th`'s run (every layer before it in the test loaded and run) | 242 MB | 149 MB | 1.35 GB |
 | a program's worker up (the `worker` layer alone loaded) | | | 1.83 GB |
-| a program's worker up, every layer loaded first | | | 2.70 GB |
+| a program's worker up, every layer loaded first | | | 2.19 GB |
 | lesson 17's worker up, in the tutorial | | | 1.77 GB |
 
 The renderer's peak resident memory (VmHWM) was 1.29–1.42 GB until the `th`
-run and 1.81 GB after it. A worker runs in the page's renderer process, and
+run and 1.42 GB after it, in a run of the whole test; while `th`'s parser was
+`ghc-lib-parser`, `th`'s row was 321 MB, 165 MB and 1.72 GB, the peak 1.81 GB
+after it, and a worker with every layer loaded 2.70 GB. A worker runs in the page's renderer process, and
 is a second compiler with its own file system and dyld: it adds about 0.7 GB
 to the page (1.13 GB before it, in the same runs), 1.0 GB when it extracts
 every layer, and 0.5 GB in the tutorial (1.28 GB after the compile, in the
@@ -589,7 +613,7 @@ Where it goes, roughly: dyld gives every library one shared wasm memory
 (GHC's heap, 33–165 MB, which only grows: 4–9 MB a run, 43 MB for `th`'s), the
 JS heap holds dyld's symbol tables (a function and a `WebAssembly.Global` per
 symbol) and the extracted files, and the rest is V8's: the wire bytes of the
-loaded wasm (some 330 MB, and `ghc-lib-parser`'s 159 MB more), which it
+loaded wasm (some 330 MB), which it
 keeps for lazy compilation, and the code compiled so far. V8's tiering flags
 barely move it (`--no-wasm-tier-up` and `--liftoff-only` the same, eager
 compilation 2 GB at load); lazy compilation is already the default.
@@ -617,27 +641,26 @@ layer):
   to the build. Not worth it by default.
 - On `libHSghc` (170 MB) wasm-opt ran out of this machine's 15 GB after
   four minutes. Only a GHC built with `WASM_SO_OPT` would have that one
-  optimised; `ghc-lib-parser`'s (159 MB) would likely go the same way, and
-  is not tried.
+  optimised.
 
 ## Pages
 
 - **Per file**: the largest file is `rootfs.tar.zst`, 56.3 MB, and `th`'s
-  archive is 23.4 MB, both under the 100 MB GitHub allows a file. Should an
+  archive is 11.0 MB, both under the 100 MB GitHub allows a file. Should an
   archive grow past `LEARN_PART_MB` (95 MB), the build splits it into parts
   and the page joins them (above), so the limit cannot be hit unnoticed.
 - **What is deployed**: the tutorial (`examples/learn`), whose build copies
   this directory, but for the page's own files (`index.html`, `index.js`,
   `compiler.js`, `worker.js`), to `rootfs/` beside the app; this page is not
   deployed.
-- **Site size**: 88 MB, the rootfs 85 MB of it (61 MB without the `th`
+- **Site size**: 75 MB, the rootfs 72 MB of it (61 MB without the `th`
   layer), far from the 1 GB limit.
 - **Bandwidth per cold load**: the page, `bsdtar.wasm`, the manifest and
   `rootfs.tar.zst` are 57.7 MB; a lesson with any of the small layers adds
   at most 3.6 MB (all thirteen and material's assets; `hspec`'s is the largest,
-  1.5 MB; lesson 18 also fetches `liblazy-demo.so`, 64 KB), and the `th` lesson 23.4 MB more, 84.7 MB in all. Pages has a
+  1.5 MB; lesson 18 also fetches `liblazy-demo.so`, 64 KB), and the `th` lesson 11.0 MB more, 72.3 MB in all. Pages has a
   soft limit of 100 GB a month: about 1,630 cold loads a month without
-  `th`, about 1,180 if every reader also loaded `th`. Its responses are cacheable (10 minutes, then revalidated
+  `th`, about 1,380 if every reader also loaded `th`. Its responses are cacheable (10 minutes, then revalidated
   with an ETag), and the tutorial keeps the archives in the Cache API under
   the manifest's `version`, so a returning reader downloads them again only
   when a deploy has changed them. Not counted:
@@ -669,7 +692,7 @@ It proves:
   trace), material (with its
   CSS and JavaScript on the page), pixi (PixiJS from its CDN), three
   (Three.js from its CDN, with WebGL), th, whose
-  quasi-quoter runs ghc-lib-parser inside the page's GHC, store (a tree run
+  quasi-quoter runs the page's GHC's own parser inside it, store (a tree run
   through `runStoreT`, whose interpreted components share one store), worker
   (jobs run on the page, there being no binary for a Web Worker to start),
   lazy (a shared library the running program fetches and has dyld link into
@@ -709,14 +732,15 @@ It does not show:
 
 ## Risks for the tutorial
 
-- **Memory**: 1.2–1.4 GB of renderer memory, 1.8 GB once `th` has run,
-  and half a gigabyte more while lesson 17's worker, a second compiler, is
-  up.
+- **Memory**: 1.2–1.4 GB of renderer memory, about 1.4 GB once `th` has
+  run (1.8 GB while its parser was `ghc-lib-parser`), and half a gigabyte
+  more while lesson 17's worker, a second compiler, is up.
   Desktop browsers are fine; many phones kill a tab well before that, and
   iOS Safari's limits are tighter still. A mobile reader may need a
   "read-only" fallback (prerendered results) rather than a live compiler, and
-  the `th` lesson is the one most likely to fail on a small machine.
-- **Download**: 56 MB before the first compile (23 MB more for `th`), and
+  lesson 17, whose worker is a second compiler, is the one most likely to
+  fail on a small machine.
+- **Download**: 56 MB before the first compile (11 MB more for `th`), and
   Pages' bandwidth limit above. The tutorial keeps the archives in the Cache
   API, so a returning reader downloads them again only after a deploy that
   changed them.
