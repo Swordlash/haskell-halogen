@@ -10,9 +10,10 @@
 --
 -- Obtaining the window itself is 'Halogen.VDom.DOM.Monad.Class.window', a
 -- method of @MonadBrowserDOM@, because a backend that is not a browser does
--- not have one.
+-- not have one; 'window' here is for a program that only runs in one.
 module Web.HTML.Window
-  ( innerWidth
+  ( window
+  , innerWidth
   , innerHeight
   , locationHash
   , document
@@ -23,14 +24,25 @@ module Web.HTML.Window
   , console
   , isSecureContext
   , print
+  , getSelection
+  , caches
   )
 where
 
 import HPrelude hiding (print)
-import Halogen.JSBits.Fields (jsFieldFunctions)
+import Halogen.JSBits.Fields (inlineJS, jsFieldFunctions)
 import Web.DOM.Internal.Types (Window (..))
 
 $(jsFieldFunctions ''Window ["innerWidth", "innerHeight"])
+
+$(inlineJS "js_window" "window" [t|IO Window|])
+
+-- | The window the program runs in. Natively there is none, and this gives
+-- a placeholder whose every field has its inert answer: nothing done,
+-- 'False', 0, empty, 'Nothing'. A program written for any backend asks
+-- 'Halogen.VDom.DOM.Monad.Class.window' instead.
+window :: IO Window
+window = js_window
 
 -- | The width of the viewport, in CSS pixels. Natively, with no viewport, 0.
 innerWidth :: (MonadIO m) => Window -> m Int

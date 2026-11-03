@@ -15,6 +15,8 @@ module Web.DOM.Internal.Types
   , Document (..)
   , HTMLDocument (..)
   , Window (..)
+  , Range (..)
+  , Selection (..)
   , fromElement
   , toDocument
   , toNode
@@ -27,6 +29,7 @@ import Halogen.JSBits (Callback, Inert)
 import Halogen.JSBits.Fields (Member (..), jsFields)
 import Halogen.JSBits.Promise (Promise (..))
 import Unsafe.Coerce (unsafeCoerce)
+import Web.Cache (CacheStorage (..))
 import Web.Console (Console (..))
 import Web.Crypto (Crypto (..))
 import Web.HTML.History (History (..))
@@ -59,6 +62,16 @@ newtype HTMLDocument = HTMLDocument (Foreign HTMLDocument)
 newtype Window = Window (Foreign Window)
   deriving newtype (Inert)
 
+-- | A @Range@: a stretch of the document, between two places in it
+-- ("Web.DOM.Range").
+newtype Range = Range (Foreign Range)
+  deriving newtype (Inert)
+
+-- | The reader's selection in the page, @window.getSelection()@
+-- ("Web.Selection").
+newtype Selection = Selection (Foreign Selection)
+  deriving newtype (Inert)
+
 fromElement :: Element -> Maybe HTMLElement
 fromElement = Just . coerce
 
@@ -87,6 +100,12 @@ $( jsFields
      , -- The browser's print dialog, from which a page can also be saved
        -- as a PDF. It returns once the dialog has closed.
        Method "print" [t|IO ()|]
+     , -- What the reader has selected in the page, or 'Nothing' in a
+       -- document that has no selection (one not shown).
+       Method "getSelection" [t|IO (Maybe Selection)|]
+     , -- The caches a service worker keeps ("Web.Cache"), which only a
+       -- secure context (HTTPS, or a page on localhost) has.
+       Live "caches" [t|Maybe CacheStorage|]
      ]
  )
 
@@ -111,6 +130,23 @@ $( jsFields
      , Method "getElementById" [t|Text -> IO (Maybe Element)|]
      , -- Leave full screen. Rejected when nothing is full screen.
        Method "exitFullscreen" [t|IO (Promise ())|]
+     , -- The @\<head>@, which a page has from the moment its document is
+       -- parsed.
+       Fixed "head" ''HTMLElement
+     , -- The @\<body>@, or 'Nothing' while the document is still being
+       -- parsed.
+       Live "body" [t|Maybe HTMLElement|]
+     , -- The element that has the focus, or 'Nothing' when none has.
+       Live "activeElement" [t|Maybe Element|]
+     , -- A new element of a tag name, not yet in the document.
+       Method "createElement" [t|Text -> IO Element|]
+     , -- A new, collapsed 'Range'.
+       Method "createRange" [t|IO Range|]
+     , -- An editing command on the document, such as @"copy"@, which copies
+       -- the selection; whether the browser carried it out. Deprecated by
+       -- the browsers, but the one way to copy where
+       -- 'Web.Clipboard.writeText' is not there.
+       Method "execCommand" [t|Text -> IO Bool|]
      ]
  )
 
@@ -129,6 +165,22 @@ $( jsFields
      , -- Scroll the page (and whatever scrolls around the element) until
        -- the element is in view.
        Method "scrollIntoView" [t|IO ()|]
+     , -- Whether the element is in a document.
+       Live "isConnected" ''Bool
+     , -- The next element among its siblings, or 'Nothing' for the last.
+       Live "nextElementSibling" [t|Maybe Element|]
+     , -- Set an attribute, adding it or replacing its value.
+       Method "setAttribute" [t|Text -> Text -> IO ()|]
+     , -- Whether a node is the element itself or inside it.
+       Method "contains" [t|Node -> IO Bool|]
+     , -- Put a node inside the element, after its last child; the node
+       -- moves if it was elsewhere. The node, as the browser returns it.
+       Method "appendChild" [t|Node -> IO Node|]
+     , -- Show the element full screen. The browser rejects it outside a
+       -- user gesture, or where a frame does not allow it.
+       Method "requestFullscreen" [t|IO (Promise ())|]
+     , -- Take the element out of the document.
+       Method "remove" [t|IO ()|]
      ]
  )
 
@@ -139,5 +191,21 @@ $( jsFields
      , -- A click, as if the reader had clicked: its handlers run before
        -- this returns.
        Method "click" [t|IO ()|]
+     ]
+ )
+
+$( jsFields
+     ''Range
+     [ -- Make the range cover everything inside a node.
+       Method "selectNodeContents" [t|Node -> IO ()|]
+     ]
+ )
+
+$( jsFields
+     ''Selection
+     [ -- Deselect everything.
+       Method "removeAllRanges" [t|IO ()|]
+     , -- Select a range, besides what is selected.
+       Method "addRange" [t|Range -> IO ()|]
      ]
  )
