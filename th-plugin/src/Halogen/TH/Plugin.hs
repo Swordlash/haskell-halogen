@@ -6,7 +6,9 @@
 -- quote; this plugin does the quoter's work as the module is parsed
 -- instead: each quote of the three quoters becomes the code its quoter
 -- makes, with the Haskell of every hole parsed by GHC itself at its place
--- in the file. So a parse error in a hole is the parser's, there; a type
+-- in the file, once: haskell-halogen-th parses with the compiler's own
+-- parser, so the tree it translates for the quoter is the one put in the
+-- module. So a parse error in a hole is the parser's, there; a type
 -- error in a hole is the type checker's, there; and what the template
 -- itself gets wrong is reported at its line. The quoter never runs for a
 -- quote the plugin has expanded, and the code is the same.
@@ -27,22 +29,18 @@ import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Data.Bag (bagToList)
-import GHC.Data.EnumSet qualified as EnumSet
-import GHC.Data.StringBuffer (stringToStringBuffer)
 import GHC.Driver.Config.Parser (initParserOpts)
 import GHC.Hs (GhcPs, HsBind, HsBindLR (..), HsExpr (..), HsParsedModule (..), HsUntypedSplice (..), LHsExpr, LPat, Pat (..))
-import GHC.Parser qualified as Parser
 import GHC.Parser.Annotation (locA)
 import GHC.Parser.Errors.Types (PsMessage (PsUnknownMessage))
-import GHC.Parser.Lexer (P (..), ParseResult (..), getPsErrorMessages, initParserState)
-import GHC.Parser.PostProcess (runPV, unECP)
+import GHC.Parser.Lexer (ParserOpts)
 import GHC.Plugins hiding (quote, quotes, (<>))
 import GHC.Tc.Errors.Types (SpliceFailReason (RunSpliceFailure), THError (THSpliceFailed), TcRnMessage (TcRnTHError))
 import GHC.ThToHs (convertToHsExpr)
 import GHC.Types.Error (Diagnostic (..), MsgEnvelope, addMessage, defaultDiagnosticOpts, getMessages, mkPlainError, mkSimpleUnknownDiagnostic, noHints, unDecorated)
 import GHC.Utils.Error (mkErrorMsgEnvelope)
 import Halogen.TH.Check (Complaint (Complaint), Quoter, quoted, quoterName, quoterNamed)
-import Halogen.TH.Haskell (Failure (..), namedExtensions, parseExpAt, parsePatAt)
+import Halogen.TH.Haskell (Failure (..), parseHsExpAt, parseHsPatAt)
 import Halogen.TH.Template (Env (..))
 import Language.Haskell.TH (runIO, runQ)
 import Language.Haskell.TH.Syntax qualified as TH
@@ -105,9 +103,9 @@ data Filling
 -- no hole can contain them; the quoter's Template Haskell is converted to
 -- GHC's syntax, and the holes take their placeholders' places. A quoter
 -- failure (a template error, with a line) is placed on that line. What
--- the quoter's own parser would refuse in a hole (a splice, an arrow) is
--- refused here too, so a module builds the same with the plugin and
--- without it.
+-- the quoter would refuse in a hole (a splice, an arrow) is refused here
+-- too, so a module builds the same with the plugin and without it: the
+-- hole's one parse gives both GHC's tree and the quoter's verdict on it.
 expandQuote :: DynFlags -> Quoter -> RdrName -> SrcSpan -> Text -> IO (Either [MsgEnvelope PsMessage] (LHsExpr GhcPs))
 expandQuote dflags quoter name at body = do
   kept <- newIORef Map.empty
@@ -119,12 +117,12 @@ expandQuote dflags quoter name at body = do
         in (Map.insert placeholder filling m, TH.mkName placeholder)
       env =
         Env
-          { expression = \origin src -> runIO (TH.VarE <$> (keep . AnExpression =<< parseHole expression (parseExpAt exts) origin src))
+          { expression = \origin src -> runIO (TH.VarE <$> (keep . AnExpression =<< parseHole parseHsExpAt origin src))
           , -- A variable stays a variable (a let of one is a function binding,
             -- as the quoter makes it); any other pattern hides behind an
             -- as-pattern, so a let of it stays a pattern binding.
             pattern = \origin src -> runIO $ do
-              p <- parseHole Parser.parsePattern (parsePatAt exts) origin src
+              p <- parseHole parseHsPatAt origin src
               placeholder <- keep (APattern p)
               pure $ case p of
                 L _ (VarPat _ _) -> TH.VarP placeholder
@@ -148,7 +146,6 @@ expandQuote dflags quoter name at body = do
       UnhelpfulSpan _ -> (mkFastString "<quote>", 1, 1)
     fileLine ln = if ln > 0 then startLine + ln - 1 else startLine
     opts = initParserOpts dflags
-    exts = namedExtensions (map show (EnumSet.toList (extensionFlags dflags)))
 
     -- Generated code, as GHC itself treats the result of a splice.
 #if MIN_VERSION_ghc(9,14,0)
@@ -157,19 +154,18 @@ expandQuote dflags quoter name at body = do
     convert = convertToHsExpr (Generated OtherExpansion SkipPmc) at
 #endif
 
-    expression = Parser.parseExpression >>= \ecp -> runPV (unECP ecp) :: P (LHsExpr GhcPs)
-
-    -- GHC parses the hole at its place; then the quoter's parser must take
-    -- it too, or the module would build here and not where the quoter runs.
-    parseHole :: P a -> ((Int, Int) -> Text -> Either Failure b) -> (Int, Int) -> Text -> IO a
-    parseHole p quoters (ln, col) src =
-      case unP p (initParserState opts (stringToStringBuffer (T.unpack src)) (mkRealSrcLoc file (fileLine ln) col)) of
-        PFailed s -> throwIO (Problems (bagToList (getMessages (getPsErrorMessages s))))
-        POk _ a -> case quoters (fileLine ln, col) src of
-          Left (Failure l c what)
+    -- GHC parses the hole at its place, with the module's options, and
+    -- the quoter must take what it parsed, or the module would build here
+    -- and not where the quoter runs.
+    parseHole :: (ParserOpts -> RealSrcLoc -> Text -> Either (Messages PsMessage) (a, Maybe Failure)) -> (Int, Int) -> Text -> IO a
+    parseHole parse (ln, col) src =
+      case parse opts (mkRealSrcLoc file (fileLine ln) col) src of
+        Left errs -> throwIO (Problems (bagToList (getMessages errs)))
+        Right (a, refused) -> case refused of
+          Just (Failure l c what)
             | l > 0 -> throwIO (Problems [complaint (Complaint l (Just c) what)])
             | otherwise -> throwIO (Problems [complaint (Complaint (fileLine ln) (Just col) what)])
-          Right _ -> pure a
+          Nothing -> pure a
 
     -- The quoter's name as the module wrote it, qualified or not.
     rendered = \case
