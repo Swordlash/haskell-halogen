@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+* The Haskell inside a quote is parsed by the `ghc` library of the compiler
+  that compiles the module, rather than by `ghc-lib-parser`: a hole is read
+  by the same parser, with the same extensions and the same messages, as
+  the module around it. The package now depends on `ghc` (9.12 to 9.14)
+  instead of `ghc-lib-parser`, so a first build no longer compiles that
+  copy of GHC's parser, and on WebAssembly it no longer needs native
+  `alex` and `happy` on `PATH`. A program that loads `th` at compile time
+  loads the compiler's own library, which the WebAssembly GHC already has:
+  the tutorial's `th` layer is 46 MB (11 MB compressed, most of it `ghc`'s
+  interfaces) where it was 195 MB (23 MB), and its first compile takes 3–4
+  seconds where it took 8–12. The JavaScript backend is still not a
+  target, for a new reason: the package would build there, but that
+  backend links a splice's dependencies into JavaScript before it runs it,
+  here the `ghc` library, and a module of five quotes takes two minutes
+  and 12.7 GB to compile.
+
+* `parseHsExpAt` and `parseHsPatAt` (in `Halogen.TH.Haskell`) parse with
+  the caller's `ParserOpts` from a place in a file and give back GHC's
+  tree with the quoter's verdict on it (what it would refuse, or nothing),
+  or the parser's own errors: one parse for a tool that needs both, as the
+  plugin of `haskell-halogen-th-plugin` does.
+
 * Whitespace in text follows JSX more closely. A hole or a statement now
   ends a text as a tag does, and each text is trimmed on its own, so a line
   break between two holes or statements, with nothing but whitespace

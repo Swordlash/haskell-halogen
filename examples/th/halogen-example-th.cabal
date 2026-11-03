@@ -39,8 +39,9 @@ library
       row-types,
       unliftio,
       haskell-halogen-core
-  -- haskell-halogen-th builds natively and for WebAssembly, not with the
-  -- JavaScript backend; there the example is a note saying so.
+  -- haskell-halogen-th is for native and WebAssembly builds, not the
+  -- JavaScript backend, whose compiler runs out of memory on quotes (see
+  -- th's cabal file); there the example is a note saying so.
   if arch(javascript)
     hs-source-dirs: src-js
   else

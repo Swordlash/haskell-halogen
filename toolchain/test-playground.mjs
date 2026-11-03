@@ -586,8 +586,9 @@ clicks =
     },
   },
 
-  // An hh quote, which runs haskell-halogen-th's quasi-quoter (and so
-  // ghc-lib-parser, for the Haskell in it) in the page's interpreter.
+  // An hh quote, which runs haskell-halogen-th's quasi-quoter (and so GHC's
+  // own parser, the base archive's libHSghc, for the Haskell in it) in the
+  // page's interpreter.
   th: {
     what: "an hh quote from the th layer, with Haskell inside",
     source:

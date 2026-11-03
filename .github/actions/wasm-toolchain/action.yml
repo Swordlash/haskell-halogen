@@ -2,8 +2,7 @@ name: GHC WebAssembly toolchain
 description: >-
   What every job that builds for wasm starts with: Node.js, the wasm cross
   compiler and its sysroot, the npm packages, cabal's index, the wasm store,
-  the native and wasm build directories, and the host GHC with alex and
-  happy.
+  the native and wasm build directories, and the host GHC.
   The jobs that use it (test-wasm and learn-wasm in build.yml, build-deploy in
   build-deploy.yml) share these steps here rather than each keeping a copy of
   them in step with the others.
@@ -14,7 +13,7 @@ description: >-
 # env of build.yml and of build-deploy.yml keep the same).
 inputs:
   ghc-version:
-    description: The host GHC, for the native programs (prerender executables, hspec-halogen's runner) and alex and happy.
+    description: The host GHC, for the native programs (prerender executables, hspec-halogen's runner).
     required: true
   wasm-ghc-version:
     description: The wasm cross compiler, as with-compiler in cabal-wasm.project names it.
@@ -197,19 +196,12 @@ runs:
   # The runner image already ships this GHC under ghcup, so this only sets
   # it as the default; it installs one if a later image does not. (Caching
   # it only unpacked a copy over the image's, which tar cannot re-time.)
-  # Before the build: th's ghc-lib-parser runs alex and happy while it
-  # compiles. cabal builds them for wasm (alex.wasm, happy.wasm), which it
-  # cannot run, and falls back to PATH, where native ones have to be: a
-  # happy ghc-lib-parser accepts (not 2.2).
-  - name: Install host GHC, alex and happy
+  - name: Install host GHC
     shell: bash
     env:
       GHC_VERSION: ${{ inputs.ghc-version }}
-      CABAL_DIR: ${{ inputs.cabal-dir }}
     run: |
       if ! ghcup whereis ghc "$GHC_VERSION" >/dev/null 2>&1; then
         ghcup install ghc "$GHC_VERSION"
       fi
       ghcup set ghc "$GHC_VERSION"
-      cabal install alex happy --constraint='happy <2.2' --ignore-project --with-compiler="$(ghcup whereis ghc "$GHC_VERSION")" --installdir="$CABAL_DIR/bin" --install-method=copy --overwrite-policy=always
-      echo "$CABAL_DIR/bin" >> "$GITHUB_PATH"

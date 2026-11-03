@@ -1,8 +1,11 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE TemplateHaskellQuotes #-}
 
--- | The Haskell inside a template, parsed by GHC's own parser (through
--- ghc-lib-parser, so the same on every GHC) with the extensions of the
--- module the template is in, and translated to Template Haskell.
+-- | The Haskell inside a template, parsed by GHC's own parser with the
+-- extensions of the module the template is in, and translated to Template
+-- Haskell. The parser is the @ghc@ library of the compiler that compiles
+-- the module, so a quote is read exactly as the module around it: the same
+-- grammar, the same extensions, the same messages.
 --
 -- The translation covers what an expression in a template is: variables,
 -- literals, application, operators (left for GHC to associate), sections,
@@ -18,16 +21,19 @@ module Halogen.TH.Haskell
   , parsePatAt
   , Failure (..)
   , namedExtensions
+
+    -- * GHC's tree too
+  , parseHsExpAt
+  , parseHsPatAt
   )
 where
 
 import Data.ByteString qualified as BS
+#if MIN_VERSION_ghc(9,14,0)
 import Data.Either (partitionEithers)
+#endif
+import Data.Foldable (toList)
 import Data.List (intercalate)
-import Data.List.NonEmpty (NonEmpty (..))
-import Data.List.NonEmpty qualified as NE
-import Data.Map.Strict qualified as Map
-import Data.Maybe (mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -36,11 +42,10 @@ import GHC.Data.EnumSet qualified as EnumSet
 import GHC.Data.FastString (mkFastString, unpackFS)
 import GHC.Data.StringBuffer (stringToStringBuffer)
 import GHC.Hs
-import GHC.LanguageExtensions.Type qualified as Ext
 import GHC.Parser qualified as Parser
 import GHC.Parser.Errors.Ppr ()
 import GHC.Parser.Errors.Types (PsMessage)
-import GHC.Parser.Lexer (P (..), PState (..), ParseResult (..), initParserState, mkParserOpts)
+import GHC.Parser.Lexer (P (..), PState (..), ParseResult (..), ParserOpts, getPsErrorMessages, initParserState, mkParserOpts)
 import GHC.Parser.PostProcess (runPV, unECP)
 import GHC.Types.Basic (Boxity (..))
 import GHC.Types.Error (Diagnostic (..), Messages, MsgEnvelope (..), NoDiagnosticOpts (..), getMessages, unDecorated)
@@ -48,7 +53,7 @@ import GHC.Types.Name (nameOccName)
 import GHC.Types.Name.Occurrence (isDataOcc, occNameString)
 import GHC.Types.Name.Reader (RdrName (..), isRdrTyVar, rdrNameOcc)
 import GHC.Types.SourceText (IntegralLit (..), rationalFromFractionalLit)
-import GHC.Types.SrcLoc (GenLocated (..), SrcSpan (..), mkRealSrcLoc, psRealSpan, realSrcSpanStart, srcLocCol, srcLocLine, unLoc)
+import GHC.Types.SrcLoc (GenLocated (..), RealSrcLoc, SrcSpan (..), mkRealSrcLoc, psRealSpan, realSrcSpanStart, srcLocCol, srcLocLine, unLoc)
 import GHC.Types.Var (Specificity (..))
 import GHC.Utils.Error (emptyDiagOpts)
 import GHC.Utils.Outputable (Outputable, defaultSDocContext, ppr, renderWithContext)
@@ -70,22 +75,49 @@ parsePat exts = parsePatAt exts (1, 1)
 -- | Parse text that starts at a line and column of its file, so a
 -- failure is placed in the file.
 parseExpAt :: [TH.Extension] -> (Int, Int) -> Text -> Either Failure TH.Exp
-parseExpAt exts origin src = do
-  e <- run exts origin (Parser.parseExpression >>= \ecp -> (runPV (unECP ecp) :: P (LHsExpr GhcPs))) src
-  translation (expr (unLoc e))
+parseExpAt exts origin src = run exts origin expression src >>= translation . lexpr
 
 parsePatAt :: [TH.Extension] -> (Int, Int) -> Text -> Either Failure TH.Pat
-parsePatAt exts origin src = do
-  p <- run exts origin Parser.parsePattern src
-  translation (pat (unLoc p))
+parsePatAt exts origin src = run exts origin Parser.parsePattern src >>= translation . lpat
+
+-- | An expression parsed with the caller's parser options from a place in
+-- a file, for a caller that wants GHC's tree as well as what the quoter
+-- would make of it: the parser's errors, as GHC reports them, or the tree
+-- and the translation's verdict, the failure the quoter would report for
+-- it (a splice, an arrow: what a template does not take) or none. The
+-- compiler plugin of haskell-halogen-th-plugin puts the tree in the
+-- module, so it parses each hole once and still refuses what the quoter
+-- would.
+parseHsExpAt :: ParserOpts -> RealSrcLoc -> Text -> Either (Messages PsMessage) (LHsExpr GhcPs, Maybe Failure)
+parseHsExpAt opts at src = (\e -> (e, verdict (lexpr e))) <$> parseWith opts at expression src
+
+-- | A pattern, as 'parseHsExpAt' parses an expression.
+parseHsPatAt :: ParserOpts -> RealSrcLoc -> Text -> Either (Messages PsMessage) (LPat GhcPs, Maybe Failure)
+parseHsPatAt opts at src = (\p -> (p, verdict (lpat p))) <$> parseWith opts at Parser.parsePattern src
+
+expression :: P (LHsExpr GhcPs)
+expression = Parser.parseExpression >>= \ecp -> runPV (unECP ecp)
 
 translation :: Either Text a -> Either Failure a
 translation = either (Left . Failure 0 0) Right
 
-run :: [TH.Extension] -> (Int, Int) -> P a -> Text -> Either Failure a
-run exts (line, column) p src = case unP p st of
+verdict :: Either Text a -> Maybe Failure
+verdict = either (Just . Failure 0 0) (const Nothing)
+
+-- | The parser run on the text from a place, to its result or to the
+-- parser's state at the failure, which has the errors and the last token.
+parseState :: ParserOpts -> RealSrcLoc -> P a -> Text -> Either PState a
+parseState opts at p src = case unP p (initParserState opts (stringToStringBuffer (T.unpack src)) at) of
   POk _ a -> Right a
-  PFailed s ->
+  PFailed s -> Left s
+
+parseWith :: ParserOpts -> RealSrcLoc -> P a -> Text -> Either (Messages PsMessage) a
+parseWith opts at p src = either (Left . getPsErrorMessages) Right (parseState opts at p src)
+
+run :: [TH.Extension] -> (Int, Int) -> P a -> Text -> Either Failure a
+run exts (line, column) p src = case parseState opts (mkRealSrcLoc (mkFastString "<template>") line column) p src of
+  Right a -> Right a
+  Left s ->
     -- The failure is where GHC's message puts it (a lexical error is inside
     -- its token), else at the last token read.
     let l = case [sp | MsgEnvelope {errMsgSpan = RealSrcSpan sp _} <- bagToList (getMessages s.errors)] of
@@ -93,8 +125,19 @@ run exts (line, column) p src = case unP p st of
           [] -> realSrcSpanStart (psRealSpan s.last_loc)
      in Left (Failure (srcLocLine l) (srcLocCol l) (T.pack (messages s.errors)))
   where
-    opts = mkParserOpts (extensions exts) emptyDiagOpts False False False False
-    st = initParserState opts (stringToStringBuffer (T.unpack src)) (mkRealSrcLoc (mkFastString "<template>") line column)
+    opts = parserOpts (extensions exts)
+
+-- | The parser's options for a template: its extensions, and no warnings,
+-- Haddock comments or token stream kept.
+parserOpts :: EnumSet.EnumSet TH.Extension -> ParserOpts
+#if MIN_VERSION_ghc(9,14,0)
+parserOpts exts = mkParserOpts exts emptyDiagOpts False False False False
+#else
+-- Before 9.14 the options also listed the extensions GHC supports, for the
+-- message about an unknown one in a LANGUAGE pragma, which a template has
+-- none of.
+parserOpts exts = mkParserOpts exts emptyDiagOpts [] False False False False
+#endif
 
 -- | Extensions by their names, for a caller that has GHC's own: the
 -- names are the same.
@@ -103,12 +146,10 @@ namedExtensions names = filter ((`Set.member` wanted) . show) [minBound .. maxBo
   where
     wanted = Set.fromList names
 
--- | The module's extensions, by name: Template Haskell and ghc-lib-parser
--- each have the type.
-extensions :: [TH.Extension] -> EnumSet.EnumSet Ext.Extension
-extensions = EnumSet.fromList . mapMaybe ((`Map.lookup` byName) . show)
-  where
-    byName = Map.fromList [(show e, e) | e <- [minBound .. maxBound]]
+-- | The module's extensions as the parser takes them: Template Haskell's
+-- type is the compiler's own.
+extensions :: [TH.Extension] -> EnumSet.EnumSet TH.Extension
+extensions = EnumSet.fromList
 
 render :: (Outputable a) => a -> String
 render = renderWithContext defaultSDocContext . ppr
@@ -180,7 +221,7 @@ expr = \case
   ExplicitSum _ alt arity e -> (\e' -> TH.UnboxedSumE e' alt arity) <$> lexpr e
   HsCase _ e mg -> TH.CaseE <$> lexpr e <*> matches mg
   HsIf _ c t e -> TH.CondE <$> lexpr c <*> lexpr t <*> lexpr e
-  HsMultiIf _ alts -> TH.MultiIfE <$> mapM guarded (NE.toList alts)
+  HsMultiIf _ alts -> TH.MultiIfE <$> mapM guarded (toList alts)
   HsLet _ binds e -> TH.LetE <$> localBinds binds <*> lexpr e
   HsDo _ flavour (L _ stmts) -> case flavour of
     DoExpr m -> TH.DoE (modName <$> m) <$> mapM lstmt stmts
@@ -212,10 +253,12 @@ expr = \case
   e@HsTypedSplice {} -> unsupported "a splice" e
   e@HsUntypedSplice {} -> unsupported "a splice" e
   e@HsProc {} -> unsupported "an arrow" e
-  e@HsHole {} -> unsupported "a hole" e
   e@HsForAll {} -> unsupported "a type as an expression" e
   e@HsQual {} -> unsupported "a type as an expression" e
   e@HsFunArr {} -> unsupported "a type as an expression" e
+  -- What is left is a hole, @_@: HsHole since GHC 9.14, HsUnboundVar
+  -- before.
+  e -> unsupported "a hole" e
   where
     modName = THS.ModName . moduleNameString
 
@@ -243,8 +286,8 @@ lambda variant mg = case variant of
   LamSingle -> do
     ms <- matchList mg
     case ms of
-      [Match {m_pats = L _ ps, m_grhss = GRHSs _ (L _ (GRHS _ [] body) :| []) (EmptyLocalBinds _)}] ->
-        TH.LamE <$> mapM lpat ps <*> lexpr body
+      [Match {m_pats = L _ ps, m_grhss = GRHSs _ rhss (EmptyLocalBinds _)}]
+        | [L _ (GRHS _ [] body)] <- toList rhss -> TH.LamE <$> mapM lpat ps <*> lexpr body
       _ -> Left "a lambda with guards or a where"
   LamCase -> TH.LamCaseE <$> matches mg
   LamCases -> TH.LamCasesE <$> clauses mg
@@ -278,7 +321,7 @@ grhss :: GRHSs GhcPs (LHsExpr GhcPs) -> Either Text (TH.Body, [TH.Dec])
 grhss = \case
   GRHSs _ rhss binds -> do
     decs <- localBinds binds
-    body <- case NE.toList rhss of
+    body <- case toList rhss of
       [L _ (GRHS _ [] e)] -> TH.NormalB <$> lexpr e
       alts -> TH.GuardedB <$> mapM guarded alts
     Right (body, decs)
@@ -318,7 +361,7 @@ lstmt (L _ s) = case s of
   BodyStmt _ e _ _ -> TH.NoBindS <$> lexpr e
   LetStmt _ binds -> TH.LetS <$> localBinds binds
   LastStmt _ e _ _ -> TH.NoBindS <$> lexpr e
-  ParStmt _ blocks _ _ -> TH.ParS <$> mapM block (NE.toList blocks)
+  ParStmt _ blocks _ _ -> TH.ParS <$> mapM block (toList blocks)
   RecStmt {recS_stmts = L _ stmts} -> TH.RecS <$> mapM lstmt stmts
   TransStmt {} -> unsupported "a transform comprehension" s
   where
@@ -370,14 +413,7 @@ pat = \case
   ListPat _ ps -> TH.ListP <$> mapM lpat ps
   TuplePat _ ps boxity -> (if boxity == Boxed then TH.TupP else TH.UnboxedTupP) <$> mapM lpat ps
   SumPat _ p alt arity -> (\p' -> TH.UnboxedSumP p' alt arity) <$> lpat p
-  ConPat {pat_con = L _ con, pat_args = details} -> case details of
-    PrefixCon args -> do
-      let (tys, ps) = partitionEithers (map typeArg args)
-      TH.ConP (varName con) <$> mapM ltype tys <*> mapM lpat ps
-    RecCon (HsRecFields _ flds dotdot) -> case dotdot of
-      Just _ -> Left "a record wildcard (..) is not supported in a template"
-      Nothing -> TH.RecP (varName con) <$> mapM field flds
-    InfixCon a b -> (\a' b' -> TH.UInfixP a' (varName con) b') <$> lpat a <*> lpat b
+  ConPat {pat_con = L _ con, pat_args = details} -> conPat con details
   ViewPat _ e p -> TH.ViewP <$> lexpr e <*> lpat p
   LitPat _ l -> TH.LitP <$> lit l
   NPat _ (L _ (OverLit _ v)) neg _ -> Right (TH.LitP (maybe id (const negated) neg (overLit v)))
@@ -387,11 +423,37 @@ pat = \case
   p@SplicePat {} -> unsupported "a splice" p
   p@NPlusKPat {} -> unsupported "an n+k pattern" p
   p@OrPat {} -> unsupported "an or-pattern" p
+
+-- | A constructor and its arguments.
+conPat :: RdrName -> HsConPatDetails GhcPs -> Either Text TH.Pat
+#if MIN_VERSION_ghc(9,14,0)
+conPat con = \case
+  PrefixCon args -> do
+    let (tys, ps) = partitionEithers (map typeArg args)
+    TH.ConP (varName con) <$> mapM ltype tys <*> mapM lpat ps
+  RecCon r -> recPat con r
+  InfixCon a b -> infixPat con a b
   where
+    -- Since 9.14 a constructor's type arguments are among its patterns.
     typeArg lp = case unLoc lp of
       InvisPat _ (HsTP _ t) -> Left t
       _ -> Right lp
+#else
+conPat con = \case
+  PrefixCon tys ps -> TH.ConP (varName con) <$> mapM (\(HsConPatTyArg _ (HsTP _ t)) -> ltype t) tys <*> mapM lpat ps
+  RecCon r -> recPat con r
+  InfixCon a b -> infixPat con a b
+#endif
+
+recPat :: RdrName -> HsRecFields GhcPs (LPat GhcPs) -> Either Text TH.Pat
+recPat con (HsRecFields _ flds dotdot) = case dotdot of
+  Just _ -> Left "a record wildcard (..) is not supported in a template"
+  Nothing -> TH.RecP (varName con) <$> mapM field flds
+  where
     field (L _ (HsFieldBind _ (L _ f) p _)) = (,) <$> fieldName f <*> lpat p
+
+infixPat :: RdrName -> LPat GhcPs -> LPat GhcPs -> Either Text TH.Pat
+infixPat con a b = (\a' b' -> TH.UInfixP a' (varName con) b') <$> lpat a <*> lpat b
 
 -- Types ----------------------------------------------------------------------
 
@@ -413,9 +475,9 @@ type_ = \case
       | otherwise -> TH.ConT (varName n)
   HsAppTy _ a b -> TH.AppT <$> ltype a <*> ltype b
   HsAppKindTy _ a k -> TH.AppKindT <$> ltype a <*> ltype k
-  HsFunTy _ mult a b -> case mult of
-    HsUnannotated _ -> (\a' b' -> TH.AppT (TH.AppT TH.ArrowT a') b') <$> ltype a <*> ltype b
-    _ -> Left "a linear arrow is not supported in a template"
+  HsFunTy _ mult a b
+    | unrestricted mult -> (\a' b' -> TH.AppT (TH.AppT TH.ArrowT a') b') <$> ltype a <*> ltype b
+    | otherwise -> Left "a linear arrow is not supported in a template"
   HsListTy _ a -> TH.AppT TH.ListT <$> ltype a
   HsTupleTy _ sort ts -> do
     ts' <- mapM ltype ts
@@ -443,7 +505,21 @@ type_ = \case
   HsWildCardTy _ -> Right TH.WildCardT
   t@HsSpliceTy {} -> unsupported "a splice" t
   t@HsDocTy {} -> unsupported "a documented type" t
-  t@XHsType {} -> unsupported "this type" t
+  -- The rest: XHsType, and before GHC 9.14 HsBangTy and HsRecTy.
+  t -> unsupported "this type" t
+
+-- | An arrow written @->@, with no multiplicity.
+#if MIN_VERSION_ghc(9,14,0)
+unrestricted :: HsMultAnn GhcPs -> Bool
+unrestricted = \case
+  HsUnannotated _ -> True
+  _ -> False
+#else
+unrestricted :: HsArrow GhcPs -> Bool
+unrestricted = \case
+  HsUnrestrictedArrow _ -> True
+  _ -> False
+#endif
 
 binder :: (flag -> flag') -> LHsTyVarBndr flag GhcPs -> Either Text (TH.TyVarBndr flag')
 binder flagOf (L _ b) = case b of

@@ -16,9 +16,11 @@ every hole parsed by GHC itself at its place in the file. So
 The quoter never runs for a quote the plugin has expanded, and the code is
 the same: the th package's own tests, compiled with the plugin
 (`parity-test`, over `test/parity`, which links to `th/test`), build the
-same HTML and CSS. What the quoter's
-own parser would refuse in a hole (a splice, an arrow) the plugin refuses
-too, so a module builds the same with the plugin and without it. The
+same HTML and CSS. What the quoter
+would refuse in a hole (a splice, an arrow) the plugin refuses too, so a
+module builds the same with the plugin and without it. Each hole is parsed
+once: haskell-halogen-th parses with the compiler's own parser, and gives
+the plugin GHC's tree together with the quoter's verdict on it. The
 import that brings the quoter stays used.
 
 ```cabal

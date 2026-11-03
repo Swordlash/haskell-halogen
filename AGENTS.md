@@ -30,7 +30,7 @@ a Three.js backend for three-dimensional scenes, meshes and lights reconciled as
 display objects are, a camera the reader orbits, pointer events raycast into the scene), `sound` (music and sound
 effects: a player over an abstract backend, and a browser backend), `hspec-halogen`
 (an hspec harness that tests components in a real browser), `th` (`haskell-halogen-th`: the `hh`
-and `clay` quasi-quoters, HTML and CSS with Haskell inside, parsed by ghc-lib-parser), and
+and `clay` quasi-quoters, HTML and CSS with Haskell inside, parsed by the compiling GHC's own `ghc` library), and
 `examples/*` (one browser app each), among them `examples/learn`, the tutorial and what GitHub Pages
 deploys: lessons as routes, each with its text, an editor and the result of compiling the reader's code
 in the page. `learn/` is no package: it is GHC itself running in a page, compiling and mounting a
@@ -39,9 +39,10 @@ its `README.md` has the rootfs, its manifest and the measurements). `hooks`, `st
 `cabal.project`, so a `core` change is type-checked against every dependent and example.
 
 Every package is compiled for three targets: native GHC, the GHC JavaScript backend, and GHC
-WebAssembly (the default browser and deployment target), except `th`: `ghc-lib-parser` does not
-build with the JavaScript backend, so `th` is not buildable there and `examples/th` shows a note
-instead (its `src-js/`).
+WebAssembly (the default browser and deployment target), except `th`: the JavaScript backend runs
+a quote's quoter in node after linking its dependencies into JavaScript, the `ghc` library among
+them, which takes more memory than a build has (12.7 GB for `examples/th`'s five quotes), so `th` is
+not buildable there and `examples/th` shows a note instead (its `src-js/`).
 
 ## Commands
 
