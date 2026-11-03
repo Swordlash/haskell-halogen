@@ -48,7 +48,11 @@ handler of the wrong type is a type error, at the line of the quote.
 parser, the `ghc` library of the compiler that compiles the module, with the
 extensions of the module the quote is in: a hole is read exactly as the
 module around it, so `OverloadedRecordDot`, `LambdaCase`, `BlockArguments` and the
-rest work as they do in that module. A parse error names the file, the line
+rest work as they do in that module. (It is not `haskell-src-meta`'s parser,
+`haskell-src-exts`, which has none of those extensions, nor `ghc-hs-meta`,
+which translates GHC's tree as this package does but covers a part of the
+expression language, with no `case`, `do`, `let`, comprehension or record
+update, and stops at GHC 9.12.) A parse error names the file, the line
 and the column (in the file: `hh: Mod.hs:12: column 31: …`). GHC still
 reports it, and a type error in a hole, at the quote; the GHC plugin of
 `haskell-halogen-th-plugin` (`-fplugin=Halogen.TH.Plugin`) expands the
