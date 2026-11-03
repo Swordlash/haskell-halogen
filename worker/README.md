@@ -114,6 +114,28 @@ globalThis.halogenWorker = {
 
 These are classic workers that load the program with `importScripts`.
 
+A program that is not a binary the standard script could load names a module
+script of its own instead, for either backend:
+
+```js
+globalThis.halogenWorker = {
+  script: new URL("./worker-script.js", import.meta.url).href,
+  data: { anything: "JSON-serialisable" },
+};
+```
+
+The worker imports the script once `globalThis.halogenWorker` there says which
+worker it is (`worker`, a number) and holds a copy of `data`, if the page gave
+one. The script loads the program however it likes and runs its `main`, which
+must call `Worker.serve` (as `Worker.program` does) before the script's import
+ends; a script that throws, or a `main` that did not serve, fails the worker's
+jobs with a `WorkerError`. `script` wins when it is given beside `wasm` or
+`js`. The tutorial is the program this is for: it runs a lesson in GHC's
+interpreter, so its script boots a second copy of the compiler in the worker,
+compiles the same lesson there and runs its `main`. `examples/worker`'s
+`?workers=script` loads its own `app.wasm` through `web/worker-script.js`, to
+test the form without the tutorial.
+
 ## Lifetime, failures and fallback
 
 - `newPool n` creates a pool with at least one worker. Each worker starts on
@@ -262,5 +284,6 @@ That test checks results, UI responsiveness during a calculation, a range
 counted in parts by both workers through `start` and `mapConcurrently` and in
 sixteen tasks through `runPar`,
 cancelling a job that checkpoints, killing one that does not, a race whose
-loser is cancelled, failures, termination and the fallback without loader
+loser is cancelled, failures, termination, a loader that names a worker
+script of its own (`?workers=script`) and the fallback without loader
 configuration.

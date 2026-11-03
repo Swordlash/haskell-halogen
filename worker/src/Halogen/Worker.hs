@@ -30,10 +30,12 @@
 -- 'run' cancels its job when its wait is interrupted.
 --
 -- The page's loader must configure @globalThis.halogenWorker@ with the
--- program's URLs before starting Haskell. Without this configuration, or
--- outside a browser, a job runs in the program itself, on a thread 'start'
--- forks. See the README for the loader, a complete example and the
--- fallback's limitations.
+-- program's URLs before starting Haskell, or with the URL of a script of its
+-- own that loads the program in a worker (for a program that is not a
+-- binary, such as one the tutorial runs in GHC's interpreter). Without this
+-- configuration, or outside a browser, a job runs in the program itself, on
+-- a thread 'start' forks. See the README for the loader, a complete example
+-- and the fallback's limitations.
 module Halogen.Worker
   ( -- * Jobs
     Job
@@ -281,7 +283,8 @@ terminate pool = liftIO $ do
 
 -- | Whether a job would run in a worker here: in a browser that has
 -- @Worker@, whose loader said where the program is (@globalThis.halogenWorker@,
--- for this program's backend), once 'serve' has been called, and not inside
+-- for this program's backend, or a script of the loader's own that loads it),
+-- once 'serve' has been called, and not inside
 -- a worker. Otherwise jobs run in the program itself.
 available :: (MonadIO m) => m Bool
 available = liftIO $ do

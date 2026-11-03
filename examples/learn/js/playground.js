@@ -10,6 +10,15 @@
 // holds rootfs.json, rootfs.tar.zst, layers/, dyld.mjs, browser_wasi_shim.js
 // and bsdtar.wasm.
 //
+// A compiled program can start Web Workers of itself (haskell-halogen-worker's
+// pools, lesson 17): before each compile the page names lesson-worker.js,
+// bundled beside this module, as globalThis.halogenWorker.script, with what
+// the compile was given, and each worker that program's pool starts runs
+// this same module in the worker, which starts a compiler of its own there,
+// compiles the same lesson and runs its main (lesson-worker.js says how).
+// So this module runs in a worker too, where there is no document: what
+// would touch the page's is left out there.
+//
 // browser_wasi_shim is imported from the rootfs' browser_wasi_shim.js, the
 // file the rootfs' copy of dyld.mjs imports, so that the page and dyld share
 // one instance of the module (dyld checks the file system's objects against
@@ -38,8 +47,11 @@ main = endPreviousRun
 const manifests = new Map();
 let compiler = null; // { shim, rootfs, run, manifest, layers: Map<name, Promise>, failed: Map<name, Error>, bsdtar }
 let starting = null;
+let root = null; // what start was first given, for a worker to start from
 let progressSink = () => {};
 let outputSink = null;
+// Where what GHC and the programs write between runs goes.
+let logLine = (stream, msg) => console.info(`ghc: ${msg}`);
 let queue = Promise.resolve();
 let loadedBytes = 0;
 
@@ -53,7 +65,7 @@ let loadedBytes = 0;
 // Content-Length, and the ETag or Last-Modified the server sends, which change
 // whenever the file does.
 export function manifest(root) {
-  const base = new URL(root, document.baseURI).href;
+  const base = new URL(root, globalThis.document?.baseURI ?? globalThis.location.href).href;
   if (!manifests.has(base)) {
     const load = (async () => {
       const response = await fetch(new URL("rootfs.json", base));
@@ -224,7 +236,10 @@ async function download(archive, cache, key) {
 // What a layer's packages need on the page besides their libraries (the
 // manifest's `assets`: material's material.js, which its bindings call, and
 // material.css), added before any compile can use the layer, and waited for.
+// In a worker there is no page to add them to, and nothing a worker runs (a
+// pool's jobs) draws.
 function addAssets(m, layer) {
+  if (typeof document === "undefined") return Promise.resolve();
   return Promise.all(
     (layer.assets ?? []).map(
       (asset) =>
@@ -271,10 +286,11 @@ async function extract(shim, bsdtar, rootfs, bytes, name) {
 // gives the same promise; after it has failed, it starts again. A failure
 // lets go of onProgress, so that the caller may free it once the promise has
 // rejected.
-export function start(root, layers, onProgress) {
+export function start(rootfs, layers, onProgress) {
   if (onProgress) progressSink = onProgress;
   if (!starting) {
-    starting = boot(root, layers).catch((error) => {
+    root = rootfs;
+    starting = boot(rootfs, layers).catch((error) => {
       starting = null;
       downloads.clear();
       report({ phase: "error", message: String(error?.message ?? error) });
@@ -331,7 +347,7 @@ async function boot(root, wanted) {
   const { DyLDBrowserHost, main } = await import(new URL("dyld.mjs", m.base).href);
   const line = (stream) => (msg) => {
     if (outputSink) outputSink[stream].push(msg);
-    else console.info(`ghc: ${msg}`);
+    else logLine(stream, msg);
   };
   const dyld = await main({
     rpc: new DyLDBrowserHost({ rootfs, stdout: line("stdout"), stderr: line("stderr") }),
@@ -437,7 +453,33 @@ function enqueue(job) {
 // with where they were built (--learn-spans): the result's elements carry
 // data-learn-src, which the Source mode reads (source.js).
 export function compile(request) {
-  return enqueue(() => run(request, ["--learn-spans"]));
+  return enqueue(() => {
+    offerWorkers(request);
+    return run(request, ["--learn-spans"]);
+  });
+}
+
+// Name lesson-worker.js as where a worker of the program about to run is,
+// with what it needs to be the same program: the rootfs, the layers, both
+// modules and the lesson's arguments. The worker compiles them as compile
+// does, flags and all, so that the module, and its static pointer table,
+// whose keys are a hash of the module and each static's place in it, are
+// the page's. Set before every compile, since a pool reads it as it starts
+// a worker, which is at the program's first job; not inside a worker, whose
+// halogenWorker says which worker it is.
+function offerWorkers(request) {
+  if (typeof globalThis.halogenWorker?.worker === "number") return;
+  globalThis.halogenWorker = {
+    script: new URL("lesson-worker.js", import.meta.url).href,
+    data: { root, layers: request.layers, lesson: request.lesson, main: request.main, args: request.args },
+  };
+}
+
+// Where what GHC and the programs write goes outside a run (a worker's
+// program, which serves the page once its run is over): console.info by
+// default; sink gets the stream ("stdout" or "stderr") and the line.
+export function logTo(sink) {
+  logLine = sink;
 }
 
 // Typecheck, and nothing more, as the reader types: the same request and the

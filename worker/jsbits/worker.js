@@ -27,6 +27,21 @@
 // A worker is told which it is by halogenWorker.worker, a number, which is
 // also how serve tells a worker of a pool from the page.
 //
+// The page says where the program is in one of three ways:
+//   { wasm, jsffi, wasi }   a wasm binary, its JSFFI glue and the WASI shim,
+//                           which the worker loads as the page's loader did
+//   { js }                  the GHC JavaScript backend's all.js, imported
+//   { script, data }        a module script of the page's own, imported in
+//                           the worker, which loads the program however it
+//                           likes and runs its main (which must call serve,
+//                           as any program's does) before its import ends;
+//                           data, optional and JSON-serialisable, is copied
+//                           as it is into the worker's halogenWorker.data
+// The third is for a program that is not a binary the standard script could
+// load: the tutorial's lessons run in GHC's interpreter, so its script boots a
+// second copy of the compiler in the worker and compiles the lesson there.
+// script wins when it is given beside the others; it serves either backend.
+//
 // The page keeps every request it has not had an answer to, under its id,
 // with a copy of its bytes: a worker that is killed takes the requests it
 // was given with it, and those are sent again to the worker started in its
@@ -40,6 +55,7 @@ function halogen_worker_available(arch) {
   const config = globalThis.halogenWorker;
   if (typeof Worker !== "function" || config === null || typeof config !== "object") return false;
   if (typeof config.worker === "number") return false;
+  if (typeof config.script === "string") return true;
   return arch === "wasm32"
     ? typeof config.wasm === "string" && typeof config.jsffi === "string" && typeof config.wasi === "string"
     : typeof config.js === "string";
@@ -57,12 +73,31 @@ function halogen_worker_absolute(address) {
   return new URL(address, globalThis.document?.baseURI ?? globalThis.location?.href).href;
 }
 
-// The worker's script. On WebAssembly a module that loads the WASI shim, the
+// The worker's script. For a page that names a script of its own, a module
+// that imports it, once halogenWorker says which worker this is and holds the
+// page's data; on WebAssembly a module that loads the WASI shim, the
 // program's JSFFI glue and its binary, as the page's loader does, and calls
 // hs_start; with the JavaScript backend a classic script that imports the
-// program's all.js, which runs main itself.
+// program's all.js, which runs main itself. Whichever it is, a program that
+// did not start, or whose main did not serve, is reported as { failed }.
 function halogen_worker_script(pool, index) {
   const page = globalThis.halogenWorker;
+  if (typeof page.script === "string") {
+    const config = { script: halogen_worker_absolute(page.script), worker: index };
+    if (page.data !== undefined) config.data = page.data;
+    return {
+      type: "module",
+      source: `const config = ${JSON.stringify(config)};
+globalThis.halogenWorker = config;
+try {
+  await import(config.script);
+  if (!config.serving) throw new Error("the program's main did not call Halogen.Worker.serve");
+} catch (error) {
+  postMessage({ failed: String(error?.message ?? error) });
+}
+`,
+    };
+  }
   if (pool.arch !== "wasm32") {
     const config = { js: halogen_worker_absolute(page.js), worker: index };
     return {

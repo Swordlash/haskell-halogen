@@ -8,9 +8,9 @@
 #
 # The output directory (default dist-newstyle/wasm/learn) is a static site:
 # serve it as it is (npm run test-playground does, in headless Chromium). The
-# tutorial (examples/learn) is served with it, but for its index.html and
-# index.js, at rootfs/ beside the app (examples/learn/bundle.sh copies it
-# there). It holds
+# tutorial (examples/learn) is served with it, but for its own page's files
+# (index.html, index.js, compiler.js, worker.js), at rootfs/ beside the app
+# (examples/learn/bundle.sh copies it there). It holds
 #
 #   rootfs.tar.zst   everything the compiler reads, extracted to /tmp:
 #                      /tmp/libplayground.so  the GHC API wrapper (learn/Playground.hs)
@@ -31,7 +31,8 @@
 #   browser_wasi_shim.js   the WASI shim dyld and the page share, from
 #                    learn/vendor/browser_wasi_shim/
 #   bsdtar.wasm      libarchive's bsdtar, which the page extracts the archives with
-#   index.html, index.js                   learn/web/
+#   index.html, index.js, compiler.js, worker.js   learn/web/: the page,
+#                    and the script its programs' Web Workers import
 #
 # An archive larger than LEARN_PART_MB is served as parts (<archive>.00,
 # .01, ...), which the page fetches and joins before extracting, so that no
@@ -377,7 +378,7 @@ fi
 
 # 8. The page and what it loads beside the archives.
 step "page"
-cp learn/web/index.html learn/web/index.js "$out/"
+cp learn/web/index.html learn/web/index.js learn/web/compiler.js learn/web/worker.js "$out/"
 cp "$libdir/dyld.mjs" "$libdir/post-link.mjs" "$libdir/prelude.mjs" "$out/"
 # dyld gives every library it instantiates an `env` that is a copy of every
 # function every library loaded before it exports: some hundred thousand

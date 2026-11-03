@@ -217,9 +217,12 @@ it; for lesson 16, whose program opens `Halogen.DevTools`' panel under the
 component, that the panel lists the component and counts a click, and that
 its count of renders climbs every second for `Start.hs` and not for
 `Solution.hs`; for lesson 17, whose program runs its jobs through
-`Halogen.Worker`, that the component says no worker can be made here, and
-that each counts the primes right, `Start.hs` drawing no frame meanwhile and
-`Solution.hs`, through `Worker.run` in a `liftIO`, at least one; for lesson 18, whose component comes from a shared library
+`Halogen.Worker`, that the component says jobs run in a Web Worker, and
+that each counts the primes right, `Start.hs` in its handler, drawing no frame
+meanwhile and starting no worker, and `Solution.hs` through `Worker.run` in
+the pool's worker, a second compiler (its first job, which waits for that
+worker to start, and a second one, the times printed), the page drawing
+throughout; for lesson 18, whose component comes from a shared library
 the program links while it runs, that the library's component greets the
 name and waves, and for `Solution.hs` that the parent hears it, tells it to
 wave and asks it how often, and that hidden and shown again it starts over; for lesson 19,
@@ -389,9 +392,13 @@ program an application with Web Workers ships: `Worker.program` (a worker
 finds the lesson's jobs, static pointers, by their keys, so there is no table
 to hand it) around the rest, which makes
 a pool and mounts `component pool`, and keeps the socket's `dispose` and
-`Worker.terminate pool`; in the tutorial the pool starts no worker (the
-interpreted program has no binary for one to load), and the jobs run on the
-page. Lesson 21's mounts a page component of its own into `#learn-result`, which mounts
+`Worker.terminate pool`. The interpreted program has no binary for a worker
+to load, so before every compile the page names `lesson-worker.js` (bundled
+beside `learn.js` from `js/lesson-worker.js`) as `halogenWorker.script`, with
+the compile's request: a worker the pool starts boots a second compiler from
+the same rootfs, compiles the same `Lesson.hs` and `Main.hs` with the same
+flags, so that the static pointers' keys are the page's, and runs that `main`,
+whose `Worker.program` serves. The first job after a compile waits for that. Lesson 21's mounts a page component of its own into `#learn-result`, which mounts
 `component` in `RemoteDOM` with `Halogen.Remote.Loopback.mountIn` into an element of its own (the
 component's operations go to a client there as JSON, the page's events come back) and shows the
 messages as they cross in a `<pre>` under it, newest first; it keeps the page component's `dispose`,

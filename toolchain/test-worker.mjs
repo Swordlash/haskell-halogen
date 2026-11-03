@@ -23,6 +23,8 @@
 // still run jobs afterwards; a race between a quick count and the slow one
 // cancels the slow one; a job that throws is reported with its message;
 // terminating the pool ends its workers, and the next job starts one again;
+// a page whose loader names a worker script of its own (?workers=script)
+// counts in a worker and in sixteen tasks over both through it;
 // nothing is logged as an error, and nothing is loaded from another site. WORKER_DEBUG=1 prints
 // what the page and its workers log.
 import assert from "node:assert/strict";
@@ -219,7 +221,7 @@ try {
   // The range in sixteen tasks, which runPar sends in batches to whichever
   // worker is free: each part's count, against a sieve's, in the range's
   // order, and both workers used.
-  {
+  const inTasks = async (what) => {
     const sixteenth = 2000000 / 16;
     const composite = new Uint8Array(2000000);
     for (let i = 2; i * i < 2000000; i++) if (!composite[i]) for (let j = i * i; j < 2000000; j += i) composite[j] = 1;
@@ -246,10 +248,11 @@ try {
     const used = [...new Set(parts.map((part) => part.worker))].sort();
     assert.deepEqual(used, ["0", "1"], `the tasks were counted in both workers: ${JSON.stringify(parts)}`);
     console.log(
-      `ok  runPar: ${count} primes in 16 tasks in ${ms(millis)}, in order, from workers ${parts.map((part) => part.worker).join("")}, the component drew ${drew} frames`,
+      `ok  runPar${what}: ${count} primes in 16 tasks in ${ms(millis)}, in order, from workers ${parts.map((part) => part.worker).join("")}, the component drew ${drew} frames`,
     );
-    noErrors("counting in tasks");
-  }
+    noErrors(`counting in tasks${what}`);
+  };
+  await inTasks("");
 
   // The slow count logs each chunk it counts, and checkpoints after each.
   const progress = () => logs.filter((line) => line.includes("the slow count has counted up to")).length;
@@ -361,6 +364,18 @@ try {
     noErrors("counting in parts in the fallback");
   }
 
+  await page.close();
+
+  // The page with ?workers=script, whose loader names a worker script of its
+  // own (web/worker-script.js) rather than the program's files, as a program
+  // that is not a binary does: each worker imports it, and it loads app.wasm
+  // and runs main itself. The count in a worker while the page draws, and
+  // the sixteen tasks over both workers.
+  page = await open(`${url}?workers=script`);
+  await page.locator("#available", { hasText: "Web Workers are available" }).waitFor({ timeout: 30000 });
+  assert.equal(workers.size, 0, "no worker before the first job, with a script of the page's own");
+  await inWorker("from the page's own script, starting it");
+  await inTasks(", from the page's own script");
   await page.close();
 
   // A page whose Worker constructor throws, as a browser refusing a Blob
