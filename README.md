@@ -44,7 +44,7 @@ AI usage disclaimer: All code until tag `0.9.0` was hand-written. Any later comm
 `hooks`, `store`, `router`, `material`, `pixi`, `three`, `hspec-halogen`, `th`, `custom-element`, `devtools`, `lazy` and `remote`
 depend on `core`, and `tauri` on `core` for its emitters; `net`, `sound` and `worker` are independent of those runtime libraries. WASM backends also use the `jsbits`
 compile-time helper. `th` builds natively and for WebAssembly, not with the JavaScript
-backend, which cannot build `ghc-lib-parser`. Every package builds from the one `cabal.project` at the
+backend, whose compiler runs out of memory linking the `ghc` library for a quote. Every package builds from the one `cabal.project` at the
 repository root, so a change to
 `core` is type-checked against every dependent and every example in the same build.
 

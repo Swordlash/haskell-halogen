@@ -45,8 +45,9 @@ handler of the wrong type is a type error, at the line of the quote.
 ## The Haskell inside
 
 `{{ expression }}` is any Haskell expression. It is parsed by GHC's own
-parser (through `ghc-lib-parser`), with the extensions of the module the
-quote is in, so `OverloadedRecordDot`, `LambdaCase`, `BlockArguments` and the
+parser, the `ghc` library of the compiler that compiles the module, with the
+extensions of the module the quote is in: a hole is read exactly as the
+module around it, so `OverloadedRecordDot`, `LambdaCase`, `BlockArguments` and the
 rest work as they do in that module. A parse error names the file, the line
 and the column (in the file: `hh: Mod.hs:12: column 31: …`). GHC still
 reports it, and a type error in a hole, at the quote; the GHC plugin of
@@ -167,9 +168,14 @@ The package is `th/`. Its tests run natively (`cabal test th-test
 markup or style written by hand.
 
 Building a quote on the WebAssembly backend needs Template Haskell there,
-that is `shared: True` in the wasm project (as the jsbits already do); the
-first build compiles `ghc-lib-parser`, which takes a while and is then in the
-store. That build runs `alex` and `happy`, and they have to be native
-programs on `PATH` (`cabal install alex happy --constraint='happy <2.2'` with the host GHC): cabal
-builds them for wasm too, as `alex.wasm` and `happy.wasm`, which it then
-cannot run, and falls back to `PATH`.
+that is `shared: True` in the wasm project (as the jsbits already do): the
+quoter runs in the wasm interpreter, which loads the cross compiler's own
+`libHSghc` for the parser. There is nothing to compile for it, the library
+being the compiler's.
+
+The JavaScript backend is not a target. The package itself builds there,
+but a quote does not: that backend runs Template Haskell in node, after
+linking everything the splice depends on into JavaScript inside the
+compiler, and with this package that is the `ghc` library, 1.7 GB of
+objects. The example's module of five quotes took two minutes and 12.7 GB
+to compile, and the tests' module of 45 quotes was killed past 17 GB.
