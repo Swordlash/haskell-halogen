@@ -5,7 +5,7 @@
 * The Haskell inside a quote is parsed by the `ghc` library of the compiler
   that compiles the module, rather than by `ghc-lib-parser`: a hole is read
   by the same parser, with the same extensions and the same messages, as
-  the module around it. The package now depends on `ghc` (9.12 to 9.14)
+  the module around it. The package now depends on `ghc` (9.10 to 9.14)
   instead of `ghc-lib-parser`, so a first build no longer compiles that
   copy of GHC's parser, and on WebAssembly it no longer needs native
   `alex` and `happy` on `PATH`. A program that loads `th` at compile time

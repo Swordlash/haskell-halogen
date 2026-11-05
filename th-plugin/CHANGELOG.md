@@ -11,4 +11,5 @@
   quote; the th package's tests compiled with the plugin build the same
   HTML and CSS. Each hole is parsed once: haskell-halogen-th parses with the
   compiler's own parser, so the tree it gives the plugin, with what the
-  quoter would refuse in it, is the one put in the module.
+  quoter would refuse in it, is the one put in the module. The plugin runs
+  in a native GHC from 9.10 to 9.14.

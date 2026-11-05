@@ -13,13 +13,21 @@ ghc() {
     -package haskell-halogen-th-plugin -package haskell-halogen-th -package haskell-halogen-core -package clay -package text "$@"
 }
 
+# GHC 9.10 places a lexical error in a string at the character and says
+# it is in a literal; from 9.12, which lexes a string whole, it is at the
+# literal.
+case "$(cabal exec ${CABAL_BUILDDIR:+--builddir="$CABAL_BUILDDIR"} -v0 -- ghc --numeric-version)" in
+  9.10.*) lexical=("Bad.hs:28:32: error:" "lexical error in string/character literal at character 'q'") ;;
+  *) lexical=("Bad.hs:28:30: error:" "lexical error at character 'q'") ;;
+esac
+
 out=$(ghc th-plugin/test/Bad.hs 2>&1 || true)
 for want in \
   "Bad.hs:13:30: error:" \
   "Bad.hs:18:34: error:" \
   "Bad.hs:21:25: error:" \
   "Bad.hs:25:7: error:" \
-  "Bad.hs:28:30: error:" "lexical error at character 'q'" \
+  "${lexical[@]}" \
   "Bad.hs:31:12: error:" "hh: {{ is never closed by }}"; do
   if ! grep -qF -- "$want" <<<"$out"; then
     echo "missing in the output: $want" >&2

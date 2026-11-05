@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 -- | The Haskell inside a template: GHC's parser, translated to Template
 -- Haskell, and the template's own grammar.
 module Test.Haskell (spec) where
@@ -12,6 +14,16 @@ import Test.Hspec
 
 exts :: [Extension]
 exts = [OverloadedRecordDot, LambdaCase, MultiWayIf, BlockArguments, TypeApplications, OverloadedStrings]
+
+-- | Where GHC places a lexical error in a string literal: at the literal
+-- since 9.12, which lexes a string whole, and at the offending character
+-- before.
+stringErrorColumn :: Int
+#if __GLASGOW_HASKELL__ >= 912
+stringErrorColumn = 6
+#else
+stringErrorColumn = 8
+#endif
 
 pprinted :: Either Failure TH.Exp -> Either Failure String
 pprinted = fmap TH.pprint
@@ -52,7 +64,7 @@ spec = do
       fmap (const ()) (parseExpAt exts (10, 5) "show n) x") `shouldBe` Left (Failure 10 11 "parse error on input `)'")
       -- A lexical error is at its literal, as GHC reports it.
       parseExp exts "show \"\\q\"" `shouldSatisfy` \case
-        Left (Failure 1 c _) -> c == 6
+        Left (Failure 1 c _) -> c == stringErrorColumn
         _ -> False
     it "what a template cannot hold is refused with a reason" $
       parseExp [Arrows] "proc x -> f -< x" `shouldBe` Left (Failure 0 0 "an arrow is not supported in a template: proc x -> f -< x")

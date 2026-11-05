@@ -205,7 +205,6 @@ lexpr = expr . unLoc
 expr :: HsExpr GhcPs -> Either Text TH.Exp
 expr = \case
   HsVar _ (L _ n) -> Right (nameExp n)
-  HsOverLabel _ fs -> Right (TH.LabelE (unpackFS fs))
   HsIPVar _ (HsIPName fs) -> Right (TH.ImplicitParamVarE (unpackFS fs))
   HsOverLit _ (OverLit _ v) -> Right (TH.LitE (overLit v))
   HsLit _ l -> TH.LitE <$> lit l
@@ -230,14 +229,13 @@ expr = \case
     MonadComp -> TH.CompE <$> mapM lstmt stmts
     GhciStmtCtxt -> Left "a GHCi statement"
   ExplicitList _ es -> TH.ListE <$> mapM lexpr es
-  RecordCon _ (L _ con) (HsRecFields _ flds dotdot) -> case dotdot of
+  RecordCon _ (L _ con) HsRecFields {rec_flds = flds, rec_dotdot = dotdot} -> case dotdot of
     Just _ -> Left "a record wildcard (..) is not supported in a template"
     Nothing -> TH.RecConE (varName con) <$> mapM recField flds
   RecordUpd _ e flds -> case flds of
     RegularRecUpdFields _ fs -> TH.RecUpdE <$> lexpr e <*> mapM updField fs
     OverloadedRecUpdFields {} -> Left "a record update through a dotted field is not supported in a template"
   HsGetField _ e (L _ f) -> TH.GetFieldE <$> lexpr e <*> dotField f
-  HsProjection _ fs -> TH.ProjectionE <$> mapM dotField fs
   ExprWithTySig _ e (HsWC _ (L _ sig)) -> TH.SigE <$> lexpr e <*> sigType sig
   ArithSeq _ _ info ->
     TH.ArithSeqE <$> case info of
@@ -253,14 +251,30 @@ expr = \case
   e@HsTypedSplice {} -> unsupported "a splice" e
   e@HsUntypedSplice {} -> unsupported "a splice" e
   e@HsProc {} -> unsupported "an arrow" e
+  e -> otherExpr e
+  where
+    modName = THS.ModName . moduleNameString
+
+-- | What 'expr' leaves: a label, whose source text was a field of its own
+-- before GHC 9.12; a projection, whose fields were located before 9.12; a
+-- type as an expression (a forall, a context, an arrow), which GHC parses
+-- as one since 9.12; and a hole, @_@: HsHole since GHC 9.14, HsUnboundVar
+-- before.
+otherExpr :: HsExpr GhcPs -> Either Text TH.Exp
+#if MIN_VERSION_ghc(9,12,0)
+otherExpr = \case
+  HsOverLabel _ fs -> Right (TH.LabelE (unpackFS fs))
+  HsProjection _ fs -> TH.ProjectionE <$> mapM dotField fs
   e@HsForAll {} -> unsupported "a type as an expression" e
   e@HsQual {} -> unsupported "a type as an expression" e
   e@HsFunArr {} -> unsupported "a type as an expression" e
-  -- What is left is a hole, @_@: HsHole since GHC 9.14, HsUnboundVar
-  -- before.
   e -> unsupported "a hole" e
-  where
-    modName = THS.ModName . moduleNameString
+#else
+otherExpr = \case
+  HsOverLabel _ _ fs -> Right (TH.LabelE (unpackFS fs))
+  HsProjection _ fs -> TH.ProjectionE <$> mapM (dotField . unLoc) fs
+  e -> unsupported "a hole" e
+#endif
 
 tupArg :: HsTupArg GhcPs -> Either Text (Maybe TH.Exp)
 tupArg = \case
@@ -275,7 +289,13 @@ recField :: LHsRecField GhcPs (LHsExpr GhcPs) -> Either Text TH.FieldExp
 recField (L _ (HsFieldBind _ (L _ f) rhs _)) = (,) <$> fieldName f <*> lexpr rhs
 
 updField :: LHsRecUpdField GhcPs GhcPs -> Either Text TH.FieldExp
+#if MIN_VERSION_ghc(9,12,0)
 updField (L _ (HsFieldBind _ (L _ f) rhs _)) = (,) <$> fieldName f <*> lexpr rhs
+#else
+-- Before 9.12 an updated field is an AmbiguousFieldOcc, which the parser
+-- leaves unambiguous.
+updField (L _ (HsFieldBind _ (L _ f) rhs _)) = (,) (varName (ambiguousFieldOccRdrName f)) <$> lexpr rhs
+#endif
 
 fieldName :: FieldOcc GhcPs -> Either Text TH.Name
 fieldName = \case
@@ -286,8 +306,8 @@ lambda variant mg = case variant of
   LamSingle -> do
     ms <- matchList mg
     case ms of
-      [Match {m_pats = L _ ps, m_grhss = GRHSs _ rhss (EmptyLocalBinds _)}]
-        | [L _ (GRHS _ [] body)] <- toList rhss -> TH.LamE <$> mapM lpat ps <*> lexpr body
+      [m@Match {m_grhss = GRHSs _ rhss (EmptyLocalBinds _)}]
+        | [L _ (GRHS _ [] body)] <- toList rhss -> TH.LamE <$> mapM lpat (matchPats m) <*> lexpr body
       _ -> Left "a lambda with guards or a where"
   LamCase -> TH.LamCaseE <$> matches mg
   LamCases -> TH.LamCasesE <$> clauses mg
@@ -301,7 +321,7 @@ matches :: MatchGroup GhcPs (LHsExpr GhcPs) -> Either Text [TH.Match]
 matches mg = matchList mg >>= mapM one
   where
     one = \case
-      Match {m_pats = L _ [p], m_grhss = rhs} -> do
+      m@Match {m_grhss = rhs} | [p] <- matchPats m -> do
         (body, decs) <- grhss rhs
         p' <- lpat p
         Right (TH.Match p' body decs)
@@ -312,10 +332,18 @@ clauses :: MatchGroup GhcPs (LHsExpr GhcPs) -> Either Text [TH.Clause]
 clauses mg = matchList mg >>= mapM one
   where
     one = \case
-      Match {m_pats = L _ ps, m_grhss = rhs} -> do
+      m@Match {m_grhss = rhs} -> do
         (body, decs) <- grhss rhs
-        ps' <- mapM lpat ps
+        ps' <- mapM lpat (matchPats m)
         Right (TH.Clause ps' body decs)
+
+-- | An alternative's patterns, located as a list since GHC 9.12.
+matchPats :: Match GhcPs (LHsExpr GhcPs) -> [LPat GhcPs]
+#if MIN_VERSION_ghc(9,12,0)
+matchPats m = unLoc m.m_pats
+#else
+matchPats m = m.m_pats
+#endif
 
 grhss :: GRHSs GhcPs (LHsExpr GhcPs) -> Either Text (TH.Body, [TH.Dec])
 grhss = \case
@@ -337,7 +365,7 @@ guarded (L _ g) = case g of
 localBinds :: HsLocalBinds GhcPs -> Either Text [TH.Dec]
 localBinds = \case
   EmptyLocalBinds _ -> Right []
-  HsValBinds _ (ValBinds _ binds sigs) -> (<>) <$> (concat <$> mapM sig sigs) <*> mapM bind binds
+  HsValBinds _ (ValBinds _ binds sigs) -> (<>) <$> (concat <$> mapM sig sigs) <*> mapM bind (toList binds)
   HsValBinds _ (XValBindsLR _) -> Left "renamed bindings"
   b@HsIPBinds {} -> unsupported "an implicit parameter binding" b
   where
@@ -363,11 +391,19 @@ lstmt (L _ s) = case s of
   LastStmt _ e _ _ -> TH.NoBindS <$> lexpr e
   ParStmt _ blocks _ _ -> TH.ParS <$> mapM block (toList blocks)
   RecStmt {recS_stmts = L _ stmts} -> TH.RecS <$> mapM lstmt stmts
-  TransStmt {} -> unsupported "a transform comprehension" s
+  _ -> refusedStmt s
   where
     block = \case
       ParStmtBlock _ stmts _ _ -> mapM lstmt stmts
       XParStmtBlock {} -> Left "a parallel block of no known form"
+
+-- | The statements a template does not take: a transform comprehension,
+-- and before GHC 9.12 an applicative statement, which only the renamer
+-- makes.
+refusedStmt :: StmtLR GhcPs GhcPs (LHsExpr GhcPs) -> Either Text TH.Stmt
+refusedStmt = \case
+  s@TransStmt {} -> unsupported "a transform comprehension" s
+  s -> unsupported "this statement" s
 
 -- Literals --------------------------------------------------------------------
 
@@ -376,14 +412,24 @@ lit = \case
   HsChar _ c -> Right (TH.CharL c)
   HsCharPrim _ c -> Right (TH.CharPrimL c)
   HsString _ fs -> Right (TH.StringL (unpackFS fs))
-  HsMultilineString _ fs -> Right (TH.StringL (unpackFS fs))
   HsStringPrim _ bs -> Right (TH.StringPrimL (BS.unpack bs))
   HsInt _ il -> Right (TH.IntegerL il.il_value)
   HsIntPrim _ i -> Right (TH.IntPrimL i)
   HsWordPrim _ i -> Right (TH.WordPrimL i)
   HsFloatPrim _ fl -> Right (TH.FloatPrimL (rationalFromFractionalLit fl))
   HsDoublePrim _ fl -> Right (TH.DoublePrimL (rationalFromFractionalLit fl))
+  l -> otherLit l
+
+-- | What 'lit' leaves: a multiline string, a literal since GHC 9.12, and
+-- the sized primitive literals.
+otherLit :: HsLit GhcPs -> Either Text TH.Lit
+#if MIN_VERSION_ghc(9,12,0)
+otherLit = \case
+  HsMultilineString _ fs -> Right (TH.StringL (unpackFS fs))
   l -> unsupported "a sized primitive literal" l
+#else
+otherLit = unsupported "a sized primitive literal"
+#endif
 
 overLit :: OverLitVal -> TH.Lit
 overLit = \case
@@ -420,9 +466,23 @@ pat = \case
   SigPat _ p (HsPS _ t) -> TH.SigP <$> lpat p <*> ltype t
   EmbTyPat _ (HsTP _ t) -> TH.TypeP <$> ltype t
   InvisPat _ (HsTP _ t) -> TH.InvisP <$> ltype t
+  p -> refusedPat p
+
+-- | The patterns a template does not take: splices, n+k patterns and the
+-- or-patterns GHC parses since 9.12.
+refusedPat :: Pat GhcPs -> Either Text TH.Pat
+#if MIN_VERSION_ghc(9,12,0)
+refusedPat = \case
   p@SplicePat {} -> unsupported "a splice" p
   p@NPlusKPat {} -> unsupported "an n+k pattern" p
   p@OrPat {} -> unsupported "an or-pattern" p
+  p -> unsupported "this pattern" p
+#else
+refusedPat = \case
+  p@SplicePat {} -> unsupported "a splice" p
+  p@NPlusKPat {} -> unsupported "an n+k pattern" p
+  p -> unsupported "this pattern" p
+#endif
 
 -- | A constructor and its arguments.
 conPat :: RdrName -> HsConPatDetails GhcPs -> Either Text TH.Pat
@@ -446,7 +506,7 @@ conPat con = \case
 #endif
 
 recPat :: RdrName -> HsRecFields GhcPs (LPat GhcPs) -> Either Text TH.Pat
-recPat con (HsRecFields _ flds dotdot) = case dotdot of
+recPat con HsRecFields {rec_flds = flds, rec_dotdot = dotdot} = case dotdot of
   Just _ -> Left "a record wildcard (..) is not supported in a template"
   Nothing -> TH.RecP (varName con) <$> mapM field flds
   where
@@ -494,9 +554,6 @@ type_ = \case
   HsStarTy _ _ -> Right TH.StarT
   HsKindSig _ t k -> TH.SigT <$> ltype t <*> ltype k
   HsExplicitListTy _ _ ts -> foldr (\t acc -> TH.AppT (TH.AppT TH.PromotedConsT t) acc) TH.PromotedNilT <$> mapM ltype ts
-  HsExplicitTupleTy _ _ ts -> do
-    ts' <- mapM ltype ts
-    Right (foldl TH.AppT (TH.PromotedTupleT (length ts')) ts')
   HsTyLit _ l ->
     TH.LitT <$> case l of
       HsNumTy _ n -> Right (TH.NumTyLit n)
@@ -505,8 +562,26 @@ type_ = \case
   HsWildCardTy _ -> Right TH.WildCardT
   t@HsSpliceTy {} -> unsupported "a splice" t
   t@HsDocTy {} -> unsupported "a documented type" t
-  -- The rest: XHsType, and before GHC 9.14 HsBangTy and HsRecTy.
+  t -> otherType t
+
+-- | What 'type_' leaves: a promoted tuple, which has said whether it was
+-- written with a quote since GHC 9.12; and what a template does not take,
+-- XHsType, and before GHC 9.14 HsBangTy and HsRecTy.
+otherType :: HsType GhcPs -> Either Text TH.Type
+#if MIN_VERSION_ghc(9,12,0)
+otherType = \case
+  HsExplicitTupleTy _ _ ts -> promotedTuple ts
   t -> unsupported "this type" t
+#else
+otherType = \case
+  HsExplicitTupleTy _ ts -> promotedTuple ts
+  t -> unsupported "this type" t
+#endif
+
+promotedTuple :: [LHsType GhcPs] -> Either Text TH.Type
+promotedTuple ts = do
+  ts' <- mapM ltype ts
+  Right (foldl TH.AppT (TH.PromotedTupleT (length ts')) ts')
 
 -- | An arrow written @->@, with no multiplicity.
 #if MIN_VERSION_ghc(9,14,0)
@@ -522,6 +597,7 @@ unrestricted = \case
 #endif
 
 binder :: (flag -> flag') -> LHsTyVarBndr flag GhcPs -> Either Text (TH.TyVarBndr flag')
+#if MIN_VERSION_ghc(9,12,0)
 binder flagOf (L _ b) = case b of
   HsTvb _ flag var kind -> do
     n <- case var of
@@ -530,6 +606,13 @@ binder flagOf (L _ b) = case b of
     case kind of
       HsBndrNoKind _ -> Right (TH.PlainTV n (flagOf flag))
       HsBndrKind _ k -> TH.KindedTV n (flagOf flag) <$> ltype k
+#else
+-- Before 9.12 a binder is a variable, with a kind or without, and never a
+-- wildcard.
+binder flagOf (L _ b) = case b of
+  UserTyVar _ flag (L _ n) -> Right (TH.PlainTV (varName n) (flagOf flag))
+  KindedTyVar _ flag (L _ n) k -> TH.KindedTV (varName n) (flagOf flag) <$> ltype k
+#endif
 
 specificity :: Specificity -> THS.Specificity
 specificity = \case

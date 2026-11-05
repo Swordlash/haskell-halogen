@@ -34,7 +34,7 @@ library
     build-depends:
         base >= 4.20 && < 5,
         containers,
-        ghc >= 9.12 && < 9.15,
+        ghc >= 9.10 && < 9.15,
         haskell-halogen-th,
         syb >= 0.7,
         template-haskell,
