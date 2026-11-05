@@ -6,6 +6,7 @@ license:            Apache-2.0
 author:             Mateusz Goślinowski
 maintainer:         mateusz.goslinowski@gmail.com
 category:           Web
+tested-with:        GHC == 9.10.3, GHC == 9.12.4, GHC == 9.14.1
 
 flag wasi
   description: Build the prerenderer as a standalone WASI command.

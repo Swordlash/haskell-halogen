@@ -3,6 +3,7 @@ name: haskell-halogen-jsbits
 version: 0.1.0
 synopsis: Compile shared JavaScript sources into Halogen WebAssembly FFI
 category: Web
+tested-with: GHC == 9.10.3, GHC == 9.12.4, GHC == 9.14.1
 author: Mateusz Goślinowski
 maintainer: mateusz.goslinowski@gmail.com
 description: Embed shared browser JavaScript into typed WebAssembly FFI imports.

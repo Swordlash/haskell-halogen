@@ -72,7 +72,7 @@ where
 
 import Control.Concurrent (ThreadId, forkIO, forkIOWithUnmask, killThread, myThreadId, yield)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, readMVar)
-import Control.Exception (Exception (..), SomeException, evaluate, finally, mask, mask_, onException, throwIO, try)
+import Control.Exception (Exception (..), SomeException (..), evaluate, finally, mask, mask_, onException, throwIO, try)
 import Control.Monad (void, when)
 import Control.Monad.IO.Class (MonadIO (..))
 import Data.Bifunctor (first)
@@ -398,7 +398,9 @@ startHere pool action = do
       ended <- try (unmask action)
       atomically
         ( fill $ case ended of
-            Left (e :: SomeException) -> Left (failed (Text.pack (displayException e)))
+            -- The exception's own message, without the backtrace GHC 9.10's
+            -- displayException of a SomeException adds.
+            Left (SomeException e) -> Left (failed (Text.pack (displayException e)))
             Right outcome -> outcome
         )
         `finally` forget

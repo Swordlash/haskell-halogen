@@ -114,9 +114,11 @@ lazy Loading {placeholder, failed} loader =
     load = do
       result <- Catch.try (lift loader)
       case result of
-        Left e
+        -- The message is the exception's own: GHC 9.10's displayException of a
+        -- SomeException adds the backtrace it was thrown with.
+        Left e@(SomeException inner)
           | Just (_ :: SomeAsyncException) <- fromException e -> Catch.throwM e
-          | otherwise -> modify (\current -> current {loaded = Just (Left (toS (displayException e)))})
+          | otherwise -> modify (\current -> current {loaded = Just (Left (toS (displayException inner)))})
         Right component -> modify (\current -> current {loaded = Just (Right component)})
 
     handleAction :: Action output -> H.HalogenM (State query input output m) (Action output) (Slots query output) output m ()

@@ -16,6 +16,7 @@ license-file:       LICENSE
 author:             Mateusz Goślinowski
 maintainer:         mateusz.goslinowski@gmail.com
 category:           Web, Template Haskell
+tested-with:        GHC == 9.10.3, GHC == 9.12.4, GHC == 9.14.1
 build-type:         Simple
 extra-doc-files:    CHANGELOG.md
                     README.md
@@ -56,12 +57,12 @@ library
         row-types,
         -- The compiler's own library, for its parser: a quote's Haskell
         -- is read by the GHC that compiles the module around it.
-        ghc >= 9.12 && < 9.15,
+        ghc >= 9.10 && < 9.15,
         haskell-halogen-core
 
-    -- The library builds with the JavaScript backend (the CPP for GHC 9.12
-    -- in Halogen.TH.Haskell is there for that backend's compiler and any
-    -- native 9.12), but a quote does not: that backend runs Template
+    -- The library builds with the JavaScript backend (the CPP for GHC 9.10
+    -- and 9.12 in Halogen.TH.Haskell is there for that backend's 9.12 and
+    -- for native 9.10 and 9.12), but a quote does not: that backend runs Template
     -- Haskell in node, after linking the splice's dependencies into
     -- JavaScript inside the compiler, and here that is the ghc library,
     -- 1.7 GB of objects. examples/th's module of five quotes took two

@@ -12,7 +12,9 @@ env:
   EM_VERSION: 3.1.74
   # Keep GHCJS_VERSION in step with with-compiler in cabal-ghcjs.project.
   GHCJS_VERSION: '9.12.2'
-  # The native GHC the runner image already ships, so setup is a no-op download.
+  # The host GHC of the cross-compiling jobs, the one the runner image
+  # already ships, so setup is a no-op download. The native build job runs
+  # on each compiler of its own matrix instead.
   GHC_VERSION: '9.14.1'
   # Keep WASM_GHC_VERSION in step with with-compiler in cabal-wasm.project.
   WASM_GHC_VERSION: '9.14.1.20260731'
@@ -25,6 +27,13 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Every package builds and tests natively on each GHC the packages say
+    # they support (their tested-with), so a change that only one of them
+    # rejects is seen here.
+    strategy:
+      fail-fast: false
+      matrix:
+        ghc: ['9.10.3', '9.12.4', '9.14.1']
 
     steps:
     - name: Checkout code
@@ -33,7 +42,7 @@ jobs:
     - uses: haskell-actions/setup@v2
       id: setup
       with:
-        ghc-version: ${{ env.GHC_VERSION }}
+        ghc-version: ${{ matrix.ghc }}
         cabal-version: ${{ env.CABAL_VERSION }}
         cabal-update: true
 

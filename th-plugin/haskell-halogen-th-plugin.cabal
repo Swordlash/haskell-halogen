@@ -14,6 +14,7 @@ license-file:       LICENSE
 author:             Mateusz Goślinowski
 maintainer:         mateusz.goslinowski@gmail.com
 category:           Web, Development
+tested-with:        GHC == 9.10.3, GHC == 9.12.4, GHC == 9.14.1
 build-type:         Simple
 extra-doc-files:    CHANGELOG.md
                     README.md
@@ -34,7 +35,7 @@ library
     build-depends:
         base >= 4.20 && < 5,
         containers,
-        ghc >= 9.12 && < 9.15,
+        ghc >= 9.10 && < 9.15,
         haskell-halogen-th,
         syb >= 0.7,
         template-haskell,
