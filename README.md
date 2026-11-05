@@ -73,8 +73,8 @@ and carries the equalities back to the concrete `Node` and `Element` as supercla
 
 ## Building
 
-The library itself compiles under any GHC from 9.6 to 9.14; CI builds against 9.14.1, the version
-the GitHub runner image ships. The browser targets need a cross-compiler.
+Every package compiles natively under any GHC from 9.10 to 9.14; CI builds and tests on 9.10.3,
+9.12.4 and 9.14.1. The browser targets need a cross-compiler.
 
 ```sh
 npm install                  # once, for esbuild, sass and Material Components

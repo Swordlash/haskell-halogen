@@ -96,6 +96,12 @@ and wired into `test/Test.hs`.
 - Use **cabal 3.16.1.0** (CI's `CABAL_VERSION`). cabal 3.18 rejects the pinned wasm GHC: its
   `--info` reports a `ghc-internal Unit Id` that differs from the one in its package DB, so the
   solver fails with "requires installed instance with unit id ghc-internal-…".
+- Native GHC: any of 9.10 to 9.14; CI's `build` job is a matrix over 9.10.3, 9.12.4 and 9.14.1
+  (every package's `tested-with`), and 9.14.1 (`GHC_VERSION`) is the cross jobs' host GHC. Build
+  each compiler into its own `--builddir` (with `-w ghc-<version>`). `th` and `th-plugin` use the
+  compiler's own `ghc` library, so GHC's syntax tree changes under them between versions: the CPP
+  in `Halogen.TH.Haskell` and `Halogen.TH.Plugin` is at declaration level, one small helper per
+  form whose shape changed, and `th-plugin/test/run.sh` expects each version's own messages.
 - wasm GHC: `wasm32-wasi-ghc-9.14.1.20260731` (pinned in `cabal-wasm.project`); ghc-wasm-meta revision
   pinned in `.github/workflows/build.yml` — keep them in step. Scripts source `~/.ghc-wasm/env`.
 - JS GHC: `javascript-unknown-ghcjs-ghc-9.12.2` (pinned in `cabal-ghcjs.project` and `GHCJS_VERSION` in
