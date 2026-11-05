@@ -561,7 +561,10 @@ spec = describe "player" $ do
     -- Persistent sounds are preloaded whatever the volume.
     Fetched "Menu" `elem` es `shouldBe` True
     setMusicVolume player 0.3
-    es' <- eventually fake (Started "T1" True `elem`)
+    -- Waited for until the volume is there: the fake notes a voice's
+    -- start before its volume, and a read between the two is too early.
+    es' <- eventually fake (Volume "T1" 0.3 `elem`)
+    Started "T1" True `elem` es' `shouldBe` True
     Volume "T1" 0.3 `elem` es' `shouldBe` True
     stopMusic player
 
