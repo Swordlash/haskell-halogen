@@ -21,6 +21,7 @@ license-file:       LICENSE
 author:             Mateusz Goślinowski
 maintainer:         mateusz.goslinowski@gmail.com
 category:           Web
+tested-with:        GHC == 9.10.3, GHC == 9.12.4, GHC == 9.14.1
 build-type:         Simple
 extra-doc-files:    CHANGELOG.md, README.md
 extra-source-files: jsbits/*.js, test/jsbits/*.js, test/web/*.js
