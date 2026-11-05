@@ -61,7 +61,12 @@ spec = describe "element rows" $ do
 -- | same is one check: the proof that two rows are the same type. The
 -- compiler does the check; the test only names it in the report.
 same :: String -> a :~: b -> Spec
-same name proof = it (name <> " is the row of its old definition") $ case proof of Refl -> (pure () :: Expectation)
+same name proof = it (name <> " is the row of its old definition") checked
+  where
+    -- The example's type is given outside the match on Refl: inside it,
+    -- GHC 9.10 cannot settle the type that it takes.
+    checked :: Expectation
+    checked = case proof of Refl -> pure ()
 
 html :: Spec
 html = do
