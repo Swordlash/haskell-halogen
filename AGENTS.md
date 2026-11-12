@@ -322,6 +322,15 @@ worker only after its continuation is queued, so it is never seen neither waitin
 reading summed over every program in the page (`core/jsbits/activity.js`); `haskell-halogen-playwright` sets it with
 an init script and waits on it after every action.
 
+A pause is the exception, on purpose. `H.delay` (`Hooks.delay`), which takes a `NominalDiffTime` in seconds, is the
+same suspension with a worker killed with its fiber, made by `Runtime.awaitUncounted`, which does not count it: while
+it sleeps the fiber is neither running nor waiting, and once it wakes its continuation is queued like any other. Only
+the application knows which pauses a test should wait for, so it says so by how it writes them: a pause before work
+a test waits for (a debounce before a request, an autosave) is `liftIO (threadDelay n)` and counted, so a quiet
+program means the request was answered; one that only takes something off the screen or ticks (a "Saved" notice, a
+clock, `forever (H.delay 1 >> tick)`) is `H.delay`, which `waitQuiet` does not wait for. A test of either kind is in
+`core/test/Test/Activity.hs`.
+
 ### FFI per backend
 
 JS-backend imports link ordinary JavaScript from each package's `jsbits/` through

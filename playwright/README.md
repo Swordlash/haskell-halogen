@@ -96,8 +96,8 @@ has `browserArgs`, Chromium's command-line switches (a
   `Initialize` has run its synchronous part. `visit` is `goto` and then this.
   It fails after the timeout on a page where no program answers.
 - **`waitQuiet page`** waits for idle and for every fiber waiting in a
-  `liftIO` to come back (a save's request, say). Its timeout says how many
-  were still waiting.
+  `liftIO` to come back (a save's request, say), but not for one pausing in
+  `H.delay` (below). Its timeout says how many were still waiting.
 - **`activity page`** is the program's answer itself, `Nothing` where there
   is none.
 
@@ -116,10 +116,32 @@ the first console message, from the page's start, that satisfies a test,
 waiting for one if there is none yet: one written before the call counts, so
 the message an action caused cannot be missed.
 
-A wait for a response (Playwright's `waitForResponse`) is not here: the one
-script that uses it waits for a save's `PUT` so that what is typed next is
-typed after it, which is `waitQuiet` (the program's fiber waiting on the
-request has come back), and needs no pattern for the request.
+### Pauses: what `waitQuiet` waits for is the program's to say
+
+`waitQuiet` waits for every fiber in a `liftIO`, and a timer written
+`liftIO (threadDelay n)` is one: it waits for the timer. A program says which
+of its pauses a test should wait for by how it writes them:
+
+- a pause followed by work a test waits for (a debounce before a search
+  request, a draft saved two seconds after the last key) is
+  `liftIO (threadDelay n)`, and `waitQuiet` after the typing returns once the
+  request has been answered;
+- a pause that only takes something off the screen or ticks (a "Saved" notice
+  hidden after three seconds, a clock, a ticker while a model works) is
+  `H.delay` (`Hooks.delay` in hooks, a `NominalDiffTime` in seconds), which the
+  probe does not count: `waitQuiet` returns while the notice is still shown,
+  so the test can read it, and a `forever` ticker leaves the page quiet
+  between ticks. Written with `liftIO`, the notice is gone by the time
+  `waitQuiet` returns, and a ticker keeps it from ever returning.
+
+A wait for a response (Playwright's `waitForResponse`) is not here, and
+`waitQuiet` is not always one. After a save that shows a "Saved" notice for
+three seconds, `waitQuiet` returns once the save has been answered only if the
+notice's timer is an `H.delay`; with `liftIO (threadDelay n)` it waits for the
+notice to go too, and the notice is never seen. Where the program cannot be
+changed, check what the response did (the saved document, through the
+server's API) after `waitQuiet`, rather than the notice; or wait for the notice
+itself with `awaitText`, after the action's `settle`.
 
 Every call has the timeout of the options (`HALOGEN_PLAYWRIGHT_TIMEOUT`, five
 seconds). `withTimeout ms page` is the same page with another, for its calls
@@ -143,7 +165,8 @@ await __halogenProbe.activity()   // {trees, running, waiting}
 ```
 
 `trees` is the trees mounted and not disposed of, `running` those running or
-with work queued, `waiting` the fibers waiting in a `liftIO`. Idle is
+with work queued, `waiting` the fibers waiting in a `liftIO` (not those
+pausing in `H.delay`). Idle is
 `running == 0`; the answer reads the program's loops when asked, so it is
 exact. Any tool can set the probe up and ask it; see `Halogen.Activity`'s
 documentation for the contract.

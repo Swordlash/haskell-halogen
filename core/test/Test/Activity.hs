@@ -9,12 +9,13 @@ module Test.Activity (spec) where
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar
 import Control.Exception (ErrorCall (..), SomeException, throwIO, try)
-import Control.Monad (void)
+import Control.Monad (forever, void)
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (traverse_)
 import Data.IORef
 import Data.Kind (Type)
 import Data.Row (Empty, Row)
+import Data.Time (NominalDiffTime)
 import Data.Void (Void)
 import Halogen qualified as H
 import Halogen.Activity (Activity (..))
@@ -92,6 +93,32 @@ dispose AD.HalogenSocket {AD.dispose = d} = d
 
 within :: String -> IO a -> IO a
 within what io = timeout 5_000_000 io >>= maybe (throwIO (ErrorCall ("timed out: " <> what))) pure
+
+-- | A component whose @Initialize@ is this program, for the pauses.
+initializing :: H.HalogenM () () Empty Void IO () -> H.Component H.VoidF () Void IO
+initializing program =
+  H.component
+    (\() -> pure ())
+    (\() -> HH.text "" :: H.ComponentHTML () Empty IO)
+    [H.onInitialize program]
+
+mountProgram :: H.HalogenM () () Empty Void IO () -> IO (AD.HalogenSocket H.VoidF Void IO)
+mountProgram program = do
+  failing <- newIORef False
+  AD.runUI (nowhere failing) (initializing program) ()
+
+-- | Note that the program got here, from the loop.
+mark :: MVar () -> H.HalogenM () () Empty Void IO ()
+mark var = H.liftEffect (void (tryPutMVar var ()))
+
+-- | Long enough for a test to act while the pause sleeps, even on a busy
+-- machine: every check that something did not happen waits twice as long.
+pause :: NominalDiffTime
+pause = 0.3
+
+-- | Whether the program got there within twice the pause.
+markedWithin :: MVar () -> IO Bool
+markedWithin var = maybe False (const True) <$> timeout 600_000 (readMVar var)
 
 -- | The reading, less the one taken before.
 since :: Activity -> Activity -> (Int, Int, Int)
@@ -196,3 +223,80 @@ spec = describe "Halogen.Activity" $ do
     putMVar release ()
     within "waitQuiet to return" (takeMVar returned)
     dispose ui
+
+  describe "a pause (H.delay)" $ do
+    it "counts a fiber in a pause as neither running nor waiting, and waitQuiet returns while it sleeps" $ do
+      woke <- newEmptyMVar
+      before <- Activity.activity
+      -- A pause far longer than the test, so that it is surely still asleep
+      -- while the test reads; disposing of the tree ends it.
+      ui <- mountProgram (H.delay 60 >> mark woke)
+      Activity.activity >>= assertEqual "neither running nor waiting" (1, 0, 0) . since before
+      quietWhileAsleep <- timeout 1_000_000 Activity.waitQuiet
+      assertEqual "waitQuiet returned while it sleeps" (Just ()) quietWhileAsleep
+      tryReadMVar woke >>= assertEqual "still asleep" Nothing
+      dispose ui
+      Activity.activity >>= assertEqual "gone once disposed" (0, 0, 0) . since before
+
+    it "counts the same fiber sleeping in liftIO (threadDelay n) as waiting" $ do
+      woke <- newEmptyMVar
+      before <- Activity.activity
+      ui <- mountProgram (liftIO (threadDelay 60_000_000) >> mark woke)
+      Activity.activity >>= assertEqual "waiting" (1, 0, 1) . since before
+      quietEarly <- timeout 50_000 Activity.waitQuiet
+      assertEqual "not quiet while it sleeps" Nothing quietEarly
+      dispose ui
+
+    it "wakes, and runs what follows the pause, which is counted as any work is" $ do
+      woke <- newEmptyMVar
+      released <- newEmptyMVar
+      before <- Activity.activity
+      -- After the pause the program waits in liftIO: from then on it is
+      -- waiting again, so waitQuiet does not return until it is released.
+      ui <- mountProgram (H.delay 0.05 >> mark woke >> liftIO (takeMVar released))
+      within "the pause to end" (readMVar woke)
+      Activity.activity >>= assertEqual "waiting after the pause" (1, 0, 1) . since before
+      putMVar released ()
+      within "quiet again" Activity.waitQuiet
+      Activity.activity >>= assertEqual "quiet again" (1, 0, 0) . since before
+      dispose ui
+
+    it "does not wake a killed fork's pause" $ do
+      woke <- newEmptyMVar
+      killed <- newEmptyMVar
+      ui <- mountProgram $ do
+        fid <- H.fork (H.delay pause >> mark woke)
+        -- Killed while it sleeps: the fork has suspended before 'fork'
+        -- returns.
+        H.kill fid
+        mark killed
+      within "the kill" (readMVar killed)
+      markedWithin woke >>= assertEqual "the killed fork never woke" False
+      dispose ui
+
+    it "does not wake the pause of a component that went away" $ do
+      woke <- newEmptyMVar
+      ui <- mountProgram (void (H.fork (H.delay pause >> mark woke)))
+      dispose ui
+      markedWithin woke >>= assertEqual "the pause never woke" False
+
+    it "leaves a program whose ticker pauses between ticks quiet between them" $ do
+      ticks <- newIORef (0 :: Int)
+      let tick = H.liftEffect (atomicModifyIORef' ticks (\n -> (n + 1, ())))
+          ticked n = do
+            t <- readIORef ticks
+            if t >= n then pure () else threadDelay 1_000 >> ticked n
+      before <- Activity.activity
+      ui <- mountProgram (void (H.fork (forever (H.delay 0.01 >> tick))))
+      within "three ticks" (ticked 3)
+      -- Quiet between the ticks, again and again, while the ticker runs on:
+      -- waitQuiet returns each time, and finds no fiber waiting.
+      sequence_ $ replicate 5 $ do
+        within "quiet between ticks" Activity.waitQuiet
+        n <- readIORef ticks
+        within "the next tick" (ticked (n + 1))
+      Activity.activity >>= \a -> assertEqual "nothing waiting" 0 (a.waiting - before.waiting)
+      dispose ui
+      stopped <- readIORef ticks
+      threadDelay 100_000
+      readIORef ticks >>= assertEqual "no tick after the tree went" stopped

@@ -15,6 +15,19 @@ gets `__halogenProbe.activity()`, a promise of the same reading, on both
 browser backends: it is what `haskell-halogen-playwright` waits on after
 every action. A page without it pays one read of a global per mount.
 
+`H.delay` pauses a component's program for a `NominalDiffTime` (in seconds:
+`H.delay 3`, `H.delay 0.2`) without the pause counting as waiting in
+`Halogen.Activity`: while it sleeps the fiber is neither running nor waiting,
+so `waitQuiet` (and a browser driver's) does not wait for it. Otherwise it is
+`liftIO (threadDelay n)`: the rest of the tree goes on, and a killed fork or a
+component that goes away ends the pause and whatever follows it. Write a pause
+that only takes something off the screen or ticks (a "Saved" notice, a clock,
+`forever (H.delay 1 >> tick)`) with `H.delay`, so that a test can see the
+notice and a ticker does not keep the program from ever being quiet; keep
+`liftIO (threadDelay n)` for a pause followed by work a test should wait for,
+such as a debounce before a request. `HalogenF` has a new constructor,
+`Delay`, which a program that matches on `HalogenF` itself must handle.
+
 The Web types have fields, written with jsbits' `Halogen.JSBits.Fields`,
 so that `OverloadedRecordDot` reads the platform directly:
 `w.navigator.onLine`, `w.document.title_set "Notes"`, `w.history.go (-1)`,

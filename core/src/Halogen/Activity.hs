@@ -26,10 +26,34 @@
 -- * 'quiet' means 'idle' and no fiber waiting on a worker either.
 --
 -- What 'idle' does not cover: a fiber waiting on the network (a 'liftIO'
--- around a request) is 'waiting', not 'running'; and a timer, an emitter
--- that has not fired yet, or an event the browser has not dispatched yet
--- is neither, since nothing of it is on a loop until it arrives. What a
--- finalizer forks after its tree is disposed of is not counted either.
+-- around a request) is 'waiting', not 'running'; and a timer behind an
+-- emitter, an emitter that has not fired yet, or an event the browser has
+-- not dispatched yet is neither, since nothing of it is on a loop until it
+-- arrives. What a finalizer forks after its tree is disposed of is not
+-- counted either.
+--
+-- = Pauses
+--
+-- A timer written as a sleeping fiber is counted as the program writes it.
+-- @liftIO (threadDelay n)@ is a wait like any other: the fiber is 'waiting'
+-- until it wakes, so 'quiet' waits for it. 'Halogen.Query.HalogenM.delay'
+-- (@Hooks.delay@ in hooks) is a pause that is not counted: while it sleeps
+-- the fiber is neither running nor waiting, and once it wakes it is like
+-- any other again (its next piece of work is queued, so the tree is
+-- 'running'). Only the application knows which of its pauses a test should
+-- wait for, so it says so by how it writes them:
+--
+-- * a pause followed by work a test waits for, such as a debounce before a
+--   request or an autosave two seconds after the last key, is
+--   @liftIO (threadDelay n)@: 'quiet' then means the request was answered;
+--
+-- * a pause that only takes something off the screen or ticks, such as a
+--   \"Saved\" notice hidden after three seconds or a clock, is 'delay':
+--   'quiet' does not wait for the notice to go (so a test can see it), and
+--   a @forever@ ticker leaves the program quiet between its ticks.
+--
+-- A pause is still its fiber's: a fork that is killed, or a component that
+-- goes away, ends it, and nothing after it runs.
 --
 -- = The probe
 --
