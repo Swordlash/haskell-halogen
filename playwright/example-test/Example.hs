@@ -26,9 +26,11 @@ main = do
   built <- doesFileExist (dir </> "app.wasm")
   if built
     then withDirectory dir $ \port -> hspec (spec (Text.pack ("http://127.0.0.1:" <> show port <> "/")))
-    else hspec $ describe "the vanilla example, built for WebAssembly" $
-      it "is served" $
-        if required
+    else
+      hspec
+        $ describe "the vanilla example, built for WebAssembly"
+        $ it "is served"
+        $ if required
           then expectationFailure (dir </> "app.wasm" <> " is missing: build it with sh toolchain/build-wasm.sh vanilla")
           else pendingWith ("no " <> dir <> "/app.wasm: build it with sh toolchain/build-wasm.sh vanilla, or run npm run test-example")
 

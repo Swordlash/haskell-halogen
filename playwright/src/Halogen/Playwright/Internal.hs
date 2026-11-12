@@ -378,7 +378,7 @@ call_ pw method params = do
                 why <- fromMaybe ("cannot write to the driver: " <> Text.pack (displayException e)) <$> readIORef pw.gone
                 pure (Left (PlaywrightError method "DriverGone" why))
               Right () -> takeMVar reply
-      )
+    )
       `onException` forget
   forget
   either (\e -> throwIO e {method}) pure outcome

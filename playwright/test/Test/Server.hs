@@ -2,8 +2,8 @@
 -- drives.
 module Test.Server (withDirectory, staticApp) where
 
-import Data.ByteString.Lazy qualified as LazyByteString
 import Data.ByteString (ByteString)
+import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Text qualified as Text
 import Network.HTTP.Types (hContentType, status200, status404)
 import Network.Wai qualified as Wai

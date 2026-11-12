@@ -7,8 +7,8 @@ import Data.Text qualified as Text
 import Halogen.Playwright (Options (..), optionsFromEnvironment, withPlaywright)
 import System.Environment (lookupEnv)
 import Test.Driver qualified
-import Test.Hspec (aroundAll, hspec)
 import Test.Failures qualified
+import Test.Hspec (aroundAll, hspec)
 import Test.Probe qualified
 import Test.Server (withDirectory)
 

@@ -162,17 +162,14 @@ mount toTheEnd spec@RenderSpec {dispose} c i = withRunInIO $ \runInIO -> do
       -- Whichever thread runs this, a failure goes back to the caller.
       enter tree.loop $ putMVar done <=< (try :: IO () -> IO (Either SomeException ())) $ do
         wasDisposed <- atomicModifyIORef' disposed (True,)
-        unless wasDisposed $
-          withBatch
-            tree
-            ( do
+        unless wasDisposed $ do
+          let finalizeAll = withBatch tree $ do
                 ds <- readIORef var
                 finalize tree (DriverStateX ds)
                 for_ ds.rendering (treeRunM tree . dispose)
-            )
-            -- Uncounted once its finalizers have run their synchronous
-            -- parts, even if one of them failed: the tree is gone either way.
-            `finally` Activity.deregister registration
+          -- Uncounted once its finalizers have run their synchronous
+          -- parts, even if one of them failed: the tree is gone either way.
+          finalizeAll `finally` Activity.deregister registration
       takeMVar done >>= either throwIO pure
 
 -- | Run the lifecycle work that a render transaction collects once the

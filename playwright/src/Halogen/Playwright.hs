@@ -152,16 +152,16 @@ import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.IO.Unlift (MonadUnliftIO (..))
 import Data.Aeson (FromJSON (..), ToJSON (..), Value, object, withObject, (.:), (.=))
 import Data.Aeson qualified as Aeson
+import Data.Aeson.Key qualified as Key
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types qualified as Aeson.Types
+import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Foldable (toList)
 import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import Data.Text qualified as Text
-import GHC.Clock (getMonotonicTime)
-import Data.Aeson.Key qualified as Key
-import Data.Aeson.KeyMap qualified as KeyMap
-import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Text.Encoding qualified as Text
+import GHC.Clock (getMonotonicTime)
 import GHC.Stack (CallStack, HasCallStack, SrcLoc, callStack, getCallStack, withFrozenCallStack)
 import Halogen.Playwright.Internal
 import System.Environment (lookupEnv)

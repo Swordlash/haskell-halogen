@@ -11,7 +11,6 @@ module Main (main) where
 import Control.Concurrent (forkIO, killThread)
 import Control.Concurrent.STM hiding (check)
 import Control.Concurrent.STM qualified as STM
-import Data.Void (Void)
 import Control.Exception (bracket, finally, try)
 import Control.Monad (forever, void, when)
 import Control.Monad.IO.Class (liftIO)
@@ -23,6 +22,7 @@ import Data.Map.Strict qualified as Map
 import Data.Row (Empty)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Void (Void)
 import Halogen qualified as H
 import Halogen.Activity qualified as Activity
 import Halogen.HTML qualified as HH
@@ -35,9 +35,9 @@ import Halogen.Remote.Server qualified as Server
 import Network.Socket qualified as Socket
 import Network.Socket.ByteString qualified as Socket
 import Network.Wai.Handler.Warp qualified as Warp
+import Prelude
 import System.Timeout (timeout)
 import Test.Hspec hiding (focus)
-import Prelude
 
 -- | What the sessions' components tell the test.
 data Shared = Shared

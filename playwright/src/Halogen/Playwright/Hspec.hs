@@ -47,9 +47,10 @@ inPage body pw = withPage pw (\page -> withFailureContext page (body page))
 -- located where 'inPage' was called.
 withFailureContext :: (HasCallStack) => Page -> IO a -> IO a
 withFailureContext page body =
-  (body `catch` \(HUnitFailure loc reason) -> do
-     section <- pageState page
-     throwIO (HUnitFailure loc (append section reason)))
+  ( body `catch` \(HUnitFailure loc reason) -> do
+      section <- pageState page
+      throwIO (HUnitFailure loc (append section reason))
+  )
     `catch` \(e :: PlaywrightError) -> do
       section <- pageState page
       throwIO (HUnitFailure here (Reason (Text.unpack (e.method <> ": " <> e.name <> ": " <> e.message) <> "\n\n" <> section)))
