@@ -87,3 +87,23 @@ What a wiki's smoke tests still lacked, each shaped by the lines that use it:
 The README no longer says that `waitQuiet` is a wait for a response: it waits
 for every fiber in a `liftIO`, a notice's timer among them unless the program
 writes that timer with core's `H.delay`, which `waitQuiet` does not wait for.
+
+The check that a prerendered page is adopted with nothing repaired, which
+the tutorial's smoke test and a wiki's two each wrote by hand: `adopt` and
+`adoptWith` go to an address with the program's request (`app.wasm`) held,
+mark every node under the root as the server sent it, let the program go,
+wait for it to start, and give what it changed as a list of `Repair`s
+(`Replaced`, `Removed`, `Built`, `TextChanged`, `AttributeChanged`), each
+with a path to the node and its HTML or text. `AdoptionOptions` name the
+root, the program's request, what to leave out (`leaveOut`: parts the
+program's `Initialize` changes on purpose, not looked at; `leaveOutContents`:
+islands another library fills, whose own element is still compared) and the
+attributes the page's own scripts write. `markServed` and
+`repairsSinceMarked` are the two halves, for a test with a gate of its own;
+`shouldAdoptCleanly`, `shouldAdoptCleanlyWith` and `shouldHaveNoRepairs`
+fail with every repair listed (`describeRepair`).
+
+`unroute` and `closeGate` now say when to use them: on a page at rest. A
+route taken away while the page's own requests were starting once left one
+of them unanswered, so a gate that has done its work is released and left
+(`adoptWith` does that).

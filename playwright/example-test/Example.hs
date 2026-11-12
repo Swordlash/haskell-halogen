@@ -52,6 +52,14 @@ spec base = playwright $ describe "the vanilla example, built for WebAssembly" $
         a.running `shouldBe` 0
       Nothing -> expectationFailure "the program did not answer the probe"
 
+  -- The prerendered page held until it has been marked, then the program
+  -- let go: hydrateUI adopts every node as the server sent it, repairing
+  -- nothing, and the adopted page is the program's.
+  it "adopts the prerendered page with nothing repaired" $ inPage $ \page -> do
+    shouldAdoptCleanly page base
+    click (byRoleNamed page "button" "+")
+    count (counted page 1) `shouldReturn` 1
+
   it "shows what a click rendered as soon as the click returns" $ inPage $ \page -> do
     visit page base
     let plus = byRoleNamed page "button" "+"

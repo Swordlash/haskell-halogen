@@ -43,7 +43,7 @@
     "serve": "npm run serve-wasm",
     "test": "sh toolchain/run-tests.sh",
     "build-rootfs": "sh toolchain/build-learn-rootfs.sh",
-    "test-learn": "node toolchain/test-learn.mjs",
+    "test-learn": "sh toolchain/test-example.sh learn",
     "test-playground": "sh toolchain/test-example.sh playground",
     "test-worker": "sh toolchain/test-example.sh worker",
     "test-example": "sh toolchain/test-example.sh vanilla",

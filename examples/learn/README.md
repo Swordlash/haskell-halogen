@@ -181,11 +181,15 @@ HALOGEN_BASE_PATH=/haskell-halogen/ npm run build-wasm-all
 HALOGEN_BASE_PATH=/haskell-halogen/ npm run test-learn
 ```
 
-`npm run test-learn` (`toolchain/test-learn.mjs`) builds nothing: it serves
+`npm run test-learn` (`browser-test/`, a native Haskell suite through
+`haskell-halogen-playwright`, run by `toolchain/test-example.sh learn`)
+builds nothing but itself: it serves
 `dist-newstyle/wasm/public/learn` as Pages would, the rootfs in it, under
 `HALOGEN_BASE_PATH` (default `/`; it must be the one the pages were built
 for), and checks that every lesson's page arrives with its heading in it,
-that the page is adopted and the compiler loads (printing how long each step
+that every page is adopted by the program with nothing repaired
+(`shouldAdoptCleanly`'s check, on a narrow screen, leaving out the parts the
+app's `Initialize` fills in), that the compiler loads (printing how long each step
 took) with no `HEAD` request, the manifest giving the version and the sizes,
 that the first two lessons do what their text says (and lesson 15's
 connected views render again only for their own part of the store), that
@@ -242,7 +246,16 @@ compile), that back, forward, a second visit
 until asked, that a failed load can be retried and loads from a manifest
 without a version or sizes too, and that nothing is logged as an error.
 `LEARN_ROOTFS_DIR` serves that rootfs directory at `rootfs/` in place of the
-tree's own; `LEARN_DEBUG=1` prints everything the page logs and requests.
+tree's own; `LEARN_DEBUG=1` prints everything the pages log, as it arrives;
+`LEARN_TIMEOUT` is the seconds a load, a compile or a check may take (300).
+It waits on the programs rather than the clock: a compile, a check and the
+compiler's load are fibers of the app waiting in a `liftIO`, and a compiled
+lesson's own waits are counted by its runtime, so after a click it waits
+for the page's programs to be quiet and reads what they show once
+(`browser-test/Tutorial/Site.hs` says which waits are conditions instead,
+and why). A timer in a lesson that only ticks is therefore written with
+`H.delay` or `Hooks.delay` (lesson 8's clock), which a quiet program does not
+wait for.
 
 `npm run dev -- learn` runs the app in browser GHCi, as for every example;
 `bundle.sh` copies the rootfs beside its page too, so the compiler loads

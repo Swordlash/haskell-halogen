@@ -448,6 +448,10 @@ component =
       modify $ \s -> s {edits = s.edits + 1, checkDue = Nothing}
       when (isLoaded st.compiler) $ do
         due <- H.fork $ do
+          -- A pause before work a reader (and a test) waits for, the check:
+          -- so a liftIO, which Halogen.Activity counts as waiting, and not
+          -- H.delay. A program that is quiet after a key has checked the
+          -- code the key left.
           liftIO (threadDelay checkDelay)
           -- From here on it is not killed: a change meanwhile drops its
           -- result instead, so the session never has a run taken from it

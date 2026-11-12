@@ -6,6 +6,7 @@ module Main (main) where
 import Halogen.Playwright (Options (..), optionsFromEnvironment, withPlaywright)
 import Halogen.Playwright.Serve (serveDirectory)
 import System.Environment (lookupEnv)
+import Test.Adoption qualified
 import Test.DevTools qualified
 import Test.Driver qualified
 import Test.Failures qualified
@@ -38,6 +39,7 @@ main = serveDirectory "test/web" $ \base -> do
       Test.Frames.spec base
       Test.DevTools.spec base
       Test.Shared.spec base
+      Test.Adoption.spec base
       Test.Sockets.spec base
       Test.Serve.spec
     Test.Failures.spec base

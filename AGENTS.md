@@ -18,7 +18,9 @@ WebSocket and server-sent events, whose events arrive through `Halogen.Subscript
 node child speaking a JSON-lines protocol of our own, every action waiting for the page's program to say it is idle
 through core's activity probe, with hspec integration and a static server for a built directory
 (`Halogen.Playwright.Serve`); requests answered by the test's handlers (routes, a gate that holds `app.wasm`;
-node asks, Haskell answers, each handler on a thread of its own), downloads and uploads, cookies, offline,
+node asks, Haskell answers, each handler on a thread of its own), the check that a prerendered page is adopted with
+nothing repaired (`shouldAdoptCleanly`: `app.wasm` held, every node under `#app` marked, the program let go and its
+start waited for, and what it replaced, removed, built or changed listed), downloads and uploads, cookies, offline,
 emulated media and print, phones and taps, frames, and the Chrome DevTools Protocol with a processor throttle
 `HALOGEN_PLAYWRIGHT_THROTTLE` puts on every page; it depends on none of our packages and is native only),
 `custom-element` (`haskell-halogen-custom-element`: a component as a custom element, a Web
@@ -62,7 +64,7 @@ npm run test                    # toolchain/run-tests.sh — all three in sequen
 npm run serve-wasm -- <example> # build one example to wasm and serve it on :8080
 npm run build-rootfs            # the compiler the tutorial runs (GHC, our libraries) and learn/'s page, into dist-newstyle/wasm/learn
 npm run build-wasm-all          # every example, wasm-opt'd (the rootfs first if missing); Pages deploys only public/learn
-npm run test-learn              # the built tutorial, rootfs inside, in headless Chromium: every lesson compiled in the page
+npm run test-learn              # the built tutorial, rootfs inside, natively (examples/learn/browser-test) in headless Chromium: every lesson compiled in the page
 npm run test-playground         # learn/'s page on the rootfs in headless Chromium, natively (examples/learn/playground-test): a program for every layer
 npm run test-worker             # examples/worker's suite, natively, against the built example (build-wasm.sh worker): jobs in Web Workers
 npm run test-example            # playwright's example suite, natively, against the built examples/vanilla (build-wasm.sh vanilla)
@@ -90,14 +92,16 @@ proxy the test can cut. `Halogen-playwright-example-test` serves a built wasm ex
 `HALOGEN_EXAMPLE_REQUIRED=1` (`npm run test-example`, run by CI's `learn-wasm`); `examples/worker`'s
 `halogen-example-worker-test` is the same for `dist-newstyle/wasm/public/worker` (`npm run test-worker`), and
 `examples/learn`'s `halogen-example-learn-playground-test` for the rootfs, `dist-newstyle/wasm/learn` or
-`LEARN_ROOTFS_DIR` (`npm run test-playground`; all three through `toolchain/test-example.sh <example>`).
+`LEARN_ROOTFS_DIR` (`npm run test-playground`), and its `halogen-example-learn-browser-test` for the tutorial
+as Pages deploys it, `dist-newstyle/wasm/public/learn` (`npm run test-learn`; all four through
+`toolchain/test-example.sh <example>`).
 `Halogen-tauri-browser-test` runs against `tauri/test/web/tauri-double.js`, a stand-in
 for Tauri's global API (a table of commands and an event bus), since there is no Tauri in CI.
 `Halogen-three-browser-test` renders with WebGL in headless Chromium (SwiftShader, no GPU needed),
 with Three.js bundled from `node_modules` by `three/test/web/bundle.sh`, so it needs no network.
 `hspec-halogen-test` is also
 the harness's examples, and where core's browser behaviour (events, properties the page changes,
-keyed moves, refs, forks, subscriptions, the window's emitters) is tested for real. All are hspec, `main-is: Test.hs` (net's, tauri's and three's browser suites: `Browser.hs`; remote's live suite: `Live.hs`; playwright's example suite: `example-test/Example.hs`; `examples/worker`'s: `test/Test.hs`, one module; `examples/learn`'s playground suite: `playground-test/Playground.hs`, one module) which aggregates `Test.*` specs. Run one suite or one test with hspec's
+keyed moves, refs, forks, subscriptions, the window's emitters) is tested for real. All are hspec, `main-is: Test.hs` (net's, tauri's and three's browser suites: `Browser.hs`; remote's live suite: `Live.hs`; playwright's example suite: `example-test/Example.hs`; `examples/worker`'s: `test/Test.hs`, one module; `examples/learn`'s playground suite: `playground-test/Playground.hs`, one module; its tutorial suite: `browser-test/Browser.hs` and `Tutorial.*`) which aggregates `Test.*` specs. Run one suite or one test with hspec's
 `--match`:
 
 ```sh
@@ -176,12 +180,17 @@ and wired into `test/Test.hs`.
   written the outcome, so the test does not run on while the page still acts.
   And a JS→Haskell callback is not run on the spot: the glue schedules the RTS scheduler loop as a
   task (`scheduler.postTask` in Chromium), which is why every harness action ends with `settle`.
-- `toolchain/test-learn.mjs` tests the deployed artefact rather than a component: it serves the built
-  `dist-newstyle/wasm/public/learn`, the rootfs in its `rootfs/`, under `HALOGEN_BASE_PATH` as Pages
-  serves it, and checks every lesson's prerendered page, the hydration, the compiler loading in the
-  page, every lesson's `Start.hs` and `Solution.hs` compiling there (two lessons at a time, on two
-  pages), back and forward, the Cache API and a narrow screen (`LEARN_ROOTFS_DIR` serves another
-  rootfs in place of the tree's).
+- `examples/learn/browser-test` (`halogen-example-learn-browser-test`, native, through
+  `haskell-halogen-playwright`; `npm run test-learn`) tests the deployed artefact rather than a component:
+  it serves the built `dist-newstyle/wasm/public/learn`, the rootfs in its `rootfs/`, under
+  `HALOGEN_BASE_PATH` as Pages serves it, and checks every lesson's prerendered page, every page adopted
+  with nothing repaired (`shouldAdoptCleanly`'s check), the compiler loading in the page, every lesson's
+  `Start.hs` and `Solution.hs` compiling there (two lessons at a time, on two pages, with `async`), back
+  and forward, the Cache API and a narrow screen (`LEARN_ROOTFS_DIR` serves another rootfs in place of
+  the tree's). A compile, a check and the compiler's load are the app's fibers waiting in a `liftIO`,
+  and a compiled lesson is a second program in the page whose runtime answers the same probe, so after
+  a click it waits for quiet and reads once; a lesson's timer that only ticks must be an `H.delay`
+  (`Hooks.delay`), or the page is never quiet. Its modules are split by area (`Tutorial.*`).
   `examples/learn/playground-test` (`halogen-example-learn-playground-test`, native, through
   `haskell-halogen-playwright`) drives `learn/`'s page on the rootfs, with a program for every layer
   (`playground-test/programs/`), and prints the page's timings, its JS heap (through the DevTools

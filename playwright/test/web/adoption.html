@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Prerendered</title></head>
+<body>
+  <!-- A prerendered page, as Halogen.Static writes one: its program
+       (adoption-program.js) is fetched by a module script that waits at its
+       top level, as a wasm program's loader waits for app.wasm, and adopts
+       the page in the way ?mode= says. The space between the tags and the
+       comment between the two texts are the parser's, as in a page written
+       by hand. -->
+  <div id="app">
+    <div class="counter">
+      <h1>Count</h1>
+      <p class="greeting">Hello, <!-- -->Ada</p>
+      <p class="count">0</p>
+      <button>+</button>
+      <div class="island"><span>typeset by a library</span></div>
+    </div>
+  </div>
+  <p id="outside">outside the program's element</p>
+  <script type="module">
+    await import("./adoption-program.js");
+  </script>
+</body>
+</html>

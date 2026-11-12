@@ -121,6 +121,23 @@ module Halogen.Playwright
   , waitQuiet
   , activity
 
+    -- * A prerendered page, adopted
+
+    -- | Whether the program took the page the server sent as it was
+    -- (@hydrateUI@), or repaired it: the page's nodes marked before the
+    -- program arrives, and compared once it has started.
+  , AdoptionOptions (..)
+  , defaultAdoptionOptions
+  , Repair (..)
+  , adopt
+  , adoptWith
+  , markServed
+  , repairsSinceMarked
+  , describeRepair
+  , shouldAdoptCleanly
+  , shouldAdoptCleanlyWith
+  , shouldHaveNoRepairs
+
     -- * Locators
 
     -- | Values that say how to find an element, from a page, another
@@ -279,7 +296,8 @@ where
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, orElse, readTVar, readTVarIO, registerDelay, writeTVar)
 import Control.Concurrent.STM qualified as STM
-import Control.Exception (SomeException, bracket, bracket_, fromException, onException, throwIO, try)
+import Control.Exception (SomeException, bracket, bracket_, finally, fromException, onException, throwIO, try)
+import Control.Monad (unless)
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.IO.Unlift (MonadUnliftIO (..))
 import Data.Aeson (FromJSON (..), ToJSON (..), Value, object, withObject, (.:), (.:?), (.=))
@@ -589,6 +607,280 @@ waitQuiet p = onPage p "waitQuiet" []
 -- answers.
 activity :: (MonadIO m) => Page -> m (Maybe Activity)
 activity p = onPage p "activity" []
+
+----------------------------------------------------------------------
+-- A prerendered page, adopted
+
+-- | What 'adoptWith' and 'markServed' look at.
+data AdoptionOptions = AdoptionOptions
+  { root :: Text
+  -- ^ The element the program mounts into, whose content is compared (not
+  -- the element itself): @#app@.
+  , program :: Text
+  -- ^ A glob of the request that brings the program (as 'route' takes
+  -- one), held until the page as the server sent it has been marked:
+  -- @**\/app.wasm@.
+  , leaveOut :: [Text]
+  -- ^ Selectors of elements that are not compared, with everything in
+  -- them: what another library fills in after the program has started (a
+  -- formula's typesetting, an editor that takes the place of a
+  -- @textarea@), or what the program's @Initialize@ changes on purpose,
+  -- which is no repair of the server's HTML. Such an element is not looked
+  -- at at all: it may be replaced, or go.
+  , leaveOutContents :: [Text]
+  -- ^ Selectors of elements that are compared themselves (each must be the
+  -- node the server sent, with its attributes), but whose contents are
+  -- not: an island a library draws in, which the program is to keep while
+  -- the library fills it.
+  , ignoredAttributes :: [Text]
+  -- ^ Attributes the page's own scripts write, whatever the server sent:
+  -- a change to one of these is not a repair.
+  }
+  deriving stock (Eq, Show)
+
+-- | @#app@, @**\/app.wasm@, nothing left out, every attribute compared.
+defaultAdoptionOptions :: AdoptionOptions
+defaultAdoptionOptions = AdoptionOptions {root = "#app", program = "**/app.wasm", leaveOut = [], leaveOutContents = [], ignoredAttributes = []}
+
+-- | One thing the program changed in the page the server sent, as it
+-- adopted it: HTML a page rendered ahead of time got wrong, which the
+-- program put right (and the reader saw change). Each has a path from the
+-- root to the node (@#app > div.learn > main > p:nth-child(2) > text()@),
+-- and what the node was or is: an element's outer HTML, cut short when
+-- long, or a text.
+data Repair
+  = -- | A node of the page is gone, and another is where it was.
+    Replaced {path :: Text, was :: Text, now :: Text}
+  | -- | A node of the page is gone, and nothing took its place. Only the
+    -- outermost of what went is listed.
+    Removed {path :: Text, was :: Text}
+  | -- | A node the page did not have. Only the outermost of what was
+    -- built is listed.
+    Built {path :: Text, now :: Text}
+  | -- | A text of the page that the program kept, with another text.
+    TextChanged {path :: Text, was :: Text, now :: Text}
+  | -- | An attribute of an element the program kept, set, changed or taken
+    -- away.
+    AttributeChanged {path :: Text, attribute :: Text, before :: Maybe Text, after :: Maybe Text}
+  deriving stock (Eq, Show)
+
+instance FromJSON Repair where
+  parseJSON = withObject "Repair" $ \o -> do
+    path <- o .: "path"
+    (o .: "kind" :: Aeson.Types.Parser Text) >>= \case
+      "replaced" -> Replaced path <$> o .: "was" <*> o .: "now"
+      "removed" -> Removed path <$> o .: "was"
+      "built" -> Built path <$> o .: "now"
+      "text" -> TextChanged path <$> o .: "was" <*> o .: "now"
+      "attribute" -> AttributeChanged path <$> o .: "attribute" <*> o .:? "before" <*> o .:? "after"
+      other -> fail ("no such repair: " <> Text.unpack other)
+
+-- | A repair as a line of a report.
+describeRepair :: Repair -> Text
+describeRepair = \case
+  Replaced {path, was, now} -> "replaced " <> path <> ": " <> was <> " by " <> now
+  Removed {path, was} -> "removed " <> path <> ": " <> was
+  Built {path, now} -> "built " <> path <> ": " <> now
+  TextChanged {path, was, now} -> "text changed " <> path <> ": " <> quoted was <> " to " <> quoted now
+  AttributeChanged {path, attribute, before, after} ->
+    "attribute " <> attribute <> " changed " <> path <> ": " <> maybe "absent" quoted before <> " to " <> maybe "absent" quoted after
+  where
+    quoted = Text.pack . show
+
+-- | 'adoptWith' 'defaultAdoptionOptions'.
+adopt :: (MonadIO m) => Page -> Text -> m [Repair]
+adopt = adoptWith defaultAdoptionOptions
+
+-- | Go to an address whose page is prerendered, and say what the program
+-- repaired as it adopted it: the program's request ('program') held, the
+-- page as the server sent it marked ('markServed') once it has asked for
+-- the program, the program let go, its start waited for ('waitStarted':
+-- the adopting render and every @Initialize@'s synchronous part are done),
+-- and the page compared with what was marked ('repairsSinceMarked'). An
+-- empty list is a page adopted with nothing repaired. The gate is released
+-- at the end and left in place, letting the page's later loads straight
+-- through: it is not taken away ('closeGate'), since the program's own
+-- requests start as it does, and taking a route away while a page's
+-- requests are under way can leave them stalled (the tutorial's test saw a
+-- compiler's first request never answered). So each call leaves one more
+-- released gate on the page, asked about every later request for the
+-- program: a test that adopts many addresses on one page holds one gate of
+-- its own, armed again for each ('rearm'), between the two halves
+-- ('markServed', 'repairsSinceMarked').
+--
+-- What the program changes after it has started (a timer's render, a
+-- response's) is not compared; what its @Initialize@ changes is, unless it
+-- is under 'leaveOut'.
+adoptWith :: (MonadIO m) => AdoptionOptions -> Page -> Text -> m [Repair]
+adoptWith options page address = liftIO $ do
+  gate <- hold page options.program
+  ( do
+      goto page address
+      waitHeld gate
+      markServed options page
+      release gate
+      waitStarted page
+      repairsSinceMarked page
+    )
+    `finally` release gate
+
+-- | Mark the page as it is now, as the server sent it before its program
+-- has run: every node under the 'root' (but what 'leaveOut' names, and
+-- what is inside what 'leaveOutContents' names), with its text or its
+-- attributes, for 'repairsSinceMarked' to compare
+-- with. The marks are kept in the page, by node, so that a node the program
+-- replaced with an equal one is told from one it kept. For a test with a
+-- gate of its own, or with more to do between marking and comparing; else
+-- 'adoptWith' does the whole of it.
+markServed :: (MonadIO m) => AdoptionOptions -> Page -> m ()
+markServed options page = do
+  _ :: Int <- evaluateWith page markScript (object ["root" .= options.root, "leaveOut" .= options.leaveOut, "leaveOutContents" .= options.leaveOutContents, "ignored" .= options.ignoredAttributes])
+  pure ()
+
+-- | What has changed since 'markServed', in the page as it is now: the
+-- nodes marked that are gone (replaced, or removed), the nodes there that
+-- were not marked (built), the texts and the attributes changed. Gone
+-- texts of white space alone are not listed: the HTML parser makes them of
+-- the space between tags, and a program that renders none takes them away
+-- with nothing on the page changing. Nor is an empty text built.
+repairsSinceMarked :: (MonadIO m) => Page -> m [Repair]
+repairsSinceMarked page = evaluateWith page compareScript ()
+
+-- | Adopting the page at the address repairs nothing ('adopt'); the
+-- failure lists every repair.
+shouldAdoptCleanly :: (HasCallStack, MonadIO m) => Page -> Text -> m ()
+shouldAdoptCleanly page address = withFrozenCallStack (shouldAdoptCleanlyWith defaultAdoptionOptions page address)
+
+-- | 'shouldAdoptCleanly' with options ('adoptWith').
+shouldAdoptCleanlyWith :: (HasCallStack, MonadIO m) => AdoptionOptions -> Page -> Text -> m ()
+shouldAdoptCleanlyWith options page address = liftIO $ withFrozenCallStack $ do
+  repairs <- adoptWith options page address
+  unless (null repairs) (failWith (reportRepairs ("adopting the page at " <> address) repairs))
+
+-- | No repairs, from 'repairsSinceMarked' after a gate of the test's own;
+-- the failure lists them.
+shouldHaveNoRepairs :: (HasCallStack, MonadIO m) => [Repair] -> m ()
+shouldHaveNoRepairs repairs = liftIO $ withFrozenCallStack $ unless (null repairs) (failWith (reportRepairs "adopting the page" repairs))
+
+reportRepairs :: Text -> [Repair] -> Text
+reportRepairs what repairs =
+  what <> " repaired " <> Text.pack (show (length repairs)) <> " thing(s):\n" <> Text.unlines (map (("  " <>) . describeRepair) repairs)
+
+-- | The page's half of 'markServed'. A node's path names each element by
+-- its tag, its id, two of its classes and its place among its parent's
+-- elements, so that a reader of a failure can find it; a text by its place
+-- among its parent's texts. The marks are kept under a symbol of the
+-- global object, where the page's own code does not look.
+markScript :: Text
+markScript =
+  Text.unlines
+    [ "(o) => {"
+    , "  const root = document.querySelector(o.root);"
+    , "  if (root === null) throw new Error(`no element matches ${o.root}: there is nothing to mark`);"
+    , "  const skip = o.leaveOut.join(', ');"
+    , "  const opaque = o.leaveOutContents.join(', ');"
+    , "  const marks = new Map();"
+    , adoptionHelpers
+    , "  const visit = (parent, path) => {"
+    , "    for (const node of parent.childNodes) {"
+    , "      if (node.nodeType === Node.ELEMENT_NODE) {"
+    , "        if (skip !== '' && node.matches(skip)) continue;"
+    , "        const at = `${path} > ${segment(node)}`;"
+    , "        marks.set(node, { path: at, parent, index: place(node), text: null, html: html(node),"
+    , "          attributes: Object.fromEntries([...node.attributes].map((a) => [a.name, a.value])) });"
+    , "        if (opaque === '' || !node.matches(opaque)) visit(node, at);"
+    , "      } else if (node.nodeType === Node.TEXT_NODE) {"
+    , "        marks.set(node, { path: `${path} > ${segment(node)}`, parent, index: place(node), text: node.data, html: null });"
+    , "      }"
+    , "    }"
+    , "  };"
+    , "  visit(root, o.root);"
+    , "  globalThis[Symbol.for('halogen.playwright.adoption')] = { root: o.root, skip, opaque, ignored: o.ignored, marks };"
+    , "  return marks.size;"
+    , "}"
+    ]
+
+-- | The page's half of 'repairsSinceMarked'.
+compareScript :: Text
+compareScript =
+  Text.unlines
+    [ "() => {"
+    , "  const state = globalThis[Symbol.for('halogen.playwright.adoption')];"
+    , "  if (!state) throw new Error('nothing was marked: markServed first');"
+    , "  const { skip, opaque, ignored, marks } = state;"
+    , "  const root = document.querySelector(state.root);"
+    , adoptionHelpers
+    , "  const here = (node) => root !== null && root !== node && root.contains(node);"
+    , "  const gone = [];"
+    , "  const repairs = [];"
+    , "  for (const [node, mark] of marks) {"
+    , "    if (!here(node)) {"
+    , "      if (mark.text !== null && mark.text.trim() === '') continue;"
+    , "      // The outermost of what went: its parent is still there."
+    , "      if (marks.has(mark.parent) && !here(mark.parent)) continue;"
+    , "      gone.push(mark);"
+    , "    } else if (mark.text !== null) {"
+    , "      if (node.data !== mark.text) repairs.push({ kind: 'text', path: mark.path, was: mark.text, now: node.data });"
+    , "    } else {"
+    , "      const now = Object.fromEntries([...node.attributes].map((a) => [a.name, a.value]));"
+    , "      for (const name of new Set([...Object.keys(mark.attributes), ...Object.keys(now)])) {"
+    , "        if (ignored.includes(name) || mark.attributes[name] === now[name]) continue;"
+    , "        repairs.push({ kind: 'attribute', path: mark.path, attribute: name, before: mark.attributes[name] ?? null, after: now[name] ?? null });"
+    , "      }"
+    , "    }"
+    , "  }"
+    , "  const built = [];"
+    , "  const visit = (parent, path) => {"
+    , "    for (const node of parent.childNodes) {"
+    , "      const element = node.nodeType === Node.ELEMENT_NODE;"
+    , "      if (!element && node.nodeType !== Node.TEXT_NODE) continue;"
+    , "      if (element && skip !== '' && node.matches(skip)) continue;"
+    , "      const at = `${path} > ${segment(node)}`;"
+    , "      if (!marks.has(node)) {"
+    , "        if (!element && node.data === '') continue;"
+    , "        built.push({ path: at, parent, index: place(node), now: element ? html(node) : node.data });"
+    , "      } else if (element && (opaque === '' || !node.matches(opaque))) visit(node, at);"
+    , "    }"
+    , "  };"
+    , "  if (root !== null) visit(root, state.root);"
+    , "  // A node built where one went, in the same parent at the same place,"
+    , "  // replaced it."
+    , "  for (const mark of gone) {"
+    , "    const i = built.findIndex((b) => b.parent === mark.parent && b.index === mark.index);"
+    , "    const was = mark.text ?? mark.html;"
+    , "    if (i >= 0) {"
+    , "      const [b] = built.splice(i, 1);"
+    , "      repairs.push({ kind: 'replaced', path: mark.path, was, now: b.now });"
+    , "    } else repairs.push({ kind: 'removed', path: mark.path, was });"
+    , "  }"
+    , "  for (const b of built) repairs.push({ kind: 'built', path: b.path, now: b.now });"
+    , "  return repairs;"
+    , "}"
+    ]
+
+-- | What both halves name nodes with.
+adoptionHelpers :: Text
+adoptionHelpers =
+  Text.unlines
+    [ "  // A node's place among its parent's elements and texts. Comments, which"
+    , "  // only keep texts apart for the HTML parser, and the space between tags,"
+    , "  // which a render does not make, do not count."
+    , "  const counted = (n) => n.nodeType === Node.ELEMENT_NODE || (n.nodeType === Node.TEXT_NODE && n.data.trim() !== '');"
+    , "  const place = (node) => [...node.parentNode.childNodes].filter(counted).indexOf(node);"
+    , "  const html = (e) => { const h = e.outerHTML; return h.length > 160 ? `${h.slice(0, 159)}…` : h; };"
+    , "  const segment = (node) => {"
+    , "    const parent = node.parentNode;"
+    , "    if (node.nodeType === Node.TEXT_NODE) {"
+    , "      const texts = [...parent.childNodes].filter((n) => n.nodeType === Node.TEXT_NODE);"
+    , "      return texts.length > 1 ? `text()[${texts.indexOf(node) + 1}]` : 'text()';"
+    , "    }"
+    , "    const classes = [...node.classList].slice(0, 2).map((c) => `.${c}`).join('');"
+    , "    const id = node.id ? `#${node.id}` : '';"
+    , "    const siblings = [...parent.children];"
+    , "    const nth = siblings.length > 1 ? `:nth-child(${siblings.indexOf(node) + 1})` : '';"
+    , "    return `${node.localName}${id}${classes}${nth}`;"
+    , "  };"
+    ]
 
 ----------------------------------------------------------------------
 -- Locators
@@ -1262,6 +1554,14 @@ route s pattern handler = liftIO $ do
 -- route is removed, so nothing is left waiting on a handler that will not
 -- answer. Nothing on a route already gone with its page, or a driver that
 -- has ended.
+--
+-- Take a route away while the page is at rest. When a page's last route
+-- goes, the browser stops handing the page's requests to Playwright, and a
+-- request of the page's that was under way at that moment, whether the
+-- route matched it or not, has been seen left unanswered (once, in the
+-- tutorial's test, as its compiler started loading). A
+-- route that only has to stop answering is better left in place with a
+-- handler that says 'Continue', as a released gate is.
 unroute :: (MonadIO m) => Route -> m ()
 unroute r = liftIO (removeRoute r.playwright r.handle)
 
@@ -1311,7 +1611,9 @@ rearm :: (MonadIO m) => Gate -> m ()
 rearm g = liftIO (atomically (writeTVar g.open False))
 
 -- | Take the gate away: the requests it holds go on, as on 'release', and
--- later ones do not pass it at all ('unroute').
+-- later ones do not pass it at all ('unroute'). For a page at rest, as
+-- 'unroute' says: where the page's own requests start as the gate lets its
+-- program go, 'release' it and leave it.
 closeGate :: (MonadIO m) => Gate -> m ()
 closeGate g = release g >> unroute g.route
 

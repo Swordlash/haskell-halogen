@@ -250,7 +250,7 @@ spec base = describe "routes" $ do
     took `shouldSatisfy` (< 15)
 
   describe "a gate" $ do
-    -- smoke-test.mjs, smoke-test-server.mjs and test-learn.mjs: app.wasm
+    -- smoke-test.mjs, smoke-test-server.mjs and the tutorial's test: app.wasm
     -- held, so that the prerendered page is seen before the program runs,
     -- then let go. gated.html's module script waits at its top level for
     -- what is held, as a program's loader waits for its binary.
