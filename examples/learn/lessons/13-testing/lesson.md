@@ -28,3 +28,7 @@ Compile: the first test passes, and the second fails after two seconds, as nothi
 
 1. Change the component, not the spec: give the button the class `increment` with `HP.class_ (HH.ClassName "increment")`, and put the number alone in an `HH.span` with the class `count`, after the text `"Count: "`. Compile: `2 examples, 0 failures`. The component looks as it did; what changed is only what the spec can find in it.
 2. Add a test of your own: that after typing `Ada`, clearing the field with `clear` and typing `Grace`, the greeting is `Hello, Grace!`. Compile again for three examples.
+
+## The whole program
+
+What runs in the page tests a component, one at a time. It cannot test what a reader meets beyond that: several pages, going back and forward, a server, the program as it is built and served. For those there is [`haskell-halogen-playwright`](https://github.com/Swordlash/haskell-halogen/blob/master/playwright/README.md): a native hspec suite, on your machine, that serves the built program, drives Chromium from outside the page, and speaks the same vocabulary, `click`, `typeText` and `shouldHaveText`. After each action it waits for the program to say it has finished, so a test reads what a click rendered at once.
