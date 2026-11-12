@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>A pretend program</title>
+</head>
+<body>
+  <!-- Plays a Halogen program's side of the activity probe, under the
+       test's control: what it reports is in window.fake, which the page's
+       buttons and the test (through evaluate) change. -->
+  <p id="state">idle</p>
+  <button id="slow" onclick="slow()">slow</button>
+  <button id="wait" onclick="fake.waiting = 2; document.getElementById('state').textContent = 'waiting'">wait</button>
+  <button id="away" onclick="fake.running = 1; location.href = 'second.html'">away</button>
+  <script>
+    window.fake = { trees: 1, running: 0, waiting: 0, answered: 0 };
+    // A program answers only once it has mounted; ?unstarted leaves the
+    // probe without an answer, as a page whose program never starts.
+    if (!location.search.includes("unstarted") && globalThis.__halogenProbe) {
+      __halogenProbe.activity = async () => {
+        fake.answered += 1;
+        return { trees: fake.trees, running: fake.running, waiting: fake.waiting };
+      };
+    }
+    // Busy for a while after a click, as a long render would be, and only
+    // then showing what it did.
+    function slow() {
+      fake.running = 1;
+      setTimeout(() => {
+        document.getElementById("state").textContent = "done";
+        fake.running = 0;
+      }, 300);
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,128 @@
+cabal-version:      3.4
+name:               haskell-halogen-playwright
+version:            0.1.0.0
+synopsis:           Test a built program in Chromium from Haskell, waiting on the program rather than the clock
+description:
+  "Halogen.Playwright" drives Chromium through Playwright from a native
+  Haskell program: pages, navigation, locators, actions, reading and
+  retrying expectations, with "Halogen.Playwright.Hspec" for hspec. The test
+  is outside the page, so it can visit a built program, hold several pages
+  and test a program whose component is not in the page at all (a
+  haskell-halogen-remote server's). Every action ends by waiting for the
+  page's Halogen program to be idle, asked through the probe
+  haskell-halogen-core's "Halogen.Activity" answers, so a test reads what a
+  click rendered at once. It depends on none of the haskell-halogen
+  packages and drives any page. It runs node with the npm package
+  @playwright@ from the project; see the README.
+homepage:           https://github.com/Swordlash/haskell-halogen
+license:            Apache-2.0
+license-file:       LICENSE
+author:             Mateusz Goślinowski
+maintainer:         mateusz.goslinowski@gmail.com
+category:           Web, Testing
+tested-with:        GHC == 9.10.3, GHC == 9.12.4, GHC == 9.14.1
+build-type:         Simple
+extra-doc-files:    CHANGELOG.md, README.md
+extra-source-files: js/driver.mjs
+                    test/web/*.html
+
+common defaults
+    default-language: GHC2021
+    ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists -Wunused-packages
+    default-extensions:
+        DataKinds
+        DerivingStrategies
+        DuplicateRecordFields
+        LambdaCase
+        NamedFieldPuns
+        NoFieldSelectors
+        OverloadedRecordDot
+        OverloadedStrings
+        StrictData
+
+-- Native only: a program in a browser is what is tested, not the tester.
+library
+    import:           defaults
+    hs-source-dirs:   src
+    exposed-modules:  Halogen.Playwright
+                      Halogen.Playwright.Hspec
+                      Halogen.Playwright.Internal
+    build-depends:
+        base >= 4.20 && < 5,
+        aeson >= 2.0,
+        bytestring,
+        containers,
+        directory,
+        filepath,
+        hspec >= 2.10,
+        HUnit,
+        process,
+        template-haskell,
+        temporary,
+        text >= 2.0,
+        typed-process >= 0.2.11 && < 0.3,
+        unix,
+        unliftio-core
+    if arch(wasm32) || arch(javascript)
+        buildable: False
+
+-- The driver against pages in test/web/, served by the suite. It needs
+-- node, the npm package playwright and its Chromium, and fails without
+-- them, with the driver's message.
+test-suite Halogen-playwright-test
+    import:           defaults
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          Test.hs
+    ghc-options:      -threaded
+    other-modules:    Test.Driver
+                      Test.Failures
+                      Test.Probe
+                      Test.Server
+    build-depends:
+        base,
+        aeson,
+        async,
+        bytestring,
+        directory,
+        filepath,
+        hspec,
+        HUnit,
+        http-types,
+        temporary,
+        text,
+        wai,
+        warp,
+        haskell-halogen-playwright
+    if arch(wasm32) || arch(javascript)
+        buildable: False
+
+-- A built WebAssembly example, served from where build-wasm.sh writes it:
+-- the probe's two halves meeting in a real program. Its examples are
+-- pending when the build is not there, unless HALOGEN_EXAMPLE_REQUIRED=1
+-- (toolchain/test-example.sh sets it).
+test-suite Halogen-playwright-example-test
+    import:           defaults
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   example-test test
+    main-is:          Example.hs
+    ghc-options:      -threaded
+    other-modules:    Test.Server
+    build-depends:
+        base,
+        bytestring,
+        directory,
+        filepath,
+        hspec,
+        http-types,
+        text,
+        wai,
+        warp,
+        haskell-halogen-playwright
+    if arch(wasm32) || arch(javascript)
+        buildable: False
+
+source-repository head
+  type:     git
+  location: https://github.com/Swordlash/haskell-halogen.git
+  subdir:   playwright
