@@ -16,6 +16,7 @@ import Test.Hspec (aroundAll, hspec)
 import Test.Probe qualified
 import Test.Routes qualified
 import Test.Serve qualified
+import Test.Shared qualified
 import Test.State qualified
 
 main :: IO ()
@@ -35,5 +36,6 @@ main = serveDirectory "test/web" $ \base -> do
       Test.Input.spec base
       Test.Frames.spec base
       Test.DevTools.spec base
+      Test.Shared.spec base
       Test.Serve.spec
     Test.Failures.spec base

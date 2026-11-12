@@ -479,12 +479,14 @@ readReplies pw h ready stderrDone = (forever readOne `catchEnd` pure ()) `finall
         let why = fromMaybe "the driver failed" (Aeson.parseMaybe (.: "message") o)
         markGone pw why
         void (tryPutMVar ready (Left (PlaywrightError "start" "DriverFailed" why)))
+      -- Relayed first, so that one a wait on the log has seen has been
+      -- printed.
       "console" -> for_ (Aeson.parseMaybe (\v -> (,,) <$> v .: "page" <*> v .: "type" <*> v .: "text") o) $ \(page, kind, text) -> do
-        modifyLog page (\l -> l {console = l.console Seq.|> ConsoleMessage {kind, text}})
         relay page kind text
+        modifyLog page (\l -> l {console = l.console Seq.|> ConsoleMessage {kind, text}})
       "pageerror" -> for_ (Aeson.parseMaybe (\v -> (,) <$> v .: "page" <*> v .: "message") o) $ \(page, text) -> do
-        modifyLog page (\l -> l {errors = l.errors Seq.|> text})
         relay page "uncaught" text
+        modifyLog page (\l -> l {errors = l.errors Seq.|> text})
       "dialog" -> for_ (Aeson.parseMaybe (\v -> (,,) <$> v .: "page" <*> v .: "type" <*> v .: "message") o) $ \(page, kind, message) ->
         modifyLog page (\l -> l {dialogs = l.dialogs Seq.|> Dialog {kind, message}})
       "request" -> for_ (Aeson.parseMaybe (\v -> (,,,) <$> v .: "context" <*> v .: "url" <*> v .: "method" <*> v .: "resourceType") o) $ \(context, url, method, resourceType) ->
