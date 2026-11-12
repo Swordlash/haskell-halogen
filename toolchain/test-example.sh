@@ -1,12 +1,16 @@
 #!/bin/sh
-# Test a built WebAssembly example from Haskell: haskell-halogen-playwright's
-# example suite, built with the host GHC, against
-# dist-newstyle/wasm/public/vanilla (build it with
-# `sh toolchain/build-wasm.sh vanilla`, or `npm run build-wasm-all`), or the
+# Test a built WebAssembly example from Haskell, with the host GHC: a native
+# suite that drives the example in Chromium through haskell-halogen-playwright.
+#
+#   sh toolchain/test-example.sh vanilla [cabal test args...]   # npm run test-example
+#   sh toolchain/test-example.sh worker [cabal test args...]    # npm run test-worker
+#
+# vanilla is haskell-halogen-playwright's own example suite; worker is the
+# suite in examples/worker/test. Each runs against
+# dist-newstyle/wasm/public/<example> (build it with
+# `sh toolchain/build-wasm.sh <example>`, or `npm run build-wasm-all`), or the
 # directory HALOGEN_EXAMPLE_DIR names. Here the build is required: without it
 # the suite fails rather than reporting its examples pending.
-#
-#   npm run test-example [-- cabal test args...]
 set -eu
 
 cd "$(dirname "$0")/.."
@@ -14,13 +18,26 @@ cd "$(dirname "$0")/.."
 # which CI's wasm jobs export for every later command.
 unset CC CXX LD AR NM RANLIB STRIP OBJCOPY OBJDUMP SIZE STRINGS
 
-HALOGEN_EXAMPLE_REQUIRED=1
-export HALOGEN_EXAMPLE_REQUIRED
-# The suite runs in playwright/, so a relative directory is made absolute.
-case "${HALOGEN_EXAMPLE_DIR:-}" in
-  "" | /*) ;;
-  *) HALOGEN_EXAMPLE_DIR=$(pwd)/$HALOGEN_EXAMPLE_DIR; export HALOGEN_EXAMPLE_DIR ;;
+example=${1:?usage: test-example.sh <vanilla|worker> [cabal test args...]}
+shift
+case "$example" in
+  vanilla) suite=haskell-halogen-playwright:test:Halogen-playwright-example-test ;;
+  worker) suite=halogen-example-worker:test:halogen-example-worker-test ;;
+  *)
+    printf 'No suite for the example %s: vanilla or worker\n' "$example" >&2
+    exit 1
+    ;;
 esac
 
-exec cabal test haskell-halogen-playwright:test:Halogen-playwright-example-test \
-  --builddir=dist-newstyle/native --test-show-details=direct "$@"
+HALOGEN_EXAMPLE_REQUIRED=1
+export HALOGEN_EXAMPLE_REQUIRED
+# The suite runs in its package's directory, so the directory is given to it
+# absolute.
+case "${HALOGEN_EXAMPLE_DIR:-}" in
+  "") HALOGEN_EXAMPLE_DIR=$(pwd)/dist-newstyle/wasm/public/$example ;;
+  /*) ;;
+  *) HALOGEN_EXAMPLE_DIR=$(pwd)/$HALOGEN_EXAMPLE_DIR ;;
+esac
+export HALOGEN_EXAMPLE_DIR
+
+exec cabal test "$suite" --builddir=dist-newstyle/native --test-show-details=direct "$@"

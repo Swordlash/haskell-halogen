@@ -273,7 +273,8 @@ components call.
 `Halogen-worker-test` checks encoding, decoding, the lookup by static key,
 failures, `start`'s promises, stopping jobs, `Par`'s planner and `runPar` and
 the fallback natively and under Node on both browser backends. Real workers are
-checked in Chromium through `examples/worker`:
+checked in Chromium through `examples/worker`, by its native suite
+(`examples/worker/test`, driven by haskell-halogen-playwright):
 
 ```sh
 sh toolchain/build-wasm.sh worker

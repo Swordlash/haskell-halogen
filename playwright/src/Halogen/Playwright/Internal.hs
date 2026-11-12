@@ -26,10 +26,12 @@ module Halogen.Playwright.Internal
   , Context (..)
   , Page (..)
 
-    -- * What pages said
+    -- * What pages said, and what contexts asked for
   , ConsoleMessage (..)
   , PageLog (..)
   , pageLog
+  , Request (..)
+  , contextRequests
 
     -- * The driver's source
   , driverScript
@@ -101,6 +103,8 @@ data Playwright = Playwright
   , gone :: IORef (Maybe Text)
   -- ^ Why the driver can no longer be used, once it cannot.
   , logs :: IORef (IntMap PageLog)
+  , requestLogs :: IORef (IntMap (Seq Request))
+  -- ^ Each context's requests, oldest first.
   , errorLines :: IORef (Seq Text)
   -- ^ The last lines node wrote to stderr, for the message when it dies.
   }
@@ -116,6 +120,9 @@ data Context = Context
 data Page = Page
   { playwright :: Playwright
   , handle :: Int
+  , callTimeout :: Maybe Int
+  -- ^ Milliseconds that take the place of the options' 'timeout' for this
+  -- handle's calls, and its locators' ('Halogen.Playwright.withTimeout').
   }
 
 -- | A failed call: the method, Playwright's name for the error (a
@@ -152,6 +159,20 @@ emptyLog = PageLog Seq.empty Seq.empty
 -- | What a page has said so far.
 pageLog :: Playwright -> Int -> IO PageLog
 pageLog pw page = fromMaybe emptyLog . IntMap.lookup page <$> readIORef pw.logs
+
+-- | A request a page of a context, or a worker of one of its pages, made:
+-- its address, its method and Playwright's name for what it is for
+-- (@document@, @script@, @fetch@, ...).
+data Request = Request
+  { url :: Text
+  , method :: Text
+  , resourceType :: Text
+  }
+  deriving stock (Eq, Show)
+
+-- | A context's requests so far, oldest first.
+contextRequests :: Playwright -> Int -> IO (Seq Request)
+contextRequests pw context = fromMaybe Seq.empty . IntMap.lookup context <$> readIORef pw.requestLogs
 
 -- | The driver's JavaScript, compiled in so that it is found wherever the
 -- program runs: an installed library, a build directory, a test suite run
@@ -206,9 +227,10 @@ withPlaywright options body =
       nextId <- newIORef 1
       gone <- newIORef Nothing
       logs <- newIORef IntMap.empty
+      requestLogs <- newIORef IntMap.empty
       errorLines <- newIORef Seq.empty
       ready <- newEmptyMVar
-      let pw = Playwright {options, input, process, writing, pending, nextId, gone, logs, errorLines}
+      let pw = Playwright {options, input, process, writing, pending, nextId, gone, logs, requestLogs, errorLines}
       stderrDone <- newEmptyMVar
       _ <- forkIO (relayErrors pw (Process.getStderr process) `finally` putMVar stderrDone ())
       _ <- forkIO (readReplies pw (Process.getStdout process) ready stderrDone)
@@ -317,6 +339,8 @@ readReplies pw h ready stderrDone = (forever readOne `catchEnd` pure ()) `finall
         modifyLog page (\l -> l {console = l.console Seq.|> ConsoleMessage {kind, text}})
       "pageerror" -> for_ (Aeson.parseMaybe (\v -> (,) <$> v .: "page" <*> v .: "message") o) $ \(page, text) ->
         modifyLog page (\l -> l {errors = l.errors Seq.|> text})
+      "request" -> for_ (Aeson.parseMaybe (\v -> (,,,) <$> v .: "context" <*> v .: "url" <*> v .: "method" <*> v .: "resourceType") o) $ \(context, url, method, resourceType) ->
+        atomicModifyIORef' pw.requestLogs (\m -> (IntMap.alter (Just . (Seq.|> Request {url, method, resourceType}) . fromMaybe Seq.empty) context m, ()))
       "closed" -> pure ()
       _ -> hPutStrLn stderr ("[playwright] an event of an unknown kind: " <> Text.unpack event)
     modifyLog page f = atomicModifyIORef' pw.logs (\m -> (IntMap.alter (Just . f . fromMaybe emptyLog) page m, ()))
@@ -384,4 +408,4 @@ call_ pw method params = do
     )
       `onException` forget
   forget
-  either (\e -> throwIO e {method}) pure outcome
+  either (\e -> throwIO (PlaywrightError method e.name e.message)) pure outcome

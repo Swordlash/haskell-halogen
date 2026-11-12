@@ -25,6 +25,8 @@ build-type:         Simple
 extra-doc-files:    CHANGELOG.md, README.md
 extra-source-files: js/driver.mjs
                     test/web/*.html
+                    test/web/*.js
+                    test/web/served/*.html
 
 common defaults
     default-language: GHC2021
@@ -47,6 +49,7 @@ library
     exposed-modules:  Halogen.Playwright
                       Halogen.Playwright.Hspec
                       Halogen.Playwright.Internal
+                      Halogen.Playwright.Serve
     build-depends:
         base >= 4.20 && < 5,
         aeson >= 2.0,
@@ -56,13 +59,16 @@ library
         filepath,
         hspec >= 2.10,
         HUnit,
+        http-types,
         process,
         template-haskell,
         temporary,
         text >= 2.0,
         typed-process >= 0.2.11 && < 0.3,
         unix,
-        unliftio-core
+        unliftio-core,
+        wai,
+        warp
     if arch(wasm32) || arch(javascript)
         buildable: False
 
@@ -78,7 +84,7 @@ test-suite Halogen-playwright-test
     other-modules:    Test.Driver
                       Test.Failures
                       Test.Probe
-                      Test.Server
+                      Test.Serve
     build-depends:
         base,
         aeson,
@@ -88,11 +94,8 @@ test-suite Halogen-playwright-test
         filepath,
         hspec,
         HUnit,
-        http-types,
         temporary,
         text,
-        wai,
-        warp,
         haskell-halogen-playwright
     if arch(wasm32) || arch(javascript)
         buildable: False
@@ -104,19 +107,14 @@ test-suite Halogen-playwright-test
 test-suite Halogen-playwright-example-test
     import:           defaults
     type:             exitcode-stdio-1.0
-    hs-source-dirs:   example-test test
+    hs-source-dirs:   example-test
     main-is:          Example.hs
     ghc-options:      -threaded
-    other-modules:    Test.Server
     build-depends:
         base,
-        bytestring,
         directory,
         filepath,
-        http-types,
         text,
-        wai,
-        warp,
         haskell-halogen-playwright
     if arch(wasm32) || arch(javascript)
         buildable: False

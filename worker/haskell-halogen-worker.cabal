@@ -62,7 +62,7 @@ library
 -- The protocol and the fallback, which run the same on every backend: under
 -- Node on the browser backends, where there is no configuration and so no
 -- worker, and natively. A worker itself is tested in headless Chromium
--- through examples/worker (toolchain/test-worker.mjs), since a worker needs
+-- through examples/worker (its test suite, npm run test-worker), since a worker needs
 -- the program's binary served to it. It depends on haskell-halogen-core only
 -- for the JavaScript backend's polyfills, which hspec needs under Node.
 test-suite Halogen-worker-test

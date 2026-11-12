@@ -15,6 +15,7 @@
 //   {"event": "console", "page": 2, "type": "error", "text": "..."}
 //   {"event": "pageerror", "page": 2, "message": "..."}
 //   {"event": "closed", "page": 2}
+//   {"event": "request", "context": 1, "url": "...", "method": "GET", "resourceType": "script"}
 // Messages are told apart by their keys, so a later kind (a request node
 // makes for Haskell to answer, say, as a routed request's handler would)
 // can be added beside these without changing them.
@@ -25,6 +26,11 @@
 //
 // Contexts and pages are numbered handles. A locator is not kept here: it
 // arrives with each call as the page and a list of steps, and is rebuilt.
+// A call may carry "timeout", milliseconds that take the place of the
+// options' for this call alone (the Haskell side's withTimeout): it is
+// passed to Playwright's own call and to the waits below, so no state is
+// kept for it here and calls with different timeouts can be in flight at
+// once.
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
@@ -32,6 +38,8 @@ import { createInterface } from "node:readline";
 
 const options = JSON.parse(process.argv[2] ?? "{}");
 const timeout = options.timeout ?? 5000;
+// The timeout a call carries, else the options'.
+const within = (m) => m.timeout ?? timeout;
 
 const send = (message) => process.stdout.write(JSON.stringify(message) + "\n");
 console.log = (...values) => process.stderr.write(values.join(" ") + "\n");
@@ -223,15 +231,15 @@ const waitStarted = async (page, ms = timeout) => {
   }
 };
 
-const activity = async (page) => {
+const activity = async (page, ms = timeout) => {
   try {
     return await answeredWithin(
-      timeout,
+      ms,
       page.evaluate(async () => {
         const probe = globalThis.__halogenProbe;
         return typeof probe?.activity === "function" ? await probe.activity() : null;
       }),
-      silent(page, timeout),
+      silent(page, ms),
     );
   } catch (error) {
     if (navigatedAway(error)) return null;
@@ -248,19 +256,26 @@ const watch = (id, page) => {
   });
 };
 
-// An action on a locator, then settle.
+// An action on a locator, then settle. The action is given Playwright's
+// options with the call's timeout.
 const acting = (act) => async (m) => {
   const target = locate(m.locator);
-  await act(target, m);
-  await settle(pageOf(m.locator.page));
+  await act(target, m, { timeout: within(m) });
+  await settle(pageOf(m.locator.page), { timeout: within(m) });
   return null;
 };
 // An action on a page, then settle.
 const pageActing = (act) => async (m) => {
   const page = pageOf(m.page);
-  const result = await act(page, m);
-  await settle(page);
+  const result = await act(page, m, { timeout: within(m) });
+  await settle(page, { timeout: within(m) });
   return result ?? null;
+};
+// A reading of a locator's element, which Playwright waits for up to the
+// call's timeout.
+const reading = (read) => async (m) => {
+  const result = await read(locate(m.locator), m, { timeout: within(m) });
+  return result === undefined ? null : result;
 };
 
 const methods = {
@@ -280,7 +295,17 @@ const methods = {
     context.halogenScriptless = o.javaScriptEnabled === false;
     const id = nextHandle++;
     contexts.set(id, context);
+    // Every request of the context's, as it is made: its pages' and their
+    // workers', whose requests are the context's and not always a page's.
+    context.on("request", (request) =>
+      send({ event: "request", context: id, url: request.url(), method: request.method(), resourceType: request.resourceType() }),
+    );
     return id;
+  },
+  async addInitScript(m) {
+    // After the probe's, so that a script of the test's own sees it.
+    await contextOf(m.context).addInitScript({ content: m.script });
+    return null;
   },
   async closeContext(m) {
     const context = contexts.get(m.context);
@@ -304,15 +329,20 @@ const methods = {
     return null;
   },
 
-  goto: pageActing((page, m) => page.goto(m.url, { waitUntil: "load" }).then(() => null)),
-  reload: pageActing((page) => page.reload({ waitUntil: "load" }).then(() => null)),
-  goBack: pageActing((page) => page.goBack({ waitUntil: "load" }).then(() => null)),
-  goForward: pageActing((page) => page.goForward({ waitUntil: "load" }).then(() => null)),
+  goto: pageActing((page, m, o) => page.goto(m.url, { ...o, waitUntil: "load" }).then(() => null)),
+  reload: pageActing((page, _, o) => page.reload({ ...o, waitUntil: "load" }).then(() => null)),
+  goBack: pageActing((page, _, o) => page.goBack({ ...o, waitUntil: "load" }).then(() => null)),
+  goForward: pageActing((page, _, o) => page.goForward({ ...o, waitUntil: "load" }).then(() => null)),
   async url(m) {
     return pageOf(m.page).url();
   },
   async title(m) {
     return await pageOf(m.page).title();
+  },
+  // The page's dedicated workers alive now (Playwright drops one when it
+  // ends).
+  async workers(m) {
+    return pageOf(m.page).workers().length;
   },
   async content(m) {
     return await pageOf(m.page).content();
@@ -324,66 +354,46 @@ const methods = {
   press: pageActing((page, m) => page.keyboard.press(m.key)),
 
   async settle(m) {
-    await settle(pageOf(m.page));
+    await settle(pageOf(m.page), { timeout: within(m) });
     return null;
   },
   async waitQuiet(m) {
-    await settle(pageOf(m.page), { quiet: true });
+    await settle(pageOf(m.page), { quiet: true, timeout: within(m) });
     return null;
   },
   async waitStarted(m) {
-    await waitStarted(pageOf(m.page));
+    await waitStarted(pageOf(m.page), within(m));
     return null;
   },
   async activity(m) {
-    return await activity(pageOf(m.page));
+    return await activity(pageOf(m.page), within(m));
   },
 
-  click: acting((target) => target.click()),
-  doubleClick: acting((target) => target.dblclick()),
-  hover: acting((target) => target.hover()),
-  fill: acting((target, m) => target.fill(m.text)),
-  typeText: acting((target, m) => target.pressSequentially(m.text)),
-  clear: acting((target) => target.clear()),
-  pressOn: acting((target, m) => target.press(m.key)),
-  check: acting((target) => target.check()),
-  uncheck: acting((target) => target.uncheck()),
-  selectOption: acting((target, m) => target.selectOption(m.values)),
-  focus: acting((target) => target.focus()),
-  blur: acting((target) => target.blur()),
-  dragTo: acting((target, m) => target.dragTo(locate(m.target))),
+  click: acting((target, _, o) => target.click(o)),
+  doubleClick: acting((target, _, o) => target.dblclick(o)),
+  hover: acting((target, _, o) => target.hover(o)),
+  fill: acting((target, m, o) => target.fill(m.text, o)),
+  typeText: acting((target, m, o) => target.pressSequentially(m.text, o)),
+  clear: acting((target, _, o) => target.clear(o)),
+  pressOn: acting((target, m, o) => target.press(m.key, o)),
+  check: acting((target, _, o) => target.check(o)),
+  uncheck: acting((target, _, o) => target.uncheck(o)),
+  selectOption: acting((target, m, o) => target.selectOption(m.values, o)),
+  focus: acting((target, _, o) => target.focus(o)),
+  blur: acting((target, _, o) => target.blur(o)),
+  dragTo: acting((target, m, o) => target.dragTo(locate(m.target), o)),
 
-  async textContent(m) {
-    return (await locate(m.locator).textContent()) ?? "";
-  },
-  async innerText(m) {
-    return await locate(m.locator).innerText();
-  },
-  async inputValue(m) {
-    return await locate(m.locator).inputValue();
-  },
-  async getAttribute(m) {
-    return await locate(m.locator).getAttribute(m.name);
-  },
-  async isVisible(m) {
-    return await locate(m.locator).isVisible();
-  },
-  async isChecked(m) {
-    return await locate(m.locator).isChecked();
-  },
-  async isEnabled(m) {
-    return await locate(m.locator).isEnabled();
-  },
-  async count(m) {
-    return await locate(m.locator).count();
-  },
-  async outerHTML(m) {
-    return await locate(m.locator).evaluate((element) => element.outerHTML);
-  },
-  async waitFor(m) {
-    await locate(m.locator).waitFor({ state: m.state });
-    return null;
-  },
+  textContent: reading(async (target, _, o) => (await target.textContent(o)) ?? ""),
+  innerText: reading((target, _, o) => target.innerText(o)),
+  inputValue: reading((target, _, o) => target.inputValue(o)),
+  getAttribute: reading((target, m, o) => target.getAttribute(m.name, o)),
+  isChecked: reading((target, _, o) => target.isChecked(o)),
+  isEnabled: reading((target, _, o) => target.isEnabled(o)),
+  // These two answer for the page as it is, and do not wait.
+  isVisible: reading((target) => target.isVisible()),
+  count: reading((target) => target.count()),
+  outerHTML: reading((target, _, o) => target.evaluate((element) => element.outerHTML, undefined, o)),
+  waitFor: reading((target, m, o) => target.waitFor({ ...o, state: m.state }).then(() => null)),
 
   async evaluate(m) {
     const result = await pageOf(m.page).evaluate(m.expression);
@@ -392,15 +402,30 @@ const methods = {
   async evaluateWith(m) {
     // Made a function here, and sent to the page as its source, which is
     // how Playwright sends any function.
-    const fn = new Function(`return (${m.function});`)();
-    const result = await pageOf(m.page).evaluate(fn, m.argument);
+    const result = await pageOf(m.page).evaluate(functionOf(m.function), m.argument);
     return result === undefined ? null : result;
+  },
+  // The function called with every element the locator matches (none is
+  // not an error) and the argument, in the page.
+  async evaluateAll(m) {
+    const result = await locate(m.locator).evaluateAll(functionOf(m.function), m.argument);
+    return result === undefined ? null : result;
+  },
+  // An expression polled in the page, at its animation frames, until it is
+  // truthy.
+  async waitForFunction(m) {
+    await pageOf(m.page).waitForFunction(m.expression, undefined, { timeout: within(m) });
+    return null;
   },
   async screenshot(m) {
     await pageOf(m.page).screenshot({ path: m.path, fullPage: true });
     return null;
   },
 };
+
+// A function's source, made a function here: Playwright sends a function to
+// the page as its source.
+const functionOf = (source) => new Function(`return (${source});`)();
 
 const handle = async (message) => {
   const method = methods[message.method];
