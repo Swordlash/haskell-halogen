@@ -98,3 +98,36 @@ executable halogen-example-worker
 
   if flag(interactive)
     cpp-options: -DINTERACTIVE
+
+-- The built example in Chromium, driven from outside the page by
+-- haskell-halogen-playwright: jobs in real Web Workers, each a second
+-- instance of the page's app.wasm. A native program that tests what
+-- toolchain/build-wasm.sh built (dist-newstyle/wasm/public/worker, or the
+-- directory HALOGEN_EXAMPLE_DIR names), so it builds nothing for the
+-- browser and depends on none of the example's code. Its examples are
+-- pending without the build, unless HALOGEN_EXAMPLE_REQUIRED=1 (npm run
+-- test-worker sets it).
+test-suite halogen-example-worker-test
+  type:             exitcode-stdio-1.0
+  default-language: GHC2021
+  hs-source-dirs:   test
+  main-is:          Test.hs
+  ghc-options:      -Wall -Wextra -Wcompat -Wredundant-constraints -Wunused-packages -threaded
+  default-extensions:
+      DuplicateRecordFields
+      LambdaCase
+      NoFieldSelectors
+      OverloadedRecordDot
+      OverloadedStrings
+      StrictData
+  build-depends:
+      base,
+      aeson,
+      array,
+      directory,
+      filepath,
+      hspec,
+      text,
+      haskell-halogen-playwright
+  if arch(wasm32) || arch(javascript)
+    buildable: False
