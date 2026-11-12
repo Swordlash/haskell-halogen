@@ -21,7 +21,7 @@ category:           Web
 tested-with:        GHC == 9.10.3, GHC == 9.12.4, GHC == 9.14.1
 build-type:         Simple
 extra-doc-files:    CHANGELOG.md, README.md
-extra-source-files: jsbits/*.js
+extra-source-files: jsbits/*.js, test/web/*.html
 
 flag interactive
     description: Build the browser test suite for browser GHCi (toolchain/dev-test.sh)
@@ -123,6 +123,32 @@ test-suite Halogen-remote-test
             base,
             warp,
             websockets
+
+-- The whole at once, natively: the server, Chromium driven by
+-- haskell-halogen-playwright, the real remote.js and a real WebSocket. It
+-- needs node, the npm package playwright and Chromium.
+test-suite Halogen-remote-live-test
+    import:           defaults
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          Live.hs
+    ghc-options:      -threaded
+    build-depends:
+        base,
+        bytestring,
+        containers,
+        hspec >= 2,
+        mtl,
+        network,
+        row-types,
+        stm,
+        text,
+        warp,
+        haskell-halogen-core,
+        haskell-halogen-playwright,
+        haskell-halogen-remote
+    if arch(wasm32) || arch(javascript)
+        buildable: False
 
 -- The loopback in a real page: built as a reactor exporting hs_start on
 -- WebAssembly and run in headless Chromium by hspec-halogen, on both browser
