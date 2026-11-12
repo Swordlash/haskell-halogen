@@ -11,8 +11,8 @@ import Test.Driver qualified
 import Test.Failures qualified
 import Test.Files qualified
 import Test.Frames qualified
-import Test.Input qualified
 import Test.Hspec (aroundAll, hspec)
+import Test.Input qualified
 import Test.Probe qualified
 import Test.Routes qualified
 import Test.Serve qualified

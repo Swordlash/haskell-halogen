@@ -17,12 +17,12 @@ import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import GHC.Clock (getMonotonicTime)
-import Network.HTTP.Types qualified as HTTP
-import Network.Wai qualified as Wai
-import Network.Wai.Handler.Warp qualified as Warp
 import Halogen.Playwright
 import Halogen.Playwright.Hspec
 import Halogen.Playwright.Internal (driverProcessId, killDriver)
+import Network.HTTP.Types qualified as HTTP
+import Network.Wai qualified as Wai
+import Network.Wai.Handler.Warp qualified as Warp
 import System.Directory (doesFileExist, listDirectory)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)

@@ -36,12 +36,37 @@
 -- Playwright's own. Like Playwright's, an action on a locator that matches
 -- more than one element fails (use 'nth' or 'first').
 --
+-- A step can go into a frame: 'inFrame' (by its @iframe@ element) or
+-- 'frameAt' (by its address), after which the following steps are taken
+-- in the frame's document.
+--
+-- = Requests answered by the test
+--
+-- 'route' hands a page's or a context's requests matching a glob to a
+-- handler of the test's, which answers each ('Fulfill'), fails it
+-- ('Abort') or lets it go on ('Continue'), on a thread of its own, so it
+-- may block. 'hold' is such a handler: requests wait until 'release', as
+-- a test holds @app.wasm@ to look at the prerendered page first.
+--
+-- = The rest of the browser
+--
+-- 'download' runs an action and gives the file it downloaded;
+-- 'setInputFiles' chooses files for an input. 'cookies', 'addCookies' and
+-- 'clearCookies' are a context's session; 'setOffline' takes it off the
+-- network; 'emulateMedia' prints or changes the colour scheme, 'pdf'
+-- prints. 'ContextOptions' make a phone ('isMobile', 'hasTouch', for
+-- 'tap'), grant 'permissions', and answer dialogs. 'typeKeys',
+-- 'insertText', 'mouseMove', 'mouseClick' and 'boundingBox' act where no
+-- locator does. 'cdp' calls the Chrome DevTools Protocol; 'throttleCPU',
+-- or 'throttle' in the options for every page, slows the processor down.
+--
 -- Functions are in 'MonadIO', and every failure is a 'PlaywrightError'
 -- (the driver's; a timeout's message is Playwright's, which names the
 -- locator) or an @HUnitFailure@ (an expectation's, which hspec reports
 -- with the test's line).
 module Halogen.Playwright
   ( -- * Starting
+
     -- | One node and its Chromium for a group of tests, configured by the
     -- options or the environment.
     Playwright
@@ -52,6 +77,7 @@ module Halogen.Playwright
   , PlaywrightError (..)
 
     -- * Contexts and pages
+
     -- | A context is a browser profile of its own (cookies, storage,
     -- permissions); a page is a tab of one.
   , Context
@@ -81,6 +107,7 @@ module Halogen.Playwright
   , viewportSize
 
     -- * The Halogen program
+
     -- | Waits on the page's program itself, through the probe.
   , Activity (..)
   , waitStarted
@@ -89,6 +116,7 @@ module Halogen.Playwright
   , activity
 
     -- * Locators
+
     -- | Values that say how to find an element, from a page, another
     -- locator, or a frame.
   , Locator
@@ -106,6 +134,7 @@ module Halogen.Playwright
   , frames
 
     -- * Acting
+
     -- | Each waits for its element as Playwright does, acts, and settles.
   , click
   , doubleClick
@@ -144,6 +173,7 @@ module Halogen.Playwright
   , boundingBox
 
     -- * Waiting and expecting
+
     -- | For what is not the program's to say: the page's own timers and
     -- frames, a message on its way, a navigation. Each fails after the
     -- page's timeout.
@@ -172,6 +202,7 @@ module Halogen.Playwright
   , evaluateOn
 
     -- * Requests answered by the test
+
     -- | A page's or a context's requests matching a glob, each handed to a
     -- handler of the test's, which says what becomes of it; and a gate
     -- built on them, which holds requests until the test lets them go.
@@ -226,8 +257,8 @@ module Halogen.Playwright
 where
 
 import Control.Concurrent (threadDelay)
-import Control.Concurrent.STM qualified as STM
 import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, orElse, readTVar, readTVarIO, registerDelay, writeTVar)
+import Control.Concurrent.STM qualified as STM
 import Control.Exception (SomeException, bracket, bracket_, fromException, onException, throwIO, try)
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.IO.Unlift (MonadUnliftIO (..))

@@ -22,3 +22,35 @@ test's own; `requests`, what a context's pages and their workers asked the
 network for; `workers`, a page's live Web Workers; `evaluateAll`, a function
 on a locator's elements; and `waitForFunction`, a JavaScript expression
 polled in the page.
+
+What the remaining smoke tests (the tutorial's, the playground's, and those
+of a wiki built on haskell-halogen) need, each shaped by the lines that use
+it:
+
+- `route` and `unroute`: a page's or a context's requests answered by a
+  handler of the test's (`Fulfill`, `Abort`, `Continue`), each on a thread of
+  its own, so that a handler may block; a handler that throws aborts its
+  request and is reported. The protocol's third kind of message, an ask from
+  node that Haskell answers, carries them. `hold`, `release`, `heldCount` and
+  `waitHeld`: a gate that holds requests (`app.wasm`) until the test lets them
+  go.
+- `download` (an action and the file it downloaded, a `goto` that becomes a
+  download included), `downloadBytes`, `saveDownload`; `setInputFiles`.
+- `cookies`, `addCookies`, `clearCookies` and `cookie`; `setOffline`;
+  `emulateMedia` (print, screen, the colour scheme); `pdf`.
+- `ContextOptions`' `permissions`, `isMobile`, `hasTouch` (and `tap`) and
+  `acceptDialogs`; every dialog is answered at once and kept (`dialogs`).
+- `typeKeys`, `insertText`, `mouseMove`, `mouseClick`, `boundingBox`,
+  `viewportSize`.
+- `waitForURL`, `waitForFunctionWith`, `waitForConsole`, `awaitText`,
+  `evaluateOn`.
+- Frames: the locator steps `inFrame` and `frameAt`, and `frames`.
+- `cdp`, a method of the Chrome DevTools Protocol on the page's session, and
+  `throttleCPU`; the options' `throttle` (`HALOGEN_PLAYWRIGHT_THROTTLE`) slows
+  every page down as it is made.
+- `pageContext`; `Halogen.Playwright.Hspec`'s `onOnePage`, a group of
+  examples sharing one page; the console printed as it arrives
+  (`relayConsole`, `HALOGEN_PLAYWRIGHT_CONSOLE`); a failure's context lists
+  the route handlers and requests that failed. `Options` has `browserArgs`.
+
+A `goto` to an address that turns into a download no longer fails.

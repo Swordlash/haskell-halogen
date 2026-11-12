@@ -17,7 +17,10 @@ WebSocket and server-sent events, whose events arrive through `Halogen.Subscript
 `playwright` (`haskell-halogen-playwright`: tests from outside the page, natively: Chromium driven through a
 node child speaking a JSON-lines protocol of our own, every action waiting for the page's program to say it is idle
 through core's activity probe, with hspec integration and a static server for a built directory
-(`Halogen.Playwright.Serve`); it depends on none of our packages and is native only),
+(`Halogen.Playwright.Serve`); requests answered by the test's handlers (routes, a gate that holds `app.wasm`;
+node asks, Haskell answers, each handler on a thread of its own), downloads and uploads, cookies, offline,
+emulated media and print, phones and taps, frames, and the Chrome DevTools Protocol with a processor throttle
+`HALOGEN_PLAYWRIGHT_THROTTLE` puts on every page; it depends on none of our packages and is native only),
 `custom-element` (`haskell-halogen-custom-element`: a component as a custom element, a Web
 Component any page can use, its attributes and properties the component's input, its outputs
 `CustomEvent`s and its queries methods; and `onEvent` for others' custom elements), `devtools`
@@ -198,8 +201,9 @@ and wired into `test/Test.hs`.
   fails the job with why. After a click that starts a job it waits for the program to be quiet
   (`waitQuiet`: the component's fiber has come back from the job's promise and rendered) and reads
   the result once; the page's frames, a worker's logged chunks and a worker ending are not the
-  program's, and are waited for as conditions with deadlines. A group's examples share one page,
-  in order, so one of them cannot be run alone with `--match`. CI's `learn-wasm` job runs it
+  program's, and are waited for as conditions with deadlines. A group's examples share one page
+  (`Halogen.Playwright.Hspec.onOnePage`), in order, so one of them cannot be run alone with `--match`;
+  `WORKER_DEBUG=1` prints the page's and its workers' console as it arrives. CI's `learn-wasm` job runs it
   (`npm run test-worker`) after `test-playground`; the example bundles its WASI shim (`bundle.sh`),
   so it needs no network.
 

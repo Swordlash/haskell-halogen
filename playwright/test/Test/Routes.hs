@@ -38,8 +38,8 @@ startFetch page name address =
         \  window[name] = fetch(address, {cache: 'no-store'}).then(async (r) => r.status + ' ' + await r.text(), (e) => 'failed');\
         \  return null;\
         \}"
-        (name, address) ::
-        IO Value
+        (name, address)
+        :: IO Value
     )
 
 fetched :: Page -> Text -> IO Text
