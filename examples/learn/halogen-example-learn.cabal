@@ -190,6 +190,54 @@ test-suite halogen-example-learn-playground-test
         warp,
         haskell-halogen-playwright
 
+-- The tutorial as Pages deploys it (dist-newstyle/wasm/public/learn, the
+-- rootfs in it), in Chromium, driven from outside the page by
+-- haskell-halogen-playwright: every page prerendered and adopted with
+-- nothing repaired, the compiler loading in the page, every lesson's
+-- Start.hs and Solution.hs compiling there, the playground, Source, the
+-- live check, a second visit from the cache, a narrow screen and loads
+-- that fail. npm run test-learn runs it, and the deploy is gated on it. A
+-- native program that builds nothing for the browser and depends on none of
+-- the tutorial's code; it reads the lessons and the playground's template
+-- from the package's directory. Its examples are pending without the built
+-- tree, unless HALOGEN_EXAMPLE_REQUIRED=1 (npm run test-learn sets it).
+test-suite halogen-example-learn-browser-test
+  type:             exitcode-stdio-1.0
+  default-language: GHC2021
+  hs-source-dirs:   browser-test
+  main-is:          Browser.hs
+  other-modules:
+      Tutorial.Later
+      Tutorial.Lessons
+      Tutorial.Loading
+      Tutorial.Pages
+      Tutorial.Site
+      Tutorial.Walk
+  ghc-options:      -Wall -Wextra -Wcompat -Wredundant-constraints -Wunused-packages -threaded
+  default-extensions:
+      DuplicateRecordFields
+      LambdaCase
+      NoFieldSelectors
+      OverloadedRecordDot
+      OverloadedStrings
+      StrictData
+  if arch(wasm32) || arch(javascript)
+    buildable: False
+  else
+    build-depends:
+        base,
+        aeson,
+        async,
+        bytestring,
+        containers,
+        directory,
+        filepath,
+        HUnit,
+        stm,
+        text,
+        vector,
+        haskell-halogen-playwright
+
 -- Every route's page, with the tutorial already rendered into it, written
 -- natively at build time (toolchain/build-wasm.sh runs it). Only a host GHC
 -- renders to HTML, so there is nothing to build on the browser backends.
