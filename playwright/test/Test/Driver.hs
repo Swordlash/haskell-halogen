@@ -10,6 +10,7 @@ import Control.Exception (SomeException, throwIO, try)
 import Control.Monad (filterM, forM, replicateM_, unless)
 import Data.Aeson (ToJSON (..), Value, object, (.=))
 import Data.ByteString qualified as ByteString
+import Data.ByteString.Builder qualified as Builder
 import Data.ByteString.Char8 qualified as Char8
 import Data.List (isPrefixOf)
 import Data.Maybe (catMaybes)
@@ -19,6 +20,9 @@ import GHC.Clock (getMonotonicTime)
 import Halogen.Playwright
 import Halogen.Playwright.Hspec
 import Halogen.Playwright.Internal (driverProcessId, killDriver)
+import Network.HTTP.Types qualified as HTTP
+import Network.Wai qualified as Wai
+import Network.Wai.Handler.Warp qualified as Warp
 import System.Directory (doesFileExist, listDirectory)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
@@ -290,22 +294,32 @@ spec base = describe "the driver" $ do
       Left (e :: PlaywrightError) -> e.name `shouldBe` "DriverGone"
       Right _ -> expectationFailure "the call went through"
 
-  it "leaves no node and no Chromium behind when the caller is killed" $ \_ -> do
+  -- With what can keep a process busy in flight when it is killed: a
+  -- route's handler holding a request, and a download under way, whose
+  -- server has sent part of it and waits.
+  it "leaves no node and no Chromium behind when the caller is killed, routes and a download in flight" $ \_ -> withSlowDownload $ \slow streaming -> do
     options <- optionsFromEnvironment
     pids <- newEmptyMVar
+    held <- newEmptyMVar
     finished <- newEmptyMVar
     caller <- forkIO $ do
       _ <- try @SomeException $ withPlaywright options $ \pw -> withPage pw $ \page -> do
         goto page (at "basics.html")
+        _ <- route page "**/second.html" $ \_ -> putMVar held () >> threadDelay 60_000_000 >> pure Continue
+        _ :: Value <- evaluate page "(fetch('second.html'), null)"
+        takeMVar held
         node <- maybe (throwIO (userError "no node")) pure =<< driverProcessId pw
         family <- descendants node
         putMVar pids (node : family)
+        -- Waits for the download to end, which it does not.
+        _ <- download (withTimeout 60_000 page) (goto page slow)
         threadDelay 60_000_000
       putMVar finished ()
     family <- maybe (expectationFailure "the driver did not start" >> pure []) pure =<< timeout 30_000_000 (takeMVar pids)
     -- Chromium is among them: node's only children are the browser's.
     names <- catMaybes <$> mapM commandOf family
     any ("headless" `isPrefixOf`) names || any ("chrom" `isPrefixOf`) names `shouldBe` True
+    timeout 30_000_000 (readMVar streaming) `shouldReturn` Just ()
     killThread caller
     timeout 30_000_000 (takeMVar finished) `shouldReturn` Just ()
     let waitGone tries = do
@@ -313,6 +327,19 @@ spec base = describe "the driver" $ do
           unless (null alive || tries <= (0 :: Int)) $ threadDelay 100_000 >> waitGone (tries - 1)
     waitGone 50
     filterM isAlive family `shouldReturn` []
+
+-- | A server whose one address is a download that never ends: it sends a
+-- part, says so, and waits. The body gets the address and the signal.
+withSlowDownload :: (Text -> MVar () -> IO a) -> IO a
+withSlowDownload body = do
+  streaming <- newEmptyMVar
+  let app _ respond =
+        respond $ Wai.responseStream HTTP.status200 [("Content-Type", "application/octet-stream"), ("Content-Disposition", "attachment; filename=slow.bin"), ("Content-Length", "10000000")] $ \write flush -> do
+          write (Builder.byteString (ByteString.replicate 65536 0))
+          flush
+          _ <- tryPutMVar streaming ()
+          threadDelay 60_000_000
+  Warp.testWithApplication (pure app) $ \port -> body ("http://127.0.0.1:" <> Text.pack (show port) <> "/slow.bin") streaming
 
 -- | A record to send as an argument.
 data Pair = Pair Int Int

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Files</title></head>
+<body>
+  <!-- An export saved from a blob: URL under a name of the page's choosing,
+       as an application's "Export" button does, and a file input that
+       says what it was given. -->
+  <button id="export">Export</button>
+  <input id="upload" type="file" multiple>
+  <p id="uploaded">nothing</p>
+  <script>
+    document.getElementById("export").addEventListener("click", () => {
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(new Blob(["PK exported by the page"], { type: "application/zip" }));
+      link.download = "wiki-export.zip";
+      link.click();
+    });
+    document.getElementById("upload").addEventListener("change", async (event) => {
+      const files = [...event.target.files];
+      const described = await Promise.all(files.map(async (f) => `${f.name} ${f.type} ${await f.text()}`));
+      document.getElementById("uploaded").textContent = described.join(" | ") || "nothing";
+    });
+  </script>
+</body>
+</html>

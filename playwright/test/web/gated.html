@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Gated</title></head>
+<body>
+  <!-- As a prerendered page whose program's loader waits at its top level
+       for the binary: its module script waits for second.html, which a
+       test's gate may hold. The page loads meanwhile. -->
+  <p id="prerendered">as the server sent it</p>
+  <p id="loaded">waiting</p>
+  <script type="module">
+    const answer = await fetch("second.html", { cache: "no-store" });
+    document.getElementById("loaded").textContent = (await answer.text()).includes("Second") ? "loaded" : "something else";
+  </script>
+</body>
+</html>

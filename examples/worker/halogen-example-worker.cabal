@@ -126,7 +126,6 @@ test-suite halogen-example-worker-test
       array,
       directory,
       filepath,
-      hspec,
       text,
       haskell-halogen-playwright
   if arch(wasm32) || arch(javascript)
