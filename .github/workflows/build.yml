@@ -445,12 +445,16 @@ jobs:
       run: npx playwright install --only-shell chromium
 
     # The tutorial as Pages deploys it, in a real browser: every lesson's page
-    # prerendered under the base path, the size-optimised app adopting it, the
-    # compiler loading from public/learn/rootfs, every lesson's Start.hs and
-    # Solution.hs compiling in the page (two lessons at a time, on two
-    # pages), back, forward, the Cache API and a narrow screen. It needs the
-    # network only for what the layers load themselves (PixiJS from jsDelivr,
-    # the Material Icons font), and fails on a request to any other site.
+    # prerendered under the base path, the size-optimised app adopting it with
+    # nothing repaired, the compiler loading from public/learn/rootfs, every
+    # lesson's Start.hs and Solution.hs compiling in the page (two lessons at a
+    # time, on two pages), back, forward, the Cache API and a narrow screen,
+    # driven from the tutorial package's native Haskell suite
+    # (examples/learn/browser-test) through haskell-halogen-playwright, built
+    # here with the host GHC into dist-newstyle/native. It needs the network
+    # only for what the layers load themselves (PixiJS and Three.js from
+    # jsDelivr, the Material Icons font), and fails on a request to any other
+    # site.
     - name: Test the tutorial in a browser
       run: npm run test-learn
       env:
