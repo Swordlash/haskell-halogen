@@ -123,6 +123,11 @@ jobs:
 
   build-js:
     runs-on: ubuntu-latest
+    # About 18 minutes with the caches warm. Without a limit a build that
+    # hangs holds the runner for GitHub's six hours: one stopped at
+    # DOM.HTML.Indexed, whose splice the JavaScript backend runs in node,
+    # with "terminated" printed twice and nothing after it.
+    timeout-minutes: 90
 
     steps:
     - name: Checkout code
