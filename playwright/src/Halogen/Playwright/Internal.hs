@@ -369,7 +369,12 @@ withPlaywright options body =
     -- node and no Chromium behind. Uninterruptible, so a second exception
     -- does not cut the cleanup short; every wait in it is bounded.
     stop (pw, _) = uninterruptibleMask_ $ do
-      void (try (hClose pw.input) :: IO (Either SomeException ()))
+      -- Closed from a thread of its own: a line is written whole, without
+      -- interruption ('writeLine'), so a thread writing to a node that has
+      -- stopped reading holds the handle, and closing it here would wait
+      -- for that thread, which waits for node. The waits below do not: they
+      -- end node if it does not leave, and with it that write.
+      void (forkIO (void (try (hClose pw.input) :: IO (Either SomeException ()))))
       exited <- waitExit pw.process 50
       unless exited $ do
         signalDriver sigTERM pw
