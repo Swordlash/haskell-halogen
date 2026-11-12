@@ -42,6 +42,7 @@ module Halogen.Playwright.Internal
 
     -- * What pages said, and what contexts asked for
   , ConsoleMessage (..)
+  , WebSocketFrame (..)
   , Dialog (..)
   , PageLog (..)
   , pageLog
@@ -205,10 +206,25 @@ instance Exception PlaywrightError where
   displayException e = Text.unpack ("Playwright " <> e.method <> ": " <> e.name <> ": " <> e.message)
 
 -- | Something a page wrote to its console: its type (@log@, @error@,
--- @warning@, ...) and its text.
+-- @warning@, ...), its text, and where it was written, when the browser
+-- says: the address of the document or script (a frame's, for a message
+-- one of the page's frames wrote) and the line in it, from 1.
 data ConsoleMessage = ConsoleMessage
   { kind :: Text
   , text :: Text
+  , url :: Maybe Text
+  , line :: Maybe Int
+  }
+  deriving stock (Eq, Show)
+
+-- | A frame of one of the page's WebSockets, as it crossed: the socket's
+-- address, whether the page sent it (or received it), and its payload, as
+-- text, or base64 for a binary frame.
+data WebSocketFrame = WebSocketFrame
+  { url :: Text
+  , sent :: Bool
+  , payload :: Text
+  , binary :: Bool
   }
   deriving stock (Eq, Show)
 
@@ -227,10 +243,12 @@ data PageLog = PageLog
   , errors :: Seq Text
   -- ^ Uncaught exceptions and unhandled rejections, with their stacks.
   , dialogs :: Seq Dialog
+  , webSocketFrames :: Seq WebSocketFrame
+  -- ^ Every frame of every WebSocket the page opened, both ways.
   }
 
 emptyLog :: PageLog
-emptyLog = PageLog Seq.empty Seq.empty Seq.empty
+emptyLog = PageLog Seq.empty Seq.empty Seq.empty Seq.empty
 
 -- | What a page has said so far.
 pageLog :: Playwright -> Int -> IO PageLog
@@ -522,9 +540,11 @@ readReplies pw h ready stderrDone = (forever readOne `catchEnd` pure ()) `finall
         void (tryPutMVar ready (Left (PlaywrightError "start" "DriverFailed" why)))
       -- Relayed first, so that one a wait on the log has seen has been
       -- printed.
-      "console" -> for_ (Aeson.parseMaybe (\v -> (,,) <$> v .: "page" <*> v .: "type" <*> v .: "text") o) $ \(page, kind, text) -> do
+      "console" -> for_ (Aeson.parseMaybe (\v -> (,,,,) <$> v .: "page" <*> v .: "type" <*> v .: "text" <*> v .:? "url" <*> v .:? "line") o) $ \(page, kind, text, url, line) -> do
         relay page kind text
-        modifyLog page (\l -> l {console = l.console Seq.|> ConsoleMessage {kind, text}})
+        modifyLog page (\l -> l {console = l.console Seq.|> ConsoleMessage {kind, text, url, line}})
+      "websocket" -> for_ (Aeson.parseMaybe (\v -> (,,,,) <$> v .: "page" <*> v .: "url" <*> v .: "sent" <*> v .: "payload" <*> v .: "binary") o) $ \(page, url, sent, payload, binary) ->
+        modifyLog page (\l -> l {webSocketFrames = l.webSocketFrames Seq.|> WebSocketFrame {url, sent, payload, binary}})
       "pageerror" -> for_ (Aeson.parseMaybe (\v -> (,) <$> v .: "page" <*> v .: "message") o) $ \(page, text) -> do
         relay page "uncaught" text
         modifyLog page (\l -> l {errors = l.errors Seq.|> text})

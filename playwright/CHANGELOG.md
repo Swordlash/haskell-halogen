@@ -60,3 +60,30 @@ What porting the playground's smoke test (learn/, now
 processes with their memory now and at their peak, read from `/proc`, for
 the renderers' memory the tutorial's measurements report, which no page can
 read from inside.
+
+What a wiki's smoke tests still lacked, each shaped by the lines that use it:
+
+- `screenshotWith` and `ScreenshotOptions`: a picture of the window
+  (`fullPage = False`) rather than of the whole page, which `screenshot`
+  still takes; `ContextOptions`' `reducedMotion`, for pictures of pages that
+  animate.
+- `gotoStatus`: `goto`, and the status of the response the navigation ended
+  with (`Nothing` within the document, or for a download).
+- `webSocketFrames` and `waitForWebSocket`: the frames of the page's
+  WebSockets, both ways, kept as they cross, and a wait for the first that
+  satisfies a test, from the page's start as `waitForConsole` is (a
+  subscription's answer that came while the page loaded is found).
+- `ConsoleMessage` has `url` and `line`: where a message was written, so a
+  frame's messages can be told from the page's. Code that builds a
+  `ConsoleMessage` with two arguments now gives four, or reads the fields.
+- `withTextExact`, a filter by the whole text; `lastOf`, the last match;
+  `allTextContents`; `isDisabled`.
+- `evaluate`, `evaluateWith`, `evaluateOn` and `evaluateAll` fail after the
+  timeout when their promise never settles, rather than hold the test for
+  ever. They still do not settle the page.
+- `rearm` and `closeGate`: one gate held again for every load of a walk, and
+  taken away at its end.
+
+The README no longer says that `waitQuiet` is a wait for a response: it waits
+for every fiber in a `liftIO`, a notice's timer among them unless the program
+writes that timer with core's `H.delay`, which `waitQuiet` does not wait for.

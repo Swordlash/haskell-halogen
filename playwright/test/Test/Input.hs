@@ -84,7 +84,7 @@ spec base = describe "input, geometry and waits" $ do
     goto page (at "input.html")
     click (locator page "#later-log")
     ready <- waitForConsole page (\m -> "learn: compiler ready" `Text.isPrefixOf` m.text)
-    ready `shouldBe` ConsoleMessage "log" "learn: compiler ready in 12 s"
+    (ready.kind, ready.text) `shouldBe` ("log", "learn: compiler ready in 12 s")
     -- Written before the call: found at once.
     waitForConsole (withTimeout 300 page) (\m -> "learn:" `Text.isPrefixOf` m.text) `shouldReturn` ready
     _ <- timesOut (waitForConsole (withTimeout 300 page) (\m -> m.kind == "error"))

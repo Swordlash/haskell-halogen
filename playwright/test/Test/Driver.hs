@@ -104,6 +104,82 @@ spec base = describe "the driver" $ do
     url page `shouldReturn` at "basics.html"
     shouldHaveURL page (at "basics.html")
 
+  -- screenshots.mjs: a picture of the window, 1280 by 800, not of the
+  -- whole page; the smoke tests' failures: of the whole page.
+  it "takes a picture of the window, or of the whole page" $ \pw ->
+    withContext pw defaultContextOptions {viewport = Just (640, 400)} $ \ctx -> do
+      page <- newPage ctx
+      goto page (at "long.html")
+      withSystemTempDirectory "playwright-shot" $ \dir -> do
+        screenshotWith page defaultScreenshotOptions {fullPage = False} (dir </> "window.png")
+        pngSize (dir </> "window.png") `shouldReturn` (640, 400)
+        screenshot page (dir </> "page.png")
+        (width, height) <- pngSize (dir </> "page.png")
+        width `shouldBe` 640
+        height `shouldSatisfy` (>= 3000)
+
+  -- smoke-test-server.mjs: the status a page was served with, for every
+  -- address of the walk (a 404 page among them, a page a visitor may not
+  -- see), and with JavaScript off.
+  it "gives the status a navigation's response came with" $ \pw -> do
+    withPage pw $ \page -> do
+      gotoStatus page (at "basics.html") `shouldReturn` Just 200
+      gotoStatus page (at "no-such-page.html") `shouldReturn` Just 404
+      _ <- route page "**/private.html" (\_ -> pure (fulfill 401 (Just "text/html") "<p>Not yours</p>"))
+      gotoStatus page (at "private.html") `shouldReturn` Just 401
+      locator page "p" `shouldHaveText` "Not yours"
+      -- Within the document: no response.
+      gotoStatus page (at "private.html#further") `shouldReturn` Nothing
+    withContext pw defaultContextOptions {javaScriptEnabled = False} $ \ctx -> do
+      page <- newPage ctx
+      gotoStatus page (at "basics.html") `shouldReturn` Just 200
+
+  -- smoke-test.mjs and smoke-test-server.mjs: a version picked by its whole
+  -- name, the last diff line, every item's text, and a control disabled
+  -- until a choice is kept.
+  it "filters by a whole text, reads every match's text, takes the last, and says what is disabled" $ \pw -> withPage pw $ \page -> do
+    goto page (at "versions.html")
+    let versions = locator page ".version-list li > a"
+    count (withText "Version 2" versions) `shouldReturn` 2
+    count (withTextExact "Version 2" versions) `shouldReturn` 1
+    count (withTextExact "version 2" versions) `shouldReturn` 0
+    click (withTextExact "Version 2" versions)
+    locator page "#shown" `shouldHaveText` "Version 2"
+    click (withTextExact "Version 12" versions)
+    locator page "#shown" `shouldHaveText` "Version 12"
+    allTextContents versions `shouldReturn` ["Version 12 (current)", "Version 12", "Version 2 (current)", "Version 2", "Version 1"]
+    allTextContents (locator page ".nothing") `shouldReturn` []
+    textContent (lastOf (locator page ".diff-text")) `shouldReturn` "A third line."
+    isDisabled (locator page "#effort") `shouldReturn` True
+    click (locator page "#keep")
+    -- The page's own timer, not a program's.
+    eventually page (isDisabled (locator page "#effort") `shouldReturn` False)
+
+  -- smoke-test.mjs and screenshots.mjs: JavaScript whose promise may never
+  -- settle (a cache in a worker that broke) fails after the timeout rather
+  -- than holding the test for ever, in every form.
+  it "fails evaluated JavaScript that never settles, after the timeout" $ \pw -> withPage pw $ \page -> do
+    goto page (at "basics.html")
+    let quick = withTimeout 300 page
+        never = "new Promise(() => {})"
+        timesOutQuickly :: IO Value -> IO ()
+        timesOutQuickly io = do
+          started <- getMonotonicTime
+          try io >>= \case
+            Left (e :: PlaywrightError) -> do
+              e.name `shouldBe` "TimeoutError"
+              Text.unpack e.message `shouldContain` "300ms"
+            Right v -> expectationFailure ("it answered " <> show v)
+          took <- subtract started <$> getMonotonicTime
+          took `shouldSatisfy` (\t -> t >= 0.29 && t < 1.5)
+    timesOutQuickly (evaluate quick never)
+    timesOutQuickly (evaluateWith quick "() => new Promise(() => {})" ())
+    timesOutQuickly (evaluateOn (locator quick "#count") "() => new Promise(() => {})" ())
+    timesOutQuickly (evaluateAll (locator quick ".item") "() => new Promise(() => {})" ())
+    -- One that settles in time is answered, and the page still is.
+    evaluate quick "new Promise((r) => setTimeout(() => r(7), 50))" `shouldReturn` (7 :: Int)
+    textContent (locator page "#count") `shouldReturn` "0"
+
   it "fails a retrying expectation with what it last read" $ \pw -> withPage pw $ \page -> do
     goto page (at "basics.html")
     result <- try (locator page "#count" `shouldHaveText` "7")
@@ -247,7 +323,7 @@ spec base = describe "the driver" $ do
     click (locator page "#log")
     eventually page $ do
       messages <- consoleMessages page
-      messages `shouldContain` [ConsoleMessage "log" "logged", ConsoleMessage "error" "an error"]
+      map (\m -> (m.kind, m.text)) messages `shouldContain` [("log", "logged"), ("error", "an error")]
     click (locator page "#throw")
     eventually page $ do
       errors <- pageErrors page
@@ -263,7 +339,7 @@ spec base = describe "the driver" $ do
     goForward page
     url page `shouldReturn` at "second.html"
 
-  it "sets the viewport, the colour scheme, JavaScript and the network" $ \pw -> do
+  it "sets the viewport, the colour scheme, JavaScript, the network and motion" $ \pw -> do
     let options = defaultContextOptions {baseURL = Just base, viewport = Just (500, 400), colorScheme = Just Dark}
     withContext pw options $ \ctx -> do
       page <- newPage ctx
@@ -284,6 +360,15 @@ spec base = describe "the driver" $ do
     withContext pw defaultContextOptions {offline = True} $ \ctx -> do
       page <- newPage ctx
       evaluate page "navigator.onLine" `shouldReturn` False
+    -- screenshots.mjs: motion reduced, so the pictures show what animates
+    -- at its end.
+    withContext pw defaultContextOptions {reducedMotion = True} $ \ctx -> do
+      page <- newPage ctx
+      goto page (at "basics.html")
+      evaluate page "matchMedia('(prefers-reduced-motion: reduce)').matches" `shouldReturn` True
+    withPage pw $ \page -> do
+      goto page (at "basics.html")
+      evaluate page "matchMedia('(prefers-reduced-motion: reduce)').matches" `shouldReturn` False
 
   it "fails an action on a closed page" $ \pw -> withContext pw defaultContextOptions $ \ctx -> do
     page <- newPage ctx
@@ -355,6 +440,13 @@ withSlowDownload body = do
           _ <- tryPutMVar streaming ()
           threadDelay 60_000_000
   Warp.testWithApplication (pure app) $ \port -> body ("http://127.0.0.1:" <> Text.pack (show port) <> "/slow.bin") streaming
+
+-- | A PNG's width and height, from its header.
+pngSize :: FilePath -> IO (Int, Int)
+pngSize path = do
+  bytes <- ByteString.readFile path
+  let word32 at = foldl (\n i -> n * 256 + fromIntegral (ByteString.index bytes (at + i))) 0 [0 .. 3]
+  pure (word32 16, word32 20)
 
 -- | A record to send as an argument.
 data Pair = Pair Int Int

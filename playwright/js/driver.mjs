@@ -12,7 +12,8 @@
 // node to Haskell, something that happened, unasked:
 //   {"event": "ready"}                       Chromium is up; calls may come
 //   {"event": "fatal", "message": "..."}     nothing will work; node exits
-//   {"event": "console", "page": 2, "type": "error", "text": "..."}
+//   {"event": "console", "page": 2, "type": "error", "text": "...", "url": "..." | null, "line": 3 | null}
+//   {"event": "websocket", "page": 2, "url": "ws://...", "sent": true, "payload": "...", "binary": false}
 //   {"event": "pageerror", "page": 2, "message": "..."}
 //   {"event": "dialog", "page": 2, "type": "beforeunload", "message": "..."}
 //   {"event": "closed", "page": 2}
@@ -152,11 +153,16 @@ const locate = ({ page, steps }) =>
     if ("css" in step) return at.locator(step.css);
     if ("nth" in step) return at.nth(step.nth);
     if ("hasText" in step) return at.filter({ hasText: step.hasText });
+    // The whole text, exactly: Playwright's text matching against a regular
+    // expression made of the text, escaped, from start to end.
+    if ("hasTextExact" in step) return at.filter({ hasText: new RegExp(`^${escapeRegExp(step.hasTextExact)}$`) });
     if ("role" in step) return at.getByRole(step.role, step.name == null ? {} : { name: step.name, exact: true });
     if ("text" in step) return at.getByText(step.text);
     if ("label" in step) return at.getByLabel(step.label);
     throw new Error(`unknown locator step ${JSON.stringify(step)}`);
   }, pageOf(page));
+
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 // A task of the page's at background priority, then, if a program in this
 // document answers the probe, its answer until it is idle, a background
@@ -202,6 +208,7 @@ const answeredWithin = (ms, question, message) => {
   });
   return Promise.race([question, late]).finally(() => clearTimeout(timer));
 };
+const unsettled = (page, ms) => () => `the JavaScript evaluated in ${page.url()} did not settle within ${ms}ms`;
 const silent = (page, ms) => () =>
   `the page ${page.url()} did not answer within ${ms}ms: its thread is held, or its program stopped and left the probe's question open`;
 
@@ -283,7 +290,31 @@ const activity = async (page, ms = timeout) => {
 };
 
 const watch = (id, page) => {
-  page.on("console", (message) => send({ event: "console", page: id, type: message.type(), text: message.text() }));
+  // With where it was written: the frame's document or script, which tells a
+  // frame's message from the page's. Playwright gives an empty address when
+  // it does not know, and a line from 0.
+  page.on("console", (message) => {
+    const at = message.location();
+    send({
+      event: "console",
+      page: id,
+      type: message.type(),
+      text: message.text(),
+      url: at?.url ? at.url : null,
+      line: at?.url ? at.lineNumber + 1 : null,
+    });
+  });
+  // Every frame of every WebSocket the page opens, both ways, as it crosses:
+  // kept on the Haskell side as the console is. A binary frame's payload is
+  // sent as base64.
+  page.on("websocket", (socket) => {
+    const frame = (sent) => (data) => {
+      const binary = typeof data.payload !== "string";
+      send({ event: "websocket", page: id, url: socket.url(), sent, binary, payload: binary ? data.payload.toString("base64") : data.payload });
+    };
+    socket.on("framesent", frame(true));
+    socket.on("framereceived", frame(false));
+  });
   page.on("pageerror", (error) => send({ event: "pageerror", page: id, message: String(error.stack ?? error.message) }));
   // Every dialog is answered at once, as the context's options say (so that
   // a page never waits on one), and reported. Playwright would dismiss it
@@ -430,6 +461,7 @@ const methods = {
       permissions: o.permissions ?? [],
       isMobile: o.isMobile ?? false,
       hasTouch: o.hasTouch ?? false,
+      reducedMotion: o.reducedMotion ? "reduce" : undefined,
     });
     context.setDefaultTimeout(timeout);
     context.setDefaultNavigationTimeout(timeout);
@@ -483,16 +515,20 @@ const methods = {
   // An address that turns into a download (Playwright rejects with
   // "Download is starting") has gone where it was asked to: no error, and
   // nothing to settle, since the page stayed as it was.
+  //
+  // The status of the response the navigation ended with, null when there
+  // was none (a navigation within the document, a download).
   async goto(m) {
     const page = pageOf(m.page);
+    let response;
     try {
-      await page.goto(m.url, { timeout: within(m), waitUntil: "load" });
+      response = await page.goto(m.url, { timeout: within(m), waitUntil: "load" });
     } catch (error) {
       if (/Download is starting/.test(String(error?.message))) return null;
       throw error;
     }
     await settle(page, { timeout: within(m) });
-    return null;
+    return response ? response.status() : null;
   },
   reload: pageActing((page, _, o) => page.reload({ ...o, waitUntil: "load" }).then(() => null)),
   goBack: pageActing((page, _, o) => page.goBack({ ...o, waitUntil: "load" }).then(() => null)),
@@ -553,26 +589,40 @@ const methods = {
   getAttribute: reading((target, m, o) => target.getAttribute(m.name, o)),
   isChecked: reading((target, _, o) => target.isChecked(o)),
   isEnabled: reading((target, _, o) => target.isEnabled(o)),
+  isDisabled: reading((target, _, o) => target.isDisabled(o)),
+  // Every match's text, none not an error: this does not wait.
+  allTextContents: reading((target) => target.allTextContents()),
   // These two answer for the page as it is, and do not wait.
   isVisible: reading((target) => target.isVisible()),
   count: reading((target) => target.count()),
   outerHTML: reading((target, _, o) => target.evaluate((element) => element.outerHTML, undefined, o)),
   waitFor: reading((target, m, o) => target.waitFor({ ...o, state: m.state }).then(() => null)),
 
+  // JavaScript in the page, whose promise is awaited: up to the call's
+  // timeout, since a promise that never settles would hold the call for
+  // ever (Playwright's evaluate takes no timeout). The question lost is left
+  // to end with its page, as the probe's is.
   async evaluate(m) {
-    const result = await pageOf(m.page).evaluate(m.expression);
+    const page = pageOf(m.page);
+    const result = await answeredWithin(within(m), page.evaluate(m.expression), unsettled(page, within(m)));
     return result === undefined ? null : result;
   },
   async evaluateWith(m) {
     // Made a function here, and sent to the page as its source, which is
     // how Playwright sends any function.
-    const result = await pageOf(m.page).evaluate(functionOf(m.function), m.argument);
+    const page = pageOf(m.page);
+    const result = await answeredWithin(within(m), page.evaluate(functionOf(m.function), m.argument), unsettled(page, within(m)));
     return result === undefined ? null : result;
   },
   // The function called with every element the locator matches (none is
   // not an error) and the argument, in the page.
   async evaluateAll(m) {
-    const result = await locate(m.locator).evaluateAll(functionOf(m.function), m.argument);
+    const page = pageOf(m.locator.page);
+    const result = await answeredWithin(
+      within(m),
+      locate(m.locator).evaluateAll(functionOf(m.function), m.argument),
+      unsettled(page, within(m)),
+    );
     return result === undefined ? null : result;
   },
   // An expression polled in the page, at its animation frames, until it is
@@ -589,8 +639,11 @@ const methods = {
   },
   // A function called in the page with the locator's element (waited for)
   // and the argument.
+  // Playwright's timeout is for finding the element; the deadline here is
+  // for the whole call, the function's promise included.
   evaluateOn: reading(async (target, m, o) => {
-    const result = await target.evaluate(functionOf(m.function), m.argument, o);
+    const page = pageOf(m.locator.page);
+    const result = await answeredWithin(within(m), target.evaluate(functionOf(m.function), m.argument, o), unsettled(page, within(m)));
     return result === undefined ? null : result;
   }),
   // The page's address matching a glob (or equal to it), after which the
@@ -748,8 +801,10 @@ const methods = {
     );
   },
 
+  // The whole page, or only what the viewport shows: a PNG, unless the
+  // path's extension says JPEG.
   async screenshot(m) {
-    await pageOf(m.page).screenshot({ path: m.path, fullPage: true });
+    await pageOf(m.page).screenshot({ path: m.path, fullPage: m.fullPage ?? true, timeout: within(m) });
     return null;
   },
 };

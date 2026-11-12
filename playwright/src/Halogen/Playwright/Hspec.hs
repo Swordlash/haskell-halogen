@@ -154,12 +154,17 @@ pageState page = do
   shot <- saveScreenshot page
   pure . intercalate "\n" $
     ["The page: " <> Text.unpack address]
-      <> section "Its console errors:" (map (.text) consoleErrors)
+      <> section "Its console errors:" (map (located address) consoleErrors)
       <> section "Its uncaught errors:" errors
       <> section "Route handlers that failed:" handlers
       <> section "Requests that failed:" (map (\r -> r.method <> " " <> r.url <> ": " <> r.failure) failed)
       <> maybe [] (\s -> ["Its screenshot: " <> s]) shot
   where
+    -- Where it was written, when it was not the page's own document: a
+    -- frame's, or a script's.
+    located address m = case m.url of
+      Just at | at /= address -> m.text <> " (" <> at <> maybe "" (\l -> ":" <> Text.pack (show l)) m.line <> ")"
+      _ -> m.text
     section heading items =
       if null items then [] else heading : map (("  " <>) . Text.unpack) items
 

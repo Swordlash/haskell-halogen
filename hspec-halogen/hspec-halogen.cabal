@@ -146,6 +146,7 @@ test-suite hspec-halogen-test
         hspec,
         HUnit,
         row-types,
+        time,
         unliftio,
         haskell-halogen-core,
         haskell-halogen-jsbits,

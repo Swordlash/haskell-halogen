@@ -23,6 +23,7 @@ import Data.Functor.Coyoneda
 import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict qualified as M
 import Data.NT
+import Data.Time (NominalDiffTime, nominalDiffTimeToSeconds)
 import HPrelude hiding (Concurrently, finally, join, runConcurrently, state, throwIO)
 import Halogen.Component
 import Halogen.IO.Driver.Runtime
@@ -41,9 +42,9 @@ data ComponentGone = ComponentGone
 
 instance Exception ComponentGone
 
--- | A program of the component, as a fiber's steps. Everything but 'Lift'
--- (and 'Unlift', whose body is arbitrary 'IO') is synchronous work on the
--- loop.
+-- | A program of the component, as a fiber's steps. Everything but 'Lift',
+-- 'Delay' (and 'Unlift', whose body is arbitrary 'IO') is synchronous work
+-- on the loop.
 evalM
   :: forall m r s f act ps i o a
    . IORef (DriverState m r s f act ps i o)
@@ -79,6 +80,9 @@ evalM var (HalogenM hm) = foldF go hm
       Lift aff -> do
         ds <- sync (readIORef var)
         await (treeRunM ds.tree aff)
+      -- The same suspension, with its own worker killed with the fiber,
+      -- but not counted as waiting (see 'delay').
+      Delay d a -> a <$ awaitUncounted (sleepFor d)
       LiftEffect eff -> do
         ds <- sync (readIORef var)
         sync (withinEffect ds.tree.loop (treeRunM ds.tree eff))
@@ -249,6 +253,23 @@ report what = \case
 -- | A state as the trace carries it, when its type is known.
 stateDynamic :: ComponentInfo s -> s -> Maybe Dynamic
 stateDynamic info s = (`Dynamic` s) <$> info.stateType
+
+-- | Sleep for a duration, in parts small enough for an 'Int' of
+-- microseconds on a 32-bit backend (WebAssembly's and JavaScript's 'Int'
+-- holds about 35 minutes of them). Rounded up to the microsecond, so that a
+-- pause is never shorter than asked; nothing at all for a duration that is
+-- not positive.
+sleepFor :: NominalDiffTime -> IO ()
+sleepFor d = go (ceiling (nominalDiffTimeToSeconds d * 1_000_000) :: Integer)
+  where
+    go n
+      | n <= 0 = pass
+      | otherwise = do
+          let part = min n chunk
+          threadDelay (fromInteger part)
+          go (n - part)
+    -- A thousand seconds, well inside a 32-bit 'Int' of microseconds.
+    chunk = 1_000_000_000
 
 fresh :: (Int -> a) -> DriverState m r s f act ps i o -> IO a
 fresh f ds = atomicModifyIORef' ds.fresh (\i -> (i + 1, f i))

@@ -38,6 +38,9 @@ module Halogen.Hooks.Internal.HookM
   , fork
   , kill
 
+    -- * Pauses
+  , delay
+
     -- * Refs
   , getRef
 
@@ -51,6 +54,7 @@ import Control.Monad.Free.Church (F, liftF)
 import Control.Monad.Trans.Class (MonadTrans (..))
 import Data.Map.Strict qualified as M
 import Data.Row (HasType, Row)
+import Data.Time (NominalDiffTime)
 import Halogen.Data.Slot (Slot)
 import Halogen.Data.Slot qualified as Slot
 import Halogen.HTML (ComponentHTML)
@@ -70,6 +74,7 @@ type HookF :: Type -> Row Type -> Type -> (Type -> Type) -> Type -> Type
 data HookF scope slots output m a where
   Lift :: m x -> (x -> a) -> HookF scope slots output m a
   LiftEffect :: m x -> (x -> a) -> HookF scope slots output m a
+  Delay :: NominalDiffTime -> a -> HookF scope slots output m a
   State :: StateId scope s -> (s -> (x, s)) -> (x -> a) -> HookF scope slots output m a
   Raise :: output -> a -> HookF scope slots output m a
   ChildQuery :: CQ.ChildQuery slots a -> HookF scope slots output m a
@@ -83,6 +88,7 @@ instance Functor (HookF scope slots output m) where
   fmap f = \case
     Lift mx k -> Lift mx (f . k)
     LiftEffect mx k -> LiftEffect mx (f . k)
+    Delay d a -> Delay d (f a)
     State sid g k -> State sid g (f . k)
     Raise o a -> Raise o (f a)
     ChildQuery cq -> ChildQuery (map f cq)
@@ -109,6 +115,16 @@ instance (MonadIO m) => MonadIO (HookM scope slots output m) where
 -- @preventDefault@, focusing an element, reading the DOM. It must not wait.
 liftEffect :: m x -> HookM scope slots output m x
 liftEffect mx = HookM $ liftF $ LiftEffect mx identity
+
+-- | Pause the handler for this long (in seconds), not counted as waiting by
+-- "Halogen.Activity": 'Halogen.Query.HalogenM.delay', which says when to
+-- use it and when @liftIO (threadDelay n)@. In short: a pause before work
+-- a test should wait for (a debounce before a request) is @liftIO@; one
+-- that only hides a notice or ticks a clock is 'delay'. Like any of the
+-- handler's waits, it ends with a fork that is killed or a component that
+-- goes away.
+delay :: NominalDiffTime -> HookM scope slots output m ()
+delay d = HookM $ liftF $ Delay d ()
 
 -- | 'liftEffect' for plain 'IO' (the hooks' own bookkeeping).
 effectIO :: (MonadIO m) => IO x -> HookM scope slots output m x

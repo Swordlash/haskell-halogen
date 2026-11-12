@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Versions</title></head>
+<body>
+  <!-- A page's history, as the wiki's lists it: the latest first, marked
+       current, and versions whose names contain one another's. -->
+  <ul class="version-list">
+    <li><a href="#v12">Version 12 (current)</a></li>
+    <li><a href="#v12">Version 12</a></li>
+    <li><a href="#v2">Version 2 (current)</a></li>
+    <li><a href="#v2">Version 2</a></li>
+    <li><a href="#v1">Version 1</a></li>
+  </ul>
+  <h2 id="shown">none</h2>
+  <p class="diff-text">A first line.</p>
+  <p class="diff-text">A second line.</p>
+  <p class="diff-text">A third line.</p>
+  <!-- Disabled until a choice has been kept. -->
+  <select id="effort" disabled><option value="medium">medium</option><option value="high">high</option></select>
+  <button id="keep">keep</button>
+  <script>
+    for (const a of document.querySelectorAll(".version-list a")) {
+      a.addEventListener("click", (event) => {
+        event.preventDefault();
+        document.getElementById("shown").textContent = a.textContent;
+      });
+    }
+    document.getElementById("keep").addEventListener("click", () => setTimeout(() => (document.getElementById("effort").disabled = false), 100));
+  </script>
+</body>
+</html>

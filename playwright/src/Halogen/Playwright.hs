@@ -22,9 +22,10 @@
 -- returns), then the program's answer, asked until it is idle. So after
 -- @click@ the handler has run and the page shows what it rendered: read it
 -- at once, with no 'eventually'. What the program waits for in a @liftIO@
--- (a request) is not part of 'settle'; 'waitQuiet' waits for that too.
--- A timer or an emitter that has not fired is neither, and is what
--- 'eventually' and the retrying @should@ functions are for.
+-- (a request) is not part of 'settle'; 'waitQuiet' waits for that too, but
+-- not for a pause the program wrote with core's @H.delay@ (a notice's
+-- timer, a ticker). A timer or an emitter that has not fired is neither,
+-- and is what 'eventually' and the retrying @should@ functions are for.
 --
 -- On a page with no Halogen program 'settle' waits for the one task and
 -- returns, so the package drives any page.
@@ -60,6 +61,9 @@
 -- locator does. 'cdp' calls the Chrome DevTools Protocol; 'throttleCPU',
 -- or 'throttle' in the options for every page, slows the processor down.
 -- 'browserProcesses' is the browser's processes and their memory.
+-- 'webSocketFrames' and 'waitForWebSocket' are what crossed the page's
+-- WebSockets; 'gotoStatus' is a navigation's status; 'screenshotWith'
+-- takes the window alone.
 --
 -- Functions are in 'MonadIO', and every failure is a 'PlaywrightError'
 -- (the driver's; a timeout's message is Playwright's, which names the
@@ -98,6 +102,7 @@ module Halogen.Playwright
 
     -- * Going places
   , goto
+  , gotoStatus
   , visit
   , reload
   , goBack
@@ -125,7 +130,9 @@ module Halogen.Playwright
   , locator
   , nth
   , first
+  , lastOf
   , withText
+  , withTextExact
   , byRole
   , byRoleNamed
   , byText
@@ -167,7 +174,9 @@ module Halogen.Playwright
   , isVisible
   , isChecked
   , isEnabled
+  , isDisabled
   , count
+  , allTextContents
   , outerHTML
   , content
   , Box (..)
@@ -184,6 +193,7 @@ module Halogen.Playwright
   , waitForFunctionWith
   , waitForURL
   , waitForConsole
+  , waitForWebSocket
   , awaitText
   , eventually
   , eventuallyWithin
@@ -220,6 +230,8 @@ module Halogen.Playwright
   , release
   , heldCount
   , waitHeld
+  , rearm
+  , closeGate
 
     -- * Downloads
   , Download (..)
@@ -240,6 +252,8 @@ module Halogen.Playwright
     -- * What the page said, and what it asked for
   , ConsoleMessage (..)
   , consoleMessages
+  , WebSocketFrame (..)
+  , webSocketFrames
   , pageErrors
   , Dialog (..)
   , dialogs
@@ -255,6 +269,9 @@ module Halogen.Playwright
 
     -- * Pictures and print
   , screenshot
+  , ScreenshotOptions (..)
+  , defaultScreenshotOptions
+  , screenshotWith
   , pdf
   )
 where
@@ -354,6 +371,11 @@ data ContextOptions = ContextOptions
   -- ^ A phone's browser: the viewport's @meta@ tag is read, and the pages
   -- are laid out as on a phone. With 'hasTouch', 'tap' works.
   , hasTouch :: Bool
+  , reducedMotion :: Bool
+  -- ^ Whether the pages' @prefers-reduced-motion@ media query says
+  -- @reduce@, as a system set to reduce motion does: a page that animates
+  -- only when it may then shows its end state at once, which a screenshot
+  -- wants.
   , acceptDialogs :: Bool
   -- ^ Whether a dialog a page opens (@alert@, @confirm@, @prompt@, a
   -- @beforeunload@ asking whether to leave) is accepted rather than
@@ -364,7 +386,8 @@ data ContextOptions = ContextOptions
 
 -- | No base address, Playwright's viewport and colour scheme, JavaScript
 -- on, online, service workers allowed, no permissions, a desktop's
--- browser, dialogs dismissed (as Playwright dismisses them).
+-- browser, motion not reduced, dialogs dismissed (as Playwright dismisses
+-- them).
 defaultContextOptions :: ContextOptions
 defaultContextOptions =
   ContextOptions
@@ -377,6 +400,7 @@ defaultContextOptions =
     , permissions = []
     , isMobile = False
     , hasTouch = False
+    , reducedMotion = False
     , acceptDialogs = False
     }
 
@@ -398,6 +422,7 @@ newContext pw o =
               , "permissions" .= o.permissions
               , "isMobile" .= o.isMobile
               , "hasTouch" .= o.hasTouch
+              , "reducedMotion" .= o.reducedMotion
               , "acceptDialogs" .= o.acceptDialogs
               ]
         ]
@@ -481,7 +506,16 @@ onPage p method params = liftIO (call p.playwright method (("page" .= p.handle) 
 -- | Go to an address and wait for the page's @load@ event, then 'settle'.
 -- The program may not have mounted by then; 'visit' waits for that.
 goto :: (MonadIO m) => Page -> Text -> m ()
-goto p address = onPage p "goto" ["url" .= address]
+goto p address = () <$ gotoStatus p address
+
+-- | 'goto', and the status of the response the navigation ended with (after
+-- any redirects): a server's 404 page, a 401 for a page that is not the
+-- visitor's. 'Nothing' when there was no response: a navigation within the
+-- document (to another @#fragment@), or an address that became a download.
+--
+-- > gotoStatus page (base <> "no-such-page/") `shouldReturn` Just 404
+gotoStatus :: (MonadIO m) => Page -> Text -> m (Maybe Int)
+gotoStatus p address = onPage p "goto" ["url" .= address]
 
 -- | 'goto', then 'waitStarted': the page's program has mounted its tree
 -- (adopted the prerendered page, if there was one) and is idle.
@@ -544,8 +578,10 @@ settle :: (MonadIO m) => Page -> m ()
 settle p = onPage p "settle" []
 
 -- | 'settle', and until no fiber of the program is waiting either (what a
--- @liftIO@ waits for, a request say, has come back). It asks a few
--- milliseconds apart. On timeout the error says how many still wait.
+-- @liftIO@ waits for, a request say, has come back). A fiber pausing in
+-- core's @H.delay@ is not waiting, so a notice's timer written with it does
+-- not hold this up, and one written @liftIO (threadDelay n)@ does. It asks
+-- a few milliseconds apart. On timeout the error says how many still wait.
 waitQuiet :: (MonadIO m) => Page -> m ()
 waitQuiet p = onPage p "waitQuiet" []
 
@@ -594,9 +630,23 @@ nth i l = l {steps = l.steps <> [object ["nth" .= i]]}
 first :: Locator -> Locator
 first = nth 0
 
--- | Those of the matches that contain this text, somewhere inside them.
+-- | The last match (Playwright's @last@; named so that it does not meet the
+-- Prelude's @last@ in a test that imports this module whole).
+lastOf :: Locator -> Locator
+lastOf l = l {steps = l.steps <> [object ["nth" .= (-1 :: Int)]]}
+
+-- | Those of the matches that contain this text, somewhere inside them
+-- (Playwright's @hasText@: ignoring case and runs of white space).
 withText :: Text -> Locator -> Locator
 withText t l = l {steps = l.steps <> [object ["hasText" .= t]]}
+
+-- | Those of the matches whose whole text is this one, exactly: so
+-- @withTextExact "Version 2"@ is neither @Version 2 (current)@ nor
+-- @Version 12@, which 'withText' would both take. The text is compared as
+-- it is (Playwright's @hasText@ with the regular expression
+-- @^Version 2$@): case counts, and so does white space, at the ends too.
+withTextExact :: Text -> Locator -> Locator
+withTextExact t l = l {steps = l.steps <> [object ["hasTextExact" .= t]]}
 
 -- | Elements by their ARIA role: @byRole page "listitem"@.
 byRole :: (Scope s) => s -> Text -> Locator
@@ -754,11 +804,18 @@ outerHTML l = on l "outerHTML" []
 getAttribute :: (MonadIO m) => Locator -> Text -> m (Maybe Text)
 getAttribute l name = on l "getAttribute" ["name" .= name]
 
--- | These do not wait: they answer for the page as it is.
-isVisible, isChecked, isEnabled :: (MonadIO m) => Locator -> m Bool
+-- | 'isVisible' does not wait: it answers for the page as it is. The others
+-- wait for the element, as an action does.
+isVisible, isChecked, isEnabled, isDisabled :: (MonadIO m) => Locator -> m Bool
 isVisible l = on l "isVisible" []
 isChecked l = on l "isChecked" []
 isEnabled l = on l "isEnabled" []
+isDisabled l = on l "isDisabled" []
+
+-- | The text of every element the locator matches, in the page's order;
+-- an empty list when none does: like 'count', this does not wait.
+allTextContents :: (MonadIO m) => Locator -> m [Text]
+allTextContents l = on l "allTextContents" []
 
 count :: (MonadIO m) => Locator -> m Int
 count l = on l "count" []
@@ -832,6 +889,34 @@ waitForConsole p test = liftIO $ do
     Just m -> pure m
     Nothing ->
       throwIO (PlaywrightError "waitForConsole" "TimeoutError" ("no message in the page's console satisfied the test within " <> Text.pack (show (timeoutOf p)) <> "ms"))
+
+-- | The first frame of the page's WebSockets, from the page's start, that
+-- satisfies the test, waiting for one if there is none yet, up to the page's
+-- timeout: as 'waitForConsole', a frame that crossed before the call counts,
+-- so that a frame an action (or the page's load) caused cannot be missed.
+-- To wait for a later one, make the test tell it apart (by its payload, or
+-- by counting 'webSocketFrames' first). The failure lists the last frames
+-- seen.
+--
+-- > -- The server's answer to the page's subscription: pushes to it follow.
+-- > _ <- waitForWebSocket page (\f -> not f.sent && "\"subscribed\"" `Text.isInfixOf` f.payload)
+waitForWebSocket :: (MonadIO m) => Page -> (WebSocketFrame -> Bool) -> m WebSocketFrame
+waitForWebSocket p test = liftIO $ do
+  found <- waitForLog p.playwright p.handle (timeoutOf p) (find test . (.webSocketFrames))
+  case found of
+    Just f -> pure f
+    Nothing -> do
+      seen <- toList . (.webSocketFrames) <$> pageLog p.playwright p.handle
+      let shown = [(if f.sent then "sent " else "received ") <> f.url <> " " <> f.payload | f <- drop (length seen - 10) seen]
+      throwIO $
+        PlaywrightError
+          "waitForWebSocket"
+          "TimeoutError"
+          ( "no WebSocket frame of the page's satisfied the test within "
+              <> Text.pack (show (timeoutOf p))
+              <> "ms; "
+              <> (if null seen then "no frame crossed" else "the last frames: " <> Text.intercalate "; " shown)
+          )
 
 -- | The element's text, once it satisfies the test (retried as the @should@
 -- functions are, up to the page's timeout); the failure says what it last
@@ -924,7 +1009,10 @@ shouldHaveURL p expected = liftIO $ withFrozenCallStack $ expecting p "the page'
 -- JavaScript
 
 -- | The value of a JavaScript expression in the page (awaited, if it is a
--- promise), as JSON.
+-- promise), as JSON. A promise that has not settled by the page's timeout
+-- is a @TimeoutError@ (it is left to end with the page). Like the other
+-- three below, this is not an action and does not 'settle': after code that
+-- dispatches an event to the program, call 'settle'.
 evaluate :: (FromJSON a, MonadIO m) => Page -> Text -> m a
 evaluate p expression = onPage p "evaluate" ["expression" .= expression]
 
@@ -956,6 +1044,10 @@ evaluateOn l function argument = on l "evaluateOn" ["function" .= function, "arg
 -- | What the page has written to its console so far, oldest first.
 consoleMessages :: (MonadIO m) => Page -> m [ConsoleMessage]
 consoleMessages p = liftIO (toList . (.console) <$> pageLog p.playwright p.handle)
+
+-- | Every frame of the page's WebSockets so far, both ways, oldest first.
+webSocketFrames :: (MonadIO m) => Page -> m [WebSocketFrame]
+webSocketFrames p = liftIO (toList . (.webSocketFrames) <$> pageLog p.playwright p.handle)
 
 -- | The page's uncaught exceptions and unhandled rejections so far.
 pageErrors :: (MonadIO m) => Page -> m [Text]
@@ -1020,9 +1112,30 @@ browserProcesses p = liftIO $ do
         rest : _ | [n, "kB"] <- Text.words rest, Just k <- readMaybe (Text.unpack n) -> k * 1024
         _ -> 0
 
--- | The whole page, as a PNG.
+-- | The whole page, as a PNG: 'screenshotWith' 'defaultScreenshotOptions'.
 screenshot :: (MonadIO m) => Page -> FilePath -> m ()
-screenshot p path = onPage p "screenshot" ["path" .= path]
+screenshot p = screenshotWith p defaultScreenshotOptions
+
+-- | What 'screenshotWith' takes.
+newtype ScreenshotOptions = ScreenshotOptions
+  { fullPage :: Bool
+  -- ^ The whole page, however long ('True'), or only what the viewport
+  -- shows ('False'): a picture of the window, the size the context's
+  -- 'viewport' says.
+  }
+  deriving stock (Eq, Show)
+
+-- | The whole page.
+defaultScreenshotOptions :: ScreenshotOptions
+defaultScreenshotOptions = ScreenshotOptions {fullPage = True}
+
+-- | A picture of the page, written to a path: a PNG, or a JPEG if the path
+-- ends in @.jpg@ or @.jpeg@. It does not settle: 'settle' or 'waitQuiet'
+-- first, and wait for what the page draws by itself (fonts, images).
+--
+-- > screenshotWith page defaultScreenshotOptions {fullPage = False} "home.png"
+screenshotWith :: (MonadIO m) => Page -> ScreenshotOptions -> FilePath -> m ()
+screenshotWith p o path = onPage p "screenshot" ["path" .= path, "fullPage" .= o.fullPage]
 
 -- | The page printed to PDF, its pages the size its CSS asks for (an
 -- @\@page@ rule's), as for a deck of slides printed one to a page. Use
@@ -1188,6 +1301,19 @@ hold s pattern = liftIO $ do
 -- through.
 release :: (MonadIO m) => Gate -> m ()
 release g = liftIO (atomically (writeTVar g.open True))
+
+-- | Close a gate that was released again: the requests that match from
+-- now on are held until the next 'release'. One gate serves a walk that
+-- holds every load (@rearm@, 'goto', 'waitHeld', ..., 'release'), rather
+-- than a new 'hold' per load, whose released routes would pile up.
+-- Requests let through before are not held back.
+rearm :: (MonadIO m) => Gate -> m ()
+rearm g = liftIO (atomically (writeTVar g.open False))
+
+-- | Take the gate away: the requests it holds go on, as on 'release', and
+-- later ones do not pass it at all ('unroute').
+closeGate :: (MonadIO m) => Gate -> m ()
+closeGate g = release g >> unroute g.route
 
 -- | How many requests the gate holds now.
 heldCount :: (MonadIO m) => Gate -> m Int

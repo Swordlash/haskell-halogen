@@ -176,6 +176,54 @@ workerHandOff = do
         when (n > 0) (threadDelay 1_000 >> settled)
   within "every worker to go" settled
 
+-- | A suspension that is not counted ('awaitUncounted', a pause): the loop
+-- reads as idle with nobody waiting while it sleeps, it resumes through the
+-- loop as 'await' does, and its worker goes with its fiber.
+uncounted :: IO ()
+uncounted = do
+  loop <- newLoop
+  -- What happens after a fiber's last step (the loop giving up, a worker
+  -- leaving) may still be under way as the test hears of that step.
+  let comesTo what expected = within what $ do
+        let go = loopActivity loop >>= \a -> when (a /= expected) (threadDelay 1_000 >> go)
+        go
+  -- Resumes: the continuation runs, after the action, on the loop.
+  resumed <- newEmptyMVar
+  sleeping <- newEmptyMVar
+  wake <- newEmptyMVar
+  (_, start) <- fiberFor loop (pure True) False (const (pure ()))
+  enter loop $ start $ do
+    awaitUncounted (putMVar sleeping () >> takeMVar wake)
+    sync (putMVar resumed ())
+  within "the pause to start" (takeMVar sleeping)
+  loopActivity loop >>= assertEqual "neither running nor waiting while it sleeps" (False, 0)
+  putMVar wake ()
+  within "the fiber to resume" (takeMVar resumed)
+  comesTo "nothing left once it resumed" (False, 0)
+  -- A counted suspension beside it is still counted.
+  counted <- newEmptyMVar
+  release <- newEmptyMVar
+  (_, startCounted) <- fiberFor loop (pure True) False (const (putMVar counted ()))
+  enter loop (startCounted (await (takeMVar release)))
+  loopActivity loop >>= assertEqual "a counted fiber is waiting" (False, 1)
+  putMVar release ()
+  within "the counted fiber to end" (takeMVar counted)
+  comesTo "nothing counted once it is back" (False, 0)
+  -- Cancelled: its worker is killed, and what follows never runs.
+  live <- newIORef (0 :: Int)
+  after <- newIORef False
+  (fb, startKilled) <- fiberFor loop (pure True) False (const (pure ()))
+  enter loop $ startKilled $ do
+    awaitUncounted (bracket_ (atomicModifyIORef' live (\n -> (n + 1, ()))) (atomicModifyIORef' live (\n -> (n - 1, ()))) (threadDelay 60_000_000))
+    sync (writeIORef after True)
+  let started = readIORef live >>= \n -> when (n == 0) (threadDelay 1_000 >> started)
+  within "the pause's worker to start" started
+  enter loop (cancelFiber fb)
+  let gone = readIORef live >>= \n -> when (n > 0) (threadDelay 1_000 >> gone)
+  within "the pause's worker to go" gone
+  readIORef after >>= assertEqual "nothing after a cancelled pause ran" False
+  comesTo "nothing counted after the cancel" (False, 0)
+
 spec :: Spec
 spec =
   describe "runtime" $ do
@@ -185,3 +233,4 @@ spec =
     it "queues work brought while another thread runs the loop, without waiting for it" queuesBehind
     it "never strands the loop when the thread taking it is killed" loopHandOff
     it "kills every worker of a cancelled fiber, whenever its starter was killed" workerHandOff
+    it "does not count a fiber in an uncounted suspension, resumes it, and kills its worker with it" uncounted

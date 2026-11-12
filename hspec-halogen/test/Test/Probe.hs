@@ -8,11 +8,13 @@
 module Test.Probe (spec) where
 
 import Data.Text qualified as T
+import Data.Time (NominalDiffTime)
 import Halogen qualified as H
 import Halogen.HTML qualified as HH
+import Halogen.HTML.Properties qualified as HP
 import Halogen.JSBits (JSText, Safety (..), browserJS, fromJSText)
 import Halogen.JSBits.Promise (Promise, wait)
-import Protolude hiding (wait)
+import Protolude hiding (find, wait)
 import Test.Hspec.Halogen
 
 $( browserJS
@@ -42,8 +44,17 @@ waiter started gate =
 idleOne :: (Applicative m) => H.Component H.VoidF () Void m
 idleOne = H.component (\() -> pure ()) (\() -> HH.text "idle") []
 
+-- | Pauses with 'H.delay' in its @Initialize@ for as long as it is told,
+-- then shows that it woke.
+sleeper :: (Applicative m) => NominalDiffTime -> H.Component H.VoidF () Void m
+sleeper duration =
+  H.component
+    (\() -> pure False)
+    (\awake -> HH.span [HP.class_ (H.ClassName "sleeper")] [HH.text (if awake then "awake" else "asleep")])
+    [H.onInitialize (H.delay duration >> put True)]
+
 spec :: forall m -> (MonadBrowserTest m) => Spec
-spec m =
+spec m = do
   it "counts what is mounted and what waits, for a page that asked" $ runPage $ do
     unsafeIOToPageM js_probe_set
     -- The first tree mounted once the probe is there gives it its function.
@@ -61,3 +72,21 @@ spec m =
     probe `shouldReturn` (trees0, 0, waiting0)
     unmount plain
     probe `shouldReturn` (trees0 - 1, 0, waiting0)
+
+  -- A pause (H.delay) is the program's own business: the probe counts its
+  -- fiber neither running nor waiting while it sleeps, so a driver that
+  -- waits for a quiet page does not wait for it.
+  it "counts a fiber pausing in delay as neither running nor waiting" $ runPage $ do
+    unsafeIOToPageM js_probe_set
+    plain <- mount m (idleOne :: H.Component H.VoidF () Void m) ()
+    (trees0, _, waiting0) <- probe
+    asleep <- mount m (sleeper 3600 :: H.Component H.VoidF () Void m) ()
+    probe `shouldReturn` (trees0 + 1, 0, waiting0)
+    find asleep ".sleeper" >>= (`shouldHaveText` "asleep")
+    unmount asleep
+    -- One that wakes renders what follows the pause.
+    waking <- mount m (sleeper 0.05 :: H.Component H.VoidF () Void m) ()
+    find waking ".sleeper" >>= (`shouldHaveText` "awake")
+    eventually (probe `shouldReturn` (trees0 + 1, 0, waiting0))
+    unmount waking
+    unmount plain

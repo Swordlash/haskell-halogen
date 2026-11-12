@@ -17,6 +17,7 @@ import Test.Probe qualified
 import Test.Routes qualified
 import Test.Serve qualified
 import Test.Shared qualified
+import Test.Sockets qualified
 import Test.State qualified
 
 main :: IO ()
@@ -37,5 +38,6 @@ main = serveDirectory "test/web" $ \base -> do
       Test.Frames.spec base
       Test.DevTools.spec base
       Test.Shared.spec base
+      Test.Sockets.spec base
       Test.Serve.spec
     Test.Failures.spec base

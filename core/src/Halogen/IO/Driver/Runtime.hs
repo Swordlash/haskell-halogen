@@ -59,6 +59,7 @@ module Halogen.IO.Driver.Runtime
   , throwTurn
   , catchTurn
   , await
+  , awaitUncounted
   , suspend
   , currentFiber
   , ParTurn (..)
@@ -109,7 +110,8 @@ data LoopState = LoopState
   -- counted by the fiber as it suspends, before its worker exists, and
   -- uncounted by the worker once the continuation is queued. Not the size
   -- of 'workers', which a worker joins only once its thread has started,
-  -- after the loop may have gone idle.
+  -- after the loop may have gone idle. A fiber in 'awaitUncounted' (a
+  -- pause) has a worker but is never counted here.
   }
 
 newtype Loop = Loop (IORef LoopState)
@@ -315,7 +317,9 @@ sameThread a b = compare a b == EQ
 -- when queued work shows as idle. A fiber is counted as waiting by the
 -- piece of work that suspends it, while the loop still runs, and
 -- uncounted only once its continuation is queued on the loop (see
--- 'await'), so it is counted on one side or both, never neither.
+-- 'await'), so it is counted on one side or both, never neither. The one
+-- exception is deliberate: a fiber in a pause ('awaitUncounted') is on
+-- neither side while it sleeps, and on the queue's once it wakes.
 loopActivity :: Loop -> IO (Bool, Int)
 loopActivity (Loop ref) = do
   s <- readIORef ref
@@ -570,14 +574,32 @@ currentFiber :: Turn Fiber
 currentFiber = Turn $ \fb _ k -> k fb
 
 -- | A suspension: the action runs on a worker thread, and the fiber goes on
--- through the loop's queue once it is done.
+-- through the loop's queue once it is done. The fiber counts as waiting
+-- ('loopActivity') until then.
 await :: IO a -> Turn a
-await io = Turn $ \fb ek k -> mask_ $ do
+await = awaitWith True
+
+-- | 'await', with the fiber not counted as waiting while the action runs:
+-- for a pause ('Halogen.Query.HalogenM.delay'), which nothing outside the
+-- program should wait for. In every other way it is the same suspension,
+-- with a worker that is the fiber's and is killed with it; only the count
+-- differs. While it sleeps the fiber is neither waiting nor queued, so a
+-- reading of the loop may find it quiet; once the action is done its
+-- continuation is queued (the loop is then running) before the worker
+-- ends, as for 'await'.
+awaitUncounted :: IO a -> Turn a
+awaitUncounted = awaitWith False
+
+-- | The suspension, counted as waiting or not.
+awaitWith :: Bool -> IO a -> Turn a
+awaitWith counted io = Turn $ \fb ek k -> mask_ $ do
+  let count n = when counted (countAwaiting fb.loop n)
   -- Counted as waiting here, by the fiber, while the loop still runs this
   -- work: the worker's thread may not start before the loop has gone idle,
   -- and a reading of the loop ('loopActivity') in between must not find
-  -- the fiber neither waiting nor queued.
-  countAwaiting fb.loop 1
+  -- the fiber neither waiting nor queued. (A pause is meant to be found
+  -- so; it is counted nowhere until its continuation is queued.)
+  count 1
   -- Masked until the worker is the fiber's, to be killed with it; the
   -- worker hands its result over masked too, and unmasks only the action.
   t <-
@@ -596,9 +618,9 @@ await io = Turn $ \fb ek k -> mask_ $ do
                 writeIORef fb.worker Nothing
                 either ek k result
             )
-            `finally` workerDone fb.loop me
+            `finally` workerDone fb.loop (if counted then 1 else 0) me
       )
-      `onException` countAwaiting fb.loop (-1)
+      `onException` count (-1)
   -- The worker cannot come back before this: its continuation is queued
   -- behind the work running now.
   writeIORef fb.worker (Just t)
@@ -612,10 +634,10 @@ countAwaiting :: Loop -> Int -> IO ()
 countAwaiting (Loop ref) n = atomicModifyIORef' ref (\s -> (s {awaiting = s.awaiting + n}, ()))
 
 -- | A worker's end, in one step: no longer a worker, its fiber no longer
--- waiting.
-workerDone :: Loop -> ThreadId -> IO ()
-workerDone (Loop ref) t =
-  atomicModifyIORef' ref (\s -> (s {workers = Set.delete t s.workers, awaiting = s.awaiting - 1}, ()))
+-- waiting (by as much as it was counted: 1, or 0 for a pause).
+workerDone :: Loop -> Int -> ThreadId -> IO ()
+workerDone (Loop ref) counted t =
+  atomicModifyIORef' ref (\s -> (s {workers = Set.delete t s.workers, awaiting = s.awaiting - counted}, ()))
 
 -- | A suspension until something calls back (on the loop), which may be at
 -- once.

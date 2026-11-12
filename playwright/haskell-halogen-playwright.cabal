@@ -93,6 +93,7 @@ test-suite Halogen-playwright-test
                       Test.Routes
                       Test.Serve
                       Test.Shared
+                      Test.Sockets
                       Test.State
     build-depends:
         base,
@@ -108,7 +109,9 @@ test-suite Halogen-playwright-test
         temporary,
         text,
         wai,
+        wai-websockets,
         warp,
+        websockets,
         haskell-halogen-playwright
     if arch(wasm32) || arch(javascript)
         buildable: False

@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Console</title></head>
+<body>
+  <!-- An interactive SVG's frame logs what its sandbox refuses; the page
+       itself logs an error of its own. A test tells them apart by where
+       each was written. -->
+  <iframe sandbox="allow-scripts" src="noisy.html?interactive"></iframe>
+  <button id="complain" onclick="console.error('the page broke')">complain</button>
+</body>
+</html>

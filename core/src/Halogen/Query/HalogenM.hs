@@ -7,6 +7,7 @@ import Control.Monad.Parallel
 import Data.Map.Strict qualified as M
 import Data.NT
 import Data.Row
+import Data.Time (NominalDiffTime)
 import HPrelude hiding (Ap)
 import Halogen.Data.Slot as Slot
 import Halogen.Query.ChildQuery qualified as CQ
@@ -29,6 +30,9 @@ data HalogenF state action slots output m a
     Lift (m a)
   | -- | Work done at once, before anything else of the component's tree.
     LiftEffect (m a)
+  | -- | A pause: as a 'Lift' of a sleep, but not counted as waiting by
+    -- "Halogen.Activity" (see 'delay').
+    Delay NominalDiffTime a
   | Unlift (UnliftIO (HalogenM state action slots output m) -> IO a)
   | ChildQuery (CQ.ChildQuery slots a)
   | Raise output a
@@ -49,6 +53,7 @@ instance (Functor m) => Functor (HalogenF state' action slots' output m) where
     Unsubscribe sid a -> Unsubscribe sid (f a)
     Lift m -> Lift (fmap f m)
     LiftEffect m -> LiftEffect (fmap f m)
+    Delay d a -> Delay d (f a)
     Unlift q -> Unlift (fmap f . q)
     ChildQuery cq -> ChildQuery (fmap f cq)
     Raise o a -> Raise o (f a)
@@ -101,6 +106,45 @@ instance (MonadIO m) => MonadIO (HalogenM state' action slots' output m) where
 -- 'Halogen.HTML.Events.stoppingPropagation'.
 liftEffect :: forall state action slots output m a. (Functor m) => m a -> HalogenM state action slots output m a
 liftEffect = HalogenM . liftF . LiftEffect
+
+-- | Pause the program for this long (in seconds: @delay 3@ is three
+-- seconds, @delay 0.2@ a fifth of one), while the rest of the tree goes on.
+--
+-- It is @liftIO (threadDelay n)@ in every way but one: "Halogen.Activity"
+-- does not count the fiber as waiting while it sleeps. It is neither
+-- running nor waiting until it wakes, and like any other once it has. So a
+-- test that waits for the program to be quiet
+-- ('Halogen.Activity.waitQuiet', or a browser driver's) does not wait for
+-- the pause. A pause is still the fiber's: a fork that is killed, or a
+-- component that goes away, ends it, and what follows it never runs.
+--
+-- Which to write depends on what comes after the pause, and only the
+-- application knows that:
+--
+-- * A pause followed by work a test should wait for -- a debounce before a
+--   request, a draft saved two seconds after the last key -- is waiting:
+--   write it @liftIO (threadDelay n)@, and a quiet program then means the
+--   request has been made and answered.
+--
+-- * A pause that only takes something off the screen or ticks -- a
+--   \"Saved\" notice hidden after three seconds, a clock, a spinner's
+--   ticker while a model works, @forever (delay 1 >> tick)@ -- is not
+--   work anybody waits for: write it with 'delay'. Otherwise a quiet
+--   program would mean the notice is gone (so a test could never see it),
+--   and a ticker would keep the program from ever being quiet.
+--
+-- The duration is a 'NominalDiffTime', as every duration in this library
+-- and @haskell-halogen-hooks@ is, so that its unit is in its type rather
+-- than in a convention: @threadDelay@ takes microseconds, and a bare
+-- number of another unit invites a thousandfold mistake. A negative
+-- duration does not wait, though it is still a suspension (the program
+-- goes on after what the tree has queued); one longer than an 'Int' of
+-- microseconds holds on a 32-bit backend is waited in parts.
+--
+-- In a tree that "Halogen.Static" renders it pauses, as 'liftIO' would:
+-- a pause in an @Initialize@ itself (not in a fork) holds up the render.
+delay :: forall state action slots output m. (Functor m) => NominalDiffTime -> HalogenM state action slots output m ()
+delay d = HalogenM $ liftF $ Delay d ()
 
 instance (MonadUnliftIO m) => MonadUnliftIO (HalogenM state' action slots' output m) where
   withRunInIO inner =
@@ -301,6 +345,7 @@ mapHalogen lens fa fo nat (HalogenM alg) = HalogenM (hoistF go alg)
       Unsubscribe sid a -> Unsubscribe sid a
       Lift q -> Lift (runNT nat q)
       LiftEffect q -> LiftEffect (runNT nat q)
+      Delay d a -> Delay d a
       Unlift q -> Unlift $ q . mapUnliftIO (mapHalogen lens fa fo nat)
       ChildQuery cq -> ChildQuery cq
       Raise o a -> Raise (fo o) a
