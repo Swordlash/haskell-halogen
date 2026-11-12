@@ -65,7 +65,7 @@ where
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (withAsync)
-import Control.Exception (SomeException, try)
+import Control.Exception (try)
 import Control.Monad (forever, unless, when)
 import Data.Aeson (FromJSON (..), Value, withObject, (.!=), (.:), (.:?))
 import Data.Char (isDigit)
@@ -275,7 +275,10 @@ outcome page = textContent (locator page ".learn-outcome")
 untilReady :: (HasCallStack) => Site -> Page -> Double -> Text -> IO ()
 untilReady site page since label = do
   lastPhase <- newIORef ""
-  let poll = forever $ (try @SomeException (statusOf page) >>=) $ \case
+  -- Only the driver's failures are let go: catching every exception
+  -- would catch the cancellation that ends the poll, and withAsync would
+  -- wait for it for ever.
+  let poll = forever $ (try @PlaywrightError (statusOf page) >>=) $ \case
         Left _ -> threadDelay 100000
         Right status -> do
           let phase = Text.unwords (map (\w -> if Text.all (\c -> isDigit c || c == '.') w then "…" else w) (Text.words status))

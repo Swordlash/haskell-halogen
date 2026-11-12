@@ -8,7 +8,7 @@ module Tutorial.Lessons (spec) where
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (concurrently)
-import Control.Exception (SomeException, displayException, fromException, try)
+import Control.Exception (SomeAsyncException, SomeException, displayException, fromException, throwIO, try)
 import Control.Monad (forM_, unless, when)
 import Data.Aeson (Value)
 import Data.Char (isDigit)
@@ -25,6 +25,14 @@ import Halogen.Playwright.Internal (Page (..))
 import Test.HUnit.Lang (FailureReason (..), HUnitFailure (..))
 import Tutorial.Site
 import Tutorial.Walk
+
+-- | What an action threw, but an asynchronous exception (a cancellation,
+-- an interrupt), which goes on its way.
+trySync :: IO a -> IO (Either SomeException a)
+trySync io =
+  try io >>= \case
+    Left e | Just (_ :: SomeAsyncException) <- fromException e -> throwIO e
+    other -> pure other
 
 -- | A compile of a lesson's code, as the page showed it.
 data Run = Run
@@ -52,7 +60,7 @@ runLesson site page button pageCheck = do
   stdout <- Text.concat <$> allTextContents (locator page ".learn-stdout")
   checked <- case pageCheck of
     Nothing -> pure Nothing
-    Just checkPage -> either (Just . firstLine) (const Nothing) <$> try @SomeException (checkPage page)
+    Just checkPage -> either (Just . firstLine) (const Nothing) <$> trySync (checkPage page)
   said <- outcomeOf page
   errors <- allTextContents (locator page ".learn-diagnostics li.learn-error")
   diagnostics <- allTextContents (locator page ".learn-diagnostics li")
@@ -328,19 +336,26 @@ countPrimes site page result = do
 -- conditions; the seconds are the lesson's clock, which is what is
 -- measured.
 devtoolsPanel :: Page -> Locator -> IO Int
-devtoolsPanel _ result = do
+devtoolsPanel page result = do
   let row = locator result ".halogen-devtools [data-label=\"Lesson.State\"]"
   waitFor row Attached
+  -- The panel counts every action, and the clock's tick is one, once a
+  -- second: the count before the click is whatever the ticks have made it,
+  -- and after it at least one more, with the click's state shown.
+  let actions = read . Text.unpack . Text.strip <$> textContent (locator row ".halogen-devtools-actions") :: IO Int
+  before <- actions
   click (withText "+1" (locator result "button"))
-  locator row ".halogen-devtools-actions" `shouldHaveText` "1"
+  eventually page $ do
+    after <- actions
+    unless (after > before) $ expectationFailure ("the panel did not count the click: " <> show before <> " actions before it, " <> show after <> " after")
   waitFor (first (withText "count = 1" (locator result ".halogen-devtools-state"))) Attached
   -- The first tick, a second in, writes the minute for the first time.
   threadDelay 1500000
   let renders = read . Text.unpack . Text.strip <$> textContent (locator row ".halogen-devtools-renders")
-  before <- renders
+  rendersBefore <- renders
   threadDelay 2500000
-  after <- renders
-  pure (after - before)
+  rendersAfter <- renders
+  pure (rendersAfter - rendersBefore)
 
 -- | Lesson 19's scene: a canvas, once Three.js has come from the CDN and
 -- drawn it, whose sphere is at the canvas's centre (the camera looks at
@@ -403,8 +418,8 @@ spec walk = do
         -- page after it is closed.
         (doneA, doneB) <-
           concurrently
-            (try @SomeException (runHalf watch page (fst halves)))
-            (try @SomeException (otherReady >> runHalf otherWatch other (snd halves)))
+            (trySync (runHalf watch page (fst halves)))
+            (trySync (otherReady >> runHalf otherWatch other (snd halves)))
         loopEnd <- getMonotonicTime
         done <- readIORef runs
         failed <- newIORef False

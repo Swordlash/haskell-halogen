@@ -58,8 +58,27 @@ spec site allowed = describe "every page" $ do
       withFailureContext page $ do
         let options = defaultAdoptionOptions {leaveOut = [".learn-code", ".learn-result-column", ".learn-status"]}
             paths = "" : "playground/" : map (\l -> l.slug <> "/") site.lessons
+        -- The manifest is held as well as the program, until the page has
+        -- been compared: what the app reads of it (the compiler's size, which
+        -- the introduction states, and the playground's layers) arrives in a
+        -- fork of Initialize, which may render before or after the
+        -- comparison, and is no repair of the page either way. One gate of
+        -- each, armed again for every page and never taken away: taking a
+        -- route away while the page's requests are under way can leave them
+        -- stalled. (The library's adoptWith does this but for the
+        -- manifest's gate.)
+        program <- hold page options.program
+        sizes <- hold page "**/rootfs/rootfs.json"
         forM_ paths $ \path -> do
-          repairs <- adoptWith options page (site.url <> path)
+          rearm program
+          rearm sizes
+          goto page (site.url <> path)
+          waitHeld program
+          markServed options page
+          release program
+          waitStarted page
+          repairs <- repairsSinceMarked page
+          release sizes
           entered watch page
           unless (null repairs) $
             expectationFailure (Text.unpack (Text.unlines (("adopting " <> site.base <> path <> " repaired:") : map (("  " <>) . describeRepair) repairs)))

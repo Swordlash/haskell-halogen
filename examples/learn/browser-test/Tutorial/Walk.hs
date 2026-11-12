@@ -159,9 +159,9 @@ startSpec walk = do
     release gate
     waitStarted page
     repairsSinceMarked page >>= shouldHaveNoRepairs
-    -- The gate goes: the compiler's requests, which start now, pass no
-    -- route of the test's.
-    closeGate gate
+    -- The gate stays, released: taking the route away while the page's
+    -- other requests are under way (the compiler's, which start now) can
+    -- leave them stalled, and once did here.
     entered watch page
     readOnce (locator page ".learn-editor .cm-editor") "the editor, made in Initialize"
     now <- getMonotonicTime
@@ -466,9 +466,9 @@ startSpec walk = do
     check (locator page ".learn-layers input[value=\"store\"]")
     waitHeld gate
     locator page ".learn-compiler" `shouldContainText` "Loading the layers you checked"
+    -- Released, and left in place, as the first gate.
     release gate
     waitQuiet (long site page)
-    closeGate gate
     contains (locator (withText "store" (locator page ".learn-layer")) ".learn-layer-note") "loaded"
     fill (locator page "#learn-extra-args") "-fdefer-typed-holes"
     setEditor page storeProgram
@@ -500,7 +500,6 @@ startSpec walk = do
         entered watch page
         release gate
         waitQuiet (long site page)
-        closeGate gate
         readOnce (locator page "button.learn-compile:not([disabled])") "Compile, enabled in lesson 7 once its layer has loaded"
         report "a lesson entered while another's layer downloads gets its own layer, and Compile"
       _ -> pendingWith "no lessons 06-router and 07-net"
