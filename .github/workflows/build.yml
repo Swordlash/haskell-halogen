@@ -87,6 +87,29 @@ jobs:
     - name: Build
       run: cabal build all --builddir=dist-newstyle/native
 
+    # Two native suites drive Chromium through haskell-halogen-playwright
+    # (playwright's own and remote's live one), which runs node with the
+    # project's npm playwright: on every compiler of the matrix, since the
+    # driver is Haskell like the rest.
+    - name: Setup Node.js
+      uses: actions/setup-node@v5
+      with:
+        node-version: '24'
+        cache: npm
+
+    - name: Install npm packages
+      run: npm ci
+
+    - name: Cache Chromium
+      uses: actions/cache@v5
+      with:
+        path: ~/.cache/ms-playwright
+        key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+
+    # Without --with-deps, as in test-wasm.
+    - name: Install Chromium
+      run: npx playwright install --only-shell chromium
+
     - name: Test
       run: cabal test all --builddir=dist-newstyle/native
 
@@ -442,3 +465,9 @@ jobs:
     # are copies of the page's own app.wasm, the page drawing meanwhile.
     - name: Test the Web Workers in a browser
       run: npm run test-worker
+
+    # examples/vanilla, as build-wasm-all built it, driven from a native
+    # Haskell suite (haskell-halogen-playwright's example suite): where the
+    # page's activity probe and core's answer meet in a real program.
+    - name: Test a built example from Haskell
+      run: npm run test-example
