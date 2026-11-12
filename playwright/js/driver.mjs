@@ -387,10 +387,10 @@ const methods = {
   innerText: reading((target, _, o) => target.innerText(o)),
   inputValue: reading((target, _, o) => target.inputValue(o)),
   getAttribute: reading((target, m, o) => target.getAttribute(m.name, o)),
-  // These answer for the page as it is, and do not wait.
-  isVisible: reading((target) => target.isVisible()),
   isChecked: reading((target, _, o) => target.isChecked(o)),
   isEnabled: reading((target, _, o) => target.isEnabled(o)),
+  // These two answer for the page as it is, and do not wait.
+  isVisible: reading((target) => target.isVisible()),
   count: reading((target) => target.count()),
   outerHTML: reading((target, _, o) => target.evaluate((element) => element.outerHTML, undefined, o)),
   waitFor: reading((target, m, o) => target.waitFor({ ...o, state: m.state }).then(() => null)),
