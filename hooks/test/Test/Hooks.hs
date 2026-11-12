@@ -10,6 +10,7 @@ module Test.Hooks (spec) where
 import Data.IORef
 import Data.Row (Empty, type (.==))
 import Halogen qualified as H
+import Halogen.Activity qualified as Activity
 import Halogen.HTML qualified as HH
 import Halogen.Hooks qualified as Hooks
 import Halogen.Hooks.Types (HookK (UseQuery, UseState))
@@ -17,6 +18,7 @@ import Halogen.Subscription qualified as HS
 import Protolude
 import System.IO.Error (userError)
 import System.IO.Unsafe (unsafePerformIO)
+import System.Timeout (timeout)
 import Test.Harness (Harness (..), dispose, eventually, lastRender, query, start)
 import Test.Hspec (Spec, describe, it, shouldBe)
 
@@ -202,6 +204,23 @@ withProbe k = do
   dispose harness
   pure a
 
+----------------------------------------------------------------------
+-- A ticker that pauses with 'Hooks.delay'.
+----------------------------------------------------------------------
+
+-- | Counts up every hundredth of a second, from a fork its lifecycle effect
+-- starts, and writes each tick down.
+ticker :: IORef Int -> H.Component H.VoidF () Void IO
+ticker ticks = Hooks.component @Empty $ \_input -> Hooks.do
+  (count, countId) <- Hooks.useState (0 :: Int)
+  Hooks.useLifecycleEffect $ do
+    void $ Hooks.fork $ forever $ do
+      Hooks.delay 0.01
+      n <- Hooks.modify countId (+ 1)
+      Hooks.liftEffect (writeIORef ticks n)
+    pure Nothing
+  Hooks.pure $ HH.text ("ticks=" <> show count)
+
 spec :: Spec
 spec = describe "hooks" $ do
   it "renders what the hook program returns" $ withProbe $ \_probe harness -> do
@@ -310,3 +329,24 @@ spec = describe "hooks" $ do
     rendered <- readIORef harness.renders
     ("seen=42" `elem` rendered) `shouldBe` True
     dispose harness
+
+  it "pauses with delay, which leaves the program quiet between ticks" $ do
+    ticks <- newIORef 0
+    before <- Activity.activity
+    harness <- start (ticker ticks) ()
+    let reached n = do
+          t <- readIORef ticks
+          unless (t >= n) (threadDelay 1_000 >> reached n)
+        within what io = timeout 5_000_000 io >>= maybe (panic ("timed out: " <> what)) pure
+    within "three ticks" (reached 3)
+    -- The fork sleeps between ticks, uncounted: the program is quiet then,
+    -- however long the ticker goes on.
+    replicateM_ 5 $ do
+      within "quiet between ticks" Activity.waitQuiet
+      t <- readIORef ticks
+      within "the next tick" (reached (t + 1))
+    Activity.activity >>= \a -> (a.waiting - before.waiting) `shouldBe` 0
+    dispose harness
+    stopped <- readIORef ticks
+    threadDelay 100_000
+    readIORef ticks >>= (`shouldBe` stopped)

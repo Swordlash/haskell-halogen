@@ -270,6 +270,7 @@ interpretHookMWith settleWrites (HookM program) = foldF go program
     go = \case
       Lift mx k -> map k (lift mx)
       LiftEffect mx k -> map k (HM.liftEffect mx)
+      Delay d a -> HM.delay d $> a
       State (StateId ref) f k -> do
         (x, changed) <- atOnce $ atomicModifyIORef' ref $ \s ->
           let (x, s') = f s in (s', (x, not (unsafeRefEq s s')))

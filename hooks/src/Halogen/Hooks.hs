@@ -107,6 +107,9 @@ module Halogen.Hooks
   , fork
   , kill
 
+    -- ** Pauses
+  , delay
+
     -- ** Refs
   , getRef
   , liftEffect
