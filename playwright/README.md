@@ -377,6 +377,8 @@ pressed and released apart.
 `Halogen-playwright-example-test` drives a built WebAssembly example
 (`dist-newstyle/wasm/public/vanilla`, or `HALOGEN_EXAMPLE_DIR`), and is
 pending when it is not built. `npm run test-example` at the repository's root
-runs it with the build required. The same pattern tests a real program in
+runs it with the build required. The same pattern tests real programs in
 `examples/worker/test` (`npm run test-worker`): jobs in Web Workers that are
-copies of the page's binary.
+copies of the page's binary; and in `examples/learn/playground-test`
+(`npm run test-playground`): GHC compiling a program in the page and
+mounting it, for every layer of the tutorial's rootfs.

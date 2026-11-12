@@ -43,7 +43,7 @@ spec base = describe "input, geometry and waits" $ do
     -- a second).
     textContent (locator page "#inputs") `shouldReturn` "1"
 
-  -- test-playground.mjs: a canvas, which no locator sees into, clicked at
+  -- The playground's test: a canvas, which no locator sees into, clicked at
   -- its middle from its box; smoke-test.mjs: a dialog's box within the
   -- phone's screen; test-learn.mjs: the pointer moved off what it showed.
   it "clicks at a point from an element's box, and moves the pointer away" $ \pw -> withPage pw $ \page -> do

@@ -63,7 +63,7 @@ npm run serve-wasm -- <example> # build one example to wasm and serve it on :808
 npm run build-rootfs            # the compiler the tutorial runs (GHC, our libraries) and learn/'s page, into dist-newstyle/wasm/learn
 npm run build-wasm-all          # every example, wasm-opt'd (the rootfs first if missing); Pages deploys only public/learn
 npm run test-learn              # the built tutorial, rootfs inside, in headless Chromium: every lesson compiled in the page
-npm run test-playground         # learn/'s page on the rootfs in headless Chromium: a program for every layer
+npm run test-playground         # learn/'s page on the rootfs in headless Chromium, natively (examples/learn/playground-test): a program for every layer
 npm run test-worker             # examples/worker's suite, natively, against the built example (build-wasm.sh worker): jobs in Web Workers
 npm run test-example            # playwright's example suite, natively, against the built examples/vanilla (build-wasm.sh vanilla)
 npm run build-js                # JS backend: build all, bundle the material example into dist/
@@ -88,15 +88,16 @@ a program's side of the probe, the second against `Halogen.Remote.Server` with t
 proxy the test can cut. `Halogen-playwright-example-test` serves a built wasm example
 (`dist-newstyle/wasm/public/vanilla` or `HALOGEN_EXAMPLE_DIR`), and is pending without it unless
 `HALOGEN_EXAMPLE_REQUIRED=1` (`npm run test-example`, run by CI's `learn-wasm`); `examples/worker`'s
-`halogen-example-worker-test` is the same for `dist-newstyle/wasm/public/worker` (`npm run test-worker`; both through
-`toolchain/test-example.sh <example>`).
+`halogen-example-worker-test` is the same for `dist-newstyle/wasm/public/worker` (`npm run test-worker`), and
+`examples/learn`'s `halogen-example-learn-playground-test` for the rootfs, `dist-newstyle/wasm/learn` or
+`LEARN_ROOTFS_DIR` (`npm run test-playground`; all three through `toolchain/test-example.sh <example>`).
 `Halogen-tauri-browser-test` runs against `tauri/test/web/tauri-double.js`, a stand-in
 for Tauri's global API (a table of commands and an event bus), since there is no Tauri in CI.
 `Halogen-three-browser-test` renders with WebGL in headless Chromium (SwiftShader, no GPU needed),
 with Three.js bundled from `node_modules` by `three/test/web/bundle.sh`, so it needs no network.
 `hspec-halogen-test` is also
 the harness's examples, and where core's browser behaviour (events, properties the page changes,
-keyed moves, refs, forks, subscriptions, the window's emitters) is tested for real. All are hspec, `main-is: Test.hs` (net's, tauri's and three's browser suites: `Browser.hs`; remote's live suite: `Live.hs`; playwright's example suite: `example-test/Example.hs`; `examples/worker`'s: `test/Test.hs`, one module) which aggregates `Test.*` specs. Run one suite or one test with hspec's
+keyed moves, refs, forks, subscriptions, the window's emitters) is tested for real. All are hspec, `main-is: Test.hs` (net's, tauri's and three's browser suites: `Browser.hs`; remote's live suite: `Live.hs`; playwright's example suite: `example-test/Example.hs`; `examples/worker`'s: `test/Test.hs`, one module; `examples/learn`'s playground suite: `playground-test/Playground.hs`, one module) which aggregates `Test.*` specs. Run one suite or one test with hspec's
 `--match`:
 
 ```sh
@@ -181,8 +182,14 @@ and wired into `test/Test.hs`.
   page, every lesson's `Start.hs` and `Solution.hs` compiling there (two lessons at a time, on two
   pages), back and forward, the Cache API and a narrow screen (`LEARN_ROOTFS_DIR` serves another
   rootfs in place of the tree's).
-  `toolchain/test-playground.mjs` drives `learn/`'s page on the rootfs, with a program for every
-  layer. Both run in CI and `test-learn` gates the Pages deploy; the workflows install Chromium with
+  `examples/learn/playground-test` (`halogen-example-learn-playground-test`, native, through
+  `haskell-halogen-playwright`) drives `learn/`'s page on the rootfs, with a program for every layer
+  (`playground-test/programs/`), and prints the page's timings, its JS heap (through the DevTools
+  protocol) and the renderer's memory (`browserProcesses`). A run is the page's work, waited for on
+  `window.learn`; what it mounts is a Halogen program linked against the rootfs' core, which answers
+  the probe, so clicks on it are settled and their results read once; PixiJS and Three.js arriving
+  from the CDN, and the DevTools panel's timer, are conditions with deadlines. `LEARN_ONLY`
+  chooses layers; its examples share one page. Both run in CI and `test-learn` gates the Pages deploy; the workflows install Chromium with
   `npx playwright install --only-shell chromium`, and the pages need the network
   only for PixiJS and Three.js from jsDelivr and the Material Icons font: the tutorial bundles its
   browser_wasi_shim, and the compiler's is `learn/vendor/`'s, shipped in the rootfs.
