@@ -18,7 +18,9 @@ WebSocket and server-sent events, whose events arrive through `Halogen.Subscript
 node child speaking a JSON-lines protocol of our own, every action waiting for the page's program to say it is idle
 through core's activity probe, with hspec integration and a static server for a built directory
 (`Halogen.Playwright.Serve`); requests answered by the test's handlers (routes, a gate that holds `app.wasm`;
-node asks, Haskell answers, each handler on a thread of its own), downloads and uploads, cookies, offline,
+node asks, Haskell answers, each handler on a thread of its own), the check that a prerendered page is adopted with
+nothing repaired (`shouldAdoptCleanly`: `app.wasm` held, every node under `#app` marked, the program let go and its
+start waited for, and what it replaced, removed, built or changed listed), downloads and uploads, cookies, offline,
 emulated media and print, phones and taps, frames, and the Chrome DevTools Protocol with a processor throttle
 `HALOGEN_PLAYWRIGHT_THROTTLE` puts on every page; it depends on none of our packages and is native only),
 `custom-element` (`haskell-halogen-custom-element`: a component as a custom element, a Web

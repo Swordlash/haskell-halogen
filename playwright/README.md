@@ -210,6 +210,60 @@ serves a project's site, outside of which there is nothing), a `404.html` to
 serve for an address with no file, and other directories mounted under the
 base.
 
+## A prerendered page, adopted
+
+A page rendered ahead of time (`Halogen.Static`) is adopted by its program
+(`hydrateUI`): the program takes the nodes the server sent as its own. If
+the prerender got something wrong, the program repairs it, and the reader
+sees the page change as it starts. `shouldAdoptCleanly page address` checks
+that it does not:
+
+```haskell
+it "adopts the prerendered page with nothing repaired" $ inPage $ \page ->
+  shouldAdoptCleanly page base
+```
+
+It holds the program's request (`**/app.wasm`), goes to the address, marks
+every node under `#app` as the server sent it (its text, or its attributes),
+lets the program go, waits for it to start (`waitStarted`: the adopting
+render and every `Initialize`'s synchronous part have run), and compares.
+`adopt` and `adoptWith` give what changed as data, a `Repair` for each:
+`Replaced` (a node gone, another where it was), `Removed`, `Built` (the
+outermost of what went or was built), `TextChanged` and `AttributeChanged`,
+each with a path to the node (`#app > div.learn > p:nth-child(2) > text()`)
+and its HTML or text; `describeRepair` makes one a line of a report. The
+space between tags and the comments that keep two texts apart, which the
+HTML parser makes and a render does not, are not repairs.
+
+`AdoptionOptions` say where to look and what to leave alone:
+
+```haskell
+defaultAdoptionOptions
+  { root = "#app"
+  , program = "**/app.wasm"
+  , leaveOut = [".wiki-math", ".learn-editor"]   -- filled by another library, or by Initialize
+  , ignoredAttributes = ["data-stuck"]           -- written by the page's own scripts
+  }
+```
+
+What the program changes once it has started (a timer's render, a
+response's) is not compared. What its `Initialize` changes at once is: a part
+it fills on purpose (an editor in an empty element, a status line) goes in
+`leaveOut`. For a test with a gate of its own, or more to do between marking
+and comparing (looking at what the server sent, holding an API as well),
+there are the two halves:
+
+```haskell
+gate <- hold page "**/app.wasm"
+goto page address
+waitHeld gate
+-- the page as the server sent it
+markServed defaultAdoptionOptions page
+release gate
+waitStarted page
+repairsSinceMarked page >>= shouldHaveNoRepairs
+```
+
 ## Contexts: init scripts and requests
 
 `addInitScript context js` runs a script of the test's own in every page of
@@ -427,11 +481,10 @@ hspec's: hspec's own `focus` would otherwise meet the page's.
 ## Not here
 
 Written against the smoke tests it is to run, it leaves out what they do not
-use, and some of what they do: traces, video and other browsers; a check that
-a hydration repaired nothing (a gate and an init script build one, and it comes
-with the tutorial's test); `exposeFunction` (a page calling the test; it would
-be one more kind of ask, answered with JSON); popups; a wait for a response
-(see the pauses above); and the mouse's buttons pressed and released apart.
+use, and some of what they do: traces, video and other browsers;
+`exposeFunction` (a page calling the test; it would be one more kind of ask,
+answered with JSON); popups; a wait for a response (see the pauses above);
+and the mouse's buttons pressed and released apart.
 
 ## Its own tests
 

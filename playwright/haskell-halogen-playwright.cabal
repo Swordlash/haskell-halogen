@@ -83,7 +83,8 @@ test-suite Halogen-playwright-test
     hs-source-dirs:   test
     main-is:          Test.hs
     ghc-options:      -threaded
-    other-modules:    Test.DevTools
+    other-modules:    Test.Adoption
+                      Test.DevTools
                       Test.Driver
                       Test.Failures
                       Test.Files
