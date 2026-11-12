@@ -671,9 +671,9 @@ lifecycle = do
 ----------------------------------------------------------------------
 -- A child whose Initialize waits, under a parent whose does not.
 
--- | Where the island's Initialize waits, and what it signals: once it has
--- loaded, or once its wait was cancelled.
-data Gate = Gate {open :: MVar (), loaded :: MVar (), cancelled :: MVar ()}
+-- | Where the island's Initialize waits, and what it signals: that its wait
+-- is under way, once it has loaded, or once its wait was cancelled.
+data Gate = Gate {open :: MVar (), waiting :: MVar (), loaded :: MVar (), cancelled :: MVar ()}
 
 data IslandAct = Load | Poked
 
@@ -692,7 +692,10 @@ island logRef gate pokes =
       Load -> do
         void (H.subscribe (Poked <$ pokes))
         note "island waits"
-        liftIO (readMVar gate.open `onException` tryPutMVar gate.cancelled ())
+        -- The wait says that it has begun from inside what the handler
+        -- covers: a worker killed before its action has run has no handler
+        -- yet, and says nothing of being cancelled.
+        liftIO ((tryPutMVar gate.waiting () >> readMVar gate.open) `onException` tryPutMVar gate.cancelled ())
         put 1
         note "island loaded"
         H.liftEffect (putMVar gate.loaded ())
@@ -735,7 +738,7 @@ withIsland shown body = do
   onCapabilities
   texts <- newIORef []
   logRef <- newIORef []
-  gate <- Gate <$> newEmptyMVar <*> newEmptyMVar <*> newEmptyMVar
+  gate <- Gate <$> newEmptyMVar <*> newEmptyMVar <*> newEmptyMVar <*> newEmptyMVar
   HS.Subscribe {HS.listener, HS.emitter} <- HS.create
   socket <- within "the mount" (AD.runUI (walking texts) (host logRef gate emitter shown) ())
   body socket logRef gate listener `finally` (tryPutMVar gate.open () >> dispose socket)
@@ -762,6 +765,10 @@ outputWhileWaiting = withIsland False $ \socket logRef _ pokes -> do
 
 goneWhileInitializing :: IO ()
 goneWhileInitializing = withIsland True $ \socket logRef gate _ -> do
+  -- The mount returns once the Initialize is suspended, which is before its
+  -- worker's thread has run: the island is taken away only once the wait
+  -- itself has begun, so that there is a wait to cancel.
+  within "the island's wait to begin" (readMVar gate.waiting)
   _ <- within "the query that removes the island" (ask socket (H.mkTell Conceal))
   within "the island's wait to be cancelled" (takeMVar gate.cancelled)
   putMVar gate.open ()
