@@ -84,8 +84,11 @@ normalBase options = case filter (not . Text.null) (Text.splitOn "/" options.bas
 -- * a directory's address serves its @index.html@; without its last slash
 --   it is redirected to the address with one, as a static host does, so
 --   that the page's relative addresses resolve inside it;
--- * an address with @..@ in it, outside the base, or with no file gets a
---   404 (the 'notFound' page, under the base);
+-- * an address outside the base or with no file gets a 404 (the 'notFound'
+--   page, under the base), and so does one with a segment that would lead
+--   out of the directory: @..@, or one holding a slash, which a request
+--   can carry as @%2F@ and which, joined to the directory as it is, would
+--   name a file anywhere on the machine;
 -- * a method other than @GET@ and @HEAD@ gets a 405.
 staticApplication :: ServeOptions -> FilePath -> Wai.Application
 staticApplication options dir request respond
@@ -96,10 +99,15 @@ staticApplication options dir request respond
         | Wai.pathInfo request == baseParts && not (null baseParts) -> redirect (normalBase options)
         | otherwise -> respond bare404
       Just parts
-        | ".." `elem` parts -> respond bare404
+        | any leadsOut parts -> respond bare404
         | otherwise -> serve parts
   where
     baseParts = filter (not . Text.null) (Text.splitOn "/" (normalBase options))
+    -- WAI gives the path's segments decoded, so a segment can hold what no
+    -- file's name can: a separator (from @%2F@ or @%5C@), which would make
+    -- it a path of its own (an absolute one, if it starts with a slash), or
+    -- a NUL. None is ever a file of the directory.
+    leadsOut part = part `elem` ["..", "."] || Text.any (`elem` ['/', '\\', '\0']) part
     -- The path under the base, with a trailing slash as an empty last
     -- part (WAI's pathInfo keeps it so).
     stripBase path

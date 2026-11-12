@@ -7,6 +7,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Halogen.Playwright
 import Halogen.Playwright.Serve
+import System.Directory (doesFileExist)
 import Test.Hspec
 
 -- | What a @fetch@ in the page got.
@@ -66,6 +67,22 @@ spec = describe "serving a directory" $ do
       -- instantiateStreaming refuses a binary served as anything else.
       map mediaType ["app.wasm", "glue.mjs", "style.css", "rootfs.json", "font.woff2", "archive.tar.zst.01"]
         `shouldBe` ["application/wasm", "text/javascript; charset=utf-8", "text/css; charset=utf-8", "application/json", "font/woff2", "application/octet-stream"]
+
+  it "serves nothing from outside the directory, however the address spells it" $ \pw ->
+    serveDirectory "test/web/served" $ \base -> withPage pw $ \page -> do
+      goto page base
+      -- A browser resolves ".." itself before asking, but not an encoded
+      -- slash: the server gets one segment, "../plain.html" or
+      -- "/etc/hostname", which joined to the directory would be a file
+      -- beside it, or anywhere.
+      beside <- ask page "GET" (base <> "..%2Fplain.html")
+      beside.status `shouldBe` 404
+      absolute <- ask page "GET" (base <> "%2Fetc%2Fhostname")
+      absolute.status `shouldBe` 404
+      backslashed <- ask page "GET" (base <> "..%5Cplain.html")
+      backslashed.status `shouldBe` 404
+      -- The file is there to be found, were the segment let through.
+      doesFileExist "test/web/plain.html" `shouldReturn` True
 
   it "answers HEAD with what GET would say, and only GET and HEAD" $ \pw ->
     serveDirectory "test/web" $ \base -> withPage pw $ \page -> do
