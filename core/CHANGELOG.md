@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+`Halogen.Activity` says whether the program's mounted trees are busy:
+`activity` gives how many trees are mounted, how many of them are running
+work or have work queued, and how many fibers are waiting in a `liftIO`;
+`idle` and `quiet` judge a reading, and `waitIdle` and `waitQuiet` poll until
+one holds, for a test in the same process as the trees (a remote server's).
+It reads the trees' own loops when asked rather than keeping counts beside
+them, so it cannot drift, and a tree is counted from inside its first render,
+so a mounted tree that reads as idle has rendered and run its `Initialize`.
+A page that sets `globalThis.__halogenProbe = {}` before the program starts
+gets `__halogenProbe.activity()`, a promise of the same reading, on both
+browser backends: it is what `haskell-halogen-playwright` waits on after
+every action. A page without it pays one read of a global per mount.
+
 The Web types have fields, written with jsbits' `Halogen.JSBits.Fields`,
 so that `OverloadedRecordDot` reads the platform directly:
 `w.navigator.onLine`, `w.document.title_set "Notes"`, `w.history.go (-1)`,

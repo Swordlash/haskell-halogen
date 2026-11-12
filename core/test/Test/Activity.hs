@@ -1,0 +1,198 @@
+-- | "Halogen.Activity": what it reads of the mounted trees, on a renderer
+-- with no DOM, so on every backend. Other specs of the suite may leave
+-- trees mounted, so each test compares with a reading taken at its start
+-- rather than with absolute numbers; this spec runs first, where nothing
+-- else has a fiber waiting, so the waits are tested against a quiet
+-- program.
+module Test.Activity (spec) where
+
+import Control.Concurrent (forkIO, threadDelay)
+import Control.Concurrent.MVar
+import Control.Exception (ErrorCall (..), SomeException, throwIO, try)
+import Control.Monad (void)
+import Control.Monad.IO.Class (liftIO)
+import Data.Foldable (traverse_)
+import Data.IORef
+import Data.Kind (Type)
+import Data.Row (Empty, Row)
+import Data.Void (Void)
+import Halogen qualified as H
+import Halogen.Activity (Activity (..))
+import Halogen.Activity qualified as Activity
+import Halogen.Component (ComponentSlot (..), ComponentSlotBox)
+import Halogen.HTML qualified as HH
+import Halogen.HTML.Core qualified as HC
+import Halogen.IO.Driver qualified as AD
+import Halogen.IO.Driver.State (RenderStateX (..))
+import Halogen.Query.Input (Input)
+import Halogen.VDom.Types (VDom (..), runGraft)
+import Prelude
+import System.Timeout (timeout)
+import Test.Hspec (Spec, describe, it)
+import Test.Utils (assertEqual, assertWith)
+
+data Rendered (s :: Type) (act :: Type) (ps :: Row Type) (o :: Type) = Rendered
+
+-- | A renderer that renders nothing but the children, and fails when told.
+nowhere :: IORef Bool -> AD.RenderSpec IO Rendered
+nowhere failing =
+  AD.RenderSpec
+    { AD.render = render
+    , AD.renderChild = id
+    , AD.removeChild = \_ -> pure ()
+    , AD.dispose = \_ -> pure ()
+    , AD.sameElement = \_ _ -> pure False
+    , AD.rootNode = \_ -> pure Nothing
+    }
+  where
+    render
+      :: (Input act -> IO ())
+      -> (ComponentSlotBox ps IO act -> IO (RenderStateX Rendered))
+      -> HC.HTML (ComponentSlot ps IO act) act
+      -> Maybe (Rendered s act ps o)
+      -> IO (Rendered s act ps o)
+    render _ renderChild html _ = do
+      fails <- readIORef failing
+      if fails
+        then throwIO (ErrorCall "the render fails")
+        else do
+          traverse_ (\case ComponentSlot box -> void (renderChild box); ThunkSlot _ -> pure ()) (slots (HC.unHTML html))
+          pure Rendered
+    slots :: VDom p w -> [w]
+    slots = \case
+      Text _ -> []
+      Elem _ _ _ cs -> foldMap slots cs
+      Keyed _ _ _ cs -> foldMap (slots . snd) cs
+      Widget w -> [w]
+      Grafted g -> slots (runGraft g)
+
+-- | What a component does in its @Initialize@: note what the activity was
+-- in its synchronous part, then wait in 'liftIO' for the gate, if given.
+data Setup = Setup
+  { seen :: IORef (Maybe Activity)
+  , gate :: Maybe (MVar (), MVar ())
+  -- ^ Signalled once the wait has started; then waited for.
+  }
+
+waiter :: Setup -> H.Component H.VoidF () Void IO
+waiter setup =
+  H.component
+    (\() -> pure ())
+    (\() -> HH.text "" :: H.ComponentHTML () Empty IO)
+    [ H.onInitialize $ do
+        H.liftEffect (Activity.activity >>= writeIORef setup.seen . Just)
+        traverse_ (\(started, release) -> liftIO (putMVar started () >> takeMVar release)) setup.gate
+    ]
+
+mountWith :: IORef Bool -> Setup -> IO (AD.HalogenSocket H.VoidF Void IO)
+mountWith failing setup = AD.runUI (nowhere failing) (waiter setup) ()
+
+dispose :: AD.HalogenSocket q o IO -> IO ()
+dispose AD.HalogenSocket {AD.dispose = d} = d
+
+within :: String -> IO a -> IO a
+within what io = timeout 5_000_000 io >>= maybe (throwIO (ErrorCall ("timed out: " <> what))) pure
+
+-- | The reading, less the one taken before.
+since :: Activity -> Activity -> (Int, Int, Int)
+since before now = (now.trees - before.trees, now.running - before.running, now.waiting - before.waiting)
+
+spec :: Spec
+spec = describe "Halogen.Activity" $ do
+  it "counts nothing before anything is mounted, and is idle and quiet then" $ do
+    -- The first spec of the suite: nothing is mounted yet.
+    a <- Activity.activity
+    assertEqual "nothing mounted" (Activity {trees = 0, running = 0, waiting = 0}) a
+    assertWith "idle" (Activity.idle a)
+    assertWith "quiet" (Activity.quiet a)
+
+  it "counts a mounted tree, idle once mounted, and running while it initializes" $ do
+    failing <- newIORef False
+    seen <- newIORef Nothing
+    before <- Activity.activity
+    ui <- mountWith failing Setup {seen, gate = Nothing}
+    after <- Activity.activity
+    assertEqual "one more tree, idle" (1, 0, 0) (since before after)
+    assertWith "idle" (Activity.idle after)
+    -- Inside the first piece of work the tree is counted and running.
+    readIORef seen >>= \case
+      Nothing -> throwIO (ErrorCall "the initializer did not run")
+      Just inside -> assertEqual "inside its Initialize" (1, 1, 0) (since before inside)
+    dispose ui
+    Activity.activity >>= assertEqual "gone once disposed" (0, 0, 0) . since before
+
+  it "counts a fiber waiting in liftIO as waiting, not running, until it comes back" $ do
+    failing <- newIORef False
+    seen <- newIORef Nothing
+    started <- newEmptyMVar
+    release <- newEmptyMVar
+    before <- Activity.activity
+    ui <- mountWith failing Setup {seen, gate = Just (started, release)}
+    within "the wait to start" (takeMVar started)
+    waiting <- Activity.activity
+    assertEqual "waiting" (1, 0, 1) (since before waiting)
+    assertWith "idle while it waits" (Activity.idle waiting)
+    assertWith "not quiet while it waits" (not (Activity.quiet waiting))
+    putMVar release ()
+    within "quiet again" Activity.waitQuiet
+    Activity.activity >>= assertEqual "quiet again" (1, 0, 0) . since before
+    dispose ui
+
+  it "counts a fiber as waiting from the moment its mount returns, before its worker has run" $ do
+    -- No handshake with the worker here: the fiber is counted by the piece
+    -- of work that suspends it, so the reading right after the mount
+    -- cannot be a false "quiet", whether or not the worker's thread has
+    -- started yet.
+    failing <- newIORef False
+    seen <- newIORef Nothing
+    started <- newEmptyMVar
+    release <- newEmptyMVar
+    before <- Activity.activity
+    ui <- mountWith failing Setup {seen, gate = Just (started, release)}
+    Activity.activity >>= assertEqual "waiting at once" (1, 0, 1) . since before
+    putMVar release ()
+    within "quiet again" Activity.waitQuiet
+    Activity.activity >>= assertEqual "quiet again" (1, 0, 0) . since before
+    dispose ui
+
+  it "counts two trees, and each dispose takes one out, twice doing nothing more" $ do
+    failing <- newIORef False
+    seen <- newIORef Nothing
+    before <- Activity.activity
+    one <- mountWith failing Setup {seen, gate = Nothing}
+    two <- mountWith failing Setup {seen, gate = Nothing}
+    Activity.activity >>= assertEqual "two trees" (2, 0, 0) . since before
+    dispose one
+    Activity.activity >>= assertEqual "one left" (1, 0, 0) . since before
+    dispose one
+    Activity.activity >>= assertEqual "disposing twice" (1, 0, 0) . since before
+    dispose two
+    Activity.activity >>= assertEqual "none left" (0, 0, 0) . since before
+
+  it "does not count a tree whose mount fails" $ do
+    failing <- newIORef True
+    seen <- newIORef Nothing
+    before <- Activity.activity
+    result <- try (mountWith failing Setup {seen, gate = Nothing})
+    case result of
+      Left (_ :: SomeException) -> pure ()
+      Right _ -> throwIO (ErrorCall "the mount did not fail")
+    Activity.activity >>= assertEqual "nothing counted" (0, 0, 0) . since before
+
+  it "has waitIdle return at once while a fiber waits, and waitQuiet only once it is back" $ do
+    failing <- newIORef False
+    seen <- newIORef Nothing
+    started <- newEmptyMVar
+    release <- newEmptyMVar
+    ui <- mountWith failing Setup {seen, gate = Just (started, release)}
+    within "the wait to start" (takeMVar started)
+    within "idle" Activity.waitIdle
+    quietEarly <- timeout 50_000 Activity.waitQuiet
+    assertEqual "not quiet while the fiber waits" Nothing quietEarly
+    returned <- newEmptyMVar
+    _ <- forkIO (Activity.waitQuiet >> putMVar returned ())
+    threadDelay 10_000
+    tryReadMVar returned >>= assertEqual "still waiting" Nothing
+    putMVar release ()
+    within "waitQuiet to return" (takeMVar returned)
+    dispose ui

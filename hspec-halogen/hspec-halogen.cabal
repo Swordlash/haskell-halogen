@@ -123,6 +123,7 @@ test-suite hspec-halogen-test
                       Test.InPage
                       Test.Islands
                       Test.LastRun
+                      Test.Probe
                       Test.Promised
                       Test.Reconcile
                       Test.Timeline
@@ -160,6 +161,7 @@ test-suite hspec-halogen-test
                     test/jsbits/dispatch.js
                     test/jsbits/inpage.js
                     test/jsbits/islands.js
+                    test/jsbits/probe.js
                     test/jsbits/promised.js
                     test/jsbits/window.js
                     test/jsbits/worker.js

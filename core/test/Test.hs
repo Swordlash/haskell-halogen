@@ -7,6 +7,7 @@ import Prelude
 #if !defined(HALOGEN_WASI) && (defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH))
 import Test.GHCJS qualified as GHCJS
 #endif
+import Test.Activity qualified as Activity
 import Test.Canvas qualified as Canvas
 import Test.CanvasMachine qualified as CanvasMachine
 import Test.Cookie qualified as Cookie
@@ -34,6 +35,8 @@ import Test.WindowEvents qualified as WindowEvents
 
 main :: IO ()
 main = hspec $ do
+  -- First: it reads the program's trees, and expects none mounted yet.
+  Activity.spec
 #if !defined(HALOGEN_WASI) && (defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH))
   GHCJS.spec
 #endif

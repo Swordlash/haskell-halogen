@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Live</title></head>
+<body>
+  <div id="app"></div>
+  <script src="/live.js"></script>
+  <!-- A short first delay, so that the test of a lost connection does not
+       wait half a second for the reconnection. -->
+  <script>halogen_remote_connect("/live", document.getElementById("app"), { minDelay: 100 });</script>
+</body>
+</html>

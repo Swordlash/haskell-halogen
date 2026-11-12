@@ -39,6 +39,7 @@ module Halogen.IO.Driver.Runtime
   , enterCallback
   , post
   , withinEffect
+  , loopActivity
 
     -- * Fibers
   , Fiber
@@ -103,12 +104,18 @@ data LoopState = LoopState
   , workers :: !(Set ThreadId)
   -- ^ The threads running what fibers await: killed with their fibers, so
   -- they must never run the loop ('post' for them, whoever calls 'enter').
+  , awaiting :: !Int
+  -- ^ How many fibers are waiting for what a worker runs ('await'):
+  -- counted by the fiber as it suspends, before its worker exists, and
+  -- uncounted by the worker once the continuation is queued. Not the size
+  -- of 'workers', which a worker joins only once its thread has started,
+  -- after the loop may have gone idle.
   }
 
 newtype Loop = Loop (IORef LoopState)
 
 newLoop :: IO Loop
-newLoop = Loop <$> newIORef (LoopState False Nothing 0 0 Seq.empty Set.empty)
+newLoop = Loop <$> newIORef (LoopState False Nothing 0 0 Seq.empty Set.empty 0)
 
 -- | How a thread entered the loop: it took it ('Claimed'), ran the work
 -- inside the work running ('Nested'), queued it behind the thread running
@@ -295,6 +302,24 @@ letRunnerFinish (Loop ref) ran = go
 -- 'Ord' 'ThreadId' calls, but not the @eq_thread@ that 'Eq' calls.
 sameThread :: ThreadId -> ThreadId -> Bool
 sameThread a b = compare a b == EQ
+
+-- | What the loop is doing, read in one step and changing nothing: whether
+-- a thread runs it or work is queued for it, and how many of its fibers
+-- wait for what a worker runs. For "Halogen.Activity", which reads it when
+-- asked rather than keeping counts of its own beside the loop.
+--
+-- The loop's own state is what decides, so the answer cannot drift from
+-- it: a loop is taken ('running') from the moment a thread claims it, or
+-- takes it to hand to a thread it forks, until the step that finds the
+-- queue empty gives it up, so there is no moment between pieces of work
+-- when queued work shows as idle. A fiber is counted as waiting by the
+-- piece of work that suspends it, while the loop still runs, and
+-- uncounted only once its continuation is queued on the loop (see
+-- 'await'), so it is counted on one side or both, never neither.
+loopActivity :: Loop -> IO (Bool, Int)
+loopActivity (Loop ref) = do
+  s <- readIORef ref
+  pure (s.running || not (Seq.null s.queue), s.awaiting)
 
 -- | Run a component's synchronous effect, on the loop.
 withinEffect :: Loop -> IO a -> IO a
@@ -548,17 +573,32 @@ currentFiber = Turn $ \fb _ k -> k fb
 -- through the loop's queue once it is done.
 await :: IO a -> Turn a
 await io = Turn $ \fb ek k -> mask_ $ do
+  -- Counted as waiting here, by the fiber, while the loop still runs this
+  -- work: the worker's thread may not start before the loop has gone idle,
+  -- and a reading of the loop ('loopActivity') in between must not find
+  -- the fiber neither waiting nor queued.
+  countAwaiting fb.loop 1
   -- Masked until the worker is the fiber's, to be killed with it; the
   -- worker hands its result over masked too, and unmasks only the action.
-  t <- forkIOWithUnmask $ \unmask -> do
-    -- Noted by the worker itself, still masked, so that it is a worker
-    -- before anything it runs can enter the loop.
-    me <- myThreadId
-    noteWorker fb.loop Set.insert me
-    result <- try (unmask io) `finally` noteWorker fb.loop Set.delete me
-    post fb.loop $ step fb $ do
-      writeIORef fb.worker Nothing
-      either ek k result
+  t <-
+    forkIOWithUnmask
+      ( \unmask -> do
+          -- Noted by the worker itself, still masked, so that it is a worker
+          -- before anything it runs can enter the loop.
+          me <- myThreadId
+          noteWorker fb.loop Set.insert me
+          -- Uncounted only once the continuation is queued, for the same
+          -- reading. 'post' is masked and does not block, and the thread
+          -- started masked, so nothing stops it between here and the end.
+          ( do
+              result <- try (unmask io)
+              post fb.loop $ step fb $ do
+                writeIORef fb.worker Nothing
+                either ek k result
+            )
+            `finally` workerDone fb.loop me
+      )
+      `onException` countAwaiting fb.loop (-1)
   -- The worker cannot come back before this: its continuation is queued
   -- behind the work running now.
   writeIORef fb.worker (Just t)
@@ -566,6 +606,16 @@ await io = Turn $ \fb ek k -> mask_ $ do
 -- | Note or forget a worker thread of the loop.
 noteWorker :: Loop -> (ThreadId -> Set ThreadId -> Set ThreadId) -> ThreadId -> IO ()
 noteWorker (Loop ref) f t = atomicModifyIORef' ref (\s -> (s {workers = f t s.workers}, ()))
+
+-- | Count a fiber as waiting for a worker, or take it out of the count.
+countAwaiting :: Loop -> Int -> IO ()
+countAwaiting (Loop ref) n = atomicModifyIORef' ref (\s -> (s {awaiting = s.awaiting + n}, ()))
+
+-- | A worker's end, in one step: no longer a worker, its fiber no longer
+-- waiting.
+workerDone :: Loop -> ThreadId -> IO ()
+workerDone (Loop ref) t =
+  atomicModifyIORef' ref (\s -> (s {workers = Set.delete t s.workers, awaiting = s.awaiting - 1}, ()))
 
 -- | A suspension until something calls back (on the loop), which may be at
 -- once.

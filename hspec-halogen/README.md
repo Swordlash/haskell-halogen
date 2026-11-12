@@ -21,6 +21,13 @@ spec m = describe "counter" $
     query ui (H.mkRequest Counter.GetCount) `shouldReturn` Just 1
 ```
 
+To test from outside the page instead (a built program, several pages,
+navigation, a server whose component is not in the page at all), use
+[haskell-halogen-playwright](../playwright/): a native hspec suite drives
+Chromium, and waits after each action for the page's program to say it is
+idle. Inside the page is for one component, quickly, with its state and
+outputs in reach; outside is for the program as a user meets it.
+
 Suites run on GHC's WebAssembly backend or its JavaScript backend. You write no
 JavaScript: the `hspec-halogen` executable, used as cabal's test wrapper,
 starts the browser, serves the suite to it and relays the report.

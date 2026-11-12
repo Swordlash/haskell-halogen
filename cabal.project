@@ -17,6 +17,7 @@ packages:
   remote
   tauri
   hspec-halogen
+  playwright
   th
   th-plugin
   examples/*

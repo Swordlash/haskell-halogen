@@ -18,6 +18,7 @@ import Data.NT
 import Data.Row
 import GHC.Clock (getMonotonicTime)
 import HPrelude hiding (get, onException, throwIO, try)
+import Halogen.Activity.Internal qualified as Activity
 import Halogen.Component
 import Halogen.Data.Slot qualified as Slot
 import Halogen.HTML.Core qualified as HC
@@ -120,18 +121,25 @@ mount toTheEnd spec@RenderSpec {dispose} c i = withRunInIO $ \runInIO -> do
   -- in purescript-halogen: a listener must not wait for the tree itself.
   let emit o = runInIO (HS.notify sio.listener o)
   enter loop $ do
-    -- The initializers have run their synchronous parts when this returns.
-    root <- withBatch tree (runComponent tree spec Nothing emit i c)
-    if toTheEnd
-      then whenInitialized tree (putMVar mounted root)
-      else putMVar mounted root
-  root <- takeMVar mounted
+    -- Counted for "Halogen.Activity" from inside its first piece of work,
+    -- so that the tree is never seen idle before it has rendered and
+    -- initialized; a mount that fails takes it out again.
+    registration <- Activity.register loop
+    ( do
+        -- The initializers have run their synchronous parts when this returns.
+        root <- withBatch tree (runComponent tree spec Nothing emit i c)
+        if toTheEnd
+          then whenInitialized tree (putMVar mounted (registration, root))
+          else putMVar mounted (registration, root)
+      )
+      `onException` Activity.deregister registration
+  (registration, root) <- takeMVar mounted
   disposed <- newIORef False
   pure
     $ HalogenSocket
       { query = liftIO . askRoot tree root
       , messages = sio.emitter
-      , dispose = liftIO (disposeRoot tree disposed root)
+      , dispose = liftIO (disposeRoot tree disposed registration root)
       }
   where
     askRoot :: forall a. Tree m r -> DriverStateRef m r f o -> f a -> IO (Maybe a)
@@ -148,16 +156,20 @@ mount toTheEnd spec@RenderSpec {dispose} c i = withRunInIO $ \runInIO -> do
         Failed e -> throwIO e
         Cancelled -> pure Nothing
 
-    disposeRoot :: Tree m r -> IORef Bool -> DriverStateRef m r f o -> IO ()
-    disposeRoot tree disposed (DriverStateRef var) = do
+    disposeRoot :: Tree m r -> IORef Bool -> Int -> DriverStateRef m r f o -> IO ()
+    disposeRoot tree disposed registration (DriverStateRef var) = do
       done <- newEmptyMVar
       -- Whichever thread runs this, a failure goes back to the caller.
       enter tree.loop $ putMVar done <=< (try :: IO () -> IO (Either SomeException ())) $ do
         wasDisposed <- atomicModifyIORef' disposed (True,)
-        unless wasDisposed $ withBatch tree $ do
-          ds <- readIORef var
-          finalize tree (DriverStateX ds)
-          for_ ds.rendering (treeRunM tree . dispose)
+        unless wasDisposed $ do
+          let finalizeAll = withBatch tree $ do
+                ds <- readIORef var
+                finalize tree (DriverStateX ds)
+                for_ ds.rendering (treeRunM tree . dispose)
+          -- Uncounted once its finalizers have run their synchronous
+          -- parts, even if one of them failed: the tree is gone either way.
+          finalizeAll `finally` Activity.deregister registration
       takeMVar done >>= either throwIO pure
 
 -- | Run the lifecycle work that a render transaction collects once the

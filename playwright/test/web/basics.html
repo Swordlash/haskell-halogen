@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Basics</title>
+  <style>
+    #hidden { display: none; }
+    .box { width: 80px; height: 40px; border: 1px solid; margin: 4px; }
+  </style>
+</head>
+<body>
+  <!-- Plain JavaScript, no Halogen program: every function of the driver
+       against ordinary elements. -->
+  <h1>Basics</h1>
+  <button id="count">0</button>
+  <button id="double" ondblclick="this.textContent = 'doubled'">double</button>
+  <div id="hover" onmouseenter="this.textContent = 'hovered'">hover me</div>
+  <label for="name">Name</label>
+  <input id="name" oninput="document.getElementById('echo').textContent = this.value">
+  <p id="echo"></p>
+  <input id="keys" onkeydown="this.dataset.last = event.key">
+  <label><input id="agree" type="checkbox"> Agree</label>
+  <select id="colour"><option value="red">Red</option><option value="green">Green</option></select>
+  <input id="focusable" onfocus="this.dataset.focused = 'yes'" onblur="this.dataset.focused = 'no'">
+  <button id="disabled" disabled>off</button>
+  <ul><li class="item">one</li><li class="item">two</li><li class="item special">three</li></ul>
+  <div id="hidden">hidden</div>
+  <div id="source" class="box" draggable="true" ondragstart="event.dataTransfer.setData('text', 'x')">source</div>
+  <div id="target" class="box" ondragover="event.preventDefault()" ondrop="event.preventDefault(); this.textContent = 'dropped'">target</div>
+  <button id="log" onclick="console.log('logged'); console.error('an error')">log</button>
+  <button id="throw" onclick="setTimeout(() => { throw new Error('thrown on purpose'); })">throw</button>
+  <button id="later" onclick="setTimeout(() => { document.getElementById('later').textContent = 'later'; }, 300)">soon</button>
+  <a id="next" href="second.html">next</a>
+  <p id="scheme"></p>
+  <p id="storage"></p>
+  <script>
+    const count = document.getElementById("count");
+    count.addEventListener("click", () => { count.textContent = String(Number(count.textContent) + 1); });
+    document.getElementById("scheme").textContent =
+      matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    document.getElementById("storage").textContent = localStorage.getItem("mark") ?? "none";
+  </script>
+</body>
+</html>

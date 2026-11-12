@@ -27,6 +27,7 @@ import Test.Hspec.Halogen (describe, parallel, runBrowserTests)
 import Test.Hydrate qualified
 import Test.InPage qualified
 import Test.IndexedDB qualified
+import Test.Probe qualified
 import Test.Promised qualified
 import Test.Reconcile qualified
 import Test.Timeline qualified
@@ -53,6 +54,7 @@ main = runBrowserTests $ parallel $ do
   describe "Hydration" (Test.Hydrate.spec BrowserDOM)
   describe "IndexedDB" (Test.IndexedDB.spec BrowserDOM)
   describe "Promised" (Test.Promised.spec BrowserDOM)
+  describe "The activity probe" (Test.Probe.spec BrowserDOM)
   describe "Without the runner" (Test.InPage.spec BrowserDOM)
   describe "A failure's timeline" (Test.Timeline.spec BrowserDOM)
   describe "In a worker" Test.Worker.spec
