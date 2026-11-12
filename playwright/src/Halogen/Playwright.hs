@@ -691,8 +691,12 @@ adopt = adoptWith defaultAdoptionOptions
 -- the program, the program let go, its start waited for ('waitStarted':
 -- the adopting render and every @Initialize@'s synchronous part are done),
 -- and the page compared with what was marked ('repairsSinceMarked'). An
--- empty list is a page adopted with nothing repaired. The gate is taken
--- away at the end, so that the page's later loads are not held.
+-- empty list is a page adopted with nothing repaired. The gate is released
+-- at the end and left in place, letting the page's later loads straight
+-- through: it is not taken away ('closeGate'), since the program's own
+-- requests start as it does, and taking a route away while a page's
+-- requests are under way can leave them stalled (the tutorial's test saw a
+-- compiler's first request never answered).
 --
 -- What the program changes after it has started (a timer's render, a
 -- response's) is not compared; what its @Initialize@ changes is, unless it
@@ -708,7 +712,7 @@ adoptWith options page address = liftIO $ do
       waitStarted page
       repairsSinceMarked page
     )
-    `finally` closeGate gate
+    `finally` release gate
 
 -- | Mark the page as it is now, as the server sent it before its program
 -- has run: every node under the 'root' (but in what 'leaveOut' names),

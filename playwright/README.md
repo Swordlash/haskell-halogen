@@ -227,6 +227,9 @@ It holds the program's request (`**/app.wasm`), goes to the address, marks
 every node under `#app` as the server sent it (its text, or its attributes),
 lets the program go, waits for it to start (`waitStarted`: the adopting
 render and every `Initialize`'s synchronous part have run), and compares.
+The gate stays, released: the program's own requests start as it does, and
+taking a route away while a page's requests are under way can leave them
+stalled.
 `adopt` and `adoptWith` give what changed as data, a `Repair` for each:
 `Replaced` (a node gone, another where it was), `Removed`, `Built` (the
 outermost of what went or was built), `TextChanged` and `AttributeChanged`,
