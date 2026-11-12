@@ -37,12 +37,14 @@ AI usage disclaimer: All code until tag `0.9.0` was hand-written. Any later comm
 | [jsbits/](jsbits/) | `haskell-halogen-jsbits` | Compile-time embedding of shared browser JavaScript into WASM FFI. |
 | [sound/](sound/) | `haskell-halogen-sound` | Music and sound effects for a page: a theme to loop, a shuffled album fetched ahead, effects on top. |
 | [hspec-halogen/](hspec-halogen/) | `hspec-halogen` | Test components in a real browser with hspec: mount, click, type, check. |
+| [playwright/](playwright/) | `haskell-halogen-playwright` | Test a built program from outside the page, in Haskell: Chromium driven through Playwright, every action waiting on the program's own "idle". |
 | [th/](th/) | `haskell-halogen-th` | HTML and CSS as written, with Haskell inside: the `hh` and `clay` quasi-quoters. |
 | [th-plugin/](th-plugin/) | `haskell-halogen-th-plugin` | A GHC plugin that expands the quotes as a module is parsed, so every error, type errors included, is at its place in the file. |
 | [examples/](examples/) | `halogen-example-*` | One runnable browser app per library, and `learn`, the tutorial, whose code compiles in the page. |
 
 `hooks`, `store`, `router`, `material`, `pixi`, `three`, `hspec-halogen`, `th`, `custom-element`, `devtools`, `lazy` and `remote`
-depend on `core`, and `tauri` on `core` for its emitters; `net`, `sound` and `worker` are independent of those runtime libraries. WASM backends also use the `jsbits`
+depend on `core`, and `tauri` on `core` for its emitters; `net`, `sound` and `worker` are independent of those runtime libraries, and so is
+`playwright`, a native package that speaks to `core`'s activity probe only through the page. WASM backends also use the `jsbits`
 compile-time helper. `th` builds natively and for WebAssembly, not with the JavaScript
 backend, whose compiler runs out of memory linking the `ghc` library for a quote. Every package builds from the one `cabal.project` at the
 repository root, so a change to

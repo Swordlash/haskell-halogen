@@ -14,6 +14,9 @@ the same pipeline inside one page), `router` (`purescript-routing-duplex` port, 
 browser's history), `net` (the browser's networking: `fetch`, a thin binding on
 `Halogen.JSBits.Promise` that aborts its request when the waiting fiber is killed, and
 WebSocket and server-sent events, whose events arrive through `Halogen.Subscription` emitters),
+`playwright` (`haskell-halogen-playwright`: tests from outside the page, natively: Chromium driven through a
+node child speaking a JSON-lines protocol of our own, every action waiting for the page's program to say it is idle
+through core's activity probe, with hspec integration; it depends on none of our packages and is native only),
 `custom-element` (`haskell-halogen-custom-element`: a component as a custom element, a Web
 Component any page can use, its attributes and properties the component's input, its outputs
 `CustomEvent`s and its queries methods; and `onEvent` for others' custom elements), `devtools`
@@ -35,7 +38,7 @@ and `clay` quasi-quoters, HTML and CSS with Haskell inside, parsed by the compil
 deploys: lessons as routes, each with its text, an editor and the result of compiling the reader's code
 in the page. `learn/` is no package: it is GHC itself running in a page, compiling and mounting a
 component the reader wrote (the compiler the tutorial runs on, the rootfs, and a bare page for trying it;
-its `README.md` has the rootfs, its manifest and the measurements). `hooks`, `store`, `router`, `net` (for `Halogen.Subscription`), `material`, `pixi`, `hspec-halogen` and `th` depend only on `core`; `tauri` on `core` (for `Halogen.Subscription`'s emitters) and `jsbits`; `custom-element`, `devtools`, `lazy`, `three` and `remote` on `core` and `jsbits`; `sound` and `worker` depend on none of them, only on `jsbits`. Everything builds from the root
+its `README.md` has the rootfs, its manifest and the measurements). `hooks`, `store`, `router`, `net` (for `Halogen.Subscription`), `material`, `pixi`, `hspec-halogen` and `th` depend only on `core`; `tauri` on `core` (for `Halogen.Subscription`'s emitters) and `jsbits`; `custom-element`, `devtools`, `lazy`, `three` and `remote` on `core` and `jsbits`; `sound` and `worker` depend on none of them, only on `jsbits`; `playwright` on none at all. Everything builds from the root
 `cabal.project`, so a `core` change is type-checked against every dependent and example.
 
 Every package is compiled for three targets: native GHC, the GHC JavaScript backend, and GHC
@@ -58,10 +61,11 @@ npm run build-wasm-all          # every example, wasm-opt'd (the rootfs first if
 npm run test-learn              # the built tutorial, rootfs inside, in headless Chromium: every lesson compiled in the page
 npm run test-playground         # learn/'s page on the rootfs in headless Chromium: a program for every layer
 npm run test-worker             # examples/worker in headless Chromium (after build-wasm.sh worker): jobs in Web Workers
+npm run test-example            # playwright's example suite, natively, against the built examples/vanilla (build-wasm.sh vanilla)
 npm run build-js                # JS backend: build all, bundle the material example into dist/
 npm run dev -- <example>        # an example in browser GHCi, reloaded and rerun on save
 npm run dev-test -- <package>   # a package's browser test suite in browser GHCi, rerun on save
-npm run format                  # fourmolu over core, hooks, store, router, net, custom-element, devtools, worker, lazy, remote, tauri, pixi, three, hspec-halogen, th, material/test, examples
+npm run format                  # fourmolu over core, hooks, store, router, net, custom-element, devtools, worker, lazy, remote, tauri, pixi, three, hspec-halogen, playwright, th, material/test, examples
 ```
 
 `core`, `hooks`, `store`, `router`, `net`, `worker`, `lazy`, `remote`, `tauri`, `three` and `sound` have test suites that run under Node (`Halogen-core-test`,
@@ -73,13 +77,20 @@ what that server cannot do (a request held until the test lets it go, a body tha
 a response echoing its request) from `net/test/web/network-double.js`, which wraps the page's
 `fetch`; its WebSocket and EventSource tests drive `net/test/web/socket-double.js`, which stands in
 for the servers for addresses on the host `double` and leaves every other address to the browser.
+`playwright`'s `Halogen-playwright-test` and remote's `Halogen-remote-live-test` are native suites that drive
+Chromium from outside the page through `haskell-halogen-playwright` (node, the npm `playwright` and Chromium needed,
+which the native CI matrix installs): the first against pages in `playwright/test/web/` whose plain JavaScript plays
+a program's side of the probe, the second against `Halogen.Remote.Server` with the real `remote.js`, through a TCP
+proxy the test can cut. `Halogen-playwright-example-test` serves a built wasm example
+(`dist-newstyle/wasm/public/vanilla` or `HALOGEN_EXAMPLE_DIR`), and is pending without it unless
+`HALOGEN_EXAMPLE_REQUIRED=1` (`npm run test-example`, run by CI's `learn-wasm`).
 `Halogen-tauri-browser-test` runs against `tauri/test/web/tauri-double.js`, a stand-in
 for Tauri's global API (a table of commands and an event bus), since there is no Tauri in CI.
 `Halogen-three-browser-test` renders with WebGL in headless Chromium (SwiftShader, no GPU needed),
 with Three.js bundled from `node_modules` by `three/test/web/bundle.sh`, so it needs no network.
 `hspec-halogen-test` is also
 the harness's examples, and where core's browser behaviour (events, properties the page changes,
-keyed moves, refs, forks, subscriptions, the window's emitters) is tested for real. All are hspec, `main-is: Test.hs` (net's, tauri's and three's browser suites: `Browser.hs`) which aggregates `Test.*` specs. Run one suite or one test with hspec's
+keyed moves, refs, forks, subscriptions, the window's emitters) is tested for real. All are hspec, `main-is: Test.hs` (net's, tauri's and three's browser suites: `Browser.hs`; remote's live suite: `Live.hs`; playwright's example suite: `example-test/Example.hs`) which aggregates `Test.*` specs. Run one suite or one test with hspec's
 `--match`:
 
 ```sh
@@ -278,6 +289,17 @@ the same in three dimensions with a vocabulary of its own (`Halogen.Three.Core`/
 `Properties`, in the package): its nodes are Three.js objects (`ThreeDOM`), a mesh's geometry and
 material are props, disposed of when replaced or taken out, and it draws on demand, once in the
 frame after a change, rather than in a loop.
+
+### Whether a program is busy
+
+`Halogen.Activity` (core) reads every live tree's loop when asked: trees mounted, those running or with work
+queued, fibers waiting in a `liftIO` (`Runtime.loopActivity`, a read-only snapshot). The registry
+(`Halogen.Activity.Internal`) changes only on mount and dispose; a tree is registered inside its first piece of
+work, so it never reads as idle before its first render and `Initialize`. A worker forgets itself only after its
+continuation is queued, so a fiber is never seen neither waiting nor queued. A page that sets
+`globalThis.__halogenProbe = {}` before the program starts gets `__halogenProbe.activity()`, a promise of the
+reading summed over every program in the page (`core/jsbits/activity.js`); `haskell-halogen-playwright` sets it with
+an init script and waits on it after every action.
 
 ### FFI per backend
 
