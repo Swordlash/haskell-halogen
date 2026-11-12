@@ -39,6 +39,7 @@ module Halogen.IO.Driver.Runtime
   , enterCallback
   , post
   , withinEffect
+  , loopActivity
 
     -- * Fibers
   , Fiber
@@ -295,6 +296,24 @@ letRunnerFinish (Loop ref) ran = go
 -- 'Ord' 'ThreadId' calls, but not the @eq_thread@ that 'Eq' calls.
 sameThread :: ThreadId -> ThreadId -> Bool
 sameThread a b = compare a b == EQ
+
+-- | What the loop is doing, read in one step and changing nothing: whether
+-- a thread runs it or work is queued for it, and how many worker threads
+-- run what its fibers await. For "Halogen.Activity", which reads it when
+-- asked rather than keeping counts of its own beside the loop.
+--
+-- The loop's own state is what decides, so the answer cannot drift from
+-- it: a loop is taken ('running') from the moment a thread claims it, or
+-- takes it to hand to a thread it forks, until the step that finds the
+-- queue empty gives it up, so there is no moment between pieces of work
+-- when queued work shows as idle. A worker is noted before its fiber has
+-- set its continuation aside, and forgotten only once that continuation is
+-- queued on the loop (see 'await'), so a fiber that is between the two is
+-- counted on one side or both, never neither.
+loopActivity :: Loop -> IO (Bool, Int)
+loopActivity (Loop ref) = do
+  s <- readIORef ref
+  pure (s.running || not (Seq.null s.queue), Set.size s.workers)
 
 -- | Run a component's synchronous effect, on the loop.
 withinEffect :: Loop -> IO a -> IO a
@@ -555,10 +574,17 @@ await io = Turn $ \fb ek k -> mask_ $ do
     -- before anything it runs can enter the loop.
     me <- myThreadId
     noteWorker fb.loop Set.insert me
-    result <- try (unmask io) `finally` noteWorker fb.loop Set.delete me
-    post fb.loop $ step fb $ do
-      writeIORef fb.worker Nothing
-      either ek k result
+    -- Forgotten only once the continuation is queued, so that a reading of
+    -- the loop ('loopActivity') never finds the fiber neither waiting nor
+    -- queued. 'post' is masked and does not block, so the worker cannot
+    -- be stopped between the two with the continuation lost.
+    ( do
+        result <- try (unmask io)
+        post fb.loop $ step fb $ do
+          writeIORef fb.worker Nothing
+          either ek k result
+      )
+      `finally` noteWorker fb.loop Set.delete me
   -- The worker cannot come back before this: its continuation is queued
   -- behind the work running now.
   writeIORef fb.worker (Just t)

@@ -117,6 +117,7 @@ library
       DOM.HTML.Indexed
 
       Halogen
+      Halogen.Activity
 
       Halogen.VDom
       Halogen.Data.Slot
@@ -230,6 +231,7 @@ library
       
     other-modules:
       HPrelude
+      Halogen.Activity.Internal
       Halogen.IO.Driver.Mount
       Halogen.Trace.Internal
     
@@ -243,6 +245,7 @@ library
       exposed-modules: Halogen.VDom.DOM.Monad.JSFFI
 
       js-sources:
+        jsbits/activity.js
         jsbits/indexeddb.js
         jsbits/monad_dom.js
         jsbits/web_browser.js
@@ -292,7 +295,8 @@ test-suite Halogen-core-test
                       time,
                       unordered-containers
     
-    other-modules:  Test.Canvas
+    other-modules:  Test.Activity
+                    Test.Canvas
                     Test.CanvasMachine
                     Test.Cookie
                     Test.DriverContract
