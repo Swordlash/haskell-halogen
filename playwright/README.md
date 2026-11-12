@@ -307,6 +307,20 @@ _ :: Value <- cdp page "WebAuthn.enable" ()
 Authenticator {authenticatorId} <- cdp page "WebAuthn.addVirtualAuthenticator" (object ["options" .= options])
 ```
 
+## What the browser costs
+
+`browserProcesses page` is the processes of the browser the page is in, every
+page's: each one's `kind` (Chromium's `--type`: `renderer`, `gpu-process`,
+`utility`, `zygote`, or `browser` for its own), the bytes it has resident
+(`rss`) and the most it has had (`peak`), read from `/proc` (on Linux; none
+elsewhere). A page cannot see this from inside, and for a page that compiles
+in the browser it is what the machine must have: the playground's test prints
+its renderer's, which go into the tutorial's measurements.
+
+```haskell
+renderers <- filter (\p -> p.kind == "renderer") <$> browserProcesses page
+```
+
 ## Locators
 
 A `Locator` is a value: a page and the steps to an element, sent with each

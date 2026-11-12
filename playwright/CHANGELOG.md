@@ -54,3 +54,9 @@ it:
   the route handlers and requests that failed. `Options` has `browserArgs`.
 
 A `goto` to an address that turns into a download no longer fails.
+
+What porting the playground's smoke test (learn/, now
+`examples/learn/playground-test`) needed: `browserProcesses`, the browser's
+processes with their memory now and at their peak, read from `/proc`, for
+the renderers' memory the tutorial's measurements report, which no page can
+read from inside.

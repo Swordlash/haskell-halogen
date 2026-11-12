@@ -27,6 +27,9 @@ module Halogen.Playwright.Internal
   , call_
   , PlaywrightError (..)
   , driverProcessId
+  , descendants
+  , statFields
+  , readProcFile
   , killDriver
 
     -- * Contexts and pages
@@ -76,7 +79,9 @@ import Data.Sequence qualified as Seq
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
+import Data.Traversable (for)
 import Language.Haskell.TH.Syntax qualified as TH
+import System.Directory (listDirectory)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO (BufferMode (..), Handle, hClose, hFlush, hIsEOF, hPutStrLn, hSetBinaryMode, hSetBuffering, stderr)
@@ -409,6 +414,37 @@ signalDriver signal pw =
 -- | node's process id, while it runs.
 driverProcessId :: Playwright -> IO (Maybe ProcessID)
 driverProcessId pw = getPid (Process.unsafeProcessHandle pw.process)
+
+-- | Every process below this one, its children and theirs, from @/proc@:
+-- none where there is no @/proc@. Below node are Chromium's processes, the
+-- browser and its renderers, and nothing else.
+descendants :: ProcessID -> IO [ProcessID]
+descendants root = do
+  entries <- either (const []) (filter (all (`elem` ['0' .. '9']))) <$> try @SomeException (listDirectory "/proc")
+  parents <- fmap concat . for entries $ \e -> do
+    fields <- statFields (read e)
+    pure $ case fields of
+      _ : ppid : _ -> [(read e, read ppid)]
+      _ -> []
+  let below p = [c | (c, parent) <- parents, parent == p]
+      go p = let cs = below p in cs <> concatMap go cs
+  pure (go root)
+
+-- | The fields of @/proc/<pid>/stat@ after the command (which is in
+-- parentheses and may hold anything): the state, the parent, and so on.
+-- None for a process that has gone.
+statFields :: ProcessID -> IO [String]
+statFields pid =
+  try @SomeException (readProcFile pid "stat") >>= \case
+    Left _ -> pure []
+    Right s -> pure (words (reverse (takeWhile (/= ')') (reverse s))))
+
+-- | A file of a process's directory in @/proc@, read to its end before
+-- this returns: these files go with their process, and a lazy read would
+-- fail later, where the contents are used, outside the @try@ that is there
+-- for a process that has gone.
+readProcFile :: ProcessID -> FilePath -> IO String
+readProcFile pid name = Char8.unpack <$> ByteString.readFile ("/proc" </> show pid </> name)
 
 -- | Mark the driver unusable, fail every call waiting for a reply, and stop
 -- every route handler under way: there is no one left to answer.
