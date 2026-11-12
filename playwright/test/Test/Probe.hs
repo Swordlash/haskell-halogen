@@ -69,6 +69,22 @@ spec base = describe "the waits" $ do
       Left (e :: PlaywrightError) -> Text.unpack e.message `shouldContain` "no Halogen program"
       Right () -> expectationFailure "visit returned"
 
+  it "fails, and does not hang, when the program stops answering" $ \pw -> withPage pw $ \page -> do
+    visit page (at "program.html")
+    -- The click lands; the settle after it asks a program that never
+    -- answers again, and the driver gives up for it.
+    try (click (locator page "#silent")) >>= \case
+      Left (e :: PlaywrightError) -> do
+        e.name `shouldBe` "TimeoutError"
+        Text.unpack e.message `shouldContain` "did not answer"
+      Right () -> expectationFailure "the click settled though the program was silent"
+    try (activity page) >>= \case
+      Left (e :: PlaywrightError) -> Text.unpack e.message `shouldContain` "did not answer"
+      Right a -> expectationFailure ("activity answered " <> show a)
+    try (waitStarted page) >>= \case
+      Left (e :: PlaywrightError) -> Text.unpack e.message `shouldContain` "did not answer"
+      Right () -> expectationFailure "waitStarted returned"
+
   it "settles a click that navigates away" $ \pw -> withPage pw $ \page -> do
     visit page (at "program.html")
     -- The program says it is running, and the document goes before it

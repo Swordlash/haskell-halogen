@@ -138,6 +138,23 @@ spec = describe "Halogen.Activity" $ do
     Activity.activity >>= assertEqual "quiet again" (1, 0, 0) . since before
     dispose ui
 
+  it "counts a fiber as waiting from the moment its mount returns, before its worker has run" $ do
+    -- No handshake with the worker here: the fiber is counted by the piece
+    -- of work that suspends it, so the reading right after the mount
+    -- cannot be a false "quiet", whether or not the worker's thread has
+    -- started yet.
+    failing <- newIORef False
+    seen <- newIORef Nothing
+    started <- newEmptyMVar
+    release <- newEmptyMVar
+    before <- Activity.activity
+    ui <- mountWith failing Setup {seen, gate = Just (started, release)}
+    Activity.activity >>= assertEqual "waiting at once" (1, 0, 1) . since before
+    putMVar release ()
+    within "quiet again" Activity.waitQuiet
+    Activity.activity >>= assertEqual "quiet again" (1, 0, 0) . since before
+    dispose ui
+
   it "counts two trees, and each dispose takes one out, twice doing nothing more" $ do
     failing <- newIORef False
     seen <- newIORef Nothing

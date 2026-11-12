@@ -8,10 +8,41 @@
 --     visit page "http://127.0.0.1:8080/"
 --     locator page "h1" \`shouldHaveText\` "Hello"
 -- @
+--
+-- It exports the part of hspec a suite describes its tests with, as
+-- hspec-halogen does, so that a suite imports this module and
+-- "Halogen.Playwright" and nothing of hspec's: hspec's own @focus@ (which
+-- runs only the marked examples) would otherwise meet the page's
+-- 'Halogen.Playwright.focus'.
 module Halogen.Playwright.Hspec
-  ( playwright
+  ( -- * A driver and a page for the tests
+    playwright
   , inPage
   , withFailureContext
+
+    -- * Describing tests
+  , hspec
+  , Spec
+  , SpecWith
+  , describe
+  , context
+  , it
+  , specify
+  , xit
+  , pending
+  , pendingWith
+  , parallel
+  , sequential
+
+    -- * Expecting
+  , Expectation
+  , shouldBe
+  , shouldNotBe
+  , shouldSatisfy
+  , shouldContain
+  , shouldReturn
+  , shouldThrow
+  , expectationFailure
   )
 where
 
@@ -26,7 +57,29 @@ import System.Directory (createDirectoryIfMissing)
 import System.FilePath ((</>))
 import System.IO.Unsafe (unsafePerformIO)
 import Test.HUnit.Lang (FailureReason (..), HUnitFailure (..))
-import Test.Hspec (Spec, SpecWith, aroundAll)
+import Test.Hspec
+  ( Expectation
+  , Spec
+  , SpecWith
+  , aroundAll
+  , context
+  , describe
+  , expectationFailure
+  , hspec
+  , it
+  , parallel
+  , pending
+  , pendingWith
+  , sequential
+  , shouldBe
+  , shouldContain
+  , shouldNotBe
+  , shouldReturn
+  , shouldSatisfy
+  , shouldThrow
+  , specify
+  , xit
+  )
 
 -- | One node and Chromium for the group, with 'optionsFromEnvironment'.
 playwright :: SpecWith Playwright -> Spec

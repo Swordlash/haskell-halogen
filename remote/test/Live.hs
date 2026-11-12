@@ -29,7 +29,7 @@ import Halogen.HTML qualified as HH
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
 import Halogen.Playwright
-import Halogen.Playwright.Hspec (inPage, playwright)
+import Halogen.Playwright.Hspec
 import Halogen.Remote.DOM (RemoteDOM)
 import Halogen.Remote.Server qualified as Server
 import Network.Socket qualified as Socket
@@ -37,7 +37,6 @@ import Network.Socket.ByteString qualified as Socket
 import Network.Wai.Handler.Warp qualified as Warp
 import Prelude
 import System.Timeout (timeout)
-import Test.Hspec hiding (focus)
 
 -- | What the sessions' components tell the test.
 data Shared = Shared

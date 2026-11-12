@@ -295,8 +295,9 @@ frame after a change, rather than in a loop.
 `Halogen.Activity` (core) reads every live tree's loop when asked: trees mounted, those running or with work
 queued, fibers waiting in a `liftIO` (`Runtime.loopActivity`, a read-only snapshot). The registry
 (`Halogen.Activity.Internal`) changes only on mount and dispose; a tree is registered inside its first piece of
-work, so it never reads as idle before its first render and `Initialize`. A worker forgets itself only after its
-continuation is queued, so a fiber is never seen neither waiting nor queued. A page that sets
+work, so it never reads as idle before its first render and `Initialize`. A fiber is counted as waiting
+(`LoopState`'s `awaiting`) by the work that suspends it, before its worker's thread exists, and uncounted by the
+worker only after its continuation is queued, so it is never seen neither waiting nor queued. A page that sets
 `globalThis.__halogenProbe = {}` before the program starts gets `__halogenProbe.activity()`, a promise of the
 reading summed over every program in the page (`core/jsbits/activity.js`); `haskell-halogen-playwright` sets it with
 an init script and waits on it after every action.

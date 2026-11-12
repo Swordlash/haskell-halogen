@@ -137,7 +137,6 @@ test-suite Halogen-remote-live-test
         base,
         bytestring,
         containers,
-        hspec >= 2,
         mtl,
         network,
         row-types,

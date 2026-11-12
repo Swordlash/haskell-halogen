@@ -7,7 +7,7 @@
 -- main = hspec $ playwright $ do
 --   it "counts" $ inPage $ \\page -> do
 --     visit page "http://127.0.0.1:8080/"
---     click (byRole page "button" (Just "+"))
+--     click (byRoleNamed page "button" "+")
 --     locator page ".count" \`shouldHaveText\` "1"
 -- @
 --
@@ -81,12 +81,13 @@ module Halogen.Playwright
 
     -- * Locators
   , Locator
+  , Scope
   , locator
-  , within
   , nth
   , first
   , withText
   , byRole
+  , byRoleNamed
   , byText
   , byLabel
 
@@ -359,15 +360,26 @@ data Locator = Locator
 instance Show Locator where
   show l = "Locator " <> Text.unpack (describe l)
 
--- | Elements matching a CSS selector (or any selector Playwright reads).
-locator :: Page -> Text -> Locator
-locator p css = Locator p [object ["css" .= css]]
+-- | Where a locator can start: a page, or what another locator finds, as
+-- Playwright's own @page.locator@ and @locator.locator@. So
+-- @locator (locator page ".card") "button"@ is the buttons inside the
+-- cards, and @byRoleNamed (locator page "form") "button" "Save"@ the form's
+-- Save.
+class Scope s where
+  scope :: s -> Locator
 
--- | The second locator, looked for inside what the first finds:
--- @within (locator page ".card") (byRole page "button" (Just "Save"))@.
--- Both are of the same page.
-within :: Locator -> Locator -> Locator
-within outer inner = Locator outer.page (outer.steps <> inner.steps)
+instance Scope Page where
+  scope p = Locator p []
+
+instance Scope Locator where
+  scope = id
+
+stepFrom :: (Scope s) => s -> Value -> Locator
+stepFrom s step = let l = scope s in l {steps = l.steps <> [step]}
+
+-- | Elements matching a CSS selector (or any selector Playwright reads).
+locator :: (Scope s) => s -> Text -> Locator
+locator s css = stepFrom s (object ["css" .= css])
 
 -- | The nth match, from 0.
 nth :: Int -> Locator -> Locator
@@ -380,18 +392,22 @@ first = nth 0
 withText :: Text -> Locator -> Locator
 withText t l = l {steps = l.steps <> [object ["hasText" .= t]]}
 
--- | Elements by their ARIA role, and, if given, their accessible name
--- (exactly).
-byRole :: Page -> Text -> Maybe Text -> Locator
-byRole p role name = Locator p [object ["role" .= role, "name" .= name]]
+-- | Elements by their ARIA role: @byRole page "listitem"@.
+byRole :: (Scope s) => s -> Text -> Locator
+byRole s role = stepFrom s (object ["role" .= role])
+
+-- | Elements by their ARIA role and their accessible name, exactly:
+-- @byRoleNamed page "button" "Save"@.
+byRoleNamed :: (Scope s) => s -> Text -> Text -> Locator
+byRoleNamed s role name = stepFrom s (object ["role" .= role, "name" .= name])
 
 -- | Elements by the text they contain (Playwright's @getByText@).
-byText :: Page -> Text -> Locator
-byText p t = Locator p [object ["text" .= t]]
+byText :: (Scope s) => s -> Text -> Locator
+byText s t = stepFrom s (object ["text" .= t])
 
 -- | Form controls by their label.
-byLabel :: Page -> Text -> Locator
-byLabel p t = Locator p [object ["label" .= t]]
+byLabel :: (Scope s) => s -> Text -> Locator
+byLabel s t = stepFrom s (object ["label" .= t])
 
 locatorJSON :: Locator -> Value
 locatorJSON l = object ["page" .= l.page.handle, "steps" .= l.steps]

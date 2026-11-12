@@ -6,8 +6,9 @@
 -- and a component's program waits only in 'Halogen.Query.HalogenM.lift'
 -- and 'liftIO', on a worker thread. 'activity' reads every live tree's loop
 -- as it is at that moment: whether it is running work or has work queued,
--- and how many workers it has. It keeps no counts of its own beside the
--- loops, so it cannot drift from them, whatever is cancelled or fails.
+-- and how many of its fibers wait for a worker. It keeps no counts of its
+-- own beside the loops, so it cannot drift from them, whatever is
+-- cancelled or fails.
 --
 -- = The contract
 --

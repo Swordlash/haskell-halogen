@@ -12,11 +12,10 @@ module Main (main) where
 import Control.Monad (forM_, unless)
 import Data.Text qualified as Text
 import Halogen.Playwright
-import Halogen.Playwright.Hspec (inPage, playwright)
+import Halogen.Playwright.Hspec
 import System.Directory (doesFileExist)
 import System.Environment (lookupEnv)
 import System.FilePath ((</>))
-import Test.Hspec
 import Test.Server (withDirectory)
 
 main :: IO ()
@@ -55,21 +54,21 @@ spec base = playwright $ describe "the vanilla example, built for WebAssembly" $
 
   it "shows what a click rendered as soon as the click returns" $ inPage $ \page -> do
     visit page base
-    let plus = byRole page "button" (Just "+")
+    let plus = byRoleNamed page "button" "+"
     forM_ [1 .. 6 :: Int] $ \n -> do
       click plus
       -- Read at once: no eventually, no waitFor.
       count (counted page n) `shouldReturn` 1
       count (counted page (n - 1)) `shouldReturn` 0
     -- Past five the counter renders two more buttons.
-    count (byRole page "button" (Just "++")) `shouldReturn` 1
-    click (byRole page "button" (Just "--"))
+    count (byRoleNamed page "button" "++") `shouldReturn` 1
+    click (byRoleNamed page "button" "--")
     count (counted page 4) `shouldReturn` 1
-    count (byRole page "button" (Just "++")) `shouldReturn` 0
+    count (byRoleNamed page "button" "++") `shouldReturn` 0
 
   it "says nothing wrong on its console and throws nothing" $ inPage $ \page -> do
     visit page base
-    click (byRole page "button" (Just "+"))
+    click (byRoleNamed page "button" "+")
     waitQuiet page
     errors <- filter (\m -> m.kind == "error") <$> consoleMessages page
     errors `shouldBe` []

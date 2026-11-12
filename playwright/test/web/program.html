@@ -12,12 +12,16 @@
   <button id="slow" onclick="slow()">slow</button>
   <button id="wait" onclick="fake.waiting = 2; document.getElementById('state').textContent = 'waiting'">wait</button>
   <button id="away" onclick="fake.running = 1; location.href = 'second.html'">away</button>
+  <button id="silent" onclick="fake.silent = true">silent</button>
   <script>
     window.fake = { trees: 1, running: 0, waiting: 0, answered: 0 };
     // A program answers only once it has mounted; ?unstarted leaves the
     // probe without an answer, as a page whose program never starts.
     if (!location.search.includes("unstarted") && globalThis.__halogenProbe) {
       __halogenProbe.activity = async () => {
+        // A program that has stopped (a crashed runtime) never calls the
+        // answer back: its question stays open for ever.
+        if (fake.silent) await new Promise(() => {});
         fake.answered += 1;
         return { trees: fake.trees, running: fake.running, waiting: fake.waiting };
       };

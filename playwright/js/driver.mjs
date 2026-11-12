@@ -109,7 +109,7 @@ const locate = ({ page, steps }) =>
     if ("css" in step) return at.locator(step.css);
     if ("nth" in step) return at.nth(step.nth);
     if ("hasText" in step) return at.filter({ hasText: step.hasText });
-    if ("role" in step) return at.getByRole(step.role, step.name === null ? {} : { name: step.name, exact: true });
+    if ("role" in step) return at.getByRole(step.role, step.name == null ? {} : { name: step.name, exact: true });
     if ("text" in step) return at.getByText(step.text);
     if ("label" in step) return at.getByLabel(step.label);
     throw new Error(`unknown locator step ${JSON.stringify(step)}`);
@@ -147,6 +147,21 @@ const navigatedAway = (error) =>
 
 const timeoutError = (message) => Object.assign(new Error(message), { name: "TimeoutError" });
 
+// A question put to the page, with a deadline kept here: a program that
+// has crashed leaves the probe's promise pending for ever, and a page
+// whose thread is held runs no timer of its own, so the page cannot be
+// trusted to give up by itself. The question lost is left to end with its
+// page; the race has taken its outcome, so it rejects nobody.
+const answeredWithin = (ms, question, message) => {
+  let timer;
+  const late = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(timeoutError(message())), ms);
+  });
+  return Promise.race([question, late]).finally(() => clearTimeout(timer));
+};
+const silent = (page, ms) => () =>
+  `the page ${page.url()} did not answer within ${ms}ms: its thread is held, or its program stopped and left the probe's question open`;
+
 // The pages whose context has JavaScript disabled: no program runs there,
 // and no task or timer of the page's would ever fire, so they settle at
 // once.
@@ -157,7 +172,13 @@ const settle = async (page, { quiet = false, timeout: ms = timeout } = {}) => {
   const started = Date.now();
   let outcome;
   try {
-    outcome = await page.evaluate(inPageSettle, { deadline: started + ms, quiet, pause: quiet ? 5 : 0 });
+    // The page gives up at the deadline by itself when it can; a second
+    // later it is taken not to be answering at all.
+    outcome = await answeredWithin(
+      ms + 1000,
+      page.evaluate(inPageSettle, { deadline: started + ms, quiet, pause: quiet ? 5 : 0 }),
+      silent(page, ms),
+    );
   } catch (error) {
     if (navigatedAway(error)) return null;
     throw error;
@@ -178,10 +199,14 @@ const waitStarted = async (page, ms = timeout) => {
   let last = null;
   for (;;) {
     try {
-      last = await page.evaluate(async () => {
-        const probe = globalThis.__halogenProbe;
-        return typeof probe?.activity === "function" ? await probe.activity() : null;
-      });
+      last = await answeredWithin(
+        Math.max(0, deadline - Date.now()) + 1000,
+        page.evaluate(async () => {
+          const probe = globalThis.__halogenProbe;
+          return typeof probe?.activity === "function" ? await probe.activity() : null;
+        }),
+        silent(page, ms),
+      );
     } catch (error) {
       if (!navigatedAway(error)) throw error;
       last = null;
@@ -200,10 +225,14 @@ const waitStarted = async (page, ms = timeout) => {
 
 const activity = async (page) => {
   try {
-    return await page.evaluate(async () => {
-      const probe = globalThis.__halogenProbe;
-      return typeof probe?.activity === "function" ? await probe.activity() : null;
-    });
+    return await answeredWithin(
+      timeout,
+      page.evaluate(async () => {
+        const probe = globalThis.__halogenProbe;
+        return typeof probe?.activity === "function" ? await probe.activity() : null;
+      }),
+      silent(page, timeout),
+    );
   } catch (error) {
     if (navigatedAway(error)) return null;
     throw error;

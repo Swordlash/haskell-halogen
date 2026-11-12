@@ -113,7 +113,6 @@ test-suite Halogen-playwright-example-test
         bytestring,
         directory,
         filepath,
-        hspec,
         http-types,
         text,
         wai,

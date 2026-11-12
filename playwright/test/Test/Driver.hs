@@ -14,6 +14,7 @@ import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Halogen.Playwright
+import Halogen.Playwright.Hspec
 import Halogen.Playwright.Internal (driverProcessId, killDriver)
 import System.Directory (doesFileExist, listDirectory)
 import System.FilePath ((</>))
@@ -21,7 +22,6 @@ import System.IO.Temp (withSystemTempDirectory)
 import System.Posix.Types (ProcessID)
 import System.Timeout (timeout)
 import Test.HUnit.Lang (FailureReason (..), HUnitFailure (..))
-import Test.Hspec hiding (focus)
 
 spec :: Text -> SpecWith Playwright
 spec base = describe "the driver" $ do
@@ -66,9 +66,10 @@ spec base = describe "the driver" $ do
     textContent (nth 1 (locator page ".item")) `shouldReturn` "two"
     textContent (first (locator page ".item")) `shouldReturn` "one"
     textContent (withText "thr" (locator page ".item")) `shouldReturn` "three"
-    textContent (within (locator page "ul") (locator page ".special")) `shouldReturn` "three"
-    textContent (byRole page "button" (Just "log")) `shouldReturn` "log"
-    count (byRole page "listitem" Nothing) `shouldReturn` 3
+    textContent (locator (locator page "ul") ".special") `shouldReturn` "three"
+    textContent (byRoleNamed page "button" "log") `shouldReturn` "log"
+    count (byRole page "listitem") `shouldReturn` 3
+    count (byRole (locator page "ul") "listitem") `shouldReturn` 3
     innerText (byText page "hover") `shouldReturn` "hovered"
     outerHTML (locator page "#disabled") `shouldReturn` "<button id=\"disabled\" disabled=\"\">off</button>"
     isVisible (locator page "#hidden") `shouldReturn` False

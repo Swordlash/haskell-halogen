@@ -10,20 +10,19 @@ without sleeping and without retrying.
 
 ```haskell
 import Halogen.Playwright
-import Halogen.Playwright.Hspec (inPage, playwright)
-import Test.Hspec hiding (focus)
+import Halogen.Playwright.Hspec
 
 main :: IO ()
 main = hspec $ playwright $ describe "the counter" $ do
   it "counts clicks" $ inPage $ \page -> do
     visit page "http://127.0.0.1:8080/"
-    click (byRole page "button" (Just "+"))
+    click (byRoleNamed page "button" "+")
     -- The click's handler has run and the page shows what it rendered.
     textContent (locator page ".count") `shouldReturn` "1"
 
   it "keeps the count in the address" $ inPage $ \page -> do
     visit page "http://127.0.0.1:8080/"
-    click (byRole page "button" (Just "+"))
+    click (byRoleNamed page "button" "+")
     shouldHaveURL page "http://127.0.0.1:8080/?count=1"
 ```
 
@@ -119,9 +118,11 @@ documentation for the contract.
 
 A `Locator` is a value: a page and the steps to an element, sent with each
 call, so making one does nothing and it finds the element afresh each time.
-`locator page css`, `byRole page role (Just name)`, `byText page text`,
-`byLabel page label`; then `within outer inner`, `nth i`, `first`,
-`withText t`. As in Playwright, an action on a locator that matches more than
+`locator page css`, `byRole page role`, `byRoleNamed page role name`,
+`byText page text`, `byLabel page label`; then `nth i`, `first`,
+`withText t`. Each of the first five starts from a page or from another
+locator, as Playwright's do: `locator (locator page ".card") "button"` is the
+buttons inside the cards. As in Playwright, an action on a locator that matches more than
 one element fails.
 
 ## In hspec
@@ -134,8 +135,10 @@ screenshot under `HALOGEN_PLAYWRIGHT_ARTIFACTS` if it is set. A failed
 action (a `PlaywrightError`, such as a click that timed out) becomes a
 failure the same way, with Playwright's message, which names the locator.
 
-`Halogen.Playwright` exports `focus`, as hspec does: import `Test.Hspec
-hiding (focus)` (or import one of them qualified).
+`Halogen.Playwright.Hspec` also exports the part of hspec a suite is written
+with (`hspec`, `describe`, `it`, `shouldBe`, `shouldReturn` and the rest), as
+hspec-halogen does, so a suite imports the two modules and nothing of
+hspec's: hspec's own `focus` would otherwise meet the page's.
 
 ## Not here yet
 

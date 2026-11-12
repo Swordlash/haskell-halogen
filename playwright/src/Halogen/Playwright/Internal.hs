@@ -38,7 +38,7 @@ where
 
 import Control.Concurrent (forkIO, killThread, threadDelay)
 import Control.Concurrent.MVar
-import Control.Exception (Exception (..), SomeException, bracket, finally, mask_, onException, throwIO, try, uninterruptibleMask_)
+import Control.Exception (Exception (..), IOException, SomeException, bracket, finally, mask_, onException, throwIO, try, uninterruptibleMask_)
 import Control.Monad (forM_, forever, unless, void, when)
 import Data.Aeson (FromJSON, Value (..), (.:), (.:?), (.=))
 import Data.Aeson qualified as Aeson
@@ -369,12 +369,15 @@ call_ pw method params = do
         readIORef pw.gone >>= \case
           Just why -> pure (Left (PlaywrightError method "DriverGone" why))
           Nothing -> do
+            -- Only a failure to write means the driver is gone: an
+            -- exception thrown to this thread (a test's timeout) is not
+            -- one, and goes on to the caller. The line and its end go
+            -- in one write.
             written <- try $ withMVar pw.writing $ \() -> do
-              ByteString.hPut pw.input line
-              ByteString.hPut pw.input "\n"
+              ByteString.hPut pw.input (line <> "\n")
               hFlush pw.input
             case written of
-              Left (e :: SomeException) -> do
+              Left (e :: IOException) -> do
                 why <- fromMaybe ("cannot write to the driver: " <> Text.pack (displayException e)) <$> readIORef pw.gone
                 pure (Left (PlaywrightError method "DriverGone" why))
               Right () -> takeMVar reply
