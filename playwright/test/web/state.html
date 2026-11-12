@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>State</title>
+  <style>
+    @page { size: 200px 100px; margin: 0; }
+    .sheet { height: 100px; }
+    .sheet + .sheet { break-before: page; }
+    /* Printed, only the sheets, one to a page. */
+    @media print {
+      body { margin: 0; }
+      body > :not(.sheet) { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <!-- What a context's state and the emulated media look like from the
+       page: its cookies, the network, the media queries, the clipboard,
+       touch, dialogs. -->
+  <p id="cookie"></p>
+  <p id="network">online</p>
+  <p id="media"></p>
+  <p id="scheme"></p>
+  <p id="pointer"></p>
+  <button id="touch">touch me</button>
+  <button id="confirm">confirm</button>
+  <p id="confirmed"></p>
+  <button id="copy">copy</button>
+  <p id="screen-only">screen</p>
+  <div class="sheet">one</div>
+  <div class="sheet">two</div>
+  <div class="sheet">three</div>
+  <script>
+    const show = (id, text) => (document.getElementById(id).textContent = text);
+    show("cookie", document.cookie);
+    addEventListener("offline", () => show("network", "offline"));
+    addEventListener("online", () => show("network", "online"));
+    const print = matchMedia("print");
+    const dark = matchMedia("(prefers-color-scheme: dark)");
+    const media = () => {
+      show("media", print.matches ? "print" : "screen");
+      show("scheme", dark.matches ? "dark" : "light");
+    };
+    media();
+    print.addEventListener("change", media);
+    dark.addEventListener("change", media);
+    show("pointer", matchMedia("(pointer: coarse)").matches ? "coarse" : "fine");
+    document.getElementById("touch").addEventListener("touchstart", () => show("touch", "touched"));
+    document.getElementById("confirm").addEventListener("click", () => show("confirmed", String(confirm("Leave?"))));
+    document.getElementById("copy").addEventListener("click", () => navigator.clipboard.writeText("copied text"));
+  </script>
+</body>
+</html>

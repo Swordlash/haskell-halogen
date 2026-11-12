@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Input</title>
+  <style>
+    body { margin: 0; }
+    #canvas { position: absolute; left: 100px; top: 50px; width: 200px; height: 100px; background: #ddd; }
+    #hovered { position: absolute; left: 100px; top: 200px; width: 100px; height: 40px; }
+    #outline { display: none; }
+    #hovered:hover + #outline { display: block; }
+  </style>
+</head>
+<body>
+  <!-- Keys where the focus is, a canvas clicked at a point, and what shows
+       only while the pointer is on an element. -->
+  <input id="search" placeholder="search">
+  <textarea id="editor"></textarea>
+  <p id="inputs">0</p>
+  <canvas id="canvas" width="200" height="100"></canvas>
+  <p id="clicked"></p>
+  <div id="hovered">hover</div>
+  <p id="outline">outlined</p>
+  <button id="push">push</button>
+  <button id="later-log">log later</button>
+  <p id="status">idle</p>
+  <button id="start">start</button>
+  <script>
+    addEventListener("keydown", (event) => {
+      if (event.key === "/" && document.activeElement !== document.getElementById("search")) {
+        event.preventDefault();
+        document.getElementById("search").focus();
+      }
+    });
+    let inputs = 0;
+    document.getElementById("editor").addEventListener("input", () => {
+      document.getElementById("inputs").textContent = String(++inputs);
+    });
+    document.getElementById("canvas").addEventListener("click", (event) => {
+      const box = event.target.getBoundingClientRect();
+      document.getElementById("clicked").textContent = `${Math.round(event.clientX - box.left)},${Math.round(event.clientY - box.top)}`;
+    });
+    // As a router that follows a link without loading a page, a moment later.
+    document.getElementById("push").addEventListener("click", () => setTimeout(() => history.pushState({}, "", "pushed/?slide=7&step=2"), 200));
+    document.getElementById("later-log").addEventListener("click", () => setTimeout(() => console.log("learn: compiler ready in 12 s"), 200));
+    document.getElementById("start").addEventListener("click", () => {
+      document.getElementById("status").textContent = "working";
+      setTimeout(() => (document.getElementById("status").textContent = "done"), 300);
+    });
+  </script>
+</body>
+</html>

@@ -53,6 +53,7 @@ library
     build-depends:
         base >= 4.20 && < 5,
         aeson >= 2.0,
+        base64-bytestring,
         bytestring,
         containers,
         directory,
@@ -61,6 +62,7 @@ library
         HUnit,
         http-types,
         process,
+        stm,
         template-haskell,
         temporary,
         text >= 2.0,
@@ -81,14 +83,21 @@ test-suite Halogen-playwright-test
     hs-source-dirs:   test
     main-is:          Test.hs
     ghc-options:      -threaded
-    other-modules:    Test.Driver
+    other-modules:    Test.DevTools
+                      Test.Driver
                       Test.Failures
+                      Test.Files
+                      Test.Frames
+                      Test.Input
                       Test.Probe
+                      Test.Routes
                       Test.Serve
+                      Test.State
     build-depends:
         base,
         aeson,
         async,
+        base64-bytestring,
         bytestring,
         directory,
         filepath,

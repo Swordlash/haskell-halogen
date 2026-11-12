@@ -14,11 +14,30 @@
 //   {"event": "fatal", "message": "..."}     nothing will work; node exits
 //   {"event": "console", "page": 2, "type": "error", "text": "..."}
 //   {"event": "pageerror", "page": 2, "message": "..."}
+//   {"event": "dialog", "page": 2, "type": "beforeunload", "message": "..."}
 //   {"event": "closed", "page": 2}
 //   {"event": "request", "context": 1, "url": "...", "method": "GET", "resourceType": "script"}
-// Messages are told apart by their keys, so a later kind (a request node
-// makes for Haskell to answer, say, as a routed request's handler would)
-// can be added beside these without changing them.
+//   {"event": "requestfailed", "context": 1, "url": "...", "method": "GET", "failure": "net::ERR_FAILED"}
+//   {"event": "unrouted", "routes": [3, 4]}  these routes went with their page
+//                                            or context; no ask of theirs is
+//                                            waiting for an answer any more
+// node to Haskell, a question, which Haskell answers once:
+//   {"ask": 12, "route": 3, "request": {"url": "...", "method": "GET", "resourceType": "fetch",
+//                                       "headers": {...}, "postData": "<base64>" | null}}
+// Haskell to node, its answer:
+//   {"answer": 12, "action": "continue"}
+//   {"answer": 12, "action": "fulfill", "status": 200, "headers": {...}, "contentType": "..." | null, "body": "<base64>"}
+//   {"answer": 12, "action": "abort", "error": "connectionrefused"}
+// Messages are told apart by their keys: "id" (a call, or its reply),
+// "event", "ask" and "answer". Bytes cross as base64.
+//
+// A route's id is chosen by Haskell, which registers its handler before it
+// calls "route", so that no ask can arrive for a route Haskell does not
+// know. An ask waits here until its answer comes, or until its route goes
+// (unrouted by Haskell, or with its page or context), whichever is first:
+// then the request is let go on as if the route had not been there, and an
+// answer that comes later is ignored. So neither side is ever left waiting
+// for the other.
 //
 // Nothing else writes to stdout: console.log is sent to stderr, which the
 // Haskell side relays. When stdin ends, the browser is closed and node
@@ -83,6 +102,10 @@ try {
     handleSIGINT: false,
     handleSIGTERM: false,
     handleSIGHUP: false,
+    args: options.args ?? [],
+    // Downloads are saved in the Haskell side's temporary directory, which
+    // goes when the driver does.
+    downloadsPath: options.downloadsPath ?? undefined,
   });
 } catch (error) {
   fatal(
@@ -94,6 +117,8 @@ try {
 const contexts = new Map();
 const pages = new Map();
 let nextHandle = 1;
+// The downloads being waited for, by the number expectDownload gave.
+const downloads = new Map();
 
 const contextOf = (id) => {
   const context = contexts.get(id);
@@ -112,8 +137,18 @@ const probeScript = () => {
   if (globalThis.__halogenProbe === undefined) globalThis.__halogenProbe = {};
 };
 
+// A locator's steps, from its page. Two steps go into a frame, after which
+// the steps that follow are applied inside it: "frame" (the page's frame
+// whose address matches a glob, which must be the first step) and
+// "frameLocator" (the frame an iframe element shows).
 const locate = ({ page, steps }) =>
   steps.reduce((at, step) => {
+    if ("frame" in step) {
+      const frame = at.frame?.({ url: step.frame });
+      if (!frame) throw Object.assign(new Error(`no frame of the page's has an address matching ${step.frame}`), { name: "NoFrame" });
+      return frame;
+    }
+    if ("frameLocator" in step) return at.frameLocator(step.frameLocator);
     if ("css" in step) return at.locator(step.css);
     if ("nth" in step) return at.nth(step.nth);
     if ("hasText" in step) return at.filter({ hasText: step.hasText });
@@ -250,10 +285,114 @@ const activity = async (page, ms = timeout) => {
 const watch = (id, page) => {
   page.on("console", (message) => send({ event: "console", page: id, type: message.type(), text: message.text() }));
   page.on("pageerror", (error) => send({ event: "pageerror", page: id, message: String(error.stack ?? error.message) }));
+  // Every dialog is answered at once, as the context's options say (so that
+  // a page never waits on one), and reported. Playwright would dismiss it
+  // by itself with no listener; this listener takes that over.
+  page.on("dialog", (dialog) => {
+    send({ event: "dialog", page: id, type: dialog.type(), message: dialog.message() });
+    (page.context().halogenAcceptDialogs ? dialog.accept() : dialog.dismiss()).catch(() => {});
+  });
   page.on("close", () => {
     pages.delete(id);
+    dropRoutes((entry) => entry.page === id);
     send({ event: "closed", page: id });
   });
+};
+
+// One DevTools session per page, made on first use. The promise is kept, so
+// that two calls at once make one session.
+const sessions = new WeakMap();
+const sessionOf = (page) => {
+  let session = sessions.get(page);
+  if (!session) {
+    session = page.context().newCDPSession(page);
+    sessions.set(page, session);
+  }
+  return session;
+};
+
+// Routes: the test's handlers for a page's or a context's requests. Each
+// matching request is asked of Haskell, and waits for its answer (see the
+// header). An entry is {page, context, target, pattern, handler, asks}.
+const routes = new Map();
+const asks = new Map();
+let nextAsk = 1;
+
+// An ask that will get no answer from Haskell: the request goes on as if
+// the route had not been there (to the next route that matches, or the
+// network). On a page or context that has closed this fails, which is
+// nothing to wait for.
+const letGo = (ask) => {
+  asks.delete(ask.id);
+  ask.entry.asks.delete(ask.id);
+  ask.route.fallback().catch(() => {});
+  ask.resolve();
+};
+
+const routeHandler = (entry) => (route) =>
+  new Promise((resolve) => {
+    const request = route.request();
+    const ask = { id: nextAsk++, entry, route, resolve };
+    if (entry.gone) return letGo(ask);
+    asks.set(ask.id, ask);
+    entry.asks.add(ask.id);
+    send({
+      ask: ask.id,
+      route: entry.id,
+      request: {
+        url: request.url(),
+        method: request.method(),
+        resourceType: request.resourceType(),
+        headers: request.headers(),
+        postData: request.postDataBuffer()?.toString("base64") ?? null,
+      },
+    });
+  });
+
+// Haskell's answer to an ask. One for an ask that has gone (its route was
+// removed, its page closed) is ignored.
+const answered = (message) => {
+  const ask = asks.get(message.answer);
+  if (!ask) return;
+  asks.delete(ask.id);
+  ask.entry.asks.delete(ask.id);
+  const { route } = ask;
+  let done;
+  if (message.action === "fulfill") {
+    done = route.fulfill({
+      status: message.status ?? 200,
+      headers: message.headers ?? undefined,
+      contentType: message.contentType ?? undefined,
+      body: Buffer.from(message.body ?? "", "base64"),
+    });
+  } else if (message.action === "abort") {
+    done = route.abort(message.error ?? "failed");
+  } else {
+    done = route.fallback();
+  }
+  done
+    .catch((error) => {
+      // A page that closed meanwhile; anything else is worth a line.
+      if (!/closed|Target page|has been closed/i.test(String(error?.message))) {
+        process.stderr.write(`haskell-halogen-playwright: answering ${route.request().url()}: ${error?.message ?? error}\n`);
+      }
+    })
+    .finally(ask.resolve);
+};
+
+// Take away the routes that satisfy a test (those of a page or a context
+// that has closed), let their waiting requests go and tell Haskell, whose
+// handlers for them are then stopped.
+const dropRoutes = (which) => {
+  const gone = [];
+  for (const [id, entry] of routes) {
+    if (!which(entry)) continue;
+    routes.delete(id);
+    entry.gone = true;
+    for (const ask of [...entry.asks]) letGo(asks.get(ask));
+    gone.push(id);
+  }
+  if (gone.length > 0) send({ event: "unrouted", routes: gone });
 };
 
 // An action on a locator, then settle. The action is given Playwright's
@@ -288,17 +427,26 @@ const methods = {
       javaScriptEnabled: o.javaScriptEnabled ?? true,
       offline: o.offline ?? false,
       serviceWorkers: o.serviceWorkers ?? "allow",
+      permissions: o.permissions ?? [],
+      isMobile: o.isMobile ?? false,
+      hasTouch: o.hasTouch ?? false,
     });
     context.setDefaultTimeout(timeout);
     context.setDefaultNavigationTimeout(timeout);
     await context.addInitScript(probeScript);
     context.halogenScriptless = o.javaScriptEnabled === false;
+    context.halogenAcceptDialogs = o.acceptDialogs ?? false;
     const id = nextHandle++;
     contexts.set(id, context);
+    context.on("close", () => dropRoutes((entry) => entry.context === id));
     // Every request of the context's, as it is made: its pages' and their
     // workers', whose requests are the context's and not always a page's.
     context.on("request", (request) =>
       send({ event: "request", context: id, url: request.url(), method: request.method(), resourceType: request.resourceType() }),
+    );
+    // A request that failed: refused, aborted by a route, cut off.
+    context.on("requestfailed", (request) =>
+      send({ event: "requestfailed", context: id, url: request.url(), method: request.method(), failure: request.failure()?.errorText ?? "" }),
     );
     return id;
   },
@@ -320,6 +468,9 @@ const methods = {
     const id = nextHandle++;
     pages.set(id, page);
     watch(id, page);
+    // The options' processor throttle, on every page as it is made, before
+    // it loads anything.
+    if (options.throttle) await (await sessionOf(page)).send("Emulation.setCPUThrottlingRate", { rate: options.throttle });
     return id;
   },
   async closePage(m) {
@@ -329,7 +480,20 @@ const methods = {
     return null;
   },
 
-  goto: pageActing((page, m, o) => page.goto(m.url, { ...o, waitUntil: "load" }).then(() => null)),
+  // An address that turns into a download (Playwright rejects with
+  // "Download is starting") has gone where it was asked to: no error, and
+  // nothing to settle, since the page stayed as it was.
+  async goto(m) {
+    const page = pageOf(m.page);
+    try {
+      await page.goto(m.url, { timeout: within(m), waitUntil: "load" });
+    } catch (error) {
+      if (/Download is starting/.test(String(error?.message))) return null;
+      throw error;
+    }
+    await settle(page, { timeout: within(m) });
+    return null;
+  },
   reload: pageActing((page, _, o) => page.reload({ ...o, waitUntil: "load" }).then(() => null)),
   goBack: pageActing((page, _, o) => page.goBack({ ...o, waitUntil: "load" }).then(() => null)),
   goForward: pageActing((page, _, o) => page.goForward({ ...o, waitUntil: "load" }).then(() => null)),
@@ -417,6 +581,173 @@ const methods = {
     await pageOf(m.page).waitForFunction(m.expression, undefined, { timeout: within(m) });
     return null;
   },
+  // An expression's function, polled as waitForFunction's, with an
+  // argument.
+  async waitForFunctionWith(m) {
+    await pageOf(m.page).waitForFunction(functionOf(m.function), m.argument, { timeout: within(m) });
+    return null;
+  },
+  // A function called in the page with the locator's element (waited for)
+  // and the argument.
+  evaluateOn: reading(async (target, m, o) => {
+    const result = await target.evaluate(functionOf(m.function), m.argument, o);
+    return result === undefined ? null : result;
+  }),
+  // The page's address matching a glob (or equal to it), after which the
+  // page has loaded, if it navigated, and settled.
+  waitForURL: pageActing((page, m, o) => page.waitForURL(m.url, o).then(() => null)),
+  // Every frame's address, the page's own first.
+  async frames(m) {
+    return pageOf(m.page)
+      .frames()
+      .map((frame) => frame.url());
+  },
+
+  // Keyboard, mouse and geometry.
+  typeKeys: pageActing((page, m) => page.keyboard.type(m.text).then(() => null)),
+  insertText: pageActing((page, m) => page.keyboard.insertText(m.text).then(() => null)),
+  mouseMove: pageActing((page, m) => page.mouse.move(m.x, m.y).then(() => null)),
+  mouseClick: pageActing((page, m) => page.mouse.click(m.x, m.y).then(() => null)),
+  tap: acting((target, _, o) => target.tap(o)),
+  boundingBox: reading((target, _, o) => target.boundingBox(o)),
+  async viewportSize(m) {
+    return pageOf(m.page).viewportSize();
+  },
+
+  // Routes (see the header).
+  async route(m) {
+    const target = m.page != null ? pageOf(m.page) : contextOf(m.context);
+    const entry = { id: m.route, page: m.page ?? null, context: m.context, target, pattern: m.pattern, asks: new Set(), gone: false };
+    entry.handler = routeHandler(entry);
+    routes.set(entry.id, entry);
+    try {
+      await target.route(m.pattern, entry.handler);
+    } catch (error) {
+      routes.delete(entry.id);
+      throw error;
+    }
+    return null;
+  },
+  // The requests waiting for an answer are let go on first, so no handler
+  // of this route's is under way when Playwright removes it: "ignoreErrors"
+  // then has nothing to ignore, and it never waits (a page whose other
+  // requests are under way is left alone).
+  async unroute(m) {
+    const entry = routes.get(m.route);
+    if (!entry) return null;
+    routes.delete(entry.id);
+    entry.gone = true;
+    for (const ask of [...entry.asks]) letGo(asks.get(ask));
+    await entry.target.unroute(entry.pattern, entry.handler, { behavior: "ignoreErrors" }).catch(() => {});
+    return null;
+  },
+
+  // Downloads: armed before the action that causes one, so that it cannot
+  // be missed, and awaited after it.
+  async expectDownload(m) {
+    const id = nextHandle++;
+    const waiting = pageOf(m.page).waitForEvent("download", { timeout: within(m) });
+    // A wait nobody comes back for (the action failed) ends with its
+    // timeout; its rejection is nobody's.
+    waiting.catch(() => {}).finally(() => setTimeout(() => downloads.delete(id), 60000).unref());
+    downloads.set(id, waiting);
+    return id;
+  },
+  async awaitDownload(m) {
+    const waiting = downloads.get(m.download);
+    downloads.delete(m.download);
+    if (!waiting) throw new Error(`no download ${m.download} is expected`);
+    const download = await waiting;
+    // The whole file, saved under the downloads' directory.
+    const path = await answeredWithin(within(m), download.path(), () => `the download of ${download.url()} did not end within ${within(m)}ms`);
+    return { suggestedFilename: download.suggestedFilename(), url: download.url(), path };
+  },
+  async forgetDownload(m) {
+    downloads.delete(m.download);
+    return null;
+  },
+  setInputFiles: acting((target, m, o) =>
+    target.setInputFiles(
+      m.files.map((f) => ({ name: f.name, mimeType: f.mimeType, buffer: Buffer.from(f.bytes, "base64") })),
+      o,
+    ),
+  ),
+
+  // Cookies and the context's state.
+  async cookies(m) {
+    return await contextOf(m.context).cookies();
+  },
+  async addCookies(m) {
+    // Playwright refuses a field given as null: what is not given is left out.
+    const given = (cookie) => Object.fromEntries(Object.entries(cookie).filter(([, v]) => v !== null));
+    await contextOf(m.context).addCookies(m.cookies.map(given));
+    return null;
+  },
+  async clearCookies(m) {
+    await contextOf(m.context).clearCookies();
+    return null;
+  },
+  // Offline or online, then every page of the context settled: the pages
+  // hear "offline" or "online", and a program may act on it.
+  async setOffline(m) {
+    const context = contextOf(m.context);
+    await context.setOffline(m.offline);
+    await Promise.all(
+      context.pages().map((page) =>
+        settle(page, { timeout: within(m) }).catch((error) => {
+          if (!page.isClosed()) throw error;
+        }),
+      ),
+    );
+    return null;
+  },
+  // A media query's change is reported at a later rendering of the page's,
+  // to every list of the query's in the order they were made. So a list of
+  // the driver's, made just before, hears it after the program's have, and
+  // the page is settled after that: a program listening to a matchMedia
+  // has heard the change by then. Nothing is waited for when the query
+  // already matches what is asked.
+  emulateMedia: pageActing(async (page, m) => {
+    const query = m.media != null ? "print" : "(prefers-color-scheme: dark)";
+    const wanted = m.media != null ? m.media === "print" : m.colorScheme === "dark";
+    const changing =
+      !scriptless.has(page) &&
+      (await page.evaluate(
+        ([query, wanted]) => {
+          const list = matchMedia(query);
+          if (list.matches === wanted) return false;
+          globalThis.__halogenMediaChange = new Promise((resolve) => list.addEventListener("change", () => setTimeout(resolve, 0), { once: true }));
+          return true;
+        },
+        [query, wanted],
+      ));
+    await page.emulateMedia({ media: m.media ?? undefined, colorScheme: m.colorScheme ?? undefined });
+    if (changing) {
+      try {
+        await answeredWithin(within(m), page.evaluate(() => globalThis.__halogenMediaChange), silent(page, within(m)));
+      } catch (error) {
+        if (!navigatedAway(error)) throw error;
+      }
+    }
+  }),
+  // The page printed, its pages the size its CSS asks for, as the scripts
+  // print a deck of slides.
+  async pdf(m) {
+    const page = pageOf(m.page);
+    const pdf = await answeredWithin(within(m), page.pdf({ preferCSSPageSize: true }), () => `the page ${page.url()} was not printed within ${within(m)}ms`);
+    return pdf.toString("base64");
+  },
+
+  // The Chrome DevTools Protocol: a method of the page's session and its
+  // parameters, the result.
+  async cdp(m) {
+    const page = pageOf(m.page);
+    const session = await sessionOf(page);
+    return (
+      (await answeredWithin(within(m), session.send(m.cdpMethod, m.params ?? {}), () => `${m.cdpMethod} was not answered within ${within(m)}ms`)) ?? null
+    );
+  },
+
   async screenshot(m) {
     await pageOf(m.page).screenshot({ path: m.path, fullPage: true });
     return null;
@@ -467,7 +798,8 @@ input.on("line", (line) => {
     return;
   }
   if ("id" in message) handle(message);
-  else process.stderr.write(`haskell-halogen-playwright: not a call: ${line}\n`);
+  else if ("answer" in message) answered(message);
+  else process.stderr.write(`haskell-halogen-playwright: not a call or an answer: ${line}\n`);
 });
 input.on("close", close);
 // Chromium closing by itself (it crashed, say) ends the session too.

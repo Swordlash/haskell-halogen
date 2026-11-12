@@ -11,7 +11,7 @@ import System.Directory (doesFileExist)
 import Test.Hspec
 
 -- | What a @fetch@ in the page got.
-data Answer = Answer
+data Fetched = Fetched
   { status :: Int
   , finalURL :: Text
   , contentType :: Maybe Text
@@ -21,9 +21,9 @@ data Answer = Answer
   }
   deriving stock (Show)
 
-instance FromJSON Answer where
-  parseJSON = withObject "Answer" $ \o ->
-    Answer
+instance FromJSON Fetched where
+  parseJSON = withObject "Fetched" $ \o ->
+    Fetched
       <$> o .: "status"
       <*> o .: "url"
       <*> o .: "type"
@@ -32,7 +32,7 @@ instance FromJSON Answer where
       <*> o .: "body"
 
 -- | A request from the page, redirects followed.
-ask :: Page -> Text -> Text -> IO Answer
+ask :: Page -> Text -> Text -> IO Fetched
 ask page method address =
   evaluateWith
     page

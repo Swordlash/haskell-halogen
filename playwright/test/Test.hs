@@ -6,11 +6,17 @@ module Main (main) where
 import Halogen.Playwright (Options (..), optionsFromEnvironment, withPlaywright)
 import Halogen.Playwright.Serve (serveDirectory)
 import System.Environment (lookupEnv)
+import Test.DevTools qualified
 import Test.Driver qualified
 import Test.Failures qualified
+import Test.Files qualified
+import Test.Frames qualified
+import Test.Input qualified
 import Test.Hspec (aroundAll, hspec)
 import Test.Probe qualified
+import Test.Routes qualified
 import Test.Serve qualified
+import Test.State qualified
 
 main :: IO ()
 main = serveDirectory "test/web" $ \base -> do
@@ -23,5 +29,11 @@ main = serveDirectory "test/web" $ \base -> do
     aroundAll (withPlaywright options') $ do
       Test.Driver.spec base
       Test.Probe.spec base
+      Test.Routes.spec base
+      Test.Files.spec base
+      Test.State.spec base
+      Test.Input.spec base
+      Test.Frames.spec base
+      Test.DevTools.spec base
       Test.Serve.spec
     Test.Failures.spec base

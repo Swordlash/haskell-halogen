@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Framed</title></head>
+<body>
+  <p id="status">ready</p>
+  <button id="child">child</button>
+  <script>
+    document.getElementById("child").addEventListener("click", () => (document.getElementById("status").textContent = "zoomed child"));
+    if (location.search === "?wander") setTimeout(() => (location.href = "second.html"), 100);
+  </script>
+</body>
+</html>

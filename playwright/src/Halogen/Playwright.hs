@@ -42,6 +42,8 @@
 -- with the test's line).
 module Halogen.Playwright
   ( -- * Starting
+    -- | One node and its Chromium for a group of tests, configured by the
+    -- options or the environment.
     Playwright
   , Options (..)
   , defaultOptions
@@ -50,6 +52,8 @@ module Halogen.Playwright
   , PlaywrightError (..)
 
     -- * Contexts and pages
+    -- | A context is a browser profile of its own (cookies, storage,
+    -- permissions); a page is a tab of one.
   , Context
   , ContextOptions (..)
   , defaultContextOptions
@@ -62,6 +66,7 @@ module Halogen.Playwright
   , newPage
   , closePage
   , withPage
+  , pageContext
   , withTimeout
 
     -- * Going places
@@ -73,8 +78,10 @@ module Halogen.Playwright
   , url
   , title
   , setViewport
+  , viewportSize
 
     -- * The Halogen program
+    -- | Waits on the page's program itself, through the probe.
   , Activity (..)
   , waitStarted
   , settle
@@ -82,6 +89,8 @@ module Halogen.Playwright
   , activity
 
     -- * Locators
+    -- | Values that say how to find an element, from a page, another
+    -- locator, or a frame.
   , Locator
   , Scope
   , locator
@@ -92,22 +101,33 @@ module Halogen.Playwright
   , byRoleNamed
   , byText
   , byLabel
+  , inFrame
+  , frameAt
+  , frames
 
     -- * Acting
+    -- | Each waits for its element as Playwright does, acts, and settles.
   , click
   , doubleClick
   , hover
+  , tap
   , fill
   , typeText
   , clear
   , press
   , pressOn
+  , typeKeys
+  , insertText
   , check
   , uncheck
   , selectOption
   , focus
   , blur
   , dragTo
+  , mouseMove
+  , mouseClick
+  , Upload (..)
+  , setInputFiles
 
     -- * Reading
   , textContent
@@ -120,11 +140,20 @@ module Halogen.Playwright
   , count
   , outerHTML
   , content
+  , Box (..)
+  , boundingBox
 
     -- * Waiting and expecting
+    -- | For what is not the program's to say: the page's own timers and
+    -- frames, a message on its way, a navigation. Each fails after the
+    -- page's timeout.
   , LocatorState (..)
   , waitFor
   , waitForFunction
+  , waitForFunctionWith
+  , waitForURL
+  , waitForConsole
+  , awaitText
   , eventually
   , eventuallyWithin
   , shouldHaveText
@@ -140,31 +169,78 @@ module Halogen.Playwright
   , evaluate
   , evaluateWith
   , evaluateAll
+  , evaluateOn
+
+    -- * Requests answered by the test
+    -- | A page's or a context's requests matching a glob, each handed to a
+    -- handler of the test's, which says what becomes of it; and a gate
+    -- built on them, which holds requests until the test lets them go.
+  , Routed
+  , Route
+  , route
+  , unroute
+  , RoutedRequest (..)
+  , Answer (..)
+  , Response (..)
+  , fulfill
+  , Gate
+  , hold
+  , release
+  , heldCount
+  , waitHeld
+
+    -- * Downloads
+  , Download (..)
+  , download
+  , downloadBytes
+  , saveDownload
+
+    -- * Cookies, the network and the media
+  , Cookie (..)
+  , cookie
+  , cookies
+  , addCookies
+  , clearCookies
+  , setOffline
+  , Media (..)
+  , emulateMedia
 
     -- * What the page said, and what it asked for
   , ConsoleMessage (..)
   , consoleMessages
   , pageErrors
+  , Dialog (..)
+  , dialogs
   , Request (..)
   , requests
   , workers
 
-    -- * Pictures
+    -- * The Chrome DevTools Protocol
+  , cdp
+  , throttleCPU
+
+    -- * Pictures and print
   , screenshot
+  , pdf
   )
 where
 
 import Control.Concurrent (threadDelay)
-import Control.Exception (SomeException, bracket, fromException, throwIO, try)
+import Control.Concurrent.STM qualified as STM
+import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, orElse, readTVar, readTVarIO, registerDelay, writeTVar)
+import Control.Exception (SomeException, bracket, bracket_, fromException, onException, throwIO, try)
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.IO.Unlift (MonadUnliftIO (..))
-import Data.Aeson (FromJSON (..), ToJSON (..), Value, object, withObject, (.:), (.=))
+import Data.Aeson (FromJSON (..), ToJSON (..), Value, object, withObject, (.:), (.:?), (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types qualified as Aeson.Types
+import Data.ByteString (ByteString)
+import Data.ByteString qualified as ByteString
+import Data.ByteString.Base64 qualified as Base64
 import Data.ByteString.Lazy qualified as LazyByteString
-import Data.Foldable (toList)
+import Data.Foldable (find, toList)
 import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -172,7 +248,10 @@ import Data.Text.Encoding qualified as Text
 import GHC.Clock (getMonotonicTime)
 import GHC.Stack (CallStack, HasCallStack, SrcLoc, callStack, getCallStack, withFrozenCallStack)
 import Halogen.Playwright.Internal
+import Halogen.Playwright.Serve (mediaType)
+import System.Directory (copyFile)
 import System.Environment (lookupEnv)
+import System.FilePath (takeFileName)
 import Test.HUnit.Lang (FailureReason (..), HUnitFailure (..))
 import Text.Read (readMaybe)
 
@@ -182,7 +261,11 @@ import Text.Read (readMaybe)
 -- * @HALOGEN_PLAYWRIGHT_SLOWMO@: milliseconds before every action;
 -- * @HALOGEN_PLAYWRIGHT_TIMEOUT@: the timeout, in milliseconds;
 -- * @HALOGEN_PLAYWRIGHT_NODE@: the @node@ to run;
--- * @HALOGEN_PLAYWRIGHT_ARTIFACTS@: where a failing test's screenshot goes.
+-- * @HALOGEN_PLAYWRIGHT_ARTIFACTS@: where a failing test's screenshot goes;
+-- * @HALOGEN_PLAYWRIGHT_CONSOLE@ (set, not empty): print what pages write to
+--   their console as it arrives ('relayConsole');
+-- * @HALOGEN_PLAYWRIGHT_THROTTLE@: slow every page's processor down by this
+--   factor ('throttle'), to find on purpose the races a slow machine would.
 optionsFromEnvironment :: IO Options
 optionsFromEnvironment = do
   headed <- maybe False (not . null) <$> lookupEnv "HALOGEN_PLAYWRIGHT_HEADED"
@@ -190,6 +273,8 @@ optionsFromEnvironment = do
   time <- (>>= readMaybe) <$> lookupEnv "HALOGEN_PLAYWRIGHT_TIMEOUT"
   nodePath <- lookupEnv "HALOGEN_PLAYWRIGHT_NODE"
   artifactsDir <- lookupEnv "HALOGEN_PLAYWRIGHT_ARTIFACTS"
+  relay <- maybe False (not . null) <$> lookupEnv "HALOGEN_PLAYWRIGHT_CONSOLE"
+  rate <- (>>= readMaybe) <$> lookupEnv "HALOGEN_PLAYWRIGHT_THROTTLE"
   pure
     defaultOptions
       { headless = not headed
@@ -197,6 +282,8 @@ optionsFromEnvironment = do
       , timeout = fromMaybe defaultOptions.timeout time
       , node = maybe defaultOptions.node id (nonEmpty nodePath)
       , artifacts = nonEmpty artifactsDir
+      , relayConsole = relay
+      , throttle = rate
       }
   where
     nonEmpty = \case
@@ -209,6 +296,11 @@ optionsFromEnvironment = do
 data ColorScheme = Light | Dark
   deriving stock (Eq, Show)
 
+schemeName :: ColorScheme -> Text
+schemeName = \case
+  Light -> "light"
+  Dark -> "dark"
+
 data ContextOptions = ContextOptions
   { baseURL :: Maybe Text
   -- ^ What a relative address in 'goto' is resolved against.
@@ -218,12 +310,27 @@ data ContextOptions = ContextOptions
   , javaScriptEnabled :: Bool
   , offline :: Bool
   , serviceWorkers :: Bool
-  -- ^ Whether pages may register service workers.
+  -- ^ Whether pages may register service workers. A request a service
+  -- worker makes, or answers from its cache, does not pass a page's
+  -- 'route's: a test that routes a page's requests usually wants this off.
+  , permissions :: [Text]
+  -- ^ What the pages are granted without asking, such as
+  -- @"clipboard-read"@ and @"clipboard-write"@.
+  , isMobile :: Bool
+  -- ^ A phone's browser: the viewport's @meta@ tag is read, and the pages
+  -- are laid out as on a phone. With 'hasTouch', 'tap' works.
+  , hasTouch :: Bool
+  , acceptDialogs :: Bool
+  -- ^ Whether a dialog a page opens (@alert@, @confirm@, @prompt@, a
+  -- @beforeunload@ asking whether to leave) is accepted rather than
+  -- dismissed. Either way it is answered at once, so a page never waits on
+  -- one, and kept ('dialogs').
   }
   deriving stock (Eq, Show)
 
 -- | No base address, Playwright's viewport and colour scheme, JavaScript
--- on, online, service workers allowed.
+-- on, online, service workers allowed, no permissions, a desktop's
+-- browser, dialogs dismissed (as Playwright dismisses them).
 defaultContextOptions :: ContextOptions
 defaultContextOptions =
   ContextOptions
@@ -233,6 +340,10 @@ defaultContextOptions =
     , javaScriptEnabled = True
     , offline = False
     , serviceWorkers = True
+    , permissions = []
+    , isMobile = False
+    , hasTouch = False
+    , acceptDialogs = False
     }
 
 newContext :: (MonadIO m) => Playwright -> ContextOptions -> m Context
@@ -246,10 +357,14 @@ newContext pw o =
             .= object
               [ "baseURL" .= o.baseURL
               , "viewport" .= fmap (\(w, h) -> object ["width" .= w, "height" .= h]) o.viewport
-              , "colorScheme" .= fmap (\case Light -> "light" :: Text; Dark -> "dark") o.colorScheme
+              , "colorScheme" .= fmap schemeName o.colorScheme
               , "javaScriptEnabled" .= o.javaScriptEnabled
               , "offline" .= o.offline
               , "serviceWorkers" .= (if o.serviceWorkers then "allow" else "block" :: Text)
+              , "permissions" .= o.permissions
+              , "isMobile" .= o.isMobile
+              , "hasTouch" .= o.hasTouch
+              , "acceptDialogs" .= o.acceptDialogs
               ]
         ]
 
@@ -286,7 +401,16 @@ requests :: (MonadIO m) => Context -> m [Request]
 requests c = liftIO (toList <$> contextRequests c.playwright c.handle)
 
 newPage :: (MonadIO m) => Context -> m Page
-newPage c = liftIO (Page c.playwright <$> call c.playwright "newPage" ["context" .= c.handle] <*> pure Nothing)
+newPage c = liftIO $ do
+  handle <- call c.playwright "newPage" ["context" .= c.handle]
+  pure Page {playwright = c.playwright, handle, context = c.handle, callTimeout = Nothing}
+
+-- | The context a page is in: for what is the context's, which a test
+-- holding only the page (as 'Halogen.Playwright.Hspec.inPage' gives it)
+-- still wants: 'requests', 'addInitScript', 'cookies', a 'route' of the
+-- context's.
+pageContext :: Page -> Context
+pageContext p = Context {playwright = p.playwright, handle = p.context}
 
 -- | The same page, whose calls, and the calls of locators made from it,
 -- may take this many milliseconds in place of the options' 'timeout':
@@ -348,6 +472,15 @@ title p = onPage p "title" []
 -- | The viewport's width and height.
 setViewport :: (MonadIO m) => Page -> Int -> Int -> m ()
 setViewport p w h = onPage p "setViewport" ["width" .= w, "height" .= h]
+
+-- | The viewport's width and height now (what the context's options or
+-- 'setViewport' made it), to check that something fits a phone's screen.
+viewportSize :: (MonadIO m) => Page -> m (Int, Int)
+viewportSize p = do
+  size <- onPage p "viewportSize" []
+  case Aeson.Types.parseMaybe (withObject "size" (\o -> (,) <$> o .: "width" <*> o .: "height")) size of
+    Just wh -> pure wh
+    Nothing -> liftIO (throwIO (PlaywrightError "viewportSize" "NoViewport" "the page has no fixed viewport"))
 
 ----------------------------------------------------------------------
 -- The Halogen program
@@ -448,6 +581,28 @@ byText s t = stepFrom s (object ["text" .= t])
 byLabel :: (Scope s) => s -> Text -> Locator
 byLabel s t = stepFrom s (object ["label" .= t])
 
+-- | Inside the frame an @iframe@ element shows, as Playwright's
+-- @frameLocator@: the steps after this one are taken in the frame's
+-- document. So @locator (inFrame page "iframe.wiki-svg") "#status"@ is the
+-- element @#status@ of the document in the frame. Every reading and
+-- action works there, and an action settles the page.
+inFrame :: (Scope s) => s -> Text -> Locator
+inFrame s css = stepFrom s (object ["frameLocator" .= css])
+
+-- | Inside the page's frame whose address matches a glob (Playwright's, as
+-- in 'route'), however its @iframe@ is found or wherever it has navigated
+-- since: @innerText (locator (frameAt page "**/api/v1/session") "body")@.
+-- No such frame is a 'PlaywrightError' named @NoFrame@, which 'eventually'
+-- retries, as a frame that has not loaded yet is the usual reason.
+frameAt :: Page -> Text -> Locator
+frameAt p glob = Locator p [object ["frame" .= glob]]
+
+-- | The addresses of the page's frames now, the page's own first, then
+-- those of its @iframe@s (a frame the browser refused to show has its
+-- error page's, @chrome-error://@...).
+frames :: (MonadIO m) => Page -> m [Text]
+frames p = onPage p "frames" []
+
 locatorJSON :: Locator -> Value
 locatorJSON l = object ["page" .= l.page.handle, "steps" .= l.steps]
 
@@ -497,6 +652,54 @@ press p key = onPage p "press" ["key" .= key]
 pressOn :: (MonadIO m) => Locator -> Text -> m ()
 pressOn l key = on l "pressOn" ["key" .= key]
 
+-- | Tap an element, as a finger would: the context must have 'hasTouch'.
+tap :: (MonadIO m) => Locator -> m ()
+tap l = on l "tap" []
+
+-- | Type text on the page's keyboard, a key at a time, wherever the focus
+-- is (Playwright's @keyboard.type@): after a key that opened a search box,
+-- say. 'typeText' types into an element.
+typeKeys :: (MonadIO m) => Page -> Text -> m ()
+typeKeys p t = onPage p "typeKeys" ["text" .= t]
+
+-- | Put text where the focus is at once, as pasting it would (one @input@
+-- event, no keys): into an editor that would act on each key typed.
+insertText :: (MonadIO m) => Page -> Text -> m ()
+insertText p t = onPage p "insertText" ["text" .= t]
+
+-- | Move the mouse to a point of the viewport, in CSS pixels: off an
+-- element, so that what it showed on hover goes.
+mouseMove :: (MonadIO m) => Page -> Double -> Double -> m ()
+mouseMove p x y = onPage p "mouseMove" ["x" .= x, "y" .= y]
+
+-- | Click at a point of the viewport: in a canvas, whose elements no
+-- locator finds (a point from its 'boundingBox').
+mouseClick :: (MonadIO m) => Page -> Double -> Double -> m ()
+mouseClick p x y = onPage p "mouseClick" ["x" .= x, "y" .= y]
+
+-- | A file for 'setInputFiles': one on disk, or bytes the test made, with
+-- the name and the media type the page will see.
+data Upload
+  = UploadFile FilePath
+  | UploadBytes {name :: Text, mimeType :: Text, bytes :: ByteString}
+  deriving stock (Eq, Show)
+
+-- | Choose the files of an @input type=file@, as a user picking them would
+-- (an empty list clears it). A file on disk goes with its name and the
+-- media type its extension says.
+setInputFiles :: (MonadIO m) => Locator -> [Upload] -> m ()
+setInputFiles l uploads = do
+  files <- liftIO (mapM payload uploads)
+  on l "setInputFiles" ["files" .= files]
+  where
+    payload = \case
+      UploadBytes {name, mimeType, bytes} -> pure (file name mimeType bytes)
+      UploadFile path -> do
+        bytes <- ByteString.readFile path
+        let kind = Text.strip (Text.takeWhile (/= ';') (Text.decodeUtf8 (mediaType path)))
+        pure (file (Text.pack (takeFileName path)) kind bytes)
+    file name kind bytes = object ["name" .= name, "mimeType" .= kind, "bytes" .= base64 bytes]
+
 -- | Choose the options of a @select@ with these values (or labels).
 selectOption :: (MonadIO m) => Locator -> [Text] -> m ()
 selectOption l values = on l "selectOption" ["values" .= values]
@@ -530,6 +733,18 @@ count l = on l "count" []
 content :: (MonadIO m) => Page -> m Text
 content p = onPage p "content" []
 
+-- | Where an element is drawn, in CSS pixels from the viewport's top left.
+data Box = Box {x :: Double, y :: Double, width :: Double, height :: Double}
+  deriving stock (Eq, Show)
+
+instance FromJSON Box where
+  parseJSON = withObject "Box" $ \o -> Box <$> o .: "x" <*> o .: "y" <*> o .: "width" <*> o .: "height"
+
+-- | The element's box, once it is attached; 'Nothing' if it is not drawn
+-- (hidden, say).
+boundingBox :: (MonadIO m) => Locator -> m (Maybe Box)
+boundingBox l = on l "boundingBox" []
+
 ----------------------------------------------------------------------
 -- Waiting and expecting
 
@@ -554,6 +769,47 @@ waitFor l s = on l "waitFor" ["state" .= stateName]
 -- > waitForFunction page "document.querySelectorAll('li').length > 3"
 waitForFunction :: (MonadIO m) => Page -> Text -> m ()
 waitForFunction p expression = onPage p "waitForFunction" ["expression" .= expression]
+
+-- | 'waitForFunction' with a function's source and an argument for it, so
+-- that a value of the test's is passed rather than spliced into the
+-- JavaScript:
+--
+-- > waitForFunctionWith page "(n) => document.querySelectorAll('li').length >= n" (3 :: Int)
+waitForFunctionWith :: (ToJSON arg, MonadIO m) => Page -> Text -> arg -> m ()
+waitForFunctionWith p function argument = onPage p "waitForFunctionWith" ["function" .= function, "argument" .= toJSON argument]
+
+-- | Wait until the page's address is this one, or matches it as a glob
+-- (Playwright's: @**@ any characters, @*@ any but @/@), then 'settle': after
+-- a click on a link that the program follows without loading a page, or one
+-- that loads one (then this waits for its @load@).
+--
+-- > waitForURL page (base <> "06-router/")
+waitForURL :: (MonadIO m) => Page -> Text -> m ()
+waitForURL p address = onPage p "waitForURL" ["url" .= address]
+
+-- | The first message in the page's console, from its start, that satisfies
+-- the test, waiting for one if there is none yet, up to the page's timeout.
+-- A message written before the call counts, so one an action wrote cannot
+-- be missed; to wait for a later one, make the test tell it apart.
+waitForConsole :: (MonadIO m) => Page -> (ConsoleMessage -> Bool) -> m ConsoleMessage
+waitForConsole p test = liftIO $ do
+  found <- waitForLog p.playwright p.handle (timeoutOf p) (find test . (.console))
+  case found of
+    Just m -> pure m
+    Nothing ->
+      throwIO (PlaywrightError "waitForConsole" "TimeoutError" ("no message in the page's console satisfied the test within " <> Text.pack (show (timeoutOf p)) <> "ms"))
+
+-- | The element's text, once it satisfies the test (retried as the @should@
+-- functions are, up to the page's timeout); the failure says what it last
+-- was.
+--
+-- > status <- awaitText (locator page "#status") (`elem` ["done", "failed"])
+awaitText :: (HasCallStack, MonadIO m) => Locator -> (Text -> Bool) -> m Text
+awaitText l test = liftIO $ withFrozenCallStack $ eventually l.page $ do
+  actual <- textContent l
+  if test actual
+    then pure actual
+    else failWith ("the text of " <> describe l <> " is " <> Text.pack (show actual) <> ", which does not satisfy the test")
 
 -- | Try an expectation until it holds or the page's timeout has passed;
 -- then the last failure is the failure. A failed expectation or a failed
@@ -652,6 +908,14 @@ evaluateWith p function argument = onPage p "evaluateWith" ["function" .= functi
 evaluateAll :: (ToJSON arg, FromJSON a, MonadIO m) => Locator -> Text -> arg -> m a
 evaluateAll l function argument = on l "evaluateAll" ["function" .= function, "argument" .= toJSON argument]
 
+-- | A JavaScript function's source, called in the page with the locator's
+-- one element (waited for, as an action waits) and this argument; in a
+-- frame, when the locator is in one.
+--
+-- > evaluateOn (locator page "canvas") "(c, _) => c.width" () :: IO Int
+evaluateOn :: (ToJSON arg, FromJSON a, MonadIO m) => Locator -> Text -> arg -> m a
+evaluateOn l function argument = on l "evaluateOn" ["function" .= function, "argument" .= toJSON argument]
+
 ----------------------------------------------------------------------
 -- What the page said
 
@@ -663,6 +927,11 @@ consoleMessages p = liftIO (toList . (.console) <$> pageLog p.playwright p.handl
 pageErrors :: (MonadIO m) => Page -> m [Text]
 pageErrors p = liftIO (toList . (.errors) <$> pageLog p.playwright p.handle)
 
+-- | The dialogs the page has opened so far, oldest first, each answered as
+-- the context's 'acceptDialogs' says.
+dialogs :: (MonadIO m) => Page -> m [Dialog]
+dialogs p = liftIO (toList . (.dialogs) <$> pageLog p.playwright p.handle)
+
 -- | How many dedicated Web Workers the page has alive now: one is counted
 -- from when it starts until it ends (it is terminated, or its page goes).
 workers :: (MonadIO m) => Page -> m Int
@@ -671,3 +940,359 @@ workers p = onPage p "workers" []
 -- | The whole page, as a PNG.
 screenshot :: (MonadIO m) => Page -> FilePath -> m ()
 screenshot p path = onPage p "screenshot" ["path" .= path]
+
+-- | The page printed to PDF, its pages the size its CSS asks for (an
+-- @\@page@ rule's), as for a deck of slides printed one to a page. Use
+-- 'emulateMedia' first to see what printing shows.
+pdf :: (MonadIO m) => Page -> m ByteString
+pdf p = onPage p "pdf" [] >>= liftIO . fromBase64 "pdf"
+
+----------------------------------------------------------------------
+-- Requests answered by the test
+
+-- | What a 'route' can be given: a 'Page', whose requests it sees, or a
+-- 'Context', whose pages' and workers' requests it sees. A request a
+-- service worker makes, or answers from its cache, is seen by neither:
+-- open the context with 'serviceWorkers' off when that matters.
+class Routed s where
+  routedOn :: s -> (Playwright, Int, Aeson.Types.Pair, Int)
+  -- ^ The driver, the context, the target as node is told it, and the
+  -- timeout of waits on it.
+
+instance Routed Page where
+  routedOn p = (p.playwright, p.context, "page" .= p.handle, timeoutOf p)
+
+instance Routed Context where
+  routedOn c = (c.playwright, c.handle, "context" .= c.handle, c.playwright.options.timeout)
+
+-- | A route, to take away with 'unroute'.
+data Route = Route
+  { playwright :: Playwright
+  , handle :: Int
+  , pattern :: Text
+  }
+
+-- | A request on its way, as a route's handler is given it.
+data RoutedRequest = RoutedRequest
+  { url :: Text
+  , method :: Text
+  , resourceType :: Text
+  -- ^ Playwright's name for what it is for: @document@, @script@,
+  -- @fetch@, @image@, ...
+  , headers :: [(Text, Text)]
+  , postData :: Maybe ByteString
+  }
+  deriving stock (Eq, Show)
+
+-- | What becomes of a routed request.
+data Answer
+  = -- | It goes on as if this route were not there: to the next route that
+    -- matches it, or to the network.
+    Continue
+  | -- | It is answered with this, and nothing is asked of the network.
+    Fulfill Response
+  | -- | It fails with this error, Playwright's name for it:
+    -- @"connectionrefused"@ (a server out of reach), @"failed"@,
+    -- @"internetdisconnected"@, @"timedout"@, ...
+    Abort Text
+  deriving stock (Eq, Show)
+
+-- | An answer the test gives in the server's place.
+data Response = Response
+  { status :: Int
+  , headers :: [(Text, Text)]
+  , contentType :: Maybe Text
+  , body :: ByteString
+  }
+  deriving stock (Eq, Show)
+
+-- | A 'Fulfill' with a status, a media type (if any) and a body, and no
+-- other headers:
+--
+-- > fulfill 204 Nothing ""
+-- > fulfill 200 (Just "image/png") standInImage
+fulfill :: Int -> Maybe Text -> ByteString -> Answer
+fulfill status contentType body = Fulfill Response {status, headers = [], contentType, body}
+
+-- | Hand a page's or a context's requests whose address matches a glob
+-- (Playwright's: @**@ any characters, @*@ any but @/@, @{a,b}@ either; a
+-- whole address, so @"**/app.wasm"@ or @"https://upload.wikimedia.org/**"@)
+-- to a handler, which says what becomes of each.
+--
+-- Each request's handler runs on a thread of its own, so a handler may
+-- block: wait for the test to let the request go ('hold' is such a
+-- handler), or for a moment. A handler that throws aborts its request;
+-- its failure is written to stderr and kept with the context, and
+-- "Halogen.Playwright.Hspec" adds it to a test's failure. When the route
+-- is taken away ('unroute'), or its page or context closes, or the driver
+-- ends, the handlers still under way are killed, and their requests go on
+-- as if the route had not been there.
+--
+-- When several routes match a request, the one added last is asked first,
+-- and its 'Continue' passes the request to the one before.
+route :: (Routed s, MonadIO m) => s -> Text -> (RoutedRequest -> IO Answer) -> m Route
+route s pattern handler = liftIO $ do
+  let (pw, context, target, _) = routedOn s
+  handle <- addRoute pw context target pattern (\request -> answerFields <$> (parseRequest request >>= handler))
+  pure Route {playwright = pw, handle, pattern}
+  where
+    parseRequest o = case Aeson.Types.parseEither parser o of
+      Right r -> pure r
+      Left e -> throwIO (PlaywrightError "route" "DecodeError" (Text.pack e))
+    parser o = do
+      headerMap <- o .: "headers"
+      encoded <- o .:? "postData"
+      postData <- traverse (either (fail . ("postData: " <>)) pure . Base64.decode . Text.encodeUtf8) encoded
+      RoutedRequest
+        <$> o .: "url"
+        <*> o .: "method"
+        <*> o .: "resourceType"
+        <*> pure [(Key.toText k, v) | (k, v) <- KeyMap.toList headerMap]
+        <*> pure postData
+    answerFields = \case
+      Continue -> ["action" .= ("continue" :: Text)]
+      Abort code -> ["action" .= ("abort" :: Text), "error" .= code]
+      Fulfill r ->
+        [ "action" .= ("fulfill" :: Text)
+        , "status" .= r.status
+        , "headers" .= object [Key.fromText k .= v | (k, v) <- r.headers]
+        , "contentType" .= r.contentType
+        , "body" .= base64 r.body
+        ]
+
+-- | Take a route away. Its handlers under way are killed and their
+-- requests go on, as if the route had not been there, and later requests
+-- do not see it: the requests in flight are let go before Playwright's
+-- route is removed, so nothing is left waiting on a handler that will not
+-- answer. Nothing on a route already gone with its page, or a driver that
+-- has ended.
+unroute :: (MonadIO m) => Route -> m ()
+unroute r = liftIO (removeRoute r.playwright r.handle)
+
+-- | Requests held until the test lets them go.
+data Gate = Gate
+  { route :: Route
+  , open :: TVar Bool
+  , waiting :: TVar Int
+  , timeoutMs :: Int
+  }
+
+-- | Hold a page's or a context's requests matching a glob (as 'route's)
+-- until 'release': to look at a prerendered page before its program
+-- (@app.wasm@) arrives, or to keep a request under way while the test
+-- checks what the page shows meanwhile.
+--
+-- > gate <- hold page "**/app.wasm"
+-- > goto page address
+-- > ... the prerendered page, as the server sent it ...
+-- > release gate
+-- > waitStarted page
+hold :: (Routed s, MonadIO m) => s -> Text -> m Gate
+hold s pattern = liftIO $ do
+  open <- newTVarIO False
+  waiting <- newTVarIO 0
+  let (_, _, _, ms) = routedOn s
+      held _ = do
+        bracket_
+          (atomically (modifyTVar' waiting (+ 1)))
+          (atomically (modifyTVar' waiting (subtract 1)))
+          (atomically (readTVar open >>= STM.check))
+        pure Continue
+  r <- route s pattern held
+  pure Gate {route = r, open, waiting, timeoutMs = ms}
+
+-- | Let the held requests go on, and every later one pass straight
+-- through.
+release :: (MonadIO m) => Gate -> m ()
+release g = liftIO (atomically (writeTVar g.open True))
+
+-- | How many requests the gate holds now.
+heldCount :: (MonadIO m) => Gate -> m Int
+heldCount g = liftIO (readTVarIO g.waiting)
+
+-- | Wait until the gate holds at least one request, up to the timeout of
+-- the page or context it was made on: the page has asked for what is
+-- held, and is waiting for it.
+waitHeld :: (MonadIO m) => Gate -> m ()
+waitHeld g = liftIO $ do
+  late <- registerDelay (g.timeoutMs * 1000)
+  held <- atomically $ ((readTVar g.waiting >>= STM.check . (> 0)) >> pure True) `orElse` (readTVar late >>= STM.check >> pure False)
+  if held
+    then pure ()
+    else throwIO (PlaywrightError "waitHeld" "TimeoutError" ("no request matching " <> g.route.pattern <> " was held within " <> Text.pack (show g.timeoutMs) <> "ms"))
+
+----------------------------------------------------------------------
+-- Downloads
+
+-- | A file the page downloaded, saved whole: its name as the page or the
+-- server suggested it, the address it came from, and where it was saved
+-- (in the driver's temporary directory, which goes when 'withPlaywright'
+-- ends: 'saveDownload' keeps it).
+data Download = Download
+  { suggestedFilename :: Text
+  , url :: Text
+  , path :: FilePath
+  }
+  deriving stock (Eq, Show)
+
+instance FromJSON Download where
+  parseJSON = withObject "Download" $ \o -> Download <$> o .: "suggestedFilename" <*> o .: "url" <*> o .: "path"
+
+-- | Run an action that makes the page download a file (a click on an
+-- export button, a 'goto' to an address that is a download), and the
+-- download, once it has been saved whole. The wait for it is armed before
+-- the action, so that it cannot be missed. A 'goto' that becomes a download
+-- returns without an error. No download within the page's timeout, or one
+-- that does not end within it, is a @TimeoutError@.
+--
+-- > exported <- download page (click (locator page ".demo-export"))
+-- > exported.suggestedFilename `shouldSatisfy` Text.isSuffixOf ".zip"
+-- > zip <- downloadBytes exported
+download :: (MonadIO m) => Page -> IO () -> m Download
+download p action = liftIO $ do
+  armed :: Int <- onPage p "expectDownload" []
+  action `onException` ignoringFailure (onPage p "forgetDownload" ["download" .= armed] :: IO Value)
+  onPage p "awaitDownload" ["download" .= armed]
+  where
+    ignoringFailure io = () <$ (try io :: IO (Either PlaywrightError Value))
+
+-- | The downloaded file's bytes.
+downloadBytes :: (MonadIO m) => Download -> m ByteString
+downloadBytes d = liftIO (ByteString.readFile d.path)
+
+-- | Copy the downloaded file to a path of the test's.
+saveDownload :: (MonadIO m) => Download -> FilePath -> m ()
+saveDownload d to = liftIO (copyFile d.path to)
+
+----------------------------------------------------------------------
+-- Cookies, the network and the media
+
+-- | A cookie of a context's. One to add needs either 'url' (it is then
+-- that site's, its domain and path taken from the address) or 'domain' and
+-- 'path'; 'cookies' gives them with a domain and a path.
+data Cookie = Cookie
+  { name :: Text
+  , value :: Text
+  , url :: Maybe Text
+  , domain :: Maybe Text
+  , path :: Maybe Text
+  , expires :: Maybe Double
+  -- ^ Seconds since 1970; 'Nothing' for a cookie of the session.
+  , httpOnly :: Bool
+  , secure :: Bool
+  , sameSite :: Maybe Text
+  -- ^ @Strict@, @Lax@ or @None@.
+  }
+  deriving stock (Eq, Show)
+
+instance FromJSON Cookie where
+  parseJSON = withObject "Cookie" $ \o -> do
+    name <- o .: "name"
+    value <- o .: "value"
+    domain <- o .:? "domain"
+    path <- o .:? "path"
+    expiry <- o .:? "expires"
+    httpOnly <- fromMaybe False <$> o .:? "httpOnly"
+    secure <- fromMaybe False <$> o .:? "secure"
+    sameSite <- o .:? "sameSite"
+    -- Playwright says -1 for a cookie of the session.
+    let expires = case expiry of
+          Just e | e >= 0 -> Just e
+          _ -> Nothing
+    pure Cookie {name, value, url = Nothing, domain, path, expires, httpOnly, secure, sameSite}
+
+instance ToJSON Cookie where
+  toJSON c =
+    object
+      [ "name" .= c.name
+      , "value" .= c.value
+      , "url" .= c.url
+      , "domain" .= c.domain
+      , "path" .= c.path
+      , "expires" .= c.expires
+      , "httpOnly" .= c.httpOnly
+      , "secure" .= c.secure
+      , "sameSite" .= c.sameSite
+      ]
+
+-- | A cookie with a name and a value for a site's address, as a test gives
+-- a fresh context the session another signed in with:
+--
+-- > addCookies ctx [cookie "wiki_session" token origin]
+cookie :: Text -> Text -> Text -> Cookie
+cookie name value address =
+  Cookie {name, value, url = Just address, domain = Nothing, path = Nothing, expires = Nothing, httpOnly = False, secure = False, sameSite = Nothing}
+
+-- | The context's cookies, for every site.
+cookies :: (MonadIO m) => Context -> m [Cookie]
+cookies c = liftIO (call c.playwright "cookies" ["context" .= c.handle])
+
+addCookies :: (MonadIO m) => Context -> [Cookie] -> m ()
+addCookies c cs = liftIO (call c.playwright "addCookies" ["context" .= c.handle, "cookies" .= cs])
+
+-- | Take every cookie of the context away: signed out, everywhere.
+clearCookies :: (MonadIO m) => Context -> m ()
+clearCookies c = liftIO (call c.playwright "clearCookies" ["context" .= c.handle])
+
+-- | Take the context's pages off the network, or put them back, then
+-- 'settle' each: they hear @offline@ or @online@ as a browser that lost its
+-- network would, and a service worker answers from what it kept. A request
+-- in a route's hands is not the network's, and goes on.
+setOffline :: (MonadIO m) => Context -> Bool -> m ()
+setOffline c offline = liftIO (call c.playwright "setOffline" ["context" .= c.handle, "offline" .= offline])
+
+-- | What CSS media queries see.
+data Media
+  = -- | As printed: @\@media print@ applies.
+    Print
+  | -- | As on a screen again.
+    Screen
+  | -- | @prefers-color-scheme@.
+    Scheme ColorScheme
+  deriving stock (Eq, Show)
+
+-- | Make the page's media queries see this from now on, then 'settle' (a
+-- program listening to a @matchMedia@ hears the change).
+emulateMedia :: (MonadIO m) => Page -> Media -> m ()
+emulateMedia p = \case
+  Print -> onPage p "emulateMedia" ["media" .= ("print" :: Text)]
+  Screen -> onPage p "emulateMedia" ["media" .= ("screen" :: Text)]
+  Scheme scheme -> onPage p "emulateMedia" ["colorScheme" .= schemeName scheme]
+
+----------------------------------------------------------------------
+-- The Chrome DevTools Protocol
+
+-- | A method of the Chrome DevTools Protocol, on the page's session (made
+-- on the first call, and kept), with its parameters; its result. For what
+-- Playwright has no call for: a virtual authenticator for passkeys
+-- (@WebAuthn.addVirtualAuthenticator@), Chromium's own installability
+-- check (@Page.getInstallabilityErrors@), an element's event listeners.
+-- Like 'evaluate', it does not settle.
+--
+-- > _ :: Value <- cdp page "WebAuthn.enable" ()
+-- > Authenticator {authenticatorId} <- cdp page "WebAuthn.addVirtualAuthenticator" (object ["options" .= options])
+cdp :: (ToJSON params, FromJSON a, MonadIO m) => Page -> Text -> params -> m a
+cdp p method params = onPage p "cdp" ["cdpMethod" .= method, "params" .= paramsOf (toJSON params)]
+  where
+    -- () and nothing at all are no parameters.
+    paramsOf = \case
+      Aeson.Array a | null a -> object []
+      Aeson.Null -> object []
+      other -> other
+
+-- | Slow the page's processor down by a factor (1 is full speed again), as
+-- Chromium's DevTools do. 'throttle' in the options does this to every
+-- page as it is made.
+throttleCPU :: (MonadIO m) => Page -> Double -> m ()
+throttleCPU p rate = do
+  _ :: Value <- cdp p "Emulation.setCPUThrottlingRate" (object ["rate" .= rate])
+  pure ()
+
+----------------------------------------------------------------------
+-- Bytes across the protocol
+
+base64 :: ByteString -> Text
+base64 = Text.decodeUtf8 . Base64.encode
+
+fromBase64 :: Text -> Text -> IO ByteString
+fromBase64 method t = either (throwIO . PlaywrightError method "DecodeError" . Text.pack) pure (Base64.decode (Text.encodeUtf8 t))
