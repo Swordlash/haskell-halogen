@@ -307,6 +307,20 @@ _ :: Value <- cdp page "WebAuthn.enable" ()
 Authenticator {authenticatorId} <- cdp page "WebAuthn.addVirtualAuthenticator" (object ["options" .= options])
 ```
 
+## What the browser costs
+
+`browserProcesses page` is the processes of the browser the page is in, every
+page's: each one's `kind` (Chromium's `--type`: `renderer`, `gpu-process`,
+`utility`, `zygote`, or `browser` for its own), the bytes it has resident
+(`rss`) and the most it has had (`peak`), read from `/proc` (on Linux; none
+elsewhere). A page cannot see this from inside, and for a page that compiles
+in the browser it is what the machine must have: the playground's test prints
+its renderer's, which go into the tutorial's measurements.
+
+```haskell
+renderers <- filter (\p -> p.kind == "renderer") <$> browserProcesses page
+```
+
 ## Locators
 
 A `Locator` is a value: a page and the steps to an element, sent with each
@@ -363,6 +377,8 @@ pressed and released apart.
 `Halogen-playwright-example-test` drives a built WebAssembly example
 (`dist-newstyle/wasm/public/vanilla`, or `HALOGEN_EXAMPLE_DIR`), and is
 pending when it is not built. `npm run test-example` at the repository's root
-runs it with the build required. The same pattern tests a real program in
+runs it with the build required. The same pattern tests real programs in
 `examples/worker/test` (`npm run test-worker`): jobs in Web Workers that are
-copies of the page's binary.
+copies of the page's binary; and in `examples/learn/playground-test`
+(`npm run test-playground`): GHC compiling a program in the page and
+mounting it, for every layer of the tutorial's rootfs.

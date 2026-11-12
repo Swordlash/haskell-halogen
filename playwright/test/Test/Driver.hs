@@ -7,11 +7,10 @@ import Control.Concurrent (forkIO, killThread, threadDelay)
 import Control.Concurrent.Async (concurrently, replicateConcurrently_)
 import Control.Concurrent.MVar
 import Control.Exception (SomeException, throwIO, try)
-import Control.Monad (filterM, forM, replicateM_, unless)
+import Control.Monad (filterM, forM_, replicateM_, unless)
 import Data.Aeson (ToJSON (..), Value, object, (.=))
 import Data.ByteString qualified as ByteString
 import Data.ByteString.Builder qualified as Builder
-import Data.ByteString.Char8 qualified as Char8
 import Data.List (isPrefixOf)
 import Data.Maybe (catMaybes)
 import Data.Text (Text)
@@ -19,11 +18,11 @@ import Data.Text qualified as Text
 import GHC.Clock (getMonotonicTime)
 import Halogen.Playwright
 import Halogen.Playwright.Hspec
-import Halogen.Playwright.Internal (driverProcessId, killDriver)
+import Halogen.Playwright.Internal (descendants, driverProcessId, killDriver, readProcFile, statFields)
 import Network.HTTP.Types qualified as HTTP
 import Network.Wai qualified as Wai
 import Network.Wai.Handler.Warp qualified as Warp
-import System.Directory (doesFileExist, listDirectory)
+import System.Directory (doesDirectoryExist, doesFileExist)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Posix.Types (ProcessID)
@@ -202,6 +201,22 @@ spec base = describe "the driver" $ do
         goto page' (at "plain.html")
         map (.url) <$> requests other `shouldReturn` [at "plain.html"]
 
+  -- What the playground's test prints for the tutorial's measurements: the
+  -- renderers' memory, which a page cannot read from inside.
+  it "lists the browser's processes, a renderer among them, with their memory" $ \pw -> withPage pw $ \page -> do
+    hasProc <- doesDirectoryExist "/proc"
+    unless hasProc $ pendingWith "no /proc here, where the processes are read from"
+    goto page (at "basics.html")
+    processes <- browserProcesses page
+    map (.kind) processes `shouldContain` ["browser"]
+    let renderers = filter (\p -> p.kind == "renderer") processes
+    renderers `shouldSatisfy` (not . null)
+    -- A renderer that has run a page holds megabytes, and never more now
+    -- than at its peak.
+    forM_ renderers $ \r -> do
+      r.rss `shouldSatisfy` (> 1_000_000)
+      r.peak `shouldSatisfy` (>= r.rss)
+
   it "keeps two contexts' storage apart" $ \pw ->
     withPage pw $ \one -> withPage pw $ \two -> do
       goto one (at "basics.html")
@@ -347,38 +362,8 @@ data Pair = Pair Int Int
 instance ToJSON Pair where
   toJSON (Pair a b) = object ["a" .= a, "b" .= b]
 
--- | Every process below this one, from @/proc@.
-descendants :: ProcessID -> IO [ProcessID]
-descendants root = do
-  entries <- filter (all (`elem` ['0' .. '9'])) <$> listDirectory "/proc"
-  parents <- catMaybes <$> forM entries (\e -> fmap (read e,) . parentIn <$> statFields (read e))
-  let below p = [c | (c, parent) <- parents, parent == p]
-      go p = let cs = below p in cs <> concatMap go cs
-  pure (go root)
-  where
-    parentIn = \case
-      _ : ppid : _ -> Just (read ppid)
-      _ -> Nothing
-
--- | The fields of @/proc/<pid>/stat@ after the command (which is in
--- parentheses and may hold anything): the state, the parent, and so on.
--- None for a process that has gone.
-statFields :: ProcessID -> IO [String]
-statFields pid =
-  try @SomeException (readWhole ("/proc" </> show pid </> "stat")) >>= \case
-    Left _ -> pure []
-    Right s -> do
-      let afterCommand = reverse (takeWhile (/= ')') (reverse s))
-      pure (words afterCommand)
-
 commandOf :: ProcessID -> IO (Maybe String)
-commandOf pid = either (const Nothing) (Just . takeWhile (/= '\n')) <$> try @SomeException (readWhole ("/proc" </> show pid </> "comm"))
-
--- | A file of @/proc@, read to its end before this returns: these files go
--- with their process, and a lazy read would fail later, where the contents
--- are used, outside the @try@ that is there for a process that has gone.
-readWhole :: FilePath -> IO String
-readWhole path = Char8.unpack <$> ByteString.readFile path
+commandOf pid = either (const Nothing) (Just . takeWhile (/= '\n')) <$> try @SomeException (readProcFile pid "comm")
 
 -- | Whether the process exists and is not a zombie waiting to be reaped.
 isAlive :: ProcessID -> IO Bool

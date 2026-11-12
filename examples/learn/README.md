@@ -171,7 +171,8 @@ its cache, keyed by everything it is made from:
 page's `<base href>`, and the page finds `rootfs/` under it), runs
 `npm run test-learn` on that tree under the same base path, and uploads it.
 The build workflow's `learn-wasm` job does the same on every push and pull
-request, and runs `npm run test-playground` on the rootfs and
+request, and runs `npm run test-playground` (`playground-test/`, a native
+suite through `haskell-halogen-playwright`) on the rootfs and
 `npm run test-worker` as well. To try the deployed form
 locally:
 

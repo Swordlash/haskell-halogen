@@ -58,9 +58,13 @@ What is here:
 - `../toolchain/learn-inject.py`: registers a layer of packages in the
   rootfs; the script calls it. `../toolchain/learn-rootfs-key.py`: what the
   script's `--key` prints, for CI's cache.
-- `../toolchain/test-playground.mjs` (`npm run test-playground`): drives the
-  page in headless Chromium, with a program for every layer, and prints what
-  it measured.
+- `../examples/learn/playground-test/` (`npm run test-playground`): a
+  native Haskell suite that drives the page in headless Chromium through
+  [`haskell-halogen-playwright`](../playwright/README.md), with a program
+  for every layer (`programs/`), and prints what it measured. It reads
+  `LEARN_ROOTFS_DIR` (another rootfs), `LEARN_ONLY` (layers, comma
+  separated), `LEARN_TIMEOUT` (seconds a load or a run may take, 300) and
+  `LEARN_QUERY` (the page's query: `LEARN_QUERY='rts=-c -H64m'`).
 
 The tutorial, [`examples/learn`](../examples/learn/README.md), runs on the
 same rootfs: its build copies this directory, but for the page, to
@@ -489,7 +493,7 @@ a layer does not load while a program compiles.
 ## Measurements
 
 Measured here: a 4-core cloud VM, headless Chromium (Playwright's 1243
-build), the page served from localhost by `test-playground.mjs`, dyld
+build), the page served from localhost by the playground's test, dyld
 patched as below. Times are three runs of `npm run test-playground` on a
 clean build, made when the archives were packed at `zstd -19`; sizes are of
 a build at `zstd -12`, the default since.

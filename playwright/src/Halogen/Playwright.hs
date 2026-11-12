@@ -59,6 +59,7 @@
 -- 'insertText', 'mouseMove', 'mouseClick' and 'boundingBox' act where no
 -- locator does. 'cdp' calls the Chrome DevTools Protocol; 'throttleCPU',
 -- or 'throttle' in the options for every page, slows the processor down.
+-- 'browserProcesses' is the browser's processes and their memory.
 --
 -- Functions are in 'MonadIO', and every failure is a 'PlaywrightError'
 -- (the driver's; a timeout's message is Playwright's, which names the
@@ -245,6 +246,8 @@ module Halogen.Playwright
   , Request (..)
   , requests
   , workers
+  , BrowserProcess (..)
+  , browserProcesses
 
     -- * The Chrome DevTools Protocol
   , cdp
@@ -967,6 +970,55 @@ dialogs p = liftIO (toList . (.dialogs) <$> pageLog p.playwright p.handle)
 -- from when it starts until it ends (it is terminated, or its page goes).
 workers :: (MonadIO m) => Page -> m Int
 workers p = onPage p "workers" []
+
+-- | One of the browser's processes, as the operating system counts it.
+data BrowserProcess = BrowserProcess
+  { pid :: Int
+  , kind :: Text
+  -- ^ Chromium's @--type@ for it: @renderer@ (a page's, which runs its
+  -- JavaScript and WebAssembly), @gpu-process@, @utility@, @zygote@; or
+  -- @browser@ for the browser's own process.
+  , rss :: Int
+  -- ^ The bytes it has resident now (@VmRSS@).
+  , peak :: Int
+  -- ^ The most bytes it has had resident since it started (@VmHWM@).
+  }
+  deriving stock (Eq, Show)
+
+-- | The processes of the browser the page is in, every page's and not
+-- only this one's, with their memory, read from @/proc@: none where there
+-- is no @/proc@ (on Linux only). For what a page costs the machine, which
+-- the page cannot see from inside: a renderer's peak is what a program
+-- that compiles in the page (the tutorial's GHC) needs at most, its JS
+-- heap and its WebAssembly memories together.
+browserProcesses :: (MonadIO m) => Page -> m [BrowserProcess]
+browserProcesses p = liftIO $ do
+  node <- driverProcessId p.playwright
+  family <- maybe (pure []) descendants node
+  concat <$> traverse described family
+  where
+    described pid = do
+      read' <- try @SomeException ((,) <$> readProcFile pid "status" <*> readProcFile pid "cmdline")
+      pure $ case read' of
+        -- Gone since it was listed.
+        Left _ -> []
+        Right (status, cmdline) ->
+          [ BrowserProcess
+              { pid = fromIntegral pid
+              , kind = fromMaybe "browser" (lookup "--type" (map flag (args cmdline)))
+              , rss = kilobytes "VmRSS" status
+              , peak = kilobytes "VmHWM" status
+              }
+          ]
+    flag arg = let (name, value) = break (== '=') arg in (name, Text.pack (drop 1 value))
+    -- The arguments are NUL-separated, but Chromium sets its processes'
+    -- titles, which joins them with spaces: either separates them here.
+    args = words . map (\c -> if c == '\0' then ' ' else c)
+    -- A field of status, "VmRSS:     123456 kB", in bytes.
+    kilobytes field status =
+      case [rest | line <- lines status, Just rest <- [Text.stripPrefix (Text.pack field <> ":") (Text.pack line)]] of
+        rest : _ | [n, "kB"] <- Text.words rest, Just k <- readMaybe (Text.unpack n) -> k * 1024
+        _ -> 0
 
 -- | The whole page, as a PNG.
 screenshot :: (MonadIO m) => Page -> FilePath -> m ()

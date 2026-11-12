@@ -19,6 +19,7 @@ extra-source-files:
     lessons/index.txt
     lessons/**/*.md
     lessons/**/*.hs
+    playground-test/programs/*.hs
 
 flag interactive
   description: Build the example for browser GHCi (toolchain/dev.sh)
@@ -151,6 +152,43 @@ test-suite Halogen-learn-test
         protolude,
         haskell-halogen-router,
         halogen-example-learn
+
+-- The playground (learn/) on the rootfs in Chromium, driven from outside the
+-- page by haskell-halogen-playwright: GHC loading in the page, compiling a
+-- program and mounting it, with a program for every layer of the rootfs
+-- (playground-test/programs/). A native program that tests what npm run
+-- build-rootfs built (dist-newstyle/wasm/learn, or the directory
+-- LEARN_ROOTFS_DIR names), so it builds nothing for the browser and depends
+-- on none of the tutorial's code. Its examples are pending without the
+-- rootfs, unless HALOGEN_EXAMPLE_REQUIRED=1 (npm run test-playground sets it).
+test-suite halogen-example-learn-playground-test
+  type:             exitcode-stdio-1.0
+  default-language: GHC2021
+  hs-source-dirs:   playground-test
+  main-is:          Playground.hs
+  ghc-options:      -Wall -Wextra -Wcompat -Wredundant-constraints -Wunused-packages -threaded
+  default-extensions:
+      DuplicateRecordFields
+      LambdaCase
+      NoFieldSelectors
+      OverloadedRecordDot
+      OverloadedStrings
+      StrictData
+  if arch(wasm32) || arch(javascript)
+    buildable: False
+  else
+    build-depends:
+        base,
+        aeson,
+        bytestring,
+        containers,
+        directory,
+        filepath,
+        http-types,
+        text,
+        wai,
+        warp,
+        haskell-halogen-playwright
 
 -- Every route's page, with the tutorial already rendered into it, written
 -- natively at build time (toolchain/build-wasm.sh runs it). Only a host GHC

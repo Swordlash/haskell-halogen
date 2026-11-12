@@ -70,7 +70,8 @@ main = runBrowserDOM $ do
 
 const $ = (id) => document.getElementById(id);
 
-// What the page measured, for toolchain/test-playground.mjs to read.
+// What the page measured, for the playground's test
+// (examples/learn/playground-test) to read.
 const learn = (window.learn = {
   ready: false,
   runs: 0,

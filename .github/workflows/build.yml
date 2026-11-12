@@ -457,7 +457,10 @@ jobs:
         HALOGEN_BASE_PATH: /${{ github.event.repository.name }}/
 
     # learn/'s own page, on the same rootfs: GHC in the page with a program
-    # for every layer, and what it measures. PixiJS comes from jsDelivr.
+    # for every layer, and what it measures, driven from the tutorial
+    # package's native Haskell suite (examples/learn/playground-test)
+    # through haskell-halogen-playwright. PixiJS and Three.js come from
+    # jsDelivr.
     - name: Test the playground in a browser
       run: npm run test-playground
 
