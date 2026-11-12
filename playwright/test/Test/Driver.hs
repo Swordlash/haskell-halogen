@@ -9,6 +9,8 @@ import Control.Concurrent.MVar
 import Control.Exception (SomeException, throwIO, try)
 import Control.Monad (filterM, forM, replicateM_, unless)
 import Data.Aeson (ToJSON (..), Value, object, (.=))
+import Data.ByteString qualified as ByteString
+import Data.ByteString.Char8 qualified as Char8
 import Data.List (isPrefixOf)
 import Data.Maybe (catMaybes)
 import Data.Text (Text)
@@ -258,14 +260,20 @@ descendants root = do
 -- None for a process that has gone.
 statFields :: ProcessID -> IO [String]
 statFields pid =
-  try @SomeException (readFile ("/proc" </> show pid </> "stat")) >>= \case
+  try @SomeException (readWhole ("/proc" </> show pid </> "stat")) >>= \case
     Left _ -> pure []
     Right s -> do
       let afterCommand = reverse (takeWhile (/= ')') (reverse s))
       pure (words afterCommand)
 
 commandOf :: ProcessID -> IO (Maybe String)
-commandOf pid = either (const Nothing) (Just . takeWhile (/= '\n')) <$> try @SomeException (readFile ("/proc" </> show pid </> "comm"))
+commandOf pid = either (const Nothing) (Just . takeWhile (/= '\n')) <$> try @SomeException (readWhole ("/proc" </> show pid </> "comm"))
+
+-- | A file of @/proc@, read to its end before this returns: these files go
+-- with their process, and a lazy read would fail later, where the contents
+-- are used, outside the @try@ that is there for a process that has gone.
+readWhole :: FilePath -> IO String
+readWhole path = Char8.unpack <$> ByteString.readFile path
 
 -- | Whether the process exists and is not a zombie waiting to be reaped.
 isAlive :: ProcessID -> IO Bool
