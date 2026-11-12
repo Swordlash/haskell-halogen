@@ -63,10 +63,12 @@ newFake = do
           , startVoice = \clip Voicing {volume, looping, held = startHeld, offset} heard ended -> do
               n <- atomicModifyIORef' fake.counter (\i -> (i + 1, i))
               atomicModifyIORef' fake.voices (\vs -> (Map.insert n (clip, ended) vs, ()))
-              note (Started clip looping)
-              note (Positioned clip offset)
+              -- A start is recorded whole, in one step, with its position
+              -- already there to ask for: a test waits for one of these
+              -- events and then reads the others, and noted one at a time
+              -- they let it read between two of them.
               atomicModifyIORef' fake.positions (\ps -> (Map.insert n offset ps, ()))
-              note (Volume clip volume)
+              atomicModifyIORef' fake.events (\es -> (es <> [Started clip looping, Positioned clip offset, Volume clip volume], ()))
               -- Heard at once, as a backend may be, unless started held.
               if startHeld
                 then note (Paused clip) >> atomicModifyIORef' fake.held (\hs -> (Map.insert n heard hs, ()))
