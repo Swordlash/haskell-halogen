@@ -90,7 +90,11 @@ has `browserArgs`, Chromium's command-line switches (a
   the page's program until it is idle, a background task between asks. Every
   action (`click`, `fill`, `typeText`, `press`, `goto`, ...) ends with it. A
   navigation that takes the document away is not an error. On a page with no
-  Halogen program it waits for the one task.
+  Halogen program it waits for the one task. JavaScript the test runs in the
+  page (`evaluate`, `evaluateWith`, `evaluateOn`, `evaluateAll`) and `cdp` are
+  not actions and do not settle: after one that dispatches an event to the
+  program (a `blur`, a `mouseup`, a link clicked from script), call `settle`.
+  Each fails after the timeout if its promise never settles.
 - **`waitStarted page`** waits until a program in the page has mounted a
   tree and is idle: the prerendered page has been adopted and every
   `Initialize` has run its synchronous part. `visit` is `goto` and then this.
@@ -114,7 +118,22 @@ satisfies a test, and its failure says what the text last was.
 after a link the program follows, and settles. `waitForConsole page test` is
 the first console message, from the page's start, that satisfies a test,
 waiting for one if there is none yet: one written before the call counts, so
-the message an action caused cannot be missed.
+the message an action caused cannot be missed. A `ConsoleMessage` has the
+address it was written at (`url`, a frame's for a message one of the page's
+frames wrote) and its `line`, so a test can leave out what an interactive
+frame's sandbox refuses: `not (maybe False ("?interactive" `Text.isInfixOf`) m.url)`.
+
+`waitForWebSocket page test` is the same for the frames of the page's
+WebSockets, which are kept as they cross, both ways (`webSocketFrames page`):
+the first, from the page's start, that satisfies a test, so the server's
+answer to a subscription the page made while it loaded is found however early
+it came. A test that wants a later one tells it apart by its payload. On
+timeout it lists the last frames that crossed.
+
+```haskell
+-- The second tab has subscribed: a comment made in the first is pushed to it.
+_ <- waitForWebSocket watcher (\f -> not f.sent && "\"subscribed\"" `Text.isInfixOf` f.payload)
+```
 
 ### Pauses: what `waitQuiet` waits for is the program's to say
 
@@ -250,7 +269,10 @@ waitStarted page
 ```
 
 `heldCount gate` is how many requests it holds now; `waitHeld` fails after
-the page's timeout if none comes.
+the page's timeout if none comes. One gate serves a walk that holds every
+load: `rearm gate` before the next `goto` or `reload` holds again, and
+`closeGate gate` takes the route away at the end (what it holds goes on), so
+released routes do not pile up.
 
 On the wire this is the protocol's third kind of message: node asks
 (`{"ask": 12, "route": 3, "request": {...}}`) and Haskell answers
@@ -289,6 +311,19 @@ heard the change; `pdf page` prints the page with its CSS's page size.
 `acceptDialogs`: every dialog a page opens is answered at once (dismissed, as
 Playwright does, unless this says accept, which a `beforeunload` asking
 whether to leave needs) and kept, `dialogs page`.
+
+## Navigating, and pictures
+
+`gotoStatus page address` is `goto` and the status of the response the
+navigation ended with: `Just 404` for a server's not-found page, `Just 401`
+for a page that is not the visitor's, `Nothing` for a navigation within the
+document or an address that became a download. It works with JavaScript off.
+
+`screenshot page path` is the whole page; `screenshotWith page
+defaultScreenshotOptions {fullPage = False} path` is the window, the size of
+the context's `viewport`. Neither settles. `reducedMotion = True` in the
+context's options makes `prefers-reduced-motion: reduce` match, so a page that
+animates only when it may shows its end state in the picture.
 
 ## Keys, the mouse and where things are
 
@@ -349,12 +384,17 @@ renderers <- filter (\p -> p.kind == "renderer") <$> browserProcesses page
 A `Locator` is a value: a page and the steps to an element, sent with each
 call, so making one does nothing and it finds the element afresh each time.
 `locator page css`, `byRole page role`, `byRoleNamed page role name`,
-`byText page text`, `byLabel page label`; then `nth i`, `first`,
-`withText t`. Each of the first five starts from a page or from another
+`byText page text`, `byLabel page label`; then `nth i`, `first`, `lastOf`,
+`withText t` (contains it, ignoring case) and `withTextExact t` (the whole
+text, exactly: `Version 2` and not `Version 2 (current)` or `Version 12`). Each of the first five starts from a page or from another
 locator, as Playwright's do: `locator (locator page ".card") "button"` is the
 buttons inside the cards. As in Playwright, an action on a locator that matches more than
 one element fails. `evaluateAll locator function argument` calls a JavaScript
-function in the page with every element the locator matches.
+function in the page with every element the locator matches, and
+`allTextContents locator` is their texts; like `count`, neither waits.
+`isDisabled` is `isEnabled`'s opposite. There is no filter by another
+locator (Playwright's `has`): the one script that uses it filters by a text
+inside, which `withText` does.
 
 ## In hspec
 
@@ -390,9 +430,8 @@ Written against the smoke tests it is to run, it leaves out what they do not
 use, and some of what they do: traces, video and other browsers; a check that
 a hydration repaired nothing (a gate and an init script build one, and it comes
 with the tutorial's test); `exposeFunction` (a page calling the test; it would
-be one more kind of ask, answered with JSON); popups, a console message's
-source location, a navigation's response status, and the mouse's buttons
-pressed and released apart.
+be one more kind of ask, answered with JSON); popups; a wait for a response
+(see the pauses above); and the mouse's buttons pressed and released apart.
 
 ## Its own tests
 

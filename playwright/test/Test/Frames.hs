@@ -33,6 +33,22 @@ spec base = describe "frames" $ do
     shown <- frames page
     shown `shouldBe` [at "frames.html", at "framed.html?interactive", at "second.html"]
 
+  -- smoke-test-server.mjs: every console error fails the walk, except
+  -- those an interactive SVG's frame writes (what its sandbox refuses),
+  -- told apart by where they were written.
+  it "says where a console message was written: the page, or one of its frames" $ \pw -> withPage pw $ \page -> do
+    goto page (at "console.html")
+    refused <- waitForConsole page (\m -> m.text == "refused by the sandbox")
+    refused.kind `shouldBe` "error"
+    refused.url `shouldBe` Just (at "noisy.html?interactive")
+    -- The line of the frame's script that wrote it, from 1.
+    refused.line `shouldBe` Just 7
+    click (locator page "#complain")
+    broke <- waitForConsole page (\m -> m.text == "the page broke")
+    broke.url `shouldBe` Just (at "console.html")
+    let theWalks m = m.kind == "error" && not (maybe False ("?interactive" `Text.isInfixOf`) m.url)
+    map (.text) . filter theWalks <$> consoleMessages page `shouldReturn` ["the page broke"]
+
   it "fails in a frame that is not there, naming its address" $ \pw -> withPage pw $ \page -> do
     goto page (at "basics.html")
     try (textContent (locator (frameAt page "**/nowhere.html") "p")) >>= \case

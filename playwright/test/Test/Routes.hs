@@ -10,7 +10,7 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (forConcurrently)
 import Control.Concurrent.MVar
 import Control.Exception (onException, throwIO, try)
-import Control.Monad (void)
+import Control.Monad (forM_, void)
 import Data.Aeson (Value)
 import Data.ByteString qualified as ByteString
 import Data.ByteString.Base64 qualified as Base64
@@ -22,7 +22,7 @@ import Data.Text.Encoding qualified as Text
 import GHC.Clock (getMonotonicTime)
 import Halogen.Playwright
 import Halogen.Playwright.Hspec
-import Halogen.Playwright.Internal (Context (..), routeFailures)
+import Halogen.Playwright.Internal (Context (..), Page (..), Playwright (..), routeFailures)
 import System.Timeout (timeout)
 import Test.HUnit.Lang (FailureReason (..), HUnitFailure (..))
 
@@ -279,6 +279,34 @@ spec base = describe "routes" $ do
       waitHeld gate
       closePage page
       eventuallyWithin 5000 (heldCount gate `shouldReturn` 0)
+
+    -- smoke-test.mjs: one gate for a walk that holds app.wasm on every
+    -- load, re-armed before each rather than made anew, and taken away at
+    -- the end, so that released routes do not pile up.
+    it "is armed again for the next load, and taken away" $ \pw -> withPage pw $ \page -> do
+      routesBefore <- length <$> readIORef page.playwright.routes
+      gate <- hold page "**/second.html"
+      forM_ [1 :: Int .. 3] $ \_ -> do
+        rearm gate
+        goto page (at "gated.html")
+        waitHeld gate
+        textContent (locator page "#loaded") `shouldReturn` "waiting"
+        release gate
+        locator page "#loaded" `shouldHaveText` "loaded"
+      -- One route for the three loads.
+      length <$> readIORef page.playwright.routes `shouldReturn` routesBefore + 1
+      -- Armed, holding a request, and taken away: the request goes on.
+      rearm gate
+      goto page (at "gated.html")
+      waitHeld gate
+      closeGate gate
+      locator page "#loaded" `shouldHaveText` "loaded"
+      length <$> readIORef page.playwright.routes `shouldReturn` routesBefore
+      -- Gone for good: armed again, it holds nothing.
+      rearm gate
+      reload page
+      locator page "#loaded" `shouldHaveText` "loaded"
+      heldCount gate `shouldReturn` 0
 
     it "fails a wait for a request it never holds, after the timeout" $ \pw -> withPage pw $ \page -> do
       gate <- hold (withTimeout 300 page) "**/never"

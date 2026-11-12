@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Socket</title></head>
+<body>
+  <!-- A live channel, as the wiki's comments have: the page opens a
+       WebSocket to the address its query names, subscribes to the page,
+       and shows what the server pushes to it. -->
+  <p id="state">connecting</p>
+  <ul id="pushed"></ul>
+  <script>
+    const socket = new WebSocket(new URLSearchParams(location.search).get("socket"));
+    socket.addEventListener("open", () => {
+      document.getElementById("state").textContent = "open";
+      socket.send(JSON.stringify({ subscribe: "first-page" }));
+    });
+    socket.addEventListener("message", (event) => {
+      const message = JSON.parse(event.data);
+      if (message.type === "comment") {
+        const item = document.createElement("li");
+        item.textContent = message.text;
+        document.getElementById("pushed").append(item);
+      }
+    });
+  </script>
+</body>
+</html>
