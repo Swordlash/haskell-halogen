@@ -16,7 +16,8 @@ browser's history), `net` (the browser's networking: `fetch`, a thin binding on
 WebSocket and server-sent events, whose events arrive through `Halogen.Subscription` emitters),
 `playwright` (`haskell-halogen-playwright`: tests from outside the page, natively: Chromium driven through a
 node child speaking a JSON-lines protocol of our own, every action waiting for the page's program to say it is idle
-through core's activity probe, with hspec integration; it depends on none of our packages and is native only),
+through core's activity probe, with hspec integration and a static server for a built directory
+(`Halogen.Playwright.Serve`); it depends on none of our packages and is native only),
 `custom-element` (`haskell-halogen-custom-element`: a component as a custom element, a Web
 Component any page can use, its attributes and properties the component's input, its outputs
 `CustomEvent`s and its queries methods; and `onEvent` for others' custom elements), `devtools`
@@ -60,7 +61,7 @@ npm run build-rootfs            # the compiler the tutorial runs (GHC, our libra
 npm run build-wasm-all          # every example, wasm-opt'd (the rootfs first if missing); Pages deploys only public/learn
 npm run test-learn              # the built tutorial, rootfs inside, in headless Chromium: every lesson compiled in the page
 npm run test-playground         # learn/'s page on the rootfs in headless Chromium: a program for every layer
-npm run test-worker             # examples/worker in headless Chromium (after build-wasm.sh worker): jobs in Web Workers
+npm run test-worker             # examples/worker's suite, natively, against the built example (build-wasm.sh worker): jobs in Web Workers
 npm run test-example            # playwright's example suite, natively, against the built examples/vanilla (build-wasm.sh vanilla)
 npm run build-js                # JS backend: build all, bundle the material example into dist/
 npm run dev -- <example>        # an example in browser GHCi, reloaded and rerun on save
@@ -83,14 +84,16 @@ which the native CI matrix installs): the first against pages in `playwright/tes
 a program's side of the probe, the second against `Halogen.Remote.Server` with the real `remote.js`, through a TCP
 proxy the test can cut. `Halogen-playwright-example-test` serves a built wasm example
 (`dist-newstyle/wasm/public/vanilla` or `HALOGEN_EXAMPLE_DIR`), and is pending without it unless
-`HALOGEN_EXAMPLE_REQUIRED=1` (`npm run test-example`, run by CI's `learn-wasm`).
+`HALOGEN_EXAMPLE_REQUIRED=1` (`npm run test-example`, run by CI's `learn-wasm`); `examples/worker`'s
+`halogen-example-worker-test` is the same for `dist-newstyle/wasm/public/worker` (`npm run test-worker`; both through
+`toolchain/test-example.sh <example>`).
 `Halogen-tauri-browser-test` runs against `tauri/test/web/tauri-double.js`, a stand-in
 for Tauri's global API (a table of commands and an event bus), since there is no Tauri in CI.
 `Halogen-three-browser-test` renders with WebGL in headless Chromium (SwiftShader, no GPU needed),
 with Three.js bundled from `node_modules` by `three/test/web/bundle.sh`, so it needs no network.
 `hspec-halogen-test` is also
 the harness's examples, and where core's browser behaviour (events, properties the page changes,
-keyed moves, refs, forks, subscriptions, the window's emitters) is tested for real. All are hspec, `main-is: Test.hs` (net's, tauri's and three's browser suites: `Browser.hs`; remote's live suite: `Live.hs`; playwright's example suite: `example-test/Example.hs`) which aggregates `Test.*` specs. Run one suite or one test with hspec's
+keyed moves, refs, forks, subscriptions, the window's emitters) is tested for real. All are hspec, `main-is: Test.hs` (net's, tauri's and three's browser suites: `Browser.hs`; remote's live suite: `Live.hs`; playwright's example suite: `example-test/Example.hs`; `examples/worker`'s: `test/Test.hs`, one module) which aggregates `Test.*` specs. Run one suite or one test with hspec's
 `--match`:
 
 ```sh
@@ -180,8 +183,8 @@ and wired into `test/Test.hs`.
   `npx playwright install --only-shell chromium`, and the pages need the network
   only for PixiJS and Three.js from jsDelivr and the Material Icons font: the tutorial bundles its
   browser_wasi_shim, and the compiler's is `learn/vendor/`'s, shipped in the rootfs.
-- `toolchain/test-worker.mjs` serves the built `examples/worker` (`dist-newstyle/wasm/public/worker`)
-  and drives real Web Workers, each a second instance of the page's `app.wasm`: the count in each
+- `examples/worker/test` (`halogen-example-worker-test`, native, through `haskell-halogen-playwright`)
+  serves the built `examples/worker` (`dist-newstyle/wasm/public/worker`) and drives real Web Workers, each a second instance of the page's `app.wasm`: the count in each
   of the pool's workers while the page draws (it samples the component's frame counter at the
   page's own animation frames), the range in four parts through `Worker.start` and
   `mapConcurrently`, back in order from both workers, the range in sixteen `runPar` tasks (each
@@ -191,8 +194,14 @@ and wired into `test/Test.hs`.
   `terminate`, the page with `?workers=script`, whose loader names a worker script of its own
   (`web/worker-script.js`, the form a program that is not a binary uses) and counts through it in
   a worker and in sixteen tasks, and the page with `?workers=none`, which leaves `halogenWorker`
-  unset and so runs `Worker.run`'s fallback. CI's `learn-wasm` job runs it after `test-playground`; the example bundles its
-  WASI shim (`bundle.sh`), so it needs no network.
+  unset and so runs `Worker.run`'s fallback, and a page whose `Worker` throws (an init script), which
+  fails the job with why. After a click that starts a job it waits for the program to be quiet
+  (`waitQuiet`: the component's fiber has come back from the job's promise and rendered) and reads
+  the result once; the page's frames, a worker's logged chunks and a worker ending are not the
+  program's, and are waited for as conditions with deadlines. A group's examples share one page,
+  in order, so one of them cannot be run alone with `--match`. CI's `learn-wasm` job runs it
+  (`npm run test-worker`) after `test-playground`; the example bundles its WASI shim (`bundle.sh`),
+  so it needs no network.
 
 ## Architecture
 

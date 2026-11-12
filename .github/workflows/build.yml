@@ -462,7 +462,9 @@ jobs:
       run: npm run test-playground
 
     # examples/worker, as build-wasm-all built it: jobs in Web Workers that
-    # are copies of the page's own app.wasm, the page drawing meanwhile.
+    # are copies of the page's own app.wasm, the page drawing meanwhile,
+    # driven from the example's native Haskell suite (examples/worker/test)
+    # through haskell-halogen-playwright.
     - name: Test the Web Workers in a browser
       run: npm run test-worker
 

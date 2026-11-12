@@ -3,8 +3,8 @@
 # node_modules' @bjorn3/browser_wasi_shim: the page's index.js imports it,
 # and so does every worker Halogen.Worker starts, from the address the page
 # gives it (globalThis.halogenWorker.wasi). Served from the page's own site,
-# the example loads nothing from anywhere else, which toolchain/test-worker.mjs
-# checks.
+# the example loads nothing from anywhere else, which the example's test suite
+# (examples/worker/test) checks.
 #
 #   sh examples/worker/bundle.sh <output-dir>
 set -eu

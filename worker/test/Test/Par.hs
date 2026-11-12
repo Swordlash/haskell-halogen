@@ -5,7 +5,8 @@
 -- batches, which is pure and tested as it is, and 'Par.runPar' end to end
 -- where no worker can be made (natively and under Node), where the batches
 -- run in the program itself through the same codecs. In a browser the same
--- batches go to workers, which toolchain/test-worker.mjs checks.
+-- batches go to workers, which examples/worker's suite (npm run
+-- test-worker) checks.
 --
 -- The jobs are exported, as "Halogen.Worker"'s documentation advises for
 -- every binding that holds a static.
