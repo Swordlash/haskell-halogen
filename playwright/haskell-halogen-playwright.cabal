@@ -103,8 +103,11 @@ test-suite Halogen-playwright-test
         filepath,
         hspec,
         HUnit,
+        http-types,
         temporary,
         text,
+        wai,
+        warp,
         haskell-halogen-playwright
     if arch(wasm32) || arch(javascript)
         buildable: False
