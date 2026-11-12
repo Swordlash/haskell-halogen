@@ -49,14 +49,16 @@ spec site allowed = describe "every page" $ do
   -- editor's column (CodeMirror takes the element the app renders empty for
   -- it, and the code shown until it is there goes), the result's column
   -- (what the compiler's panel says, now that the app knows the screen is
-  -- narrow), and the status line in the header (the same). The lesson's
-  -- text, the header's links and the pagers are compared node by node.
+  -- narrow), and the status line in the header (the same). Only what is in
+  -- those three is left out: each is still the element the server sent, with
+  -- its attributes. The lesson's text, the header's links and the pagers are
+  -- compared node by node.
   it "is adopted by its program with nothing repaired" $ \pw ->
     withContext pw defaultContextOptions {viewport = Just (400, 800)} $ \ctx -> do
       page <- withTimeout 30000 <$> newPage ctx
       watch <- newWatch site ctx (const False) allowed
       withFailureContext page $ do
-        let options = defaultAdoptionOptions {leaveOut = [".learn-code", ".learn-result-column", ".learn-status"]}
+        let options = defaultAdoptionOptions {leaveOutContents = [".learn-code", ".learn-result-column", ".learn-status"]}
             paths = "" : "playground/" : map (\l -> l.slug <> "/") site.lessons
         -- The manifest is held as well as the program, until the page has
         -- been compared: what the app reads of it (the compiler's size, which

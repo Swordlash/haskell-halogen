@@ -52,6 +52,13 @@ switch (mode) {
     app.querySelector(".island").innerHTML = "<b>typeset again</b>";
     counter.setAttribute("data-stuck", "");
     break;
+  case "island-replaced": {
+    // The island's own element built again, equal to the server's: the
+    // program's repair, whatever a library then does inside it.
+    const island = app.querySelector(".island");
+    island.replaceWith(island.cloneNode(true));
+    break;
+  }
   case "outside":
     document.getElementById("outside").textContent = "changed by the program, outside its element";
     break;

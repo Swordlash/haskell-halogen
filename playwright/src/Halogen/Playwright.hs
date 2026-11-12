@@ -625,7 +625,13 @@ data AdoptionOptions = AdoptionOptions
   -- them: what another library fills in after the program has started (a
   -- formula's typesetting, an editor that takes the place of a
   -- @textarea@), or what the program's @Initialize@ changes on purpose,
-  -- which is no repair of the server's HTML.
+  -- which is no repair of the server's HTML. Such an element is not looked
+  -- at at all: it may be replaced, or go.
+  , leaveOutContents :: [Text]
+  -- ^ Selectors of elements that are compared themselves (each must be the
+  -- node the server sent, with its attributes), but whose contents are
+  -- not: an island a library draws in, which the program is to keep while
+  -- the library fills it.
   , ignoredAttributes :: [Text]
   -- ^ Attributes the page's own scripts write, whatever the server sent:
   -- a change to one of these is not a repair.
@@ -634,7 +640,7 @@ data AdoptionOptions = AdoptionOptions
 
 -- | @#app@, @**\/app.wasm@, nothing left out, every attribute compared.
 defaultAdoptionOptions :: AdoptionOptions
-defaultAdoptionOptions = AdoptionOptions {root = "#app", program = "**/app.wasm", leaveOut = [], ignoredAttributes = []}
+defaultAdoptionOptions = AdoptionOptions {root = "#app", program = "**/app.wasm", leaveOut = [], leaveOutContents = [], ignoredAttributes = []}
 
 -- | One thing the program changed in the page the server sent, as it
 -- adopted it: HTML a page rendered ahead of time got wrong, which the
@@ -696,7 +702,11 @@ adopt = adoptWith defaultAdoptionOptions
 -- through: it is not taken away ('closeGate'), since the program's own
 -- requests start as it does, and taking a route away while a page's
 -- requests are under way can leave them stalled (the tutorial's test saw a
--- compiler's first request never answered).
+-- compiler's first request never answered). So each call leaves one more
+-- released gate on the page, asked about every later request for the
+-- program: a test that adopts many addresses on one page holds one gate of
+-- its own, armed again for each ('rearm'), between the two halves
+-- ('markServed', 'repairsSinceMarked').
 --
 -- What the program changes after it has started (a timer's render, a
 -- response's) is not compared; what its @Initialize@ changes is, unless it
@@ -715,15 +725,16 @@ adoptWith options page address = liftIO $ do
     `finally` release gate
 
 -- | Mark the page as it is now, as the server sent it before its program
--- has run: every node under the 'root' (but in what 'leaveOut' names),
--- with its text or its attributes, for 'repairsSinceMarked' to compare
+-- has run: every node under the 'root' (but what 'leaveOut' names, and
+-- what is inside what 'leaveOutContents' names), with its text or its
+-- attributes, for 'repairsSinceMarked' to compare
 -- with. The marks are kept in the page, by node, so that a node the program
 -- replaced with an equal one is told from one it kept. For a test with a
 -- gate of its own, or with more to do between marking and comparing; else
 -- 'adoptWith' does the whole of it.
 markServed :: (MonadIO m) => AdoptionOptions -> Page -> m ()
 markServed options page = do
-  _ :: Int <- evaluateWith page markScript (object ["root" .= options.root, "leaveOut" .= options.leaveOut, "ignored" .= options.ignoredAttributes])
+  _ :: Int <- evaluateWith page markScript (object ["root" .= options.root, "leaveOut" .= options.leaveOut, "leaveOutContents" .= options.leaveOutContents, "ignored" .= options.ignoredAttributes])
   pure ()
 
 -- | What has changed since 'markServed', in the page as it is now: the
@@ -767,6 +778,7 @@ markScript =
     , "  const root = document.querySelector(o.root);"
     , "  if (root === null) throw new Error(`no element matches ${o.root}: there is nothing to mark`);"
     , "  const skip = o.leaveOut.join(', ');"
+    , "  const opaque = o.leaveOutContents.join(', ');"
     , "  const marks = new Map();"
     , adoptionHelpers
     , "  const visit = (parent, path) => {"
@@ -776,14 +788,14 @@ markScript =
     , "        const at = `${path} > ${segment(node)}`;"
     , "        marks.set(node, { path: at, parent, index: place(node), text: null, html: html(node),"
     , "          attributes: Object.fromEntries([...node.attributes].map((a) => [a.name, a.value])) });"
-    , "        visit(node, at);"
+    , "        if (opaque === '' || !node.matches(opaque)) visit(node, at);"
     , "      } else if (node.nodeType === Node.TEXT_NODE) {"
     , "        marks.set(node, { path: `${path} > ${segment(node)}`, parent, index: place(node), text: node.data, html: null });"
     , "      }"
     , "    }"
     , "  };"
     , "  visit(root, o.root);"
-    , "  globalThis[Symbol.for('halogen.playwright.adoption')] = { root: o.root, skip, ignored: o.ignored, marks };"
+    , "  globalThis[Symbol.for('halogen.playwright.adoption')] = { root: o.root, skip, opaque, ignored: o.ignored, marks };"
     , "  return marks.size;"
     , "}"
     ]
@@ -795,7 +807,7 @@ compareScript =
     [ "() => {"
     , "  const state = globalThis[Symbol.for('halogen.playwright.adoption')];"
     , "  if (!state) throw new Error('nothing was marked: markServed first');"
-    , "  const { skip, ignored, marks } = state;"
+    , "  const { skip, opaque, ignored, marks } = state;"
     , "  const root = document.querySelector(state.root);"
     , adoptionHelpers
     , "  const here = (node) => root !== null && root !== node && root.contains(node);"
@@ -827,7 +839,7 @@ compareScript =
     , "      if (!marks.has(node)) {"
     , "        if (!element && node.data === '') continue;"
     , "        built.push({ path: at, parent, index: place(node), now: element ? html(node) : node.data });"
-    , "      } else if (element) visit(node, at);"
+    , "      } else if (element && (opaque === '' || !node.matches(opaque))) visit(node, at);"
     , "    }"
     , "  };"
     , "  if (root !== null) visit(root, state.root);"
@@ -1542,6 +1554,14 @@ route s pattern handler = liftIO $ do
 -- route is removed, so nothing is left waiting on a handler that will not
 -- answer. Nothing on a route already gone with its page, or a driver that
 -- has ended.
+--
+-- Take a route away while the page is at rest. When a page's last route
+-- goes, the browser stops handing the page's requests to Playwright, and a
+-- request of the page's that was under way at that moment, whether the
+-- route matched it or not, has been seen left unanswered (once, in the
+-- tutorial's test, as its compiler started loading). A
+-- route that only has to stop answering is better left in place with a
+-- handler that says 'Continue', as a released gate is.
 unroute :: (MonadIO m) => Route -> m ()
 unroute r = liftIO (removeRoute r.playwright r.handle)
 
@@ -1591,7 +1611,9 @@ rearm :: (MonadIO m) => Gate -> m ()
 rearm g = liftIO (atomically (writeTVar g.open False))
 
 -- | Take the gate away: the requests it holds go on, as on 'release', and
--- later ones do not pass it at all ('unroute').
+-- later ones do not pass it at all ('unroute'). For a page at rest, as
+-- 'unroute' says: where the page's own requests start as the gate lets its
+-- program go, 'release' it and leave it.
 closeGate :: (MonadIO m) => Gate -> m ()
 closeGate g = release g >> unroute g.route
 

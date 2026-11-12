@@ -244,7 +244,8 @@ HTML parser makes and a render does not, are not repairs.
 defaultAdoptionOptions
   { root = "#app"
   , program = "**/app.wasm"
-  , leaveOut = [".wiki-math", ".learn-editor"]   -- filled by another library, or by Initialize
+  , leaveOut = [".learn-editor"]                 -- not looked at: Initialize puts an editor there
+  , leaveOutContents = [".wiki-math"]            -- kept by the program, filled by another library
   , ignoredAttributes = ["data-stuck"]           -- written by the page's own scripts
   }
 ```
@@ -252,9 +253,13 @@ defaultAdoptionOptions
 What the program changes once it has started (a timer's render, a
 response's) is not compared. What its `Initialize` changes at once is: a part
 it fills on purpose (an editor in an empty element, a status line) goes in
-`leaveOut`. For a test with a gate of its own, or more to do between marking
-and comparing (looking at what the server sent, holding an API as well),
-there are the two halves:
+`leaveOut`, which is then not looked at at all, or in `leaveOutContents`,
+whose element must still be the one the server sent, with its attributes,
+whatever is in it. `adoptWith` leaves its released gate on the page, so a
+test that adopts many addresses on one page holds one gate of its own and
+arms it again for each (`rearm`), around the two halves, which are also for
+a test with more to do between marking and comparing (looking at what the
+server sent, holding an API as well):
 
 ```haskell
 gate <- hold page "**/app.wasm"

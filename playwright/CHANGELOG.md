@@ -95,9 +95,15 @@ mark every node under the root as the server sent it, let the program go,
 wait for it to start, and give what it changed as a list of `Repair`s
 (`Replaced`, `Removed`, `Built`, `TextChanged`, `AttributeChanged`), each
 with a path to the node and its HTML or text. `AdoptionOptions` name the
-root, the program's request, what to leave out (islands another library
-fills, parts the program's `Initialize` changes on purpose) and the
+root, the program's request, what to leave out (`leaveOut`: parts the
+program's `Initialize` changes on purpose, not looked at; `leaveOutContents`:
+islands another library fills, whose own element is still compared) and the
 attributes the page's own scripts write. `markServed` and
 `repairsSinceMarked` are the two halves, for a test with a gate of its own;
 `shouldAdoptCleanly`, `shouldAdoptCleanlyWith` and `shouldHaveNoRepairs`
 fail with every repair listed (`describeRepair`).
+
+`unroute` and `closeGate` now say when to use them: on a page at rest. A
+route taken away while the page's own requests were starting once left one
+of them unanswered, so a gate that has done its work is released and left
+(`adoptWith` does that).

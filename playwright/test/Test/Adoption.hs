@@ -61,6 +61,23 @@ spec base = describe "the adoption of a prerendered page" $ do
     withPage pw $ \other -> adoptWith quiet other (at "island") `shouldReturn` []
     withPage pw $ \other -> adoptWith options other (at "outside") `shouldReturn` []
 
+  -- An island's element is the program's to keep, and only what is in it a
+  -- library's: with its contents left out it is still compared itself, so
+  -- that one replaced by its equal is a repair, which leaving the whole of
+  -- it out does not see.
+  it "leaves out an element's contents, and still compares the element" $ \pw -> do
+    let inside = options {leaveOutContents = [".island"], ignoredAttributes = ["data-stuck"]}
+    withPage pw $ \page -> adoptWith inside page (at "island") `shouldReturn` []
+    withPage pw $ \page ->
+      adoptWith inside page (at "island-replaced")
+        `shouldReturn` [ Replaced
+                           { path = "#app > div.counter > div.island:nth-child(5)"
+                           , was = "<div class=\"island\"><span>typeset by a library</span></div>"
+                           , now = "<div class=\"island\"><span>typeset by a library</span></div>"
+                           }
+                       ]
+    withPage pw $ \page -> adoptWith options {leaveOut = [".island"]} page (at "island-replaced") `shouldReturn` []
+
   it "fails an expectation with every repair listed" $ \pw -> withPage pw $ \page -> do
     shouldAdoptCleanlyWith options page (at "clean")
     try (shouldAdoptCleanlyWith options page (at "text")) >>= \case
