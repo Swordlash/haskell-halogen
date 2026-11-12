@@ -53,6 +53,21 @@ spec base = describe "the waits" $ do
     waitQuiet page
     activity page `shouldReturn` Just (Activity 1 0 0)
 
+  it "waits as long as a page handle's own timeout says" $ \pw -> withPage pw $ \page -> do
+    visit page (at "program.html")
+    -- Longer than the suite's two seconds.
+    set page "fake.waiting = 1, setTimeout(() => { fake.waiting = 0; }, 2500)"
+    waitQuiet (withTimeout 6000 page)
+    activity page `shouldReturn` Just (Activity 1 0 0)
+    set page "fake.running = 1, setTimeout(() => { fake.running = 0; }, 2500)"
+    settle (withTimeout 6000 page)
+    activity page `shouldReturn` Just (Activity 1 0 0)
+    -- And shorter: the timeout's message says how long it waited.
+    set page "fake.waiting = 1"
+    try (waitQuiet (withTimeout 300 page)) >>= \case
+      Left (e :: PlaywrightError) -> Text.unpack e.message `shouldContain` "after 300ms"
+      Right () -> expectationFailure "waitQuiet returned while a fiber waited"
+
   it "waits for a program to start, and fails cleanly where none answers" $ \pw -> withPage pw $ \page -> do
     goto page (at "program.html")
     set page "fake.running = 1, setTimeout(() => { fake.running = 0; }, 200)"

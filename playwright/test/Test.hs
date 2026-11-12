@@ -3,18 +3,17 @@
 -- with the driver's message.
 module Main (main) where
 
-import Data.Text qualified as Text
 import Halogen.Playwright (Options (..), optionsFromEnvironment, withPlaywright)
+import Halogen.Playwright.Serve (serveDirectory)
 import System.Environment (lookupEnv)
 import Test.Driver qualified
 import Test.Failures qualified
 import Test.Hspec (aroundAll, hspec)
 import Test.Probe qualified
-import Test.Server (withDirectory)
+import Test.Serve qualified
 
 main :: IO ()
-main = withDirectory "test/web" $ \port -> do
-  let base = Text.pack ("http://127.0.0.1:" <> show port <> "/")
+main = serveDirectory "test/web" $ \base -> do
   -- A short timeout, so that the tests of timeouts are quick, unless the
   -- environment says otherwise.
   timeoutSet <- lookupEnv "HALOGEN_PLAYWRIGHT_TIMEOUT"
@@ -24,4 +23,5 @@ main = withDirectory "test/web" $ \port -> do
     aroundAll (withPlaywright options') $ do
       Test.Driver.spec base
       Test.Probe.spec base
+      Test.Serve.spec
     Test.Failures.spec base

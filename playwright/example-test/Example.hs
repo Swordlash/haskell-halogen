@@ -13,10 +13,10 @@ import Control.Monad (forM_, unless)
 import Data.Text qualified as Text
 import Halogen.Playwright
 import Halogen.Playwright.Hspec
+import Halogen.Playwright.Serve (serveDirectory)
 import System.Directory (doesFileExist)
 import System.Environment (lookupEnv)
 import System.FilePath ((</>))
-import Test.Server (withDirectory)
 
 main :: IO ()
 main = do
@@ -24,7 +24,7 @@ main = do
   required <- (== Just "1") <$> lookupEnv "HALOGEN_EXAMPLE_REQUIRED"
   built <- doesFileExist (dir </> "app.wasm")
   if built
-    then withDirectory dir $ \port -> hspec (spec (Text.pack ("http://127.0.0.1:" <> show port <> "/")))
+    then serveDirectory dir (hspec . spec)
     else
       hspec
         $ describe "the vanilla example, built for WebAssembly"

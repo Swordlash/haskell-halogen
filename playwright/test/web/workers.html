@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Workers</title></head>
+<body>
+  <!-- A dedicated Web Worker the test starts and ends: its requests are
+       its context's, and the page counts it while it is alive. -->
+  <button id="start" onclick="start()">start</button>
+  <button id="stop" onclick="worker.terminate(); this.textContent = 'stopped'">stop</button>
+  <p id="said"></p>
+  <script>
+    let worker;
+    function start() {
+      worker = new Worker("worker.js");
+      worker.onmessage = (event) => { document.getElementById("said").textContent = event.data; };
+    }
+  </script>
+</body>
+</html>

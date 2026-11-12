@@ -15,6 +15,7 @@ import Data.List (isPrefixOf)
 import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import GHC.Clock (getMonotonicTime)
 import Halogen.Playwright
 import Halogen.Playwright.Hspec
 import Halogen.Playwright.Internal (driverProcessId, killDriver)
@@ -119,6 +120,83 @@ spec base = describe "the driver" $ do
         e.name `shouldBe` "TimeoutError"
         Text.unpack e.message `shouldContain` "#missing"
       Right () -> expectationFailure "the click found something"
+
+  it "gives one page handle a timeout of its own, for its calls and its locators'" $ \pw -> withPage pw $ \page -> do
+    goto page (at "basics.html")
+    let quick = withTimeout 300 page
+    started <- getMonotonicTime
+    try (click (locator quick "#missing")) >>= \case
+      Left (e :: PlaywrightError) -> e.name `shouldBe` "TimeoutError"
+      Right () -> expectationFailure "the click found something"
+    took <- subtract started <$> getMonotonicTime
+    -- Well under the suite's two seconds.
+    took `shouldSatisfy` (< 1.5)
+    -- The retrying expectations read it too.
+    started' <- getMonotonicTime
+    try (locator quick "#count" `shouldHaveText` "7") >>= \case
+      Left (_ :: HUnitFailure) -> pure ()
+      Right () -> expectationFailure "the expectation held"
+    took' <- subtract started' <$> getMonotonicTime
+    took' `shouldSatisfy` (< 1.5)
+    -- And a longer one lets a call wait past the suite's.
+    _ :: Maybe Value <- evaluate page "(setTimeout(() => { document.getElementById('late').textContent = 'here'; }, 2500), null)"
+    waitFor (locator (withTimeout 6000 page) "#late:text-is('here')") Attached
+    -- The original handle is unchanged.
+    try (waitFor (locator page "#late:text-is('never')") Attached) >>= \case
+      Left (e :: PlaywrightError) -> Text.unpack e.message `shouldContain` "2000ms"
+      Right () -> expectationFailure "the wait returned"
+
+  it "waits for a JavaScript expression to hold, and runs a function on a locator's elements" $ \pw -> withPage pw $ \page -> do
+    goto page (at "basics.html")
+    click (locator page "#later")
+    -- The page's own timer, not a program's: settle did not wait for it.
+    textContent (locator page "#later") `shouldReturn` "soon"
+    waitForFunction page "document.getElementById('later').textContent === 'later'"
+    textContent (locator page "#later") `shouldReturn` "later"
+    try (waitForFunction (withTimeout 300 page) "false") >>= \case
+      Left (e :: PlaywrightError) -> e.name `shouldBe` "TimeoutError"
+      Right () -> expectationFailure "waitForFunction returned"
+    evaluateAll (locator page ".item") "(items, suffix) => items.map((item) => item.textContent + suffix)" ("!" :: Text)
+      `shouldReturn` ["one!", "two!", "three!" :: Text]
+    evaluateAll (locator page ".nothing") "(items) => items.length" () `shouldReturn` (0 :: Int)
+
+  it "runs an init script of the test's own in every page of a context, after the probe" $ \pw -> do
+    withContext pw defaultContextOptions $ \ctx -> do
+      addInitScript ctx "window.seenProbe = typeof globalThis.__halogenProbe; window.Worker = undefined;"
+      page <- newPage ctx
+      goto page (at "basics.html")
+      evaluate page "window.seenProbe" `shouldReturn` ("object" :: Text)
+      evaluate page "typeof Worker" `shouldReturn` ("undefined" :: Text)
+      other <- newPage ctx
+      goto other (at "plain.html")
+      evaluate other "window.seenProbe" `shouldReturn` ("object" :: Text)
+    withPage pw $ \page -> do
+      goto page (at "basics.html")
+      evaluate page "typeof window.seenProbe" `shouldReturn` ("undefined" :: Text)
+
+  it "keeps a context's requests, its workers' among them, and counts a page's workers" $ \pw ->
+    withContext pw defaultContextOptions $ \ctx -> do
+      page <- newPage ctx
+      goto page (at "workers.html")
+      workers page `shouldReturn` 0
+      click (locator page "#start")
+      -- The worker is the page's, but not its program's: settle did not
+      -- wait for it to start or to answer.
+      locator page "#said" `shouldHaveText` "fetched"
+      workers page `shouldReturn` 1
+      asked <- requests ctx
+      let request path = filter (\r -> r.url == at path) asked
+      map (\r -> (r.method, r.resourceType)) (request "workers.html") `shouldBe` [("GET", "document")]
+      map (.resourceType) (request "worker.js") `shouldBe` ["script"]
+      -- The worker's own fetch, which no page made.
+      map (.resourceType) (request "plain.html") `shouldBe` ["fetch"]
+      click (locator page "#stop")
+      eventually page (workers page `shouldReturn` 0)
+      -- Another context's requests are its own.
+      withContext pw defaultContextOptions $ \other -> do
+        page' <- newPage other
+        goto page' (at "plain.html")
+        map (.url) <$> requests other `shouldReturn` [at "plain.html"]
 
   it "keeps two contexts' storage apart" $ \pw ->
     withPage pw $ \one -> withPage pw $ \two -> do

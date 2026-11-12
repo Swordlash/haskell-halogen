@@ -57,10 +57,12 @@ module Halogen.Playwright
   , withContext
   , newContext
   , closeContext
+  , addInitScript
   , Page
   , newPage
   , closePage
   , withPage
+  , withTimeout
 
     -- * Going places
   , goto
@@ -122,6 +124,7 @@ module Halogen.Playwright
     -- * Waiting and expecting
   , LocatorState (..)
   , waitFor
+  , waitForFunction
   , eventually
   , eventuallyWithin
   , shouldHaveText
@@ -136,11 +139,15 @@ module Halogen.Playwright
     -- * JavaScript
   , evaluate
   , evaluateWith
+  , evaluateAll
 
-    -- * What the page said
+    -- * What the page said, and what it asked for
   , ConsoleMessage (..)
   , consoleMessages
   , pageErrors
+  , Request (..)
+  , requests
+  , workers
 
     -- * Pictures
   , screenshot
@@ -264,8 +271,40 @@ ignoringGone io =
 withContext :: Playwright -> ContextOptions -> (Context -> IO a) -> IO a
 withContext pw o = bracket (newContext pw o) closeContext
 
+-- | JavaScript every page of the context runs before its own scripts, in
+-- every frame, after the driver's probe: to stand in for something the
+-- page would otherwise find (a @Worker@ that refuses to start, say). It
+-- applies to documents loaded after it is added.
+addInitScript :: (MonadIO m) => Context -> Text -> m ()
+addInitScript c script = liftIO (call c.playwright "addInitScript" ["context" .= c.handle, "script" .= script])
+
+-- | What the context's pages, and their workers, have asked the network
+-- for so far, oldest first: every request as it was made, whether it was
+-- answered or not. A worker's requests are the context's, and not always
+-- a page's, which is why this is asked of the context.
+requests :: (MonadIO m) => Context -> m [Request]
+requests c = liftIO (toList <$> contextRequests c.playwright c.handle)
+
 newPage :: (MonadIO m) => Context -> m Page
-newPage c = liftIO (Page c.playwright <$> call c.playwright "newPage" ["context" .= c.handle])
+newPage c = liftIO (Page c.playwright <$> call c.playwright "newPage" ["context" .= c.handle] <*> pure Nothing)
+
+-- | The same page, whose calls, and the calls of locators made from it,
+-- may take this many milliseconds in place of the options' 'timeout':
+-- Playwright's action, the 'settle' after it, 'waitStarted', 'waitQuiet',
+-- 'waitFor', 'eventually' and the retrying expectations. For the one call
+-- that takes longer than the rest (a program loading, a job of seconds):
+--
+-- > visit (withTimeout 30000 page) address
+withTimeout :: Int -> Page -> Page
+withTimeout ms p = p {callTimeout = Just ms}
+
+-- | The timeout a page's calls use.
+timeoutOf :: Page -> Int
+timeoutOf p = fromMaybe p.playwright.options.timeout p.callTimeout
+
+-- | The call's own timeout, for the driver, when the page has one.
+timeoutParam :: Page -> [Aeson.Types.Pair]
+timeoutParam p = maybe [] (\ms -> ["timeout" .= ms]) p.callTimeout
 
 -- | Close a page; like 'closeContext', nothing on a driver that has gone.
 closePage :: (MonadIO m) => Page -> m ()
@@ -276,7 +315,7 @@ withPage :: Playwright -> (Page -> IO a) -> IO a
 withPage pw body = withContext pw defaultContextOptions (\c -> newPage c >>= body)
 
 onPage :: (FromJSON a, MonadIO m) => Page -> Text -> [Aeson.Types.Pair] -> m a
-onPage p method params = liftIO (call p.playwright method (("page" .= p.handle) : params))
+onPage p method params = liftIO (call p.playwright method (("page" .= p.handle) : timeoutParam p <> params))
 
 ----------------------------------------------------------------------
 -- Going places
@@ -425,7 +464,7 @@ describe l = Text.intercalate " >> " (map step l.steps)
       other -> Text.decodeUtf8Lenient (LazyByteString.toStrict (Aeson.encode other))
 
 on :: (FromJSON a, MonadIO m) => Locator -> Text -> [Aeson.Types.Pair] -> m a
-on l method params = liftIO (call l.page.playwright method (("locator" .= locatorJSON l) : params))
+on l method params = liftIO (call l.page.playwright method (("locator" .= locatorJSON l) : timeoutParam l.page <> params))
 
 ----------------------------------------------------------------------
 -- Acting: each waits for the element as Playwright does, acts, and
@@ -507,11 +546,20 @@ waitFor l s = on l "waitFor" ["state" .= stateName]
       Visible -> "visible"
       Hidden -> "hidden"
 
+-- | Poll a JavaScript expression in the page, at its animation frames,
+-- until it is truthy, up to the timeout. For what the page does by itself
+-- and not through its program, so that 'settle' does not wait for it: the
+-- page's own frames, say.
+--
+-- > waitForFunction page "document.querySelectorAll('li').length > 3"
+waitForFunction :: (MonadIO m) => Page -> Text -> m ()
+waitForFunction p expression = onPage p "waitForFunction" ["expression" .= expression]
+
 -- | Try an expectation until it holds or the page's timeout has passed;
 -- then the last failure is the failure. A failed expectation or a failed
 -- call is retried; any other exception is not.
 eventually :: (MonadUnliftIO m) => Page -> m a -> m a
-eventually p = eventuallyWithin p.playwright.options.timeout
+eventually p = eventuallyWithin (timeoutOf p)
 
 -- | 'eventually' with a timeout in milliseconds. Between tries it pauses
 -- briefly, a little longer each time (up to a quarter of a second): what
@@ -596,6 +644,14 @@ evaluate p expression = onPage p "evaluate" ["expression" .= expression]
 evaluateWith :: (ToJSON arg, FromJSON a, MonadIO m) => Page -> Text -> arg -> m a
 evaluateWith p function argument = onPage p "evaluateWith" ["function" .= function, "argument" .= toJSON argument]
 
+-- | A JavaScript function's source, called in the page with every element
+-- the locator matches (an array, empty when none does: this does not
+-- wait) and this argument.
+--
+-- > evaluateAll (locator page "li") "(items) => items.map((i) => i.dataset.worker)" ()
+evaluateAll :: (ToJSON arg, FromJSON a, MonadIO m) => Locator -> Text -> arg -> m a
+evaluateAll l function argument = on l "evaluateAll" ["function" .= function, "argument" .= toJSON argument]
+
 ----------------------------------------------------------------------
 -- What the page said
 
@@ -606,6 +662,11 @@ consoleMessages p = liftIO (toList . (.console) <$> pageLog p.playwright p.handl
 -- | The page's uncaught exceptions and unhandled rejections so far.
 pageErrors :: (MonadIO m) => Page -> m [Text]
 pageErrors p = liftIO (toList . (.errors) <$> pageLog p.playwright p.handle)
+
+-- | How many dedicated Web Workers the page has alive now: one is counted
+-- from when it starts until it ends (it is terminated, or its page goes).
+workers :: (MonadIO m) => Page -> m Int
+workers p = onPage p "workers" []
 
 -- | The whole page, as a PNG.
 screenshot :: (MonadIO m) => Page -> FilePath -> m ()

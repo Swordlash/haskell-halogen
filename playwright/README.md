@@ -94,9 +94,22 @@ for any reason.
   is none.
 
 What these do not cover is what is not the program's yet: a timer that has
-not fired, a message on its way over a WebSocket, an animation. For those the
-`should` expectations retry until the timeout, and `eventually page` retries
-any expectation.
+not fired, a message on its way over a WebSocket, an animation, a Web Worker
+starting or ending. For those the `should` expectations retry until the
+timeout, `eventually page` retries any expectation, and
+`waitForFunction page expression` polls a JavaScript expression in the page,
+at its animation frames, until it holds.
+
+Every call has the timeout of the options (`HALOGEN_PLAYWRIGHT_TIMEOUT`, five
+seconds). `withTimeout ms page` is the same page with another, for its calls
+and those of the locators made from it, `settle` and the retrying
+expectations included: for the one call that takes longer than the rest.
+
+```haskell
+visit (withTimeout 30000 page) address      -- a program of megabytes loading
+click (locator (withTimeout 60000 page) "#count")
+waitQuiet (withTimeout 60000 page)          -- a job of seconds in a Web Worker
+```
 
 ## The probe
 
@@ -114,6 +127,37 @@ with work queued, `waiting` the fibers waiting in a `liftIO`. Idle is
 exact. Any tool can set the probe up and ask it; see `Halogen.Activity`'s
 documentation for the contract.
 
+## Serving a built directory
+
+`Halogen.Playwright.Serve` serves a directory on a free port for a test's
+duration, as a static host does: a directory's address serves its
+`index.html` (without its last slash, it is redirected to the address with
+one), files go with their media types (`application/wasm` among them, which
+`WebAssembly.instantiateStreaming` insists on), `HEAD` gets what `GET`
+would, and nothing else is sent: no cross-origin isolation, no caching
+headers.
+
+```haskell
+main = serveDirectory "dist-newstyle/wasm/public/vanilla" $ \base ->
+  hspec $ playwright $ it "starts" $ inPage $ \page -> visit page base
+```
+
+`serveDirectoryWith` takes a base path to serve it under (as GitHub Pages
+serves a project's site, outside of which there is nothing), a `404.html` to
+serve for an address with no file, and other directories mounted under the
+base.
+
+## Contexts: init scripts and requests
+
+`addInitScript context js` runs a script of the test's own in every page of
+the context before the page's own scripts, after the probe: to stand in for
+something the page would find (a `Worker` that refuses to start, say).
+`requests context` is what the context's pages and their Web Workers have
+asked the network for so far (address, method, resource type), kept as they
+are made: a worker's requests are its context's, not always its page's, which
+is why it is asked of the context. `workers page` is how many dedicated Web
+Workers the page has alive.
+
 ## Locators
 
 A `Locator` is a value: a page and the steps to an element, sent with each
@@ -123,7 +167,8 @@ call, so making one does nothing and it finds the element afresh each time.
 `withText t`. Each of the first five starts from a page or from another
 locator, as Playwright's do: `locator (locator page ".card") "button"` is the
 buttons inside the cards. As in Playwright, an action on a locator that matches more than
-one element fails.
+one element fails. `evaluateAll locator function argument` calls a JavaScript
+function in the page with every element the locator matches.
 
 ## In hspec
 
@@ -144,9 +189,8 @@ hspec's: hspec's own `focus` would otherwise meet the page's.
 
 These are planned, written against real smoke tests, and not in this
 version: request routes (answering a page's requests from the test),
-downloads, uploads, cookies, init scripts of the test's own, the Chrome
-DevTools Protocol (a slowed processor), traces, and a check that a hydration
-repaired nothing.
+downloads, uploads, cookies, the Chrome DevTools Protocol (a slowed
+processor), traces, and a check that a hydration repaired nothing.
 
 ## Its own tests
 
@@ -154,4 +198,6 @@ repaired nothing.
 `Halogen-playwright-example-test` drives a built WebAssembly example
 (`dist-newstyle/wasm/public/vanilla`, or `HALOGEN_EXAMPLE_DIR`), and is
 pending when it is not built. `npm run test-example` at the repository's root
-runs it with the build required.
+runs it with the build required. The same pattern tests a real program in
+`examples/worker/test` (`npm run test-worker`): jobs in Web Workers that are
+copies of the page's binary.
