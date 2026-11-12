@@ -2,7 +2,7 @@
 
 -- | The router over the in-memory address it keeps natively. In a browser
 -- it is the browser's address, which the tutorial's test
--- (toolchain/test-learn.mjs) drives. What a hash router writes is checked
+-- (examples/learn/browser-test) drives. What a hash router writes is checked
 -- on every backend.
 module Test.Router (spec) where
 

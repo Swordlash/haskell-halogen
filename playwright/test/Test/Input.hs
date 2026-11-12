@@ -30,7 +30,7 @@ spec base = describe "input, geometry and waits" $ do
   let at path = base <> path
 
   -- smoke-test.mjs: search from the keyboard ("/", then the words, then
-  -- Enter); test-learn.mjs: an editor's text replaced as if pasted.
+  -- Enter); the tutorial's test: an editor's text replaced as if pasted.
   it "types where the focus is, and pastes" $ \pw -> withPage pw $ \page -> do
     goto page (at "input.html")
     press page "/"
@@ -45,7 +45,7 @@ spec base = describe "input, geometry and waits" $ do
 
   -- The playground's test: a canvas, which no locator sees into, clicked at
   -- its middle from its box; smoke-test.mjs: a dialog's box within the
-  -- phone's screen; test-learn.mjs: the pointer moved off what it showed.
+  -- phone's screen; the tutorial's test: the pointer moved off what it showed.
   it "clicks at a point from an element's box, and moves the pointer away" $ \pw -> withPage pw $ \page -> do
     goto page (at "input.html")
     Just box <- boundingBox (locator page "#canvas")
@@ -60,7 +60,7 @@ spec base = describe "input, geometry and waits" $ do
     mouseMove page 5 5
     shouldBeHidden (locator page "#outline")
 
-  -- test-learn.mjs: after a click that a router follows without loading a
+  -- the tutorial's test: after a click that a router follows without loading a
   -- page; smoke-test.mjs: a slide's step in the address.
   it "waits for the address, exactly or by a glob" $ \pw -> withPage pw $ \page -> do
     goto page (at "input.html")
@@ -78,7 +78,7 @@ spec base = describe "input, geometry and waits" $ do
     _ <- timesOut (waitForFunctionWith (withTimeout 300 page) "(n) => document.querySelectorAll('p').length > n" (100 :: Int))
     pure ()
 
-  -- test-learn.mjs: the compiler's "ready" line in the console, which the
+  -- the tutorial's test: the compiler's "ready" line in the console, which the
   -- page writes when it is, waited for after the action that starts it.
   it "waits for a console message, which may already be there" $ \pw -> withPage pw $ \page -> do
     goto page (at "input.html")

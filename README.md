@@ -126,7 +126,9 @@ build writes an `index.html` for every route, each with its lesson already rende
 back button, reloads and deep links work on a static host with no 404 fallback.
 [examples/learn/README.md](examples/learn/README.md) says how it is built, tested and deployed, and
 how to write a lesson; [learn/README.md](learn/README.md) how GHC runs in the page.
-`test-learn` needs a Chromium that Playwright can launch (`npx playwright install chromium`).
+`test-learn` is a native Haskell suite (`examples/learn/browser-test`, through
+`haskell-halogen-playwright`), so it needs the host GHC, and a Chromium that Playwright can launch
+(`npx playwright install chromium`).
 
 `serve-wasm` opens <http://127.0.0.1:8080> automatically. Set `PORT` to choose another port, or
 `NO_OPEN=1` to suppress opening the browser (for example in CI).

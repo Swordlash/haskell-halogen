@@ -96,7 +96,7 @@ spec base = describe "a context's state" $ do
     goto page (at "state.html")
     tap (locator page "#touch") `shouldThrow` \(e :: PlaywrightError) -> e.method == "tap"
 
-  -- test-learn.mjs and smoke-test-server.mjs: leaving with unsaved work
+  -- the tutorial's test and smoke-test-server.mjs: leaving with unsaved work
   -- asks, and the walk says leave; a page that should open no dialog.
   it "answers dialogs as the context says, and keeps them" $ \pw -> do
     withPage pw $ \page -> do
