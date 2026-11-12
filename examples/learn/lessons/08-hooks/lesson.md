@@ -9,7 +9,9 @@ args: -package haskell-halogen-hooks
 `Hooks.component` turns the function into an `H.Component`; `@Empty` (from `Data.Row`) says it has no child components. The body is a `Hooks.do` block, which needs `QualifiedDo`, and ends with `Hooks.pure` and the HTML:
 
 - `Hooks.useState initial` gives this render's value and a handle for changing it, `countId`. A click handler is a `Hooks.HookM` program: `Hooks.modify_ countId (+ 1)` changes the count, and the component renders again.
-- `Hooks.useLifecycleEffect` runs its program once, after the first render. This one starts a `ticker` with `Hooks.fork`: a loop that waits a second (`threadDelay`, in `liftIO`) and adds one to `seconds`. What it returns, `Just (Hooks.kill ticker)`, runs when the component goes away (when you compile again, say) and stops the loop.
+- `Hooks.useLifecycleEffect` runs its program once, after the first render. This one starts a `ticker` with `Hooks.fork`: a loop that waits a second (`Hooks.delay 1`, in seconds) and adds one to `seconds`. What it returns, `Just (Hooks.kill ticker)`, runs when the component goes away (when you compile again, say) and stops the loop.
+
+`Hooks.delay` waits as lesson 5's `liftIO (threadDelay 2000000)` does, except that Halogen does not count the pause as work under way: a test that waits for the program to finish waits for what a `liftIO` waits for, a request say, but not for a clock's next tick, which would keep it waiting for ever. So a pause that only ticks, or takes something off the screen, is written with `Hooks.delay`.
 
 ## A hook of your own
 

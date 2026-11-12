@@ -5,9 +5,8 @@
 
 module Lesson (component) where
 
-import Control.Concurrent (threadDelay)
 import Control.Monad (forever)
-import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.IO.Class (MonadIO)
 import Data.Row (Empty)
 import Data.Text qualified as T
 import Halogen qualified as H
@@ -45,7 +44,7 @@ component = Hooks.component @Empty $ \_ -> Hooks.do
   (seconds, secondsId) <- Hooks.useState (0 :: Int)
   Hooks.useLifecycleEffect $ do
     ticker <- Hooks.fork $ forever $ do
-      liftIO (threadDelay 1000000)
+      Hooks.delay 1
       Hooks.modify_ secondsId (+ 1)
     pure (Just (Hooks.kill ticker))
   Hooks.pure $
