@@ -104,6 +104,17 @@ slot_ label' p' component _input =
 -- |  , ...
 -- |  }
 -- | ```
+--
+-- Child components in the subtree ('slot', 'slot_') are kept when it is
+-- skipped: they stay on the page with their state, subscriptions and forks,
+-- answer the parent's queries and raise outputs to it, and are not
+-- finalized. A child gets no @Receive@ while the subtree is skipped (the
+-- argument being equal, so is the input the subtree would give it), and its
+-- outputs reach the parent through the slot's mapping as the last render
+-- that ran the subtree gave it. When the subtree runs again its slots are
+-- reconciled as any others: a child still there gets its input, one no
+-- longer rendered is finalized, a new one is initialized. (In
+-- purescript-halogen a skipped subtree's children are finalized.)
 memoized
   :: forall a action slots m
    . (a -> a -> Bool)
@@ -117,7 +128,8 @@ memoized eqFn f =
 
 -- | Skips rendering for referentially equal arguments. You should not use this
 -- | function fully saturated, but instead partially apply it for use within a
--- | Component's scope.
+-- | Component's scope. Child components in a skipped subtree are kept, as
+-- 'memoized' says.
 lazy
   :: forall a action slots m
    . (a -> ComponentHTML action slots m)

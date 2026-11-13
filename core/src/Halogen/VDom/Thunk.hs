@@ -44,10 +44,26 @@ unsafeEqThunk (Thunk a1 b1 _ d1 m1) (Thunk a2 b2 _ d2 m2) =
     && liftEq unsafeRefEq m1 m2
     && b1 d1 (unsafeCoerce d2)
 
-data ThunkState m f i a w = ThunkState
+data ThunkState m f i a w r = ThunkState
   { vdom :: V.Step m (V.VDom a w) (DomNode m)
   , thunk :: Thunk f i
+  , watched :: r
   }
+
+-- | What a renderer learns of a thunk's renders: 'running' goes around
+-- each render that runs the thunk (its first build, or a patch with a
+-- thunk that is not equal), and says what of that render to keep (the
+-- child components it met, say); 'skipped' is told it on each patch that
+-- skips the thunk, and may give the node that now stands for what the
+-- thunk rendered, if that is no longer the one it built.
+data ThunkWatch m a w r = ThunkWatch
+  { running :: forall x. V.VDom a w -> m x -> m (x, r)
+  , skipped :: r -> m (Maybe (DomNode m))
+  }
+
+-- | A watch that learns nothing.
+unwatched :: (Monad m) => ThunkWatch m a w ()
+unwatched = ThunkWatch {running = \_ act -> (,()) <$> act, skipped = \_ -> pure Nothing}
 
 hoist :: forall f g a. (forall x. f x -> g x) -> Thunk f a -> Thunk g a
 hoist f = mapThunkBy f f
@@ -69,6 +85,10 @@ runThunk (Thunk _ _ render arg _) = render arg
 {-# INLINEABLE buildThunk #-}
 
 {-# INLINEABLE hydrateThunk #-}
+
+{-# INLINEABLE buildThunkWith #-}
+
+{-# INLINEABLE hydrateThunkWith #-}
 #if !defined(HALOGEN_WASI) && (defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH))
 {-# SPECIALISE buildThunk :: (f i -> V.VDom a w) -> V.VDomSpec BrowserDOM a w -> V.Machine BrowserDOM (Thunk f i) (DomNode BrowserDOM) #-}
 {-# SPECIALISE hydrateThunk :: (f i -> V.VDom a w) -> V.VDomSpec BrowserDOM a w -> DomNode BrowserDOM -> V.Machine BrowserDOM (Thunk f i) (DomNode BrowserDOM) #-}
@@ -82,7 +102,20 @@ buildThunk
   => (f i -> V.VDom a w)
   -> V.VDomSpec m a w
   -> V.Machine m (Thunk f i) (DomNode m)
-buildThunk toVDom spec t = thunkStep toVDom t <$> V.buildVDom spec (toVDom (runThunk t))
+buildThunk = buildThunkWith unwatched
+
+-- | 'buildThunk', telling the watch of each render.
+buildThunkWith
+  :: forall m f i a w r
+   . (MonadDOM m)
+  => ThunkWatch m a w r
+  -> (f i -> V.VDom a w)
+  -> V.VDomSpec m a w
+  -> V.Machine m (Thunk f i) (DomNode m)
+buildThunkWith watch@ThunkWatch {running} toVDom spec t = do
+  let vdom = toVDom (runThunk t)
+  (step, r) <- running vdom (V.buildVDom spec vdom)
+  pure (thunkStep watch toVDom t r step)
 
 -- | 'buildThunk' by adopting the node given, as
 -- 'Halogen.VDom.DOM.hydrateVDom' adopts one: the thunk is rendered, and
@@ -96,26 +129,47 @@ hydrateThunk
   -> V.VDomSpec m a w
   -> DomNode m
   -> V.Machine m (Thunk f i) (DomNode m)
-hydrateThunk toVDom spec candidate t = thunkStep toVDom t <$> V.hydrateVDom spec (Just candidate) (toVDom (runThunk t))
+hydrateThunk = hydrateThunkWith unwatched
+
+-- | 'hydrateThunk', telling the watch of each render: the one that
+-- adopts the node is a render that runs the thunk.
+hydrateThunkWith
+  :: forall m f i a w r
+   . (MonadDOM m)
+  => ThunkWatch m a w r
+  -> (f i -> V.VDom a w)
+  -> V.VDomSpec m a w
+  -> DomNode m
+  -> V.Machine m (Thunk f i) (DomNode m)
+hydrateThunkWith watch@ThunkWatch {running} toVDom spec candidate t = do
+  let vdom = toVDom (runThunk t)
+  (step, r) <- running vdom (V.hydrateVDom spec (Just candidate) vdom)
+  pure (thunkStep watch toVDom t r step)
 
 -- | The machine of a thunk that has rendered this.
 thunkStep
-  :: forall m f i a w
+  :: forall m f i a w r
    . (Monad m)
-  => (f i -> V.VDom a w)
+  => ThunkWatch m a w r
+  -> (f i -> V.VDom a w)
   -> Thunk f i
+  -> r
   -> V.Step m (V.VDom a w) (DomNode m)
   -> V.Step m (Thunk f i) (DomNode m)
-thunkStep toVDom t0 vdom0 = V.Step (V.extract vdom0) (ThunkState {thunk = t0, vdom = vdom0}) patchThunk haltThunk
+thunkStep ThunkWatch {running, skipped} toVDom t0 r0 vdom0 =
+  V.Step (V.extract vdom0) (ThunkState {thunk = t0, vdom = vdom0, watched = r0}) patchThunk haltThunk
   where
-    patchThunk :: ThunkState m f i a w -> Thunk f i -> m (V.Step m (Thunk f i) (DomNode m))
+    patchThunk :: ThunkState m f i a w r -> Thunk f i -> m (V.Step m (Thunk f i) (DomNode m))
     patchThunk state t2 = do
-      let ThunkState {vdom = prev, thunk = t1} = state
+      let ThunkState {vdom = prev, thunk = t1, watched} = state
       if unsafeEqThunk t1 t2
-        then pure $ V.Step (V.extract prev) state patchThunk haltThunk
+        then do
+          moved <- skipped watched
+          pure $ V.Step (fromMaybe (V.extract prev) moved) state patchThunk haltThunk
         else do
-          vdom <- V.step prev (toVDom (runThunk t2))
-          pure $ V.Step (V.extract vdom) (ThunkState {vdom, thunk = t2}) patchThunk haltThunk
+          let next = toVDom (runThunk t2)
+          (vdom, r) <- running next (V.step prev next)
+          pure $ V.Step (V.extract vdom) (ThunkState {vdom, thunk = t2, watched = r}) patchThunk haltThunk
 
-    haltThunk :: ThunkState m f i a w -> m ()
+    haltThunk :: ThunkState m f i a w r -> m ()
     haltThunk state = V.halt state.vdom

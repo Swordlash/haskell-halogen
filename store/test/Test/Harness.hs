@@ -21,10 +21,9 @@ import Data.IORef
 import Data.Row (Row)
 import Data.Text qualified as T
 import Halogen (Component, HalogenSocket (..))
-import Halogen.Component (ComponentSlot (..), ComponentSlotBox)
+import Halogen.Component (ComponentSlot (..))
 import Halogen.HTML.Core qualified as HC
 import Halogen.IO.Driver qualified as AD
-import Halogen.IO.Driver.State (RenderStateX (..))
 import Halogen.Query.Input (Input)
 import Halogen.Subscription qualified as HS
 import Halogen.VDom.Types (VDom (..), runGraft)
@@ -95,11 +94,11 @@ renderHtml
    . (MonadIO m)
   => IORef [Text]
   -> (Input act -> m ())
-  -> (ComponentSlotBox ps m act -> m (RenderStateX TestRenderState))
+  -> AD.ChildSlots ps m act TestRenderState
   -> HC.HTML (ComponentSlot ps m act) act
   -> Maybe (TestRenderState s act ps o)
   -> m (TestRenderState s act ps o)
-renderHtml texts _handler renderChild html _prev = do
+renderHtml texts _handler AD.ChildSlots {AD.renderSlot = renderChild} html _prev = do
   rendered <- liftIO $ evaluate (textOf (HC.unHTML html))
   liftIO $ modifyIORef' texts (<> [rendered])
   traverse_ renderSlot (slotsOf (HC.unHTML html))

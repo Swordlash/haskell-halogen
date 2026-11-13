@@ -20,11 +20,10 @@ import Data.Void (Void)
 import Halogen qualified as H
 import Halogen.Activity (Activity (..))
 import Halogen.Activity qualified as Activity
-import Halogen.Component (ComponentSlot (..), ComponentSlotBox)
+import Halogen.Component (ComponentSlot (..))
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Core qualified as HC
 import Halogen.IO.Driver qualified as AD
-import Halogen.IO.Driver.State (RenderStateX (..))
 import Halogen.Query.Input (Input)
 import Halogen.VDom.Types (VDom (..), runGraft)
 import Prelude
@@ -48,11 +47,11 @@ nowhere failing =
   where
     render
       :: (Input act -> IO ())
-      -> (ComponentSlotBox ps IO act -> IO (RenderStateX Rendered))
+      -> AD.ChildSlots ps IO act Rendered
       -> HC.HTML (ComponentSlot ps IO act) act
       -> Maybe (Rendered s act ps o)
       -> IO (Rendered s act ps o)
-    render _ renderChild html _ = do
+    render _ AD.ChildSlots {AD.renderSlot = renderChild} html _ = do
       fails <- readIORef failing
       if fails
         then throwIO (ErrorCall "the render fails")

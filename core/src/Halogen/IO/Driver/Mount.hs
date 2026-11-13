@@ -5,6 +5,7 @@
 -- is "Halogen.IO.Driver".
 module Halogen.IO.Driver.Mount
   ( RenderSpec (..)
+  , ChildSlots (..)
   , runUI
   , runUIInitialized
   , HalogenSocket (..)
@@ -49,7 +50,7 @@ data RenderSpec (m :: Type -> Type) (r :: Type -> Type -> Row Type -> Type -> Ty
   { render
       :: forall s act ps o
        . (Input act -> m ())
-      -> (ComponentSlotBox ps m act -> m (RenderStateX r))
+      -> ChildSlots ps m act r
       -> HC.HTML (ComponentSlot ps m act) act
       -> Maybe (r s act ps o)
       -> m (r s act ps o)
@@ -65,6 +66,22 @@ data RenderSpec (m :: Type -> Type) (r :: Type -> Type -> Row Type -> Type -> Ty
   -- ^ The DOM node that stands for a component's rendering on the page,
   -- for "Halogen.Trace"'s 'Halogen.Trace.rootNode' (a panel outlines it).
   -- 'Nothing' from a renderer whose output is not the DOM's.
+  }
+
+-- | What a render pass hands the renderer for the child components in the
+-- HTML. Every slot the renderer meets goes to one of the two, or the child
+-- in it is taken for gone once the render is over: it is taken off the
+-- page and finalized.
+data ChildSlots ps m act r = ChildSlots
+  { renderSlot :: ComponentSlotBox ps m act -> m (RenderStateX r)
+  -- ^ A slot the render reached: the child already there, which gets the
+  -- slot's input as its @Receive@, or a new one, rendered and initialized
+  -- after the render.
+  , keepSlot :: ComponentSlotBox ps m act -> m (RenderStateX r)
+  -- ^ A slot of what the render left as it was (a memoized node it
+  -- skipped, its input being equal): the child already there, left as it
+  -- is, with no @Receive@ (its input cannot have changed). A slot with no
+  -- child there yet is rendered as 'renderSlot' would.
   }
 
 -- | Mount a component. The tree runs on a loop of its own (see
@@ -347,7 +364,10 @@ renderPass tree spec var = do
             $ specRender
               spec
               (liftIO . handler)
-              (liftIO . slotChild tree spec ds.tag.id childHandler childrenIn childrenOut created)
+              ChildSlots
+                { renderSlot = liftIO . slotChild tree spec ds.tag.id childHandler childrenIn childrenOut created
+                , keepSlot = liftIO . keepChild tree spec ds.tag.id childHandler childrenIn childrenOut created
+                }
               (ds.component.render ds.state)
               ds.rendering
         children <- readIORef childrenOut
@@ -397,6 +417,44 @@ slotChild tree spec parent handler childrenIn childrenOut created ComponentSlotB
   when isDuplicate
     $ hPutStrLn stderr ("Halogen: Duplicate slot address was detected during rendering, unexpected results may occur" :: Text)
   modifyIORef' childrenOut (set ref)
+  childRendering spec ref
+
+-- | A child slot the render left as it was: the child already there goes on
+-- as it is, without a @Receive@, and is not taken for gone. Its output is
+-- handled through this pass's handler, as a rendered child's is; that
+-- handler closes over nothing that changes from one pass to the next (the
+-- component's own state and queue), and the slot's mapping of the output
+-- is the one the last render that ran the memoized node gave, which the
+-- node, being skipped, would give again, so the handler is the same either
+-- way, and set here only so that a kept child is handled exactly as a
+-- rendered one.
+keepChild
+  :: forall m r ps act
+   . (MonadIO m)
+  => Tree m r
+  -> RenderSpec m r
+  -> Int
+  -> (act -> IO ())
+  -> IORef (Slot.SlotStorage ps (DriverStateRef m r))
+  -> IORef (Slot.SlotStorage ps (DriverStateRef m r))
+  -> IORef [IO ()]
+  -> ComponentSlotBox ps m act
+  -> IO (RenderStateX r)
+keepChild tree spec parent handler childrenIn childrenOut created box@ComponentSlotBox {pop, set, output} =
+  pop <$> readIORef childrenIn >>= \case
+    Just (existing@(DriverStateRef child), rest) -> do
+      writeIORef childrenIn rest
+      cds <- readIORef child
+      writeIORef cds.handlerRef (maybe pass handler . output)
+      modifyIORef' childrenOut (set existing)
+      childRendering spec existing
+    -- Not among the children the pass started with (a slot address used
+    -- twice, one of the uses already taken): rendered, as it would be if
+    -- the memoized node had run.
+    Nothing -> slotChild tree spec parent handler childrenIn childrenOut created box
+
+childRendering :: RenderSpec m r -> DriverStateRef m r f o -> IO (RenderStateX r)
+childRendering spec ref =
   readRef ref >>= \(DriverStateX cds) -> case cds.rendering of
     Nothing -> throwIO (ErrorCall "Halogen internal error: child was not initialized in renderChild")
     Just r -> pure (RenderStateX (specChild spec r))
@@ -479,7 +537,7 @@ readRef (DriverStateRef var) = DriverStateX <$> readIORef var
 specRender
   :: RenderSpec m r
   -> (Input act -> m ())
-  -> (ComponentSlotBox ps m act -> m (RenderStateX r))
+  -> ChildSlots ps m act r
   -> HC.HTML (ComponentSlot ps m act) act
   -> Maybe (r s act ps o)
   -> m (r s act ps o)

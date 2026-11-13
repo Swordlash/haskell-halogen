@@ -26,7 +26,6 @@ import Halogen.Component (ComponentSlot (..))
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Core qualified as HC
 import Halogen.IO.Driver qualified as AD
-import Halogen.IO.Driver.State (RenderStateX (..))
 import Halogen.Query.Input (Input)
 import Halogen.Subscription qualified as HS
 import Halogen.VDom.Types (VDom (..), runGraft)
@@ -57,11 +56,11 @@ testRenderSpec =
 renderTest
   :: forall s act ps o
    . (Input act -> IO ())
-  -> (ComponentSlotBox ps IO act -> IO (RenderStateX TestRenderState))
+  -> AD.ChildSlots ps IO act TestRenderState
   -> HC.HTML (ComponentSlot ps IO act) act
   -> Maybe (TestRenderState s act ps o)
   -> IO (TestRenderState s act ps o)
-renderTest _handler renderChild html _prev = do
+renderTest _handler AD.ChildSlots {AD.renderSlot = renderChild} html _prev = do
   traverse_ renderSlot (collect (HC.unHTML html))
   pure TestRenderState
   where

@@ -55,7 +55,6 @@ import Halogen.Component (ComponentSlot (..))
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Core qualified as HC
 import Halogen.IO.Driver qualified as AD
-import Halogen.IO.Driver.State (RenderStateX (..))
 import Halogen.JSBits (freeCallback, invokeCallback, jsNull, mkSyncCallback)
 import Halogen.Query.Input (Input)
 import Halogen.Subscription qualified as HS
@@ -83,11 +82,11 @@ walking texts =
   where
     render
       :: (Input act -> IO ())
-      -> (ComponentSlotBox ps IO act -> IO (RenderStateX Rendered))
+      -> AD.ChildSlots ps IO act Rendered
       -> HC.HTML (ComponentSlot ps IO act) act
       -> Maybe (Rendered s act ps o)
       -> IO (Rendered s act ps o)
-    render _ renderChild html _ = do
+    render _ AD.ChildSlots {AD.renderSlot = renderChild} html _ = do
       let (slots, text) = walk (HC.unHTML html)
       traverse_ (\case ComponentSlot box -> void (renderChild box); ThunkSlot _ -> pure ()) slots
       modifyIORef' texts (<> [mconcat text])
@@ -119,11 +118,11 @@ tracking fresh live refuse =
   where
     render
       :: (Input act -> IO ())
-      -> (ComponentSlotBox ps IO act -> IO (RenderStateX Tracked))
+      -> AD.ChildSlots ps IO act Tracked
       -> HC.HTML (ComponentSlot ps IO act) act
       -> Maybe (Tracked s act ps o)
       -> IO (Tracked s act ps o)
-    render _ renderChild html old = do
+    render _ AD.ChildSlots {AD.renderSlot = renderChild} html old = do
       traverse_ (\case ComponentSlot box -> void (renderChild box); ThunkSlot _ -> pure ()) (fst (walk (HC.unHTML html)))
       case old of
         Just r -> pure r

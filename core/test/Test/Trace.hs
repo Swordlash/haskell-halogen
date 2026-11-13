@@ -25,7 +25,6 @@ import Halogen.Component (ComponentSlot (..))
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Core qualified as HC
 import Halogen.IO.Driver qualified as AD
-import Halogen.IO.Driver.State (RenderStateX (..))
 import Halogen.Query.Input (Input)
 import Halogen.Subscription qualified as HS
 import Halogen.Trace qualified as Trace
@@ -64,11 +63,11 @@ walkingWith check texts =
   where
     render
       :: (Input act -> IO ())
-      -> (H.ComponentSlotBox ps IO act -> IO (RenderStateX Rendered))
+      -> AD.ChildSlots ps IO act Rendered
       -> HC.HTML (ComponentSlot ps IO act) act
       -> Maybe (Rendered s act ps o)
       -> IO (Rendered s act ps o)
-    render _ renderChild html _ = do
+    render _ AD.ChildSlots {AD.renderSlot = renderChild} html _ = do
       let (slots, text) = walk (HC.unHTML html)
       check (mconcat text)
       traverse_ (\case ComponentSlot box -> void (renderChild box); ThunkSlot _ -> pure ()) slots

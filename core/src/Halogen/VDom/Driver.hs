@@ -45,7 +45,22 @@ type MonadUI m = (DOM.MonadBrowserDOM m, MonadUnliftIO m)
 type VHTML m action slots =
   V.VDom [Prop (Input action)] (ComponentSlot slots m action)
 
-type ChildRenderer m action slots = ComponentSlotBox slots m action -> m (RenderStateX (RenderState m))
+type ChildRenderer m action slots = AD.ChildSlots slots m action (RenderState m)
+
+-- | The child slots met in the render of a memoized node that ran, its
+-- nested memoized nodes' included, kept with the node so that a render
+-- that skips it can tell the driver those children are still there; and
+-- whether the node's HTML is that one slot, in which case the node stands
+-- for whatever the child shows now.
+data Kept m slots action = Kept
+  { slots :: [ComponentSlotBox slots m action]
+  , atRoot :: Bool
+  }
+
+-- | Where the slots met while a memoized node renders are collected: the
+-- innermost such node that is running has a list here, and nothing does
+-- outside one.
+type Collecting m slots action = IORef (Maybe [ComponentSlotBox slots m action])
 
 data RenderState m state action slots output
   = RenderState
@@ -92,9 +107,10 @@ mkSpec
   => Adoption
   -> (Input action -> m ())
   -> IORef (ChildRenderer m action slots)
+  -> Collecting m slots action
   -> DOM.Document
   -> V.VDomSpec m [Prop (Input action)] (ComponentSlot slots m action)
-mkSpec adoption handler renderChildRef document =
+mkSpec adoption handler renderChildRef collecting document =
   V.VDomSpec {buildWidget = render, hydrateWidget, buildAttributes, document}
   where
     buildAttributes
@@ -107,7 +123,7 @@ mkSpec adoption handler renderChildRef document =
       ComponentSlot cs ->
         renderComponentSlot spec cs
       ThunkSlot t ->
-        thunk spec <$> Thunk.buildThunk coerce spec t
+        thunk spec <$> Thunk.buildThunkWith watch coerce spec t
 
     -- A child component is told the node to adopt through the tree's cell,
     -- which its first render takes; it is emptied again in case the child
@@ -121,7 +137,37 @@ mkSpec adoption handler renderChildRef document =
           writeIORef cell (Just (AdoptChild (Just candidate)))
           renderComponentSlot spec cs `finally` writeIORef cell Nothing
       ThunkSlot t ->
-        thunk spec <$> Thunk.hydrateThunk coerce spec candidate t
+        thunk spec <$> Thunk.hydrateThunkWith watch coerce spec candidate t
+
+    -- A memoized node that runs collects the slots met in its render, its
+    -- nested nodes' with them, and adds them to the node it is in, if any.
+    -- One that is skipped hands them to the render pass as kept (its
+    -- children are not rendered, so nothing else would tell the pass they
+    -- are still there, and it would take them for gone), and adds them to
+    -- the node it is in in turn: a node skipped later, around it, keeps
+    -- them too.
+    watch :: Thunk.ThunkWatch m [Prop (Input action)] (ComponentSlot slots m action) (Kept m slots action)
+    watch = Thunk.ThunkWatch {running, skipped}
+      where
+        running :: forall x. V.VDom [Prop (Input action)] (ComponentSlot slots m action) -> m x -> m (x, Kept m slots action)
+        running vdom act = do
+          outer <- readIORef collecting
+          writeIORef collecting (Just [])
+          x <- act `onException` writeIORef collecting outer
+          met <- fromMaybe [] <$> readIORef collecting
+          writeIORef collecting ((met <>) <$> outer)
+          pure (x, Kept {slots = met, atRoot = isSlot vdom})
+        skipped Kept {slots, atRoot} = do
+          modifyIORef' collecting (fmap (slots <>))
+          AD.ChildSlots {keepSlot} <- readIORef renderChildRef
+          nodes <- traverse (getNode <=< keepSlot) slots
+          -- What the child shows may not be the node it showed when the
+          -- memoized node ran (its root changed since, or it broke).
+          pure $ if atRoot then listToMaybe nodes else Nothing
+        isSlot = \case
+          V.Widget (ComponentSlot _) -> True
+          V.Grafted g -> isSlot (V.runGraft g)
+          _ -> False
 
     thunk
       :: Spec m action slots
@@ -149,8 +195,9 @@ mkSpec adoption handler renderChildRef document =
       -> ComponentSlotBox slots m action
       -> m (V.Step m (ComponentSlot slots m action) DOM.Node)
     renderComponentSlot spec cs = do
-      renderChild <- readIORef renderChildRef
-      node <- getNode =<< renderChild cs
+      modifyIORef' collecting (fmap (cs :))
+      AD.ChildSlots {renderSlot} <- readIORef renderChildRef
+      node <- getNode =<< renderSlot cs
       pure $ V.Step node Nothing (patch spec) done
 
     done :: WidgetState m slots action -> m ()
@@ -274,7 +321,7 @@ renderSpecWith adoption document container =
     render
       :: forall state action slots output
        . (Input action -> m ())
-      -> (ComponentSlotBox slots m action -> m (RenderStateX (RenderState m)))
+      -> AD.ChildSlots slots m action (RenderState m)
       -> HTML (ComponentSlot slots m action) action
       -> Maybe (RenderState m state action slots output)
       -> m (RenderState m state action slots output)
@@ -335,12 +382,14 @@ renderSpecWith adoption document container =
           writeIORef broken True
         build = do
           renderChildRef <- newIORef child
-          let spec = mkSpec adoption handler renderChildRef document
+          collecting <- newIORef Nothing
+          let spec = mkSpec adoption handler renderChildRef collecting document
           machine <- V.buildVDom spec vdom
           pure (machine, renderChildRef)
         hydrate candidate = do
           renderChildRef <- newIORef child
-          let spec = mkSpec adoption handler renderChildRef document
+          collecting <- newIORef Nothing
+          let spec = mkSpec adoption handler renderChildRef collecting document
           machine <- V.hydrateVDom spec candidate vdom
           pure (machine, renderChildRef)
 
