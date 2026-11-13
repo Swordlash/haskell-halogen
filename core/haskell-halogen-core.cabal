@@ -317,6 +317,7 @@ test-suite Halogen-core-test
                     Test.Static
                     Test.Storage
                     Test.SvgAttributes
+                    Test.ThunkSlots
                     Test.Trace
                     Test.Utils
                     Test.WebFields
