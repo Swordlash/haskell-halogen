@@ -6,6 +6,7 @@
 module Halogen.Activity.Internal
   ( Activity (..)
   , activity
+  , treeActivity
   , idle
   , quiet
   , register
@@ -75,6 +76,17 @@ activity = do
       , running = length (filter fst readings)
       , waiting = sum (map snd readings)
       }
+
+-- | Read one tree's loop, by the number 'register' gave it: one tree from
+-- its registration until it is deregistered, nothing before or after. The
+-- same contract as 'activity', for that tree alone.
+treeActivity :: Int -> IO Activity
+treeActivity n =
+  IntMap.lookup n . snd <$> readIORef trees >>= \case
+    Nothing -> pure Activity {trees = 0, running = 0, waiting = 0}
+    Just loop -> do
+      (busy, waits) <- loopActivity loop
+      pure Activity {trees = 1, running = if busy then 1 else 0, waiting = waits}
 
 -- | Count a tree, and give the page's probe its function if the page has
 -- one and this program has not done so yet. The driver calls it inside the

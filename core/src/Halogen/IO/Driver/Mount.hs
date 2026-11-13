@@ -44,6 +44,11 @@ data HalogenSocket query output m = HalogenSocket
   -- for itself.
   , messages :: HS.Emitter m output
   , dispose :: m ()
+  , activity :: m Activity.Activity
+  -- ^ What this tree alone is doing, as "Halogen.Activity" reads every
+  -- tree: one tree until it is disposed of and none after, running or not,
+  -- and its fibers waiting in a 'liftIO'. For a program that runs several
+  -- trees and has to know about one (a server with a tree per connection).
   }
 
 data RenderSpec (m :: Type -> Type) (r :: Type -> Type -> Row Type -> Type -> Type) = RenderSpec
@@ -157,6 +162,7 @@ mount toTheEnd spec@RenderSpec {dispose} c i = withRunInIO $ \runInIO -> do
       { query = liftIO . askRoot tree root
       , messages = sio.emitter
       , dispose = liftIO (disposeRoot tree disposed registration root)
+      , activity = liftIO (Activity.treeActivity registration)
       }
   where
     askRoot :: forall a. Tree m r -> DriverStateRef m r f o -> f a -> IO (Maybe a)

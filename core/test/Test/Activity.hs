@@ -90,6 +90,10 @@ mountWith failing setup = AD.runUI (nowhere failing) (waiter setup) ()
 dispose :: AD.HalogenSocket q o IO -> IO ()
 dispose AD.HalogenSocket {AD.dispose = d} = d
 
+-- | The socket's reading of its own tree.
+treeActivity :: AD.HalogenSocket q o IO -> IO Activity
+treeActivity AD.HalogenSocket {AD.activity = a} = a
+
 within :: String -> IO a -> IO a
 within what io = timeout 5_000_000 io >>= maybe (throwIO (ErrorCall ("timed out: " <> what))) pure
 
@@ -229,6 +233,62 @@ spec = describe "Halogen.Activity" $ do
     putMVar release ()
     within "waitQuiet to return" (takeMVar returned)
     dispose ui
+
+  describe "one tree's reading (the socket's activity)" $ do
+    it "reads its own tree alone: a busy tree beside an idle one, each read separately" $ do
+      failing <- newIORef False
+      seen <- newIORef Nothing
+      started <- newEmptyMVar
+      release <- newEmptyMVar
+      before <- Activity.activity
+      busy <- mountWith failing Setup {seen, gate = Just (started, release)}
+      calm <- mountWith failing Setup {seen, gate = Nothing}
+      within "the wait to start" (takeMVar started)
+      treeActivity busy >>= assertEqual "the waiting tree" Activity {trees = 1, running = 0, waiting = 1}
+      treeActivity calm >>= assertEqual "the idle tree" Activity {trees = 1, running = 0, waiting = 0}
+      -- The process's reading sums them.
+      Activity.activity >>= assertEqual "both, read together" (2, 0, 1) . since before
+      putMVar release ()
+      within "quiet again" Activity.waitQuiet
+      treeActivity busy >>= assertEqual "the tree that waited, now quiet" Activity {trees = 1, running = 0, waiting = 0}
+      dispose busy
+      dispose calm
+
+    it "reads another tree as idle from inside this tree's work, which the process reads as running" $ do
+      inside <- newEmptyMVar
+      other <- mountProgram (pure ())
+      let program = H.liftEffect ((,) <$> treeActivity other <*> Activity.activity >>= putMVar inside)
+      -- The other tree's reading, taken from inside this tree's Initialize:
+      -- this tree's loop is busy, the other's is not.
+      withProgram program $ \_ -> do
+        (theOther, everything) <- within "the reading" (takeMVar inside)
+        assertEqual "the other tree, idle" Activity {trees = 1, running = 0, waiting = 0} theOther
+        assertWith "the process, busy" (not (Activity.idle everything))
+      dispose other
+
+    it "counts its tree as running while the loop is held" $ do
+      go <- newEmptyMVar
+      holding <- newEmptyMVar
+      letGo <- newEmptyMVar
+      -- After a wait, an effect that holds the loop until the test lets it.
+      let program = liftIO (takeMVar go) >> H.liftEffect (putMVar holding () >> takeMVar letGo)
+      withProgram program $ \ui -> do
+        treeActivity ui >>= assertEqual "waiting" Activity {trees = 1, running = 0, waiting = 1}
+        putMVar go ()
+        within "the effect" (takeMVar holding)
+        treeActivity ui >>= assertEqual "running" Activity {trees = 1, running = 1, waiting = 0}
+        putMVar letGo ()
+        within "quiet again" Activity.waitQuiet
+        treeActivity ui >>= assertEqual "quiet" Activity {trees = 1, running = 0, waiting = 0}
+
+    it "counts no tree once it is disposed of, and a pause as neither running nor waiting" $ do
+      woke <- newEmptyMVar
+      ui <- mountProgram (H.delay 60 >> mark woke)
+      treeActivity ui >>= assertEqual "asleep" Activity {trees = 1, running = 0, waiting = 0}
+      dispose ui
+      treeActivity ui >>= assertEqual "gone" Activity {trees = 0, running = 0, waiting = 0}
+      dispose ui
+      treeActivity ui >>= assertEqual "gone, disposed of twice" Activity {trees = 0, running = 0, waiting = 0}
 
   describe "a pause (H.delay)" $ do
     it "counts a fiber in a pause as neither running nor waiting, and waitQuiet returns while it sleeps" $ do
