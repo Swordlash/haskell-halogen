@@ -7,13 +7,13 @@
 -- With @haskell-halogen-playwright@ driving the page (this module does not
 -- depend on it; a test combines the two):
 --
--- > spec :: Spec
--- > spec = aroundAll withTestServer $ playwright' $ do
--- >   it "saves" $ \(server, pw) -> inPage' pw $ \page -> do
+-- > main :: IO ()
+-- > main = withTestServer $ \server -> hspec $ playwright $
+-- >   it "saves" $ inPage $ \page -> do
 -- >     (address, connected) <- mounting server (editor env) input
--- >     visit page address                  -- returns once the first render is shown
+-- >     visit page address                          -- returns once the first render is shown
 -- >     mounted <- connected
--- >     click (byRoleNamed page "button" "Save")   -- settles: handled, rendered and sent
+-- >     click (byRoleNamed page "button" "Save")    -- settles: handled, rendered and sent
 -- >     textContent (locator page "#status") `shouldReturn` "Saved"
 -- >     queryComponent mounted (H.mkRequest IsSaved) `shouldReturn` Just True
 --

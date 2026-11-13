@@ -190,6 +190,13 @@ pausing in `H.delay`). Idle is
 exact. Any tool can set the probe up and ask it; see `Halogen.Activity`'s
 documentation for the contract.
 
+A component need not be in the page for this: `haskell-halogen-remote`'s
+`Halogen.Remote.Test` mounts a component in the test's own process, natively,
+and shows it in a page through its client, which forwards the probe's question
+to the component's session over the wire. The same driver then tests a
+component that runs in the test's process, settling every action on that
+component alone; see remote's README, "Testing a component in a real page".
+
 ## Serving a built directory
 
 `Halogen.Playwright.Serve` serves a directory on a free port for a test's
