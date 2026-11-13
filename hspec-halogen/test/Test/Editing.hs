@@ -61,6 +61,13 @@ spec m = do
     typeText field "axb"
     getProperty field "value" `shouldReturn` "ab"
 
+  it "keeps from being typed only the key a handler declared it is for" $ runPage $ do
+    ui <- mount m Editing.component ()
+    field <- find ui "input.search-field"
+    typeText field "a/b"
+    getProperty field "value" `shouldReturn` "ab"
+    find ui ".slashes" >>= (`shouldHaveText` "1")
+
   it "leaves a field as it was when its beforeinput is prevented" $ runPage $ do
     ui <- mount m Editing.component ()
     field <- find ui "input.refuses"

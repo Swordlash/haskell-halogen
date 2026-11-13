@@ -27,6 +27,7 @@ where
 import Control.Monad.Primitive (PrimMonad)
 import Control.Monad.Trans.Identity (IdentityT (..))
 import HPrelude
+import Halogen.VDom.DOM.HandlerOptions (HandlerOptions)
 import Halogen.VDom.Types
 import Web.DOM.Internal.Types (Document, Element, HTMLDocument, Node, Window)
 import Web.DOM.ParentNode (QuerySelector)
@@ -218,6 +219,21 @@ class (PrimMonad m) => MonadDOM m where
   default removeEventListener :: (LiftsDOM t n m) => EventType -> DomEventListener m -> DomEventTarget m -> m ()
   removeEventListener ty listener target = lift (removeEventListener ty listener target)
 
+  -- | What the handler behind a listener added with 'addEventListener'
+  -- declared ('HandlerOptions'): said after the listener is added when it
+  -- declares anything, and again whenever a patch changes it, for as long
+  -- as the listener stays.
+  --
+  -- A backend whose listener runs while the event is being dispatched has
+  -- nothing to do: the listener ("Halogen.VDom.DOM.Prop") acts on the
+  -- options itself. That is every backend but one whose page is somewhere
+  -- else (haskell-halogen-remote's), whose page has to know them to act in
+  -- time, so this does nothing unless a backend says otherwise. A
+  -- transformer over such a backend must pass it on, as 'ReaderT''s and
+  -- 'IdentityT''s instances do.
+  setListenerOptions :: EventType -> HandlerOptions -> DomEventListener m -> DomEventTarget m -> m ()
+  setListenerOptions _ _ _ _ = pure ()
+
 -- | What a transformer over a 'MonadDOM' needs for the lifted defaults.
 --
 -- The tree is the one underneath: a transformer adds an effect to how a
@@ -397,6 +413,7 @@ instance (MonadDOM m) => MonadDOM (ReaderT r m) where
   type DomEventTarget (ReaderT r m) = DomEventTarget m
 
   mkEventListener f = ReaderT $ \r -> mkEventListener (\ev -> runReaderT (f ev) r)
+  setListenerOptions ty options listener target = lift (setListenerOptions ty options listener target)
 
 instance (MonadAttributes m) => MonadAttributes (ReaderT r m)
 
@@ -410,6 +427,7 @@ instance (MonadDOM m) => MonadDOM (IdentityT m) where
   type DomEventTarget (IdentityT m) = DomEventTarget m
 
   mkEventListener f = IdentityT $ mkEventListener (runIdentityT . f)
+  setListenerOptions ty options listener target = lift (setListenerOptions ty options listener target)
 
 instance (MonadAttributes m) => MonadAttributes (IdentityT m)
 

@@ -34,7 +34,9 @@ import Data.Void (Void, absurd)
 import Halogen.VDom.DOM (VDomSpec (..), buildVDom)
 import Halogen.VDom.DOM.Monad (MemDOM (..), appendChild, propertyEquals, runMemDOM, setProperty, setTextContent)
 import Halogen.VDom.DOM.Monad.Native qualified as N
-import Halogen.VDom.DOM.Prop (Prop (..), PropValue (..), buildProp, handlerOptions)
+import Data.Aeson ((.=))
+import Data.Aeson qualified as Aeson
+import Halogen.VDom.DOM.Prop (EventMatch (..), HandlerOptions (..), KeyMatch (..), Prop (..), PropValue (..), buildProp, handlerOptions, keyMatch)
 import Halogen.VDom.Machine (Step, extract)
 import Halogen.VDom.Machine qualified as M
 import Halogen.VDom.Types (ElemName (..), Namespace (..), VDom (..))
@@ -42,6 +44,7 @@ import Test.Hspec (Spec, describe, it)
 import Test.Utils (assertEqual, assertWith)
 import Web.DOM.Internal.Types (Document, Element, Node)
 import Web.Event.Event (EventType (..))
+import Web.UIEvent.KeyboardEvent qualified as KE
 import Web.HTML.Common (AttrName (..))
 
 -- | The tests never build widgets, so the widget type is uninhabited.
@@ -85,6 +88,17 @@ refused :: TestStep -> IO ()
 refused s = do
   result <- try (snapshot s)
   assertWith "serialising it is refused" (either (\(_ :: SomeException) -> True) (const False) result)
+
+-- | Run the rendered element's listeners for a type, as the browser would
+-- for an event with these properties.
+fire :: TestStep -> Text -> Aeson.Value -> IO ()
+fire s ty properties = do
+  listeners <- readIORef (N.toNative (extract s)).listeners
+  for_ [l | l <- listeners, l.eventType == ty] $ \l -> runMemDOM (l.fire (N.event properties))
+
+-- | The rendered element's listeners, by identity.
+listenerIdents :: TestStep -> IO [Int]
+listenerIdents s = map (.ident) <$> readIORef (N.toNative (extract s)).listeners
 
 -- | The identity of the rendered node. Stable across a patch exactly when the
 -- machinery reused the node instead of replacing it.
@@ -505,6 +519,58 @@ spec = describe "native VDom" $ do
       s0 <- build vspec $ el "button" [Handler (EventType "click") handlerOptions (const (Just "clicked"))] []
       s1 <- step s0 $ el "button" [] []
       assertEqual "listener removed" [] =<< N.listenerTypes (N.toNative (extract s1))
+
+  describe "a handler's declared match" $ do
+    let keydown options = el "div" [Handler (EventType "keydown") options (const (Just "pressed"))] []
+        matching m = handlerOptions {preventDefault = True, matching = Just m}
+        press s key extra = fire s "keydown" (Aeson.object (("key" .= key) : extra))
+    it "asks the handler only about the events that match" $ do
+      (vspec, emitted) <- newSpec
+      s <- build vspec (keydown (matching (Keys [keyMatch "/", (keyMatch "s") {ctrlKey = Just True}])))
+      press s ("a" :: Text) []
+      press s ("/" :: Text) []
+      -- A modifier the match says nothing of goes either way.
+      press s ("/" :: Text) ["shiftKey" .= True]
+      press s ("s" :: Text) []
+      press s ("s" :: Text) ["ctrlKey" .= True]
+      assertEqual "messages" ["pressed", "pressed", "pressed"] =<< readIORef emitted
+
+    it "asks a handler with no match about every event, as before" $ do
+      (vspec, emitted) <- newSpec
+      let only key ev = if KE.key (KE.KeyboardEvent ev) == key then Just key else Nothing
+      s <- build vspec (el "div" [Handler (EventType "keydown") handlerOptions {preventDefault = True} (only "x")] [])
+      press s ("a" :: Text) []
+      press s ("x" :: Text) []
+      assertEqual "messages" ["x"] =<< readIORef emitted
+
+    it "reads a plain left click, and every event for any" $ do
+      (vspec, emitted) <- newSpec
+      let click options = el "a" [Handler (EventType "click") options (const (Just "clicked"))] []
+      plain <- build vspec (click (matching PlainLeftClick))
+      fire plain "click" (Aeson.object [])
+      fire plain "click" (Aeson.object ["button" .= (0 :: Int), "ctrlKey" .= True])
+      fire plain "click" (Aeson.object ["button" .= (0 :: Int)])
+      assertEqual "a plain click" ["clicked"] =<< readIORef emitted
+      writeIORef emitted []
+      anything <- build vspec (click (matching AnyEvent))
+      fire anything "click" (Aeson.object [])
+      fire anything "click" (Aeson.object ["button" .= (1 :: Int)])
+      assertEqual "any click" ["clicked", "clicked"] =<< readIORef emitted
+
+    it "follows a render that changes it, on the listener that stays" $ do
+      (vspec, emitted) <- newSpec
+      s0 <- build vspec (keydown (matching (Keys [keyMatch "a"])))
+      before <- listenerIdents s0
+      press s0 ("a" :: Text) []
+      press s0 ("b" :: Text) []
+      s1 <- step s0 (keydown (matching (Keys [keyMatch "b"])))
+      assertEqual "the same listener" before =<< listenerIdents s1
+      press s1 ("a" :: Text) []
+      press s1 ("b" :: Text) []
+      s2 <- step s1 (keydown handlerOptions)
+      assertEqual "still the same listener" before =<< listenerIdents s2
+      press s2 ("c" :: Text) []
+      assertEqual "messages" ["pressed", "pressed", "pressed"] =<< readIORef emitted
 
   describe "halting" $
     it "detaches the rendered subtree from its parent" $ do
