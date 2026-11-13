@@ -17,9 +17,9 @@
 -- one is. That is what lets a node taken out and put back within a render
 -- (the node of a child component whose parent replaced the element around
 -- it) survive: a node taken out and not put back by the end of the batch is
--- gone, on both sides, and only then. The first message of a session holds
+-- gone, on both sides, and only then. The first batch of a session holds
 -- the first render, after a @clear@ that empties what the client showed
--- before.
+-- before (only the probe's answers can come before it).
 --
 -- __What cannot cross.__ The component's program runs here, the page there,
 -- and the wire between them takes time, so:

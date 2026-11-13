@@ -102,6 +102,23 @@ spec = describe "the server" $ do
         Just (Left (WS.CloseRequest _ reason)) -> reason `shouldBe` "nothing was mounted for this connection"
         other -> expectationFailure ("not closed with a reason: " <> show (fmap (fmap (const ())) other))
 
+  it "ends only the session whose function throws, with why" $ do
+    let connect request session = case join (lookup "which" request.query) of
+          Just "broken" -> throwIO (ErrorCall "no component for this one")
+          _ -> void (Session.mount session counter ())
+        app = Server.applicationWith Server.defaultSettings connect
+    Warp.testWithApplication (pure app) $ \port -> do
+      closed <- WS.runClient "127.0.0.1" port "/live?which=broken" $ \connection ->
+        timeout 5000000 (try (WS.receiveDataMessage connection))
+      case closed of
+        Just (Left (WS.CloseRequest _ reason)) -> reason `shouldBe` "the session ended"
+        other -> expectationFailure ("not closed with a reason: " <> show (fmap (fmap (const ())) other))
+      -- The server goes on: the next connection gets its component.
+      WS.runClient "127.0.0.1" port "/live" $ \connection -> do
+        opening <- receiveBatch connection
+        elementWithId opening.ops "increment" `shouldSatisfy` isJust
+        WS.sendClose connection ("bye" :: Text)
+
   it "answers the probe's questions over the socket, after the batches" $ do
     let app = Server.application Server.defaultSettings counter ()
     Warp.testWithApplication (pure app) $ \port ->
