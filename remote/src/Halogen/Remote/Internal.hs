@@ -83,6 +83,7 @@ import Data.Sequence qualified as Seq
 import Data.Text qualified as Text
 import Halogen.JSBits (JSVal, toJSInt)
 import Halogen.Remote.Protocol (EventMessage (..), ListenerId, NodeId, Op (..))
+import Halogen.VDom.DOM.HandlerOptions (HandlerOptions)
 import Halogen.VDom.DOM.Monad
   ( DomNodeKind (..)
   , MonadAttributes (..)
@@ -302,6 +303,7 @@ takeBatch recorder = do
       RemoveProperty n _ -> n `IntSet.member` gone
       Listen n _ _ -> n `IntSet.member` gone
       Unlisten n _ _ -> n `IntSet.member` gone
+      ListenerOptions n _ _ _ -> n `IntSet.member` gone
       _ -> False
 
 -- | Run a render, counted as under way while it runs (and fails), so that no
@@ -524,6 +526,16 @@ instance MonadDOM RemoteDOM where
         y : ys
           | x == y -> ys
           | otherwise -> y : deleteOnce x ys
+
+  setListenerOptions = setOptions
+
+-- What a listener's handler declared goes to the client, which acts on it
+-- while the page dispatches the event (see "Halogen.Remote.Protocol"), for
+-- a listener the node has.
+setOptions :: EventType -> HandlerOptions -> RemoteListener -> EventTarget -> RemoteDOM ()
+setOptions (EventType ty) options listener (EventTarget target) = withNode target $ \node -> do
+  present <- elem (ty, listener.ident) <$> readIORef node.listening
+  when present $ record (ListenerOptions node.ident ty listener.ident options)
 
 instance MonadAttributes RemoteDOM where
   setAttribute namespace (AttrName name) value el = withNode (elementValue el) $ \node -> do

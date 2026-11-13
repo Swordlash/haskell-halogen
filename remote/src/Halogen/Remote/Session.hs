@@ -28,16 +28,25 @@
 --   mirror, not an element of the page: an effect that talks to the browser
 --   through it (focusing, measuring, a canvas) does nothing useful, as under
 --   the in-memory DOM.
--- * 'Web.Event.Event.preventDefault' in a handler comes too late: the page
---   has finished with the event before the program hears of it. The client
---   prevents the default itself, of every @submit@ it listens for and of a
---   @click@ on an @a@ element it listens for that the browser would follow
---   in this tab (the main button, no modifier key, a link with no other
---   @target@ and no @download@), and of nothing else.
---   'Halogen.HTML.Events.preventingDefault' does not help: what a handler
---   does to its event is decided in the listener, which runs here. A
---   handler declared with it (or 'Halogen.HTML.Events.stoppingPropagation')
---   runs as any other, and its preventing or stopping does nothing.
+-- * What a handler decides comes too late for the page: the page has
+--   finished with an event before the program hears of it, so
+--   'Web.Event.Event.preventDefault' called from an action does nothing, and
+--   neither does a choice only the handler's function can make. What the
+--   page has to decide while it dispatches the event has to be declared, as
+--   data it can read: a handler with a match ('Halogen.HTML.Events.matching':
+--   a plain left click, keys, any event) is sent only the events that
+--   match, and the page prevents their default
+--   ('Halogen.HTML.Events.preventingDefault') or stops them
+--   ('Halogen.HTML.Events.stoppingPropagation') as declared. A handler that
+--   declares 'Halogen.HTML.Events.preventingDefault' with no match has the
+--   default of every event of its type prevented, since the page cannot know
+--   which of them the handler would make an action for: over the wire,
+--   declare the match. A "Halogen.Router" link declares the plain left
+--   click. For a handler that declares nothing, the client prevents the
+--   default of every @submit@ it listens for and of a @click@ on an @a@
+--   element that the browser would follow in this tab (the main button, no
+--   modifier key, a link with no other @target@ and no @download@), and of
+--   nothing else.
 -- * Focus and selection are the page's. The client sets an element's
 --   @value@ only when it differs from what the element holds, so text being
 --   typed is not undone, and every event reports the values of its target's

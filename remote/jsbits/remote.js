@@ -8,7 +8,8 @@
 //
 // The program sends batches of operations, which the client applies to real
 // nodes it keeps by number; the client sends back, for each event a listener
-// of the program's hears, what handlers read of it. Halogen.Remote.Protocol
+// of the program's hears (and its handler's declared match, if it has one,
+// lets through), what handlers read of it. Halogen.Remote.Protocol
 // describes both. Node 0 is the window and node 1 the container the client
 // was attached to; every other node is made by an operation.
 //
@@ -144,6 +145,9 @@ function halogen_remote_op(client, op) {
     case "unlisten":
       halogen_remote_unlisten(client, op[1], op[2], op[3]);
       break;
+    case "options":
+      halogen_remote_options(client, op[1], op[2], op[3], op[4]);
+      break;
     default:
       break;
   }
@@ -181,27 +185,75 @@ function halogen_remote_listen(client, id, type, listener) {
   var target = client.nodes.get(id);
   var key = id + ":" + type + ":" + listener;
   if (!target || client.listeners.has(key)) return;
-  var handler = function (event) {
+  // What the listener's handler declared, once an options operation says:
+  // null for one that declares nothing.
+  var entry = { target: target, type: type, handler: null, options: null };
+  entry.handler = function (event) {
     // Whether the default was prevented before the client acted: what the
     // program reads as the event's defaultPrevented.
     var prevented = event.defaultPrevented;
-    // The program hears of the event only once the page is done with it,
-    // too late to prevent its default, so the client prevents the two
-    // defaults a component that listens never wants: a form's submission
-    // reloading the page, and a link it handles itself being followed in
-    // this tab. A click the browser would not follow here (with a modifier
-    // key, another button, on a link to another target or a download) is
-    // left to the browser: a ctrl-click opens a new tab.
-    if (type === "submit" || (type === "click" && target.tagName === "A" && halogen_remote_plain_left_click(event, target))) {
+    var options = entry.options;
+    if (options) {
+      // The program hears of the event only once the page is done with
+      // it, so what its handler declared is done here, while the page
+      // dispatches the event: an event that does not match is not the
+      // handler's, and does not cross the wire.
+      if (options.match !== null && options.match !== undefined && !halogen_remote_matches(options.match, event, target)) return;
+      if (options.preventDefault) event.preventDefault();
+      if (options.stopPropagation) event.stopPropagation();
+    } else if (type === "submit" || (type === "click" && target.tagName === "A" && halogen_remote_plain_left_click(event, target))) {
+      // A handler that declares nothing: the client prevents the two
+      // defaults a component that listens never wants, a form's
+      // submission reloading the page, and a link it handles itself being
+      // followed in this tab. A click the browser would not follow here
+      // (with a modifier key, another button, on a link to another target
+      // or a download) is left to the browser: a ctrl-click opens a new
+      // tab.
       event.preventDefault();
     }
     client.send(JSON.stringify({ listener: listener, node: id, type: type, event: halogen_remote_event(event, prevented) }));
   };
-  target.addEventListener(type, handler);
-  client.listeners.set(key, { target: target, type: type, handler: handler });
+  target.addEventListener(type, entry.handler);
+  client.listeners.set(key, entry);
   var keys = client.keysOf.get(id);
   if (keys) keys.push(key);
   else client.keysOf.set(id, [key]);
+}
+
+// What the handler of a listener the client has declared, which replaces
+// what it declared before. Options that declare nothing (no match, nothing
+// prevented or stopped) are a listener's that never had any.
+function halogen_remote_options(client, id, type, listener, options) {
+  var entry = client.listeners.get(id + ":" + type + ":" + listener);
+  if (!entry) return;
+  var declares = options && ((options.match !== null && options.match !== undefined) || options.preventDefault || options.stopPropagation);
+  entry.options = declares ? options : null;
+}
+
+// Whether an event is one a handler's declared match is for (the module
+// Halogen.VDom.DOM.HandlerOptions of haskell-halogen-core): "any",
+// "plain-left-click" on the listening element, or a list of keys, each with
+// the modifiers it says are held or not. A match this client does not know
+// (from a newer library than the client) is taken as "any", and the program
+// still asks its own handler only about the events that match.
+function halogen_remote_matches(match, event, target) {
+  if (match === "any") return true;
+  if (match === "plain-left-click") return halogen_remote_plain_left_click(event, target);
+  if (Array.isArray(match)) {
+    for (var i = 0; i < match.length; i++) {
+      var k = match[i];
+      if (
+        event.key === k.key &&
+        (typeof k.ctrlKey !== "boolean" || k.ctrlKey === event.ctrlKey) &&
+        (typeof k.shiftKey !== "boolean" || k.shiftKey === event.shiftKey) &&
+        (typeof k.altKey !== "boolean" || k.altKey === event.altKey) &&
+        (typeof k.metaKey !== "boolean" || k.metaKey === event.metaKey)
+      )
+        return true;
+    }
+    return false;
+  }
+  return true;
 }
 
 function halogen_remote_unlisten(client, id, type, listener) {
@@ -294,7 +346,7 @@ function halogen_remote_loopback(container, callback) {
 // a listener may call on an event: a handler declared with
 // HE.preventingDefault or HE.stoppingPropagation has the listener call them
 // before its action. They do nothing, since the page dispatched the event
-// long before (the client prevents the defaults that matter itself), and
+// long before (the client did what the handler declared itself), and
 // defaultPrevented stays what the client sent: whether something in the
 // page had prevented the default before the client acted.
 function halogen_remote_parse(text) {

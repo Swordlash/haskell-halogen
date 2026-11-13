@@ -6,6 +6,7 @@ import Data.Aeson qualified as Aeson
 import Data.Aeson.Text (encodeToLazyText)
 import Data.Text.Lazy qualified as Lazy
 import Halogen.Remote.Protocol
+import Halogen.VDom.DOM.HandlerOptions (EventMatch (..), HandlerOptions (..), KeyMatch (..), handlerOptions, keyMatch)
 import Halogen.VDom.DOM.Monad (PropScalar (..))
 import Protolude
 import Test.Hspec (Spec, describe, it, shouldBe)
@@ -29,6 +30,10 @@ every =
   , RemoveProperty 2 "checked"
   , Listen 2 "click" 7
   , Unlisten 2 "click" 7
+  , ListenerOptions 2 "click" 7 handlerOptions {preventDefault = True, matching = Just PlainLeftClick}
+  , ListenerOptions 2 "keydown" 8 handlerOptions {stopPropagation = True, matching = Just (Keys [keyMatch "/", (keyMatch "s") {ctrlKey = Just True, altKey = Just False}])}
+  , ListenerOptions 2 "input" 9 handlerOptions {matching = Just AnyEvent}
+  , ListenerOptions 2 "submit" 10 handlerOptions
   ]
 
 spec :: Spec
@@ -40,6 +45,24 @@ spec = describe "the protocol" $ do
   it "writes an operation as an array with its name first" $ do
     Aeson.toJSON (Create 2 Nothing "div") `shouldBe` Aeson.toJSON (["create", Aeson.Number 2, Aeson.Null, "div"] :: [Aeson.Value])
     Aeson.toJSON (SetProperty 2 "tabIndex" (ScalarNum 3)) `shouldBe` Aeson.toJSON (["prop", Aeson.Number 2, "tabIndex", Aeson.Number 3] :: [Aeson.Value])
+
+  it "writes a listener's options as the client reads them" $ do
+    Aeson.toJSON (ListenerOptions 2 "keydown" 8 handlerOptions {preventDefault = True, matching = Just (Keys [(keyMatch "s") {ctrlKey = Just True}])})
+      `shouldBe` Aeson.toJSON
+        ( [ "options"
+          , Aeson.Number 2
+          , "keydown"
+          , Aeson.Number 8
+          , object
+              [ "preventDefault" .= True
+              , "stopPropagation" .= False
+              , "match" .= [object ["key" .= ("s" :: Text), "ctrlKey" .= True]]
+              ]
+          ]
+            :: [Aeson.Value]
+        )
+    Aeson.toJSON (ListenerOptions 2 "click" 7 handlerOptions)
+      `shouldBe` Aeson.toJSON (["options", Aeson.Number 2, "click", Aeson.Number 7, object ["preventDefault" .= False, "stopPropagation" .= False, "match" .= Aeson.Null]] :: [Aeson.Value])
 
   it "reads back a batch and an event message" $ do
     let batch = Batch {sequence = 3, ops = every}

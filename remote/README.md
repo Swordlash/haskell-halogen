@@ -82,6 +82,7 @@ its name first:
 | `["unprop", node, name]` | reset one |
 | `["listen", node, type, listener]` | listen for events of a type |
 | `["unlisten", node, type, listener]` | stop |
+| `["options", node, type, listener, options]` | what the listener's handler declared |
 
 Node 0 is the window, node 1 the container the client was attached to (the component's body);
 the session numbers every other node. `insert`'s index is where the child ends up once it has
@@ -90,6 +91,12 @@ gone, on both sides: after the batch's last operation, each node a `remove` took
 has no parent is forgotten with its subtree and their listeners, and is never named again. A
 batch leaves out what would happen inside such a node (its children taken out of it, its
 listeners stopped), which the client forgets with it.
+
+`options` follows the `listen` of a handler that declares anything, in the same batch, and comes
+again whenever a render changes what it declares: `{"preventDefault": true, "stopPropagation":
+false, "match": m}`, where `m` is `null` (no match), `"any"`, `"plain-left-click"` or a list of
+keys, `[{"key": "/"}, {"key": "s", "ctrlKey": true}]` (a modifier left out goes either way). The
+client acts on it while the page dispatches the event (see "What cannot cross a wire", below).
 
 To the program, one JSON object per event:
 
@@ -101,8 +108,10 @@ To the program, one JSON object per event:
 ```
 
 `event` holds what handlers read: the event's own string, number and boolean fields (`key`,
-`code`, the modifiers, `button`, the pointer's coordinates, `detail`, …) and its `target`'s and
-`currentTarget`'s `value`, `checked`, `selectedIndex` and `tagName`. Natively a handler reads it as
+`code`, the modifiers, `button`, the pointer's coordinates, `detail`, …), `defaultPrevented:
+true` when something in the page had prevented it before the client got it, and its `target`'s
+and `currentTarget`'s `value`, `checked`, `selectedIndex`, `tagName` and `id`, and of a link its
+`target` and `download: true`. Natively a handler reads it as
 JSON (haskell-halogen-core's `Data.Foreign` reads an aeson object as a browser's event), so
 `HE.onValueInput`, `HE.onChecked` and a key handler work as in a page.
 
@@ -151,16 +160,26 @@ The program and the page are apart, and the wire takes time:
 - **Refs.** `H.getRef` gives a node of the mirror, not an element of the page: an effect that
   talks to the browser through it (focusing, measuring, drawing on a canvas) does nothing useful,
   as under the in-memory DOM.
-- **`preventDefault`.** A handler hears of an event after the page is done with it, too late to
-  prevent its default, and `HE.preventingDefault` cannot help either: what a handler does to its
-  event is decided in the listener, on the program's side. A handler declared with it (or with
-  `HE.stoppingPropagation`) runs as any other, and its preventing or stopping does nothing. The
-  client prevents the default itself for the two cases a component that listens never wants:
-  every `submit` it listens for, and a plain `click` on an `a` element it listens for, one the
-  browser would follow in this tab (the main button, no modifier key, a link with no other
-  `target` and no `download`): a ctrl-click on a link still opens a new tab. Nothing else is
-  prevented. A router's link (`Halogen.Router.link`) works over the wire: its handler reads the
-  click's button, modifier keys and link from the event's JSON.
+- **What a handler decides.** A handler hears of an event after the page is done with it, too
+  late to prevent its default: `preventDefault` called from an action does nothing, and neither
+  does a choice only the handler's function can make. What the page must decide while it
+  dispatches the event is declared instead, as data the page reads: a handler with a match,
+  `HE.matching (HE.keys ["/"])`, `HE.matching HE.plainLeftClick` or `HE.matching HE.anyEvent`, is
+  sent only the events that match (a `keydown` handler for two keys does not send every key over
+  the wire), and the page prevents their default or stops their propagation as the handler
+  declares with `HE.preventingDefault` and `HE.stoppingPropagation`:
+
+  ```haskell
+  HH.div [HE.preventingDefault (HE.matching (HE.keys ["/"]) (HE.onKeyDown (const FocusSearch)))] [...]
+  ```
+
+  A handler declared with `HE.preventingDefault` and no match has the default of every event of
+  its type prevented, since the page cannot know which ones its function would make an action
+  for: over the wire, declare the match. A router's link (`Halogen.Router.link`) declares the
+  plain left click, so it works over the wire as in a page: a plain click is followed by the
+  component, a ctrl-click opens a new tab. For a handler that declares nothing the client
+  prevents the default of every `submit` it listens for and of a plain `click` on an `a` element
+  (one the browser would follow in this tab), and of nothing else.
 - **Focus and selection** are the page's. The client sets an element's `value` only when it
   differs from what the element holds, so text being typed is not undone, and each event reports
   its current target's `value`, `checked` and `selectedIndex`, which the mirror takes as the
@@ -172,12 +191,12 @@ The program and the page are apart, and the wire takes time:
 `Halogen-remote-test` runs natively and, under Node, on both browser backends: a session whose
 wire is a list (the first render, a click's patch and position, an input's value, a child removed,
 a child kept while its parent replaces the element around it, a handler that prevents the default,
-a link followed on a plain click and on no other,
-an unknown listener, a component that fails to mount, disposal), the recorder on its own (a node
+a link followed on a plain click and on no other, a listener's declared options sent with it and
+when they change, an unknown listener, a component that fails to mount, disposal), the recorder on its own (a node
 taken out is forgotten when the batch is taken and not before, no batch in the middle of a
 render), the protocol's JSON, and natively a component served over a real WebSocket.
 `Halogen-remote-browser-test` runs the loopback in headless Chromium (hspec-halogen) on both
 browser backends: real clicks and typing through the client, a child's element kept across its
 parent's new element, a form whose submission the page does not carry out (with and without
-`HE.preventingDefault`), a link the page does not follow, a component that fails to mount, and
-disposal.
+`HE.preventingDefault`), a link the page does not follow, a key a handler declares kept from
+being typed, a component that fails to mount, and disposal.

@@ -19,6 +19,7 @@ import Halogen qualified as H
 import Halogen.Remote.DOM (RemoteDOM)
 import Halogen.Remote.Protocol (Batch (..), EventMessage (..), ListenerId, NodeId, Op (..))
 import Halogen.Remote.Session qualified as Session
+import Halogen.VDom.DOM.HandlerOptions (EventMatch (..), HandlerOptions (..), keyMatch)
 import Halogen.VDom.DOM.Monad (PropScalar (..))
 import Protolude
 import Test.Components
@@ -223,6 +224,30 @@ spec = describe "a session" $ do
     silent wire
     Session.receive session (clickWith (onLink ["target" .= ("_self" :: Text)]))
     nextOps wire `shouldReturn` [SetText followed "2"]
+    Session.dispose session
+
+  it "sends what a listener's handler declared, with the listener and when it changes" $ do
+    (session, wire, ops, _) <- mounted searching
+    search <- required "the search box" (elementWithId ops "search")
+    listener <- required "its listener" (listenerOn ops search "keydown")
+    let declared key = HandlerOptions {preventDefault = True, stopPropagation = False, matching = Just (Keys [keyMatch key])}
+    [o | o@ListenerOptions {} <- ops] `shouldBe` [ListenerOptions search "keydown" listener (declared "/")]
+    -- In the same batch, after the listener.
+    (ListenerOptions search "keydown" listener (declared "/") `elem` dropWhile (/= Listen search "keydown" listener) ops) `shouldBe` True
+    -- The other listener, the button's, declares nothing, and nothing is
+    -- sent of it.
+    length [n | Listen n _ _ <- ops] `shouldBe` 2
+    swapButton <- required "the swap button" (elementWithId ops "swap-key")
+    swapListener <- required "its listener" (listenerOn ops swapButton "click")
+    -- A render that changes it sends the new one, for the same listener.
+    Session.receive session (clickOn swapListener swapButton)
+    nextOps wire `shouldReturn` [ListenerOptions search "keydown" listener (declared "Escape")]
+    -- An event the page sends is one that matched, which the handler is
+    -- asked about; the render it causes leaves the declaration as it was,
+    -- and sends nothing about it.
+    searched <- required "the count's text" (head [n | CreateText n "0" <- ops])
+    Session.receive session (eventFor listener search "keydown" (object ["type" .= ("keydown" :: Text), "key" .= ("Escape" :: Text)]))
+    nextOps wire `shouldReturn` [SetText searched "1"]
     Session.dispose session
 
   it "drops an event for a listener it does not have, and a message that is none" $ do

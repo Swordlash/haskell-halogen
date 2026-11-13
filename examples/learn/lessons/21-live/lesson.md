@@ -30,7 +30,7 @@ Then add a second button, `HH.button [HE.onClick (\_ -> Clear)] [HH.text "Clear"
 
 ## What cannot cross a wire
 
-The program is on one side and the page on the other, and the wire takes time. A ref, `H.getRef`, is a node of the mirror, not an element of the page: focusing it or measuring it does nothing useful. A handler hears of an event once the page has finished with it, too late to prevent its default, so the script prevents it itself for a form's `submit` and a click on a link, the two defaults a component that listens never wants, and for nothing else. And focus is the page's: the script sets an input's `value` only when it differs from what the input holds, so what the reader is typing is never undone.
+The program is on one side and the page on the other, and the wire takes time. A ref, `H.getRef`, is a node of the mirror, not an element of the page: focusing it or measuring it does nothing useful. A handler hears of an event once the page has finished with it, too late to prevent its default, so what the page must do while it dispatches the event is declared as data that crosses the wire: `HE.preventingDefault (HE.matching (HE.keys ["/"]) (HE.onKeyDown (const Search)))` has the script prevent the slash, and send the program no other key. For a handler that declares nothing, the script prevents the default of a form's `submit` and of a plain click on a link, the two defaults a component that listens never wants, and of nothing else. And focus is the page's: the script sets an input's `value` only when it differs from what the input holds, so what the reader is typing is never undone.
 
 ## A server
 

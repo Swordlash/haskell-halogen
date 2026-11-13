@@ -34,7 +34,7 @@ import Halogen.Subscription qualified as HS
 import Halogen.VDom.DOM (VDomSpec (..), buildVDom)
 import Halogen.VDom.DOM.Monad (runMemDOM, window)
 import Halogen.VDom.DOM.Monad.Native qualified as N
-import Halogen.VDom.DOM.Prop (HandlerOptions (..), Prop (..), buildProp, handlerOptions)
+import Halogen.VDom.DOM.Prop (EventMatch (..), HandlerOptions (..), Prop (..), buildProp, handlerOptions)
 import Halogen.VDom.Machine (extract)
 import Test.Hspec (shouldReturn)
 import Web.Event.Event (Event (..), EventType (..))
@@ -114,10 +114,11 @@ spec = describe "router" $ do
       element <- built (HH.a ([HP.href "elsewhere"] <> props) [HH.text "two"])
       N.propertyList element `shouldReturn` [("href", "/base/page/2")]
       N.listenerTypes element `shouldReturn` ["click"]
-      -- The listener prevents the default of a click it hands over, which
-      -- the in-memory DOM cannot show: the handler says so.
+      -- The listener prevents the default of a plain click, the only one
+      -- it hands over, which the in-memory DOM cannot show: the handler
+      -- says so.
       [options | HP.IProp (Handler (EventType "click") options _) <- props]
-        `shouldBe` [handlerOptions {preventDefault = True}]
+        `shouldBe` [handlerOptions {preventDefault = True, matching = Just PlainLeftClick}]
 
   describe "a plain left click, read from an event's JSON" $ do
     let plain = ["button" .= (0 :: Int), "ctrlKey" .= False, "metaKey" .= False, "shiftKey" .= False, "altKey" .= False]

@@ -57,7 +57,6 @@ module Halogen.Router
 where
 
 import DOM.HTML.Indexed qualified as I
-import Data.Foreign (foreignToBool, foreignToInt, foreignToString, readProp)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.Text qualified as T
 import Halogen qualified as H
@@ -68,10 +67,11 @@ import Halogen.JSBits (JSText, Safety (..), browserJS, fromJSText, inBrowser, to
 import Halogen.Query.Event qualified as HQE
 import Halogen.Router.Duplex (RouteDuplex', parse, print)
 import Halogen.Subscription qualified as HS
+import Halogen.VDom.DOM.HandlerOptions qualified as HandlerOptions
 import Halogen.VDom.DOM.Monad (MonadBrowserDOM, window, windowToEventTarget)
 import Protolude hiding (link, print)
 import UnliftIO (MonadUnliftIO)
-import Web.Event.Event (Event (..), EventType (..), preventDefault)
+import Web.Event.Event (EventType (..), preventDefault)
 import Web.UIEvent.MouseEvent (MouseEvent (..), toEvent)
 
 $( browserJS
@@ -80,7 +80,6 @@ $( browserJS
      , ("js_router_push_state", "js_router_push_state", Safe, [t|JSText -> IO ()|])
      , ("js_router_replace_state", "js_router_replace_state", Safe, [t|JSText -> IO ()|])
      , ("js_router_page_base", "js_router_page_base", Safe, [t|IO JSText|])
-     , ("js_router_plain_left_click", "js_router_plain_left_click", Safe, [t|Event -> Bool|])
      ]
  )
 
@@ -304,7 +303,11 @@ link router onFollow route props = HH.a (props <> linkProps router onFollow rout
 
 -- | What makes an @\<a>@ a link to a route, as 'link' makes it: the
 -- route's @href@ and the click handler that hands a plain click to the
--- component (@onFollow@), with the default prevented in the listener. For a
+-- component (@onFollow@), with the default prevented in the listener. The
+-- handler declares that it is for plain clicks ('HE.matching'
+-- 'HE.plainLeftClick'), so that a page that is not the program's (a
+-- component served by haskell-halogen-remote) prevents the default of the
+-- same clicks, and of no other, while it dispatches them. For a
 -- link whose element is written some other way, such as in an @hh@ quote
 -- of "Halogen.TH":
 --
@@ -320,9 +323,9 @@ linkProps
   -> route
   -> [HP.IProp I.HTMLa action]
 linkProps router onFollow route =
-  [HP.href (href router route), HE.preventingDefault (HE.handler' (EventType "click") clicked)]
-  where
-    clicked ev = if isPlainLeftClick (MouseEvent ev) then Just (onFollow (Follow route (MouseEvent ev))) else Nothing
+  [ HP.href (href router route)
+  , HE.preventingDefault (HE.matching HE.plainLeftClick (HE.handler (EventType "click") (onFollow . Follow route . MouseEvent)))
+  ]
 
 -- | Follow a link's click: 'navigate', at once, in 'H.liftEffect'.
 --
@@ -343,32 +346,9 @@ follow router (Follow route ev) = H.liftEffect $ liftIO $ do
 
 -- | A click with the main button and no modifier key, that nothing has
 -- prevented already, on a link that opens in its own tab and is not a
--- download: the one a page follows itself.
---
--- Natively it is read from the event's JSON, as an event a remote client
--- sends ("Halogen.Remote.Protocol") or a test makes carries it: @button@
--- must be there and be 0, and @ctrlKey@, @metaKey@, @shiftKey@, @altKey@
--- and @defaultPrevented@, when there, false; of the link, the event's
--- @currentTarget@, a @target@ other than @_self@ (in any case) or a
--- @download@ that is @true@ (the link has the attribute) make it no plain
--- click. An event that says nothing of its button, such as the bare one an
--- in-memory test fires, is not one; one that says nothing of its link is
--- taken to be on a link that opens in its own tab.
+-- download: the one a page follows itself. It is what 'linkProps' declares
+-- its handler matches ('HE.plainLeftClick'), and
+-- "Halogen.VDom.DOM.HandlerOptions".'Halogen.VDom.DOM.HandlerOptions.isPlainLeftClick'
+-- says how it is read, in a browser and natively from the event's JSON.
 isPlainLeftClick :: MouseEvent -> Bool
-isPlainLeftClick (MouseEvent event)
-  | inBrowser = js_router_plain_left_click event
-  | otherwise = nativePlainLeftClick event
-
-nativePlainLeftClick :: Event -> Bool
-nativePlainLeftClick (Event value) =
-  readProp "button" (Just . foreignToInt) value == Just 0
-    && not (any flag ["ctrlKey", "metaKey", "shiftKey", "altKey", "defaultPrevented"])
-    && not elsewhere
-    && not download
-  where
-    flag name = readProp name (Just . foreignToBool) value == Just True
-    anchor = readProp "currentTarget" Just value
-    elsewhere = case T.toLower <$> (readProp "target" (Just . foreignToString) =<< anchor) of
-      Just target -> not (T.null target) && target /= "_self"
-      Nothing -> False
-    download = (readProp "download" (Just . foreignToBool) =<< anchor) == Just True
+isPlainLeftClick = HandlerOptions.isPlainLeftClick . toEvent
