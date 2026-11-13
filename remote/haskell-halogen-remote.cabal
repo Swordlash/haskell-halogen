@@ -177,6 +177,12 @@ test-suite Halogen-remote-browser-test
         haskell-halogen-router,
         hspec-halogen
 
+    -- The suite's own JavaScript (test/jsbits), declared with browserJS as a
+    -- package's is: the JavaScript backend links it by name, so it has to be
+    -- named here; the wasm backend embeds it when the module is compiled.
+    if arch(javascript)
+        js-sources:   test/jsbits/probe.js
+
     if arch(wasm32) && !flag(interactive)
         ghc-options:
             -no-hs-main
