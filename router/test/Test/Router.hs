@@ -21,6 +21,9 @@ spec = describe "router" $ do
 
 #else
 
+import Data.Aeson ((.=))
+import Data.Aeson qualified as Aeson
+import Data.Aeson.Key qualified as Key
 import Data.Foreign (toForeign)
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
 import Halogen.HTML qualified as HH
@@ -35,6 +38,7 @@ import Halogen.VDom.DOM.Prop (HandlerOptions (..), Prop (..), buildProp, handler
 import Halogen.VDom.Machine (extract)
 import Test.Hspec (shouldReturn)
 import Web.Event.Event (Event (..), EventType (..))
+import Web.UIEvent.MouseEvent (MouseEvent (..))
 
 data Route = Home | Page Int
   deriving stock (Eq, Show)
@@ -114,6 +118,29 @@ spec = describe "router" $ do
       -- the in-memory DOM cannot show: the handler says so.
       [options | HP.IProp (Handler (EventType "click") options _) <- props]
         `shouldBe` [handlerOptions {preventDefault = True}]
+
+  describe "a plain left click, read from an event's JSON" $ do
+    let plain = ["button" .= (0 :: Int), "ctrlKey" .= False, "metaKey" .= False, "shiftKey" .= False, "altKey" .= False]
+        clickOf fields = Router.isPlainLeftClick (MouseEvent (Event (toForeign (Aeson.object fields))))
+        onLink anchor = plain <> ["currentTarget" .= Aeson.object anchor]
+    it "is one with the main button and no modifier key" $ do
+      clickOf plain `shouldBe` True
+      clickOf ["button" .= (0 :: Int)] `shouldBe` True
+    it "is none with a modifier key held, or with another button" $ do
+      for_ ["ctrlKey", "metaKey", "shiftKey", "altKey"] $ \modifier ->
+        (modifier, clickOf (plain <> [Key.fromText modifier .= True])) `shouldBe` (modifier, False)
+      clickOf ["button" .= (1 :: Int)] `shouldBe` False
+    it "is none once something has prevented its default" $
+      clickOf (plain <> ["defaultPrevented" .= True]) `shouldBe` False
+    it "is none on a link to another target, or to a download" $ do
+      clickOf (onLink ["tagName" .= ("A" :: Text), "target" .= ("_blank" :: Text)]) `shouldBe` False
+      clickOf (onLink ["tagName" .= ("A" :: Text), "target" .= ("_SELF" :: Text)]) `shouldBe` True
+      clickOf (onLink ["tagName" .= ("A" :: Text), "target" .= ("" :: Text)]) `shouldBe` True
+      clickOf (onLink ["tagName" .= ("A" :: Text), "download" .= True]) `shouldBe` False
+      clickOf (onLink ["tagName" .= ("A" :: Text)]) `shouldBe` True
+    it "is none for an event that says nothing of its button" $ do
+      clickOf [] `shouldBe` False
+      Router.isPlainLeftClick (MouseEvent (Event (toForeign ()))) `shouldBe` False
 
   describe "by fragment" $ do
     it "is at the root with no fragment, and goes nowhere going there" $ do

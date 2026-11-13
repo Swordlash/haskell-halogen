@@ -10,6 +10,7 @@ module Test.Components
   , form
   , guardedForm
   , pointing
+  , linking
   , failing
   )
 where
@@ -19,7 +20,9 @@ import Halogen qualified as H
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
+import Halogen.Router qualified as Router
 import Protolude
+import Web.Event.Event (EventType (..))
 import Web.UIEvent.MouseEvent qualified as ME
 
 data CounterQuery a = GetCount (Int -> a)
@@ -161,6 +164,31 @@ pointing =
       HH.div_
         [ HH.button [HP.id "point", HE.onClick (\e -> (ME.clientX e, ME.clientY e))] [HH.text "here"]
         , HH.span [HP.id "where"] [HH.text (maybe "nowhere" (\(x, y) -> show x <> "," <> show y) at)]
+        ]
+
+data Followed = Followed
+
+-- | A link whose plain clicks the component counts, decided in the click's
+-- listener from the event's fields ('Router.isPlainLeftClick'), with the
+-- default prevented there, as "Halogen.Router"'s links are: a click with a
+-- modifier key, or on a link that opens elsewhere, is no action.
+linking :: forall m. (Monad m) => H.Component H.VoidF () Void m
+linking =
+  H.component
+    (\() -> pure (0 :: Int))
+    render
+    [H.onAction (\Followed -> modify (+ 1))]
+  where
+    render :: Int -> H.ComponentHTML Followed Empty m
+    render n =
+      HH.div_
+        [ HH.a
+            [ HP.id "link"
+            , HP.href "/elsewhere"
+            , HE.preventingDefault (HE.handler' (EventType "click") (\e -> if Router.isPlainLeftClick (ME.MouseEvent e) then Just Followed else Nothing))
+            ]
+            [HH.text "follow"]
+        , HH.span [HP.id "followed"] [HH.text (show n)]
         ]
 
 -- | A component that cannot start: its initial state throws.

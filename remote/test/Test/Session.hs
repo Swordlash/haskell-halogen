@@ -202,6 +202,29 @@ spec = describe "a session" $ do
     [t | SetText _ t <- patch] `shouldBe` ["1"]
     Session.dispose session
 
+  it "follows a link's plain click, read from what the client says of it, and no other" $ do
+    (session, wire, ops, _) <- mounted linking
+    anchor <- required "link" (elementWithId ops "link")
+    listener <- required "listener" (listenerOn ops anchor "click")
+    followed <- required "the count's text" (head [n | CreateText n "0" <- ops])
+    let clickWith fields = eventFor listener anchor "click" (object (["type" .= ("click" :: Text), "button" .= (0 :: Int)] <> fields))
+        onLink fields = ["currentTarget" .= object (["tagName" .= ("A" :: Text)] <> fields)]
+    -- What the client sends of a plain click on the link.
+    Session.receive session (clickWith (onLink []))
+    nextOps wire `shouldReturn` [SetText followed "1"]
+    -- A modifier key, another button, a link to another tab or a download,
+    -- or a default prevented in the page: the browser's, not the link's.
+    Session.receive session (clickWith ["ctrlKey" .= True])
+    Session.receive session (clickWith ["metaKey" .= True])
+    Session.receive session (clickWith ["button" .= (1 :: Int)])
+    Session.receive session (clickWith (onLink ["target" .= ("_blank" :: Text)]))
+    Session.receive session (clickWith (onLink ["download" .= True]))
+    Session.receive session (clickWith ["defaultPrevented" .= True])
+    silent wire
+    Session.receive session (clickWith (onLink ["target" .= ("_self" :: Text)]))
+    nextOps wire `shouldReturn` [SetText followed "2"]
+    Session.dispose session
+
   it "drops an event for a listener it does not have, and a message that is none" $ do
     (session, wire, _, socket) <- mounted counter
     Session.receive session (clickOn 999 999)

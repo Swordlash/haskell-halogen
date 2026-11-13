@@ -27,7 +27,9 @@ function js_router_page_base() {
 // prevented it already, a link that does not name another target (_self,
 // in any case, as reserved target names are compared), and one
 // that is not a download (a download attribute, even an empty one, asks the
-// browser to save what the link points to rather than show it).
+// browser to save what the link points to rather than show it). An event a
+// remote client sent (haskell-halogen-remote's loopback) is a plain object
+// whose currentTarget says download: true for a link with the attribute.
 function js_router_plain_left_click(event) {
   const link = event.currentTarget;
   return (
@@ -37,7 +39,7 @@ function js_router_plain_left_click(event) {
     !event.shiftKey &&
     !event.altKey &&
     !event.defaultPrevented &&
-    !(link && link.target && link.target.toLowerCase() !== "_self") &&
-    !(link && link.hasAttribute && link.hasAttribute("download"))
+    !(link && typeof link.target === "string" && link.target !== "" && link.target.toLowerCase() !== "_self") &&
+    !(link && (link.download === true || (link.hasAttribute && link.hasAttribute("download"))))
   );
 }

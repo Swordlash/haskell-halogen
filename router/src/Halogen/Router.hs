@@ -57,6 +57,7 @@ module Halogen.Router
 where
 
 import DOM.HTML.Indexed qualified as I
+import Data.Foreign (foreignToBool, foreignToInt, foreignToString, readProp)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.Text qualified as T
 import Halogen qualified as H
@@ -340,7 +341,34 @@ follow router (Follow route ev) = H.liftEffect $ liftIO $ do
   preventDefault (toEvent ev)
   navigate router route
 
--- | A click with the main button and no modifier key, on a link that opens
--- in its own tab: the one a page follows itself. Natively never.
+-- | A click with the main button and no modifier key, that nothing has
+-- prevented already, on a link that opens in its own tab and is not a
+-- download: the one a page follows itself.
+--
+-- Natively it is read from the event's JSON, as an event a remote client
+-- sends ("Halogen.Remote.Protocol") or a test makes carries it: @button@
+-- must be there and be 0, and @ctrlKey@, @metaKey@, @shiftKey@, @altKey@
+-- and @defaultPrevented@, when there, false; of the link, the event's
+-- @currentTarget@, a @target@ other than @_self@ (in any case) or a
+-- @download@ that is @true@ (the link has the attribute) make it no plain
+-- click. An event that says nothing of its button, such as the bare one an
+-- in-memory test fires, is not one; one that says nothing of its link is
+-- taken to be on a link that opens in its own tab.
 isPlainLeftClick :: MouseEvent -> Bool
-isPlainLeftClick = js_router_plain_left_click . toEvent
+isPlainLeftClick (MouseEvent event)
+  | inBrowser = js_router_plain_left_click event
+  | otherwise = nativePlainLeftClick event
+
+nativePlainLeftClick :: Event -> Bool
+nativePlainLeftClick (Event value) =
+  readProp "button" (Just . foreignToInt) value == Just 0
+    && not (any flag ["ctrlKey", "metaKey", "shiftKey", "altKey", "defaultPrevented"])
+    && not elsewhere
+    && not download
+  where
+    flag name = readProp name (Just . foreignToBool) value == Just True
+    anchor = readProp "currentTarget" Just value
+    elsewhere = case T.toLower <$> (readProp "target" (Just . foreignToString) =<< anchor) of
+      Just target -> not (T.null target) && target /= "_self"
+      Nothing -> False
+    download = (readProp "download" (Just . foreignToBool) =<< anchor) == Just True

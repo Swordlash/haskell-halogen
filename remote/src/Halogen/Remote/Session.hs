@@ -30,8 +30,10 @@
 --   the in-memory DOM.
 -- * 'Web.Event.Event.preventDefault' in a handler comes too late: the page
 --   has finished with the event before the program hears of it. The client
---   prevents the default itself, of every @submit@ it listens for and every
---   @click@ on an @a@ element it listens for, and of nothing else.
+--   prevents the default itself, of every @submit@ it listens for and of a
+--   @click@ on an @a@ element it listens for that the browser would follow
+--   in this tab (the main button, no modifier key, a link with no other
+--   @target@ and no @download@), and of nothing else.
 --   'Halogen.HTML.Events.preventingDefault' does not help: what a handler
 --   does to its event is decided in the listener, which runs here. A
 --   handler declared with it (or 'Halogen.HTML.Events.stoppingPropagation')

@@ -47,8 +47,12 @@
 --
 -- @event@ holds what handlers read of an event: its @type@, @key@,
 -- @code@, the modifier keys, @button@, the pointer's coordinates,
--- @detail@, and for its @target@ and @currentTarget@ their @value@,
--- @checked@, @selectedIndex@ and @tagName@.
+-- @detail@, @defaultPrevented@ (@true@ only when something in the page
+-- had prevented the default before the client got the event; absent
+-- otherwise), and for its @target@ and @currentTarget@ their @value@,
+-- @checked@, @selectedIndex@, @tagName@ and @id@, and of a link (an @a@ or
+-- an @area@) its @target@ when it names one and @download: true@ when it
+-- has the attribute: what "Halogen.Router"'s @isPlainLeftClick@ reads.
 module Halogen.Remote.Protocol
   ( NodeId
   , ListenerId

@@ -156,8 +156,11 @@ The program and the page are apart, and the wire takes time:
   event is decided in the listener, on the program's side. A handler declared with it (or with
   `HE.stoppingPropagation`) runs as any other, and its preventing or stopping does nothing. The
   client prevents the default itself for the two cases a component that listens never wants:
-  every `submit` it listens for, and a `click` on an `a` element it listens for. Nothing else is
-  prevented.
+  every `submit` it listens for, and a plain `click` on an `a` element it listens for, one the
+  browser would follow in this tab (the main button, no modifier key, a link with no other
+  `target` and no `download`): a ctrl-click on a link still opens a new tab. Nothing else is
+  prevented. A router's link (`Halogen.Router.link`) works over the wire: its handler reads the
+  click's button, modifier keys and link from the event's JSON.
 - **Focus and selection** are the page's. The client sets an element's `value` only when it
   differs from what the element holds, so text being typed is not undone, and each event reports
   its current target's `value`, `checked` and `selectedIndex`, which the mirror takes as the
@@ -169,10 +172,12 @@ The program and the page are apart, and the wire takes time:
 `Halogen-remote-test` runs natively and, under Node, on both browser backends: a session whose
 wire is a list (the first render, a click's patch and position, an input's value, a child removed,
 a child kept while its parent replaces the element around it, a handler that prevents the default,
+a link followed on a plain click and on no other,
 an unknown listener, a component that fails to mount, disposal), the recorder on its own (a node
 taken out is forgotten when the batch is taken and not before, no batch in the middle of a
 render), the protocol's JSON, and natively a component served over a real WebSocket.
 `Halogen-remote-browser-test` runs the loopback in headless Chromium (hspec-halogen) on both
 browser backends: real clicks and typing through the client, a child's element kept across its
 parent's new element, a form whose submission the page does not carry out (with and without
-`HE.preventingDefault`), a component that fails to mount, and disposal.
+`HE.preventingDefault`), a link the page does not follow, a component that fails to mount, and
+disposal.

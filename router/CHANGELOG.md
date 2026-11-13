@@ -47,6 +47,15 @@
   the default in its listener, for a link whose element is written some
   other way: in an `hh` quote, `<a {{ Router.linkProps router Followed
   route }}>`. `link` is `HH.a` with them after its own properties.
+* `Halogen.Router.isPlainLeftClick` answers natively too, from the event's
+  JSON: a click whose `button` is 0, with no `ctrlKey`, `metaKey`,
+  `shiftKey`, `altKey` or `defaultPrevented` that is true, whose
+  `currentTarget` names no `target` other than `_self` and says no
+  `download: true`. It used to be false natively whatever the event said,
+  so a router's link in a component served by `haskell-halogen-remote`
+  (whose program is native, its events the JSON its client sends) did
+  nothing when clicked. An event that says nothing of its button, such as
+  the bare one an in-memory test fires, is still no plain click.
 * A hash router (`newHashRouter`) writes whole addresses, the page's own
   path and query before the `#` (`/lesson/#/about`), rather than a bare
   `#/about`. A bare fragment resolves against the page's `<base href>`, not

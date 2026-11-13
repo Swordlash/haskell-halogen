@@ -182,12 +182,20 @@ function halogen_remote_listen(client, id, type, listener) {
   var key = id + ":" + type + ":" + listener;
   if (!target || client.listeners.has(key)) return;
   var handler = function (event) {
+    // Whether the default was prevented before the client acted: what the
+    // program reads as the event's defaultPrevented.
+    var prevented = event.defaultPrevented;
     // The program hears of the event only once the page is done with it,
     // too late to prevent its default, so the client prevents the two
     // defaults a component that listens never wants: a form's submission
-    // reloading the page, and a link it handles itself being followed.
-    if (type === "submit" || (type === "click" && target.tagName === "A")) event.preventDefault();
-    client.send(JSON.stringify({ listener: listener, node: id, type: type, event: halogen_remote_event(event) }));
+    // reloading the page, and a link it handles itself being followed in
+    // this tab. A click the browser would not follow here (with a modifier
+    // key, another button, on a link to another target or a download) is
+    // left to the browser: a ctrl-click opens a new tab.
+    if (type === "submit" || (type === "click" && target.tagName === "A" && halogen_remote_plain_left_click(event, target))) {
+      event.preventDefault();
+    }
+    client.send(JSON.stringify({ listener: listener, node: id, type: type, event: halogen_remote_event(event, prevented) }));
   };
   target.addEventListener(type, handler);
   client.listeners.set(key, { target: target, type: type, handler: handler });
@@ -210,21 +218,42 @@ function halogen_remote_unlisten(client, id, type, listener) {
   }
 }
 
+// A click the browser would follow as it is, in this tab, on the link
+// listening for it: the main button, no key held that asks for a new tab or
+// window or a download, nothing that prevented it already, a link that names
+// no other target (_self, in any case) and is no download. It is what
+// haskell-halogen-router's Halogen.Router.isPlainLeftClick asks.
+function halogen_remote_plain_left_click(event, link) {
+  return (
+    event.button === 0 &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.shiftKey &&
+    !event.altKey &&
+    !event.defaultPrevented &&
+    !(typeof link.target === "string" && link.target !== "" && link.target.toLowerCase() !== "_self") &&
+    !(typeof link.hasAttribute === "function" && link.hasAttribute("download"))
+  );
+}
+
 // What handlers read of an event: its own fields that are strings, numbers
-// or booleans, and its target's and current target's form controls.
+// or booleans, whether its default was prevented before the client acted,
+// and its target's and current target's form controls and, of a link, its
+// target and whether it is a download.
 var halogen_remote_event_fields = [
   "type", "key", "code", "repeat", "altKey", "ctrlKey", "metaKey", "shiftKey",
   "button", "buttons", "clientX", "clientY", "offsetX", "offsetY", "pageX", "pageY",
   "deltaX", "deltaY", "deltaMode", "detail", "inputType", "data", "isComposing", "timeStamp",
 ];
 
-function halogen_remote_event(event) {
+function halogen_remote_event(event, prevented) {
   var out = {};
   for (var i = 0; i < halogen_remote_event_fields.length; i++) {
     var name = halogen_remote_event_fields[i];
     var value = event[name];
     if (typeof value === "string" || typeof value === "boolean" || (typeof value === "number" && isFinite(value))) out[name] = value;
   }
+  if (prevented) out.defaultPrevented = true;
   out.target = halogen_remote_element(event.target);
   out.currentTarget = halogen_remote_element(event.currentTarget);
   return out;
@@ -238,6 +267,11 @@ function halogen_remote_element(element) {
   if (typeof element.selectedIndex === "number") out.selectedIndex = element.selectedIndex;
   if (typeof element.tagName === "string") out.tagName = element.tagName;
   if (typeof element.id === "string" && element.id !== "") out.id = element.id;
+  // A link's (an a's or an area's, whose download is a string property).
+  if (typeof element.download === "string") {
+    if (typeof element.target === "string" && element.target !== "") out.target = element.target;
+    if (element.hasAttribute("download")) out.download = true;
+  }
   return out;
 }
 
@@ -261,14 +295,15 @@ function halogen_remote_loopback(container, callback) {
 // HE.preventingDefault or HE.stoppingPropagation has the listener call them
 // before its action. They do nothing, since the page dispatched the event
 // long before (the client prevents the defaults that matter itself), and
-// defaultPrevented says so.
+// defaultPrevented stays what the client sent: whether something in the
+// page had prevented the default before the client acted.
 function halogen_remote_parse(text) {
   var event = JSON.parse(text);
   if (event === null || typeof event !== "object") return event;
   event.preventDefault = halogen_remote_ignore;
   event.stopPropagation = halogen_remote_ignore;
   event.stopImmediatePropagation = halogen_remote_ignore;
-  event.defaultPrevented = false;
+  event.defaultPrevented = event.defaultPrevented === true;
   return event;
 }
 
