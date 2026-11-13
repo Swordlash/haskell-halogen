@@ -103,6 +103,7 @@ test-suite Halogen-router-test
     -- (examples/learn/browser-test) drives.
     if !arch(wasm32) && !arch(javascript)
       build-depends:  base >= 4.20,
+                      aeson,
                       haskell-halogen-core
 
     other-modules:  Test.Duplex

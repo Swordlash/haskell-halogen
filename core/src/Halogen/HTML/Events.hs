@@ -11,7 +11,7 @@ import HPrelude
 import Halogen.HTML.Core qualified as Core
 import Halogen.HTML.Properties
 import Halogen.Query.Input
-import Halogen.VDom.DOM.Prop (HandlerOptions (..))
+import Halogen.VDom.DOM.Prop (EventMatch (..), HandlerOptions (..), KeyMatch (..), keyMatch)
 import Web.Clipboard.ClipboardEvent
 import Web.Clipboard.ClipboardEvent.EventTypes qualified as CET
 import Web.Event.Event hiding (defaultPrevented, target, type_)
@@ -39,7 +39,8 @@ handler' et f = IProp $ Core.handler et (fmap Action . f)
 -- | The handler, keeping the browser from taking the event's default action
 -- (following a link, submitting a form, typing a key) whenever it makes an
 -- action: a handler that makes none (say, 'handler'' for a key it does not
--- handle) leaves the default alone.
+-- handle) leaves the default alone. With a match declared ('matching'), it
+-- is every event that matches whose default is prevented.
 --
 -- > HH.form [HE.preventingDefault (HE.onSubmit (const Save))] […]
 --
@@ -57,9 +58,53 @@ preventingDefault (IProp p) = IProp $ Core.withHandlerOptions (\options -> optio
 
 -- | The handler, stopping the event from reaching the listeners of the
 -- elements around whenever it makes an action, in the event listener itself,
--- as 'preventingDefault' prevents the default.
+-- as 'preventingDefault' prevents the default (and, with a match declared,
+-- whenever an event matches).
 stoppingPropagation :: forall r i. IProp r i -> IProp r i
 stoppingPropagation (IProp p) = IProp $ Core.withHandlerOptions (\options -> options {stopPropagation = True}) p
+
+-- | The handler, asked only about the events that match: the others are
+-- not handed to its function at all, and 'preventingDefault' and
+-- 'stoppingPropagation' apply to every event that matches, whether or not
+-- the function then makes an action for it.
+--
+-- > HH.div [HE.preventingDefault (HE.matching (HE.keys ["/"]) (HE.onKeyDown (const FocusSearch)))] […]
+--
+-- In a page this only says ahead of time what the function would decide.
+-- It matters where the page is not the program's: under
+-- haskell-halogen-remote's @RemoteDOM@ the handler runs in the program,
+-- after the page has finished with the event, and a match is what the page
+-- reads instead, while it dispatches the event, to prevent the default or
+-- stop it in time; an event that does not match does not cross the wire.
+-- A link of "Halogen.Router" declares 'plainLeftClick'.
+matching :: forall r i. EventMatch -> IProp r i -> IProp r i
+matching match (IProp p) = IProp $ Core.withHandlerOptions (\options -> options {matching = Just match}) p
+
+-- | Every event of the handler's type: the default prevented of each, with
+-- 'preventingDefault', whatever the function makes of it.
+anyEvent :: EventMatch
+anyEvent = AnyEvent
+
+-- | A click the browser would follow as it is, in this tab: the main
+-- button, no modifier key, nothing that prevented it already, a link with
+-- no other target that is no download. The click a page follows itself.
+plainLeftClick :: EventMatch
+plainLeftClick = PlainLeftClick
+
+-- | A keyboard event for one of these keys, as the event's @key@ names them
+-- (@"\/"@, @"ArrowLeft"@, @"Escape"@), with any modifiers or none. For a
+-- key with a modifier, 'keysWith'.
+keys :: [Text] -> EventMatch
+keys = Keys . map keyMatch
+
+-- | A keyboard event for one of these keys and modifiers, which
+-- "Halogen.VDom.DOM.HandlerOptions" spells:
+--
+-- > import Halogen.VDom.DOM.HandlerOptions (KeyMatch (..), keyMatch)
+-- >
+-- > HE.keysWith [(keyMatch "s") {ctrlKey = Just True}]
+keysWith :: [KeyMatch] -> EventMatch
+keysWith = Keys
 
 onAbort :: forall r i. (HasType "onAbort" Event r) => (Event -> i) -> IProp r i
 onAbort = handler (EventType "abort")

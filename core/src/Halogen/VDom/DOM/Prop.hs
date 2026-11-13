@@ -5,6 +5,9 @@ module Halogen.VDom.DOM.Prop
   ( Prop (..)
   , HandlerOptions (..)
   , handlerOptions
+  , EventMatch (..)
+  , KeyMatch (..)
+  , keyMatch
   , ElemRef (..)
   , PropValue (..)
   , buildProp
@@ -15,6 +18,7 @@ import Control.Monad.Primitive (PrimMonad, PrimState)
 import Data.Map.Strict qualified as M
 import Data.Primitive.MutVar
 import HPrelude hiding (state)
+import Halogen.VDom.DOM.HandlerOptions
 import Halogen.VDom.DOM.Monad
 import Halogen.VDom.Machine qualified as V
 import Halogen.VDom.Types
@@ -30,35 +34,12 @@ data Prop msg
   | forall val. Property (PropName val) (PropValue val)
   | -- | A listener for events of a type: the function says, while the event
     -- is being dispatched, what message it makes, if any, and the options
-    -- what the listener does to the event itself when there is one.
+    -- which events it is asked about and what the listener does to the
+    -- event itself ('HandlerOptions').
     Handler EventType HandlerOptions (Event -> Maybe msg)
   | Ref (ElemRef Element -> Maybe msg)
 
 deriving instance Functor Prop
-
--- | What a handler does to its event in the listener itself, before its
--- message goes anywhere, whenever it makes one (one that makes none leaves
--- the event alone).
---
--- A message is handled by its component's program on the tree's loop
--- ("Halogen.IO.Driver.Runtime"), which runs one piece of work at a time: an
--- event that arrives while the loop is busy elsewhere is handled once the
--- loop gets to it, by when the browser has finished dispatching the event
--- and has, say, followed the link or submitted the form. What has to happen
--- while the event is being dispatched whatever the loop is doing belongs
--- here.
-data HandlerOptions = HandlerOptions
-  { preventDefault :: Bool
-  -- ^ Keep the browser from taking the event's default action: following
-  -- a link, submitting a form, typing a key.
-  , stopPropagation :: Bool
-  -- ^ Stop the event from reaching the listeners of the elements around.
-  }
-  deriving stock (Eq, Show)
-
--- | Neither: the event is left as it is.
-handlerOptions :: HandlerOptions
-handlerOptions = HandlerOptions {preventDefault = False, stopPropagation = False}
 
 data ElemRef a
   = Created a
@@ -145,21 +126,28 @@ buildProp emit el = renderProp
             <$> readMutVar events
             >>= \case
               Just handler -> do
-                writeMutVar (snd handler) (options, f)
+                replaceHandler evty handler options f
                 pure v
               _ -> do
                 ref <- newMutVar (options, f)
                 -- The options are acted on here, in the listener, while the
                 -- event is being dispatched: 'emit' may only queue the
-                -- message for later (see 'HandlerOptions').
+                -- message for later (see 'HandlerOptions'). A handler with
+                -- no match declared, the usual kind, costs nothing more
+                -- than the test of its 'matching'.
                 listener <- mkEventListener $ \ev -> do
                   (options', f') <- readMutVar ref
-                  for_ (f' ev) $ \msg -> do
-                    when options'.preventDefault $ DOM.preventDefault ev
-                    when options'.stopPropagation $ DOM.stopPropagation ev
-                    emit msg
+                  case options'.matching of
+                    Nothing -> for_ (f' ev) $ \msg -> do
+                      actOn options' ev
+                      emit msg
+                    Just match -> when (matchesEvent match ev) $ do
+                      actOn options' ev
+                      traverse_ emit (f' ev)
                 atomicModifyMutVar'_ events (M.insert ty (listener, ref))
-                elementToEventTarget el >>= addEventListener evty listener
+                target <- elementToEventTarget el
+                addEventListener evty listener target
+                when (options /= handlerOptions) $ setListenerOptions evty options listener target
                 pure v
         Ref f -> do
           mbEmit (f (Created el))
@@ -201,9 +189,9 @@ buildProp emit el = renderProp
           | otherwise -> do
               setProperty prop2 val2 el
               pure v2
-        (Handler {}, Handler (DOM.EventType ty) options f) -> do
+        (Handler {}, Handler evty@(DOM.EventType ty) options f) -> do
           handler <- (M.! ty) <$> readMutVar prevEvents
-          writeMutVar (snd handler) (options, f)
+          replaceHandler evty handler options f
           atomicModifyMutVar'_ events (M.insert ty handler)
           pure v2
         -- A ref kept across a patch is told the element went from the old
@@ -224,6 +212,21 @@ buildProp emit el = renderProp
           pure v2
         (_, _) ->
           pure v2
+
+    -- Give a listener that stays the options and the function it uses
+    -- next, and tell the backend when the options changed.
+    replaceHandler :: DOM.EventType -> (DomEventListener m, MutVar (PrimState m) (HandlerOptions, Event -> Maybe a)) -> HandlerOptions -> (Event -> Maybe a) -> m ()
+    replaceHandler evty (listener, ref) options f = do
+      (previous, _) <- readMutVar ref
+      writeMutVar ref (options, f)
+      when (previous /= options)
+        $ elementToEventTarget el
+        >>= setListenerOptions evty options listener
+
+    actOn :: HandlerOptions -> Event -> m ()
+    actOn options ev = do
+      when options.preventDefault $ DOM.preventDefault ev
+      when options.stopPropagation $ DOM.stopPropagation ev
 
     removeProp prevEvents _ v =
       case v of

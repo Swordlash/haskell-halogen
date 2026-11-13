@@ -19,7 +19,11 @@
 -- should reach. And three buttons in an order of their own for Tab: the
 -- second in the page has tabindex 1, the first tabindex 2, and the one
 -- between them tabindex -1, which Tab passes over; each says when it has
--- the focus, the first also when it loses it and when it is pressed.
+-- the focus, the first also when it loses it and when it is pressed. And a
+-- box whose keydown handler declares it is for the key @/@ alone
+-- ('HE.matching'), with its default prevented: the slash is not typed into
+-- the field in the box, every other key is, and the handler counts the
+-- keys it is handed.
 module Example.Editing (component) where
 
 import DOM.HTML.Indexed (ButtonType (..), InputType (..))
@@ -32,6 +36,7 @@ import Halogen.HTML.Properties qualified as HP
 import Protolude hiding (State)
 import Web.Event.Event (EventType (..))
 import Web.UIEvent.KeyboardEvent qualified as KE
+import Web.UIEvent.KeyboardEvent.EventTypes qualified as KET
 
 data State = State
   { clicks :: Int
@@ -42,13 +47,14 @@ data State = State
   , orderClicks :: Int
   , orderSubmits :: Int
   , focused :: Text
+  , slashes :: Int
   }
 
-data Action = Pressed | Clicked | Edited | Typed Text | Smiled Text | SubmittedLocked | ClickedOrder | SubmittedOrder | Focused Text
+data Action = Pressed | Clicked | Edited | Typed Text | Smiled Text | SubmittedLocked | ClickedOrder | SubmittedOrder | Focused Text | Slashed
 
 component :: forall q i o m. (Monad m) => H.Component q i o m
 component =
-  H.component (const (pure (State 0 0 "" "" 0 0 0 ""))) render [H.onAction handleAction]
+  H.component (const (pure (State 0 0 "" "" 0 0 0 "" 0))) render [H.onAction handleAction]
   where
     render :: State -> H.ComponentHTML Action Empty m
     render model =
@@ -93,6 +99,12 @@ component =
         , HH.button [HP.class_ (HH.ClassName "tab-skipped"), HP.tabIndex (-1), HE.onFocus (const (Focused "skipped"))] [HH.text "skipped"]
         , HH.button [HP.class_ (HH.ClassName "tab-first"), HP.tabIndex 1, HE.onFocus (const (Focused "first")), HE.onBlur (const (Focused "none")), HE.onClick (const (Focused "pressed first"))] [HH.text "first"]
         , HH.span [HP.class_ (HH.ClassName "focused")] [HH.text model.focused]
+        , HH.div
+            [ HP.class_ (HH.ClassName "search")
+            , HE.preventingDefault (HE.matching (HE.keys ["/"]) (HE.handler KET.keydown (const Slashed)))
+            ]
+            [HH.input [HP.class_ (HH.ClassName "search-field")]]
+        , HH.span [HP.class_ (HH.ClassName "slashes")] [HH.text (show model.slashes)]
         ]
 
     handleAction :: Action -> H.HalogenM State Action Empty o m ()
@@ -106,3 +118,4 @@ component =
       ClickedOrder -> modify $ \s -> s {orderClicks = s.orderClicks + 1}
       SubmittedOrder -> modify $ \s -> s {orderSubmits = s.orderSubmits + 1}
       Focused which -> modify $ \s -> s {focused = which}
+      Slashed -> modify $ \s -> s {slashes = s.slashes + 1}

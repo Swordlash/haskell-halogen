@@ -67,10 +67,11 @@ import Halogen.JSBits (JSText, Safety (..), browserJS, fromJSText, inBrowser, to
 import Halogen.Query.Event qualified as HQE
 import Halogen.Router.Duplex (RouteDuplex', parse, print)
 import Halogen.Subscription qualified as HS
+import Halogen.VDom.DOM.HandlerOptions qualified as HandlerOptions
 import Halogen.VDom.DOM.Monad (MonadBrowserDOM, window, windowToEventTarget)
 import Protolude hiding (link, print)
 import UnliftIO (MonadUnliftIO)
-import Web.Event.Event (Event (..), EventType (..), preventDefault)
+import Web.Event.Event (EventType (..), preventDefault)
 import Web.UIEvent.MouseEvent (MouseEvent (..), toEvent)
 
 $( browserJS
@@ -79,7 +80,6 @@ $( browserJS
      , ("js_router_push_state", "js_router_push_state", Safe, [t|JSText -> IO ()|])
      , ("js_router_replace_state", "js_router_replace_state", Safe, [t|JSText -> IO ()|])
      , ("js_router_page_base", "js_router_page_base", Safe, [t|IO JSText|])
-     , ("js_router_plain_left_click", "js_router_plain_left_click", Safe, [t|Event -> Bool|])
      ]
  )
 
@@ -303,7 +303,11 @@ link router onFollow route props = HH.a (props <> linkProps router onFollow rout
 
 -- | What makes an @\<a>@ a link to a route, as 'link' makes it: the
 -- route's @href@ and the click handler that hands a plain click to the
--- component (@onFollow@), with the default prevented in the listener. For a
+-- component (@onFollow@), with the default prevented in the listener. The
+-- handler declares that it is for plain clicks ('HE.matching'
+-- 'HE.plainLeftClick'), so that a page that is not the program's (a
+-- component served by haskell-halogen-remote) prevents the default of the
+-- same clicks, and of no other, while it dispatches them. For a
 -- link whose element is written some other way, such as in an @hh@ quote
 -- of "Halogen.TH":
 --
@@ -319,9 +323,9 @@ linkProps
   -> route
   -> [HP.IProp I.HTMLa action]
 linkProps router onFollow route =
-  [HP.href (href router route), HE.preventingDefault (HE.handler' (EventType "click") clicked)]
-  where
-    clicked ev = if isPlainLeftClick (MouseEvent ev) then Just (onFollow (Follow route (MouseEvent ev))) else Nothing
+  [ HP.href (href router route)
+  , HE.preventingDefault (HE.matching HE.plainLeftClick (HE.handler (EventType "click") (onFollow . Follow route . MouseEvent)))
+  ]
 
 -- | Follow a link's click: 'navigate', at once, in 'H.liftEffect'.
 --
@@ -340,7 +344,11 @@ follow router (Follow route ev) = H.liftEffect $ liftIO $ do
   preventDefault (toEvent ev)
   navigate router route
 
--- | A click with the main button and no modifier key, on a link that opens
--- in its own tab: the one a page follows itself. Natively never.
+-- | A click with the main button and no modifier key, that nothing has
+-- prevented already, on a link that opens in its own tab and is not a
+-- download: the one a page follows itself. It is what 'linkProps' declares
+-- its handler matches ('HE.plainLeftClick'), and
+-- "Halogen.VDom.DOM.HandlerOptions".'Halogen.VDom.DOM.HandlerOptions.isPlainLeftClick'
+-- says how it is read, in a browser and natively from the event's JSON.
 isPlainLeftClick :: MouseEvent -> Bool
-isPlainLeftClick = js_router_plain_left_click . toEvent
+isPlainLeftClick = HandlerOptions.isPlainLeftClick . toEvent

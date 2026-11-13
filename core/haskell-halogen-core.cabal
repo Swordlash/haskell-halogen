@@ -152,6 +152,7 @@ library
       Halogen.Row.TH
 
       Halogen.VDom.DOM
+      Halogen.VDom.DOM.HandlerOptions
       Halogen.VDom.DOM.Monad
       Halogen.VDom.DOM.Monad.Browser
       Halogen.VDom.DOM.Monad.Class
@@ -246,6 +247,7 @@ library
 
       js-sources:
         jsbits/activity.js
+        jsbits/events.js
         jsbits/indexeddb.js
         jsbits/monad_dom.js
         jsbits/web_browser.js

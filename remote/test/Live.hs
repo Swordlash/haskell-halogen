@@ -32,11 +32,14 @@ import Halogen.Playwright
 import Halogen.Playwright.Hspec
 import Halogen.Remote.DOM (RemoteDOM)
 import Halogen.Remote.Server qualified as Server
+import Halogen.Router qualified as Router
+import Halogen.Router.Duplex (RouteDuplex', lmap, noArgs, optional, prefix, root)
 import Network.Socket qualified as Socket
 import Network.Socket.ByteString qualified as Socket
 import Network.Wai.Handler.Warp qualified as Warp
 import Prelude
 import System.Timeout (timeout)
+import Web.UIEvent.KeyboardEvent.EventTypes qualified as KET
 
 -- | What the sessions' components tell the test.
 data Shared = Shared
@@ -45,21 +48,47 @@ data Shared = Shared
   -- ^ Each live session's count.
   , typed :: TVar (Map Int Text)
   , finalized :: TVar [Int]
+  , follows :: TVar Int
+  -- ^ How many link clicks the components have followed, in every session.
+  , searches :: TVar Int
+  -- ^ How many keys the search box's handler was handed, in every session.
   }
 
 newShared :: IO Shared
-newShared = Shared <$> newTVarIO 1 <*> newTVarIO Map.empty <*> newTVarIO Map.empty <*> newTVarIO []
+newShared = Shared <$> newTVarIO 1 <*> newTVarIO Map.empty <*> newTVarIO Map.empty <*> newTVarIO [] <*> newTVarIO 0 <*> newTVarIO 0
 
-data State = State {session :: Int, count :: Int, typedText :: Text}
+data Place = Home | Other
+  deriving stock (Eq, Show)
 
-data Action = Increment | Typed Text
+routes :: RouteDuplex' Place
+routes = root (lmap toOther (maybe Home (const Other) <$> optional (prefix "other" noArgs)))
+  where
+    toOther = \case
+      Home -> Nothing
+      Other -> Just ()
 
--- | A counter and an input, each session numbered: what its handlers do
--- they also write where the test can see it.
+data State = State
+  { session :: Int
+  , count :: Int
+  , typedText :: Text
+  , router :: Router.Router Place
+  , route :: Place
+  }
+
+data Action = Increment | Typed Text | Follow (Router.Follow Place) | Search
+
+-- | A counter, an input and a router's link, each session numbered: what
+-- its handlers do they also write where the test can see it. The router is
+-- the session's, made natively, so it keeps its address in memory: a link
+-- it follows changes what the page shows, never the page's address.
 live :: Shared -> H.Component H.VoidF () Void RemoteM
 live shared =
   H.component
-    (\() -> liftIO (atomically (stateTVar shared.nextSession (\n -> (n, n + 1)))) >>= \n -> pure State {session = n, count = 0, typedText = ""})
+    ( \() -> do
+        n <- liftIO (atomically (stateTVar shared.nextSession (\n -> (n, n + 1))))
+        router <- Router.newRouter "/" Home routes
+        pure State {session = n, count = 0, typedText = "", router, route = Home}
+    )
     render
     [ H.onInitialize $ do
         s <- get
@@ -73,6 +102,13 @@ live shared =
           modify (\s -> s {typedText = t})
           s <- get
           H.liftEffect (liftIO (atomically (modifyTVar' shared.typed (Map.insert s.session t))))
+        Follow f -> do
+          s <- get
+          Router.follow s.router f
+          place <- Router.current s.router
+          modify (\st -> st {route = place})
+          H.liftEffect (liftIO (atomically (modifyTVar' shared.follows (+ 1))))
+        Search -> H.liftEffect (liftIO (atomically (modifyTVar' shared.searches (+ 1))))
     , H.onFinalize $ do
         s <- get
         H.liftEffect $
@@ -90,6 +126,14 @@ live shared =
         , HH.span [HP.id "count"] [HH.text (Text.pack (show s.count))]
         , HH.input [HP.id "name", HE.onValueInput Typed]
         , HH.p [HP.id "echo"] [HH.text s.typedText]
+        , Router.link s.router Follow Other [HP.id "to-other"] [HH.text "elsewhere"]
+        , HH.span [HP.id "route"] [HH.text (Text.pack (show s.route))]
+        , -- A box whose keydown handler is for "/", which it keeps from
+          -- being typed into the field in it: declared, so that the page
+          -- can prevent it, and send no other key.
+          HH.div
+            [HP.id "search", HE.preventingDefault (HE.matching (HE.keys ["/"]) (HE.handler KET.keydown (const Search)))]
+            [HH.input [HP.id "query"]]
         ]
 
 type RemoteM = RemoteDOM
@@ -135,6 +179,78 @@ spec shared proxy = playwright $ describe "a component served to Chromium" $ do
     until' "the text" ((== Just "Ada") . Map.lookup session <$> readTVar shared.typed)
     Activity.waitIdle
     locator page "#echo" `shouldHaveText` "Ada"
+
+  it "follows a router's link on a plain click, and leaves any other click to the browser" $ inPage $ \page -> do
+    goto page base
+    session <- sessionOf page
+    address <- url page
+    -- A listener of the test's on the document, which hears a click on the
+    -- link after the client's listener there: it notes whether the default was
+    -- prevented by then, and prevents it itself, so that a click the
+    -- browser would have followed elsewhere (a new tab) goes nowhere.
+    True <-
+      evaluate page $
+        Text.unlines
+          [ "(() => {"
+          , "  window.prevented = []; window.stayed = true;"
+          , "  document.addEventListener('click', (e) => {"
+          , "    if (e.target.closest('#to-other')) { window.prevented.push(e.defaultPrevented); e.preventDefault(); }"
+          , "  });"
+          , "  return true;"
+          , "})()"
+          ]
+    before <- readTVarIO shared.follows
+    -- A ctrl-click and a meta-click, which ask for a new tab: the client
+    -- leaves them to the browser and the link's handler makes no action.
+    True <-
+      evaluate page $
+        Text.unlines
+          [ "(() => {"
+          , "  const link = document.querySelector('#to-other');"
+          , "  for (const key of ['ctrlKey', 'metaKey'])"
+          , "    link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0, [key]: true }));"
+          , "  return true;"
+          , "})()"
+          ]
+    evaluate page "window.prevented" `shouldReturn` [False, False]
+    -- Messages cross in order: once a later click's action has run, the
+    -- two before it have been dealt with.
+    click (locator page "#increment")
+    until' "the click after them" ((== Just 1) . Map.lookup session <$> readTVar shared.counts)
+    readTVarIO shared.follows `shouldReturn` before
+    locator page "#route" `shouldHaveText` "Home"
+    -- The link's handler declares that it is for plain clicks, so the two
+    -- did not even cross the wire: the one click sent is the button's.
+    let clicksSent = length . filter (\f -> f.sent && "\"type\":\"click\"" `Text.isInfixOf` f.payload) <$> webSocketFrames page
+    eventually page $ clicksSent `shouldReturn` 1
+    -- A plain click: prevented in the page, followed by the component.
+    click (locator page "#to-other")
+    until' "the link followed" ((== before + 1) <$> readTVar shared.follows)
+    locator page "#route" `shouldHaveText` "Other"
+    evaluate page "window.prevented" `shouldReturn` [False, False, True]
+    -- No page was loaded: the address is the same, and what the test put
+    -- on the window is still there.
+    url page `shouldReturn` address
+    evaluate page "window.stayed === true" `shouldReturn` True
+
+  it "keeps a key a handler declared from being typed, and sends the program no other" $ inPage $ \page -> do
+    goto page base
+    session <- sessionOf page
+    before <- readTVarIO shared.searches
+    typeText (locator page "#query") "a/b"
+    until' "the slash" ((== before + 1) <$> readTVar shared.searches)
+    -- The page prevented the slash's default, while it dispatched the
+    -- key: it was not typed. The other keys were, as the handler is not
+    -- for them.
+    locator page "#query" `shouldHaveValue` "ab"
+    -- A click after the keys, once the page has sent it, is after them on
+    -- the wire: of the three keys, only the slash crossed it.
+    click (locator page "#increment")
+    until' "the click after them" ((== Just 1) . Map.lookup session <$> readTVar shared.counts)
+    let sentWith text seen = [f | f <- seen, f.sent, text `Text.isInfixOf` f.payload]
+    eventually page $ (length . sentWith "\"type\":\"click\"" <$> webSocketFrames page) `shouldReturn` 1
+    (length . sentWith "\"type\":\"keydown\"" <$> webSocketFrames page) `shouldReturn` 1
+    readTVarIO shared.searches `shouldReturn` (before + 1)
 
   it "gives two tabs two sessions, each with its own state" $ \pw ->
     withContext pw defaultContextOptions {baseURL = Just base} $ \ctx -> do

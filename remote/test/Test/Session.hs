@@ -19,6 +19,7 @@ import Halogen qualified as H
 import Halogen.Remote.DOM (RemoteDOM)
 import Halogen.Remote.Protocol (Batch (..), EventMessage (..), ListenerId, NodeId, Op (..))
 import Halogen.Remote.Session qualified as Session
+import Halogen.VDom.DOM.HandlerOptions (EventMatch (..), HandlerOptions (..), keyMatch)
 import Halogen.VDom.DOM.Monad (PropScalar (..))
 import Protolude
 import Test.Components
@@ -200,6 +201,53 @@ spec = describe "a session" $ do
     Session.receive session (eventFor listener formNode "submit" (object ["type" .= ("submit" :: Text)]))
     patch <- nextOps wire
     [t | SetText _ t <- patch] `shouldBe` ["1"]
+    Session.dispose session
+
+  it "follows a link's plain click, read from what the client says of it, and no other" $ do
+    (session, wire, ops, _) <- mounted linking
+    anchor <- required "link" (elementWithId ops "link")
+    listener <- required "listener" (listenerOn ops anchor "click")
+    followed <- required "the count's text" (head [n | CreateText n "0" <- ops])
+    let clickWith fields = eventFor listener anchor "click" (object (["type" .= ("click" :: Text), "button" .= (0 :: Int)] <> fields))
+        onLink fields = ["currentTarget" .= object (["tagName" .= ("A" :: Text)] <> fields)]
+    -- What the client sends of a plain click on the link.
+    Session.receive session (clickWith (onLink []))
+    nextOps wire `shouldReturn` [SetText followed "1"]
+    -- A modifier key, another button, a link to another tab or a download,
+    -- or a default prevented in the page: the browser's, not the link's.
+    Session.receive session (clickWith ["ctrlKey" .= True])
+    Session.receive session (clickWith ["metaKey" .= True])
+    Session.receive session (clickWith ["button" .= (1 :: Int)])
+    Session.receive session (clickWith (onLink ["target" .= ("_blank" :: Text)]))
+    Session.receive session (clickWith (onLink ["download" .= True]))
+    Session.receive session (clickWith ["defaultPrevented" .= True])
+    silent wire
+    Session.receive session (clickWith (onLink ["target" .= ("_self" :: Text)]))
+    nextOps wire `shouldReturn` [SetText followed "2"]
+    Session.dispose session
+
+  it "sends what a listener's handler declared, with the listener and when it changes" $ do
+    (session, wire, ops, _) <- mounted searching
+    search <- required "the search box" (elementWithId ops "search")
+    listener <- required "its listener" (listenerOn ops search "keydown")
+    let declared key = HandlerOptions {preventDefault = True, stopPropagation = False, matching = Just (Keys [keyMatch key])}
+    [o | o@ListenerOptions {} <- ops] `shouldBe` [ListenerOptions search "keydown" listener (declared "/")]
+    -- In the same batch, after the listener.
+    (ListenerOptions search "keydown" listener (declared "/") `elem` dropWhile (/= Listen search "keydown" listener) ops) `shouldBe` True
+    -- The other listener, the button's, declares nothing, and nothing is
+    -- sent of it.
+    length [n | Listen n _ _ <- ops] `shouldBe` 2
+    swapButton <- required "the swap button" (elementWithId ops "swap-key")
+    swapListener <- required "its listener" (listenerOn ops swapButton "click")
+    -- A render that changes it sends the new one, for the same listener.
+    Session.receive session (clickOn swapListener swapButton)
+    nextOps wire `shouldReturn` [ListenerOptions search "keydown" listener (declared "Escape")]
+    -- An event the page sends is one that matched, which the handler is
+    -- asked about; the render it causes leaves the declaration as it was,
+    -- and sends nothing about it.
+    searched <- required "the count's text" (head [n | CreateText n "0" <- ops])
+    Session.receive session (eventFor listener search "keydown" (object ["type" .= ("keydown" :: Text), "key" .= ("Escape" :: Text)]))
+    nextOps wire `shouldReturn` [SetText searched "1"]
     Session.dispose session
 
   it "drops an event for a listener it does not have, and a message that is none" $ do

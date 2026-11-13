@@ -21,6 +21,7 @@
 -- > ["unprop", node, name]                     reset one
 -- > ["listen", node, type, listener]           listen for events of a type
 -- > ["unlisten", node, type, listener]         stop
+-- > ["options", node, type, listener, options] what the listener's handler declared
 --
 -- Node 0 is the window (what the component's program knows as both the
 -- window and the document) and node 1 the container the client attached
@@ -28,6 +29,26 @@
 -- creates either. @insert@'s index is where the child ends up, counted
 -- among the parent's children once the child has been taken from wherever
 -- it was.
+--
+-- @options@ follows a @listen@ whose handler declared anything
+-- ('Halogen.VDom.DOM.HandlerOptions.HandlerOptions'), in the same batch,
+-- and comes again whenever a render changes what it declared:
+--
+-- > {"preventDefault": true, "stopPropagation": false, "match": m}
+--
+-- where @m@ is @null@ (no match declared), @"any"@, @"plain-left-click"@,
+-- or a list of keys, each @{"key": "/"}@ with @ctrlKey@, @shiftKey@,
+-- @altKey@ and @metaKey@ when it says whether they are held. A listener
+-- whose options declare nothing (no match, neither flag) is one that never
+-- had any.
+--
+-- The client acts on them while the page dispatches the event, which the
+-- program cannot: for a listener with a match, an event that does not match
+-- is not sent at all, and one that does has its default prevented and its
+-- propagation stopped as declared; for one without a match, every event it
+-- hears. For a listener that declares nothing, the client prevents the
+-- default of a @submit@ and of a click on an @a@ the browser would follow
+-- in this tab, and of nothing else.
 --
 -- A node taken out and not put back by the end of the batch is gone, on both
 -- sides: once the last operation is applied, each node a @remove@ took out
@@ -47,27 +68,34 @@
 --
 -- @event@ holds what handlers read of an event: its @type@, @key@,
 -- @code@, the modifier keys, @button@, the pointer's coordinates,
--- @detail@, and for its @target@ and @currentTarget@ their @value@,
--- @checked@, @selectedIndex@ and @tagName@.
+-- @detail@, @defaultPrevented@ (@true@ only when something in the page
+-- had prevented the default before the client got the event; absent
+-- otherwise), and for its @target@ and @currentTarget@ their @value@,
+-- @checked@, @selectedIndex@, @tagName@ and @id@, and of a link (an @a@ or
+-- an @area@) its @target@ when it names one and @download: true@ when it
+-- has the attribute: what "Halogen.Router"'s @isPlainLeftClick@ reads.
 module Halogen.Remote.Protocol
   ( NodeId
   , ListenerId
   , Op (..)
   , Batch (..)
   , EventMessage (..)
+  , encodeOptions
+  , decodeOptions
   , encodeBatch
   , decodeEventMessage
   )
 where
 
 import Control.Monad.Fail (fail)
-import Data.Aeson (FromJSON (..), ToJSON (..), Value (..), (.:), (.=))
+import Data.Aeson (FromJSON (..), ToJSON (..), Value (..), (.:), (.:?), (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Text (encodeToLazyText)
 import Data.Aeson.Types (Parser)
 import Data.Scientific (floatingOrInteger, fromFloatDigits)
 import Data.Text.Lazy qualified as Lazy
 import Data.Vector qualified as Vector
+import Halogen.VDom.DOM.HandlerOptions (EventMatch (..), HandlerOptions (..), KeyMatch (..))
 import Halogen.VDom.DOM.Monad (PropScalar (..))
 import Protolude
 
@@ -100,6 +128,9 @@ data Op
   | -- | The node, the event type and the listener.
     Listen NodeId Text ListenerId
   | Unlisten NodeId Text ListenerId
+  | -- | The node, the event type and the listener, and what its handler
+    -- declared now.
+    ListenerOptions NodeId Text ListenerId HandlerOptions
   deriving stock (Eq, Show)
 
 -- | The operations one message carries, and its place among the session's.
@@ -139,6 +170,7 @@ instance ToJSON Op where
     RemoveProperty n name -> tagged "unprop" [toJSON n, toJSON name]
     Listen n ty l -> tagged "listen" [toJSON n, toJSON ty, toJSON l]
     Unlisten n ty l -> tagged "unlisten" [toJSON n, toJSON ty, toJSON l]
+    ListenerOptions n ty l o -> tagged "options" [toJSON n, toJSON ty, toJSON l, encodeOptions o]
     where
       tagged :: Text -> [Value] -> Value
       tagged tag rest = Array (Vector.fromList (String tag : rest))
@@ -171,6 +203,7 @@ instance FromJSON Op where
         ("unprop", [n, name]) -> RemoveProperty <$> parseJSON n <*> parseJSON name
         ("listen", [n, ty, l]) -> Listen <$> parseJSON n <*> parseJSON ty <*> parseJSON l
         ("unlisten", [n, ty, l]) -> Unlisten <$> parseJSON n <*> parseJSON ty <*> parseJSON l
+        ("options", [n, ty, l, o]) -> ListenerOptions <$> parseJSON n <*> parseJSON ty <*> parseJSON l <*> decodeOptions o
         _ -> fail ("not an operation: " <> toS tag <> " with " <> show (length rest) <> " arguments")
 
       unscalar :: Value -> Parser PropScalar
@@ -179,6 +212,42 @@ instance FromJSON Op where
         Bool b -> pure (ScalarBool b)
         String t -> pure (ScalarText t)
         _ -> fail "a property's value is a string, a number or a boolean"
+
+-- | A listener's options, as the module's header spells them.
+encodeOptions :: HandlerOptions -> Value
+encodeOptions options =
+  Aeson.object
+    [ "preventDefault" .= options.preventDefault
+    , "stopPropagation" .= options.stopPropagation
+    , "match" .= fmap match options.matching
+    ]
+  where
+    match = \case
+      AnyEvent -> String "any"
+      PlainLeftClick -> String "plain-left-click"
+      Keys ks -> Array (Vector.fromList (map keyOf ks))
+    keyOf k =
+      Aeson.object $
+        ("key" .= k.key)
+          : [ name .= held
+            | (name, Just held) <- [("ctrlKey", k.ctrlKey), ("shiftKey", k.shiftKey), ("altKey", k.altKey), ("metaKey", k.metaKey)]
+            ]
+
+decodeOptions :: Value -> Parser HandlerOptions
+decodeOptions = Aeson.withObject "HandlerOptions" $ \o ->
+  HandlerOptions
+    <$> o
+    .: "preventDefault"
+    <*> o .: "stopPropagation"
+    <*> (traverse match =<< o .:? "match")
+  where
+    match = \case
+      String "any" -> pure AnyEvent
+      String "plain-left-click" -> pure PlainLeftClick
+      Array ks -> Keys <$> traverse keyOf (Vector.toList ks)
+      _ -> fail "a match is \"any\", \"plain-left-click\" or a list of keys"
+    keyOf = Aeson.withObject "KeyMatch" $ \k ->
+      KeyMatch <$> k .: "key" <*> k .:? "ctrlKey" <*> k .:? "shiftKey" <*> k .:? "altKey" <*> k .:? "metaKey"
 
 instance ToJSON Batch where
   toJSON batch = Aeson.object ["n" .= batch.sequence, "ops" .= batch.ops]

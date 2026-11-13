@@ -97,6 +97,23 @@ spec m = do
     find ui "#submit" >>= click
     find ui "#submitted" >>= (`shouldHaveText` "2")
 
+  it "keeps the page from following a link's plain click, which the component follows" $ runPage $ do
+    traffic <- unsafeIOToPageM (newIORef [])
+    ui <- mount m (host traffic linking) ()
+    find ui "#link" >>= click
+    find ui "#followed" >>= (`shouldHaveText` "1")
+    -- Following the link would have taken the page, and the test, with it.
+    find ui "#link" >>= click
+    find ui "#followed" >>= (`shouldHaveText` "2")
+
+  it "keeps from being typed only the key a handler declared, which the component hears" $ runPage $ do
+    traffic <- unsafeIOToPageM (newIORef [])
+    ui <- mount m (host traffic searching) ()
+    field <- find ui "#query"
+    typeText field "a/b"
+    find ui "#searched" >>= (`shouldHaveText` "1")
+    getProperty field "value" >>= (`shouldBe` "ab")
+
   it "keeps a child's element when its parent replaces the element around it" $ runPage $ do
     traffic <- unsafeIOToPageM (newIORef [])
     ui <- mount m (host traffic swapping) ()

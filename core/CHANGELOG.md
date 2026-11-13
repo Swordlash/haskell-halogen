@@ -424,6 +424,31 @@ the `wasi` flag in core and jsbits. The browser build remains separate.
   matches a `Handler` itself changes; `Halogen.HTML.Core.handler` is as it
   was, and `Halogen.HTML.Core.withHandlerOptions` changes a handler's
   options. `buildProp` asks for `MonadIO`, which every DOM monad has.
+- A handler can declare, as data, which events it makes an action for:
+  `HE.matching` with `HE.keys ["/", "Escape"]`, `HE.keysWith` (keys with
+  modifiers, `(keyMatch "s") {ctrlKey = Just True}`), `HE.plainLeftClick`
+  (a click the browser would follow in this tab) or `HE.anyEvent`. A handler
+  with a match is asked only about the events that match, and
+  `HE.preventingDefault` and `HE.stoppingPropagation` apply to every event
+  that matches, whether or not its function then makes an action; one
+  without behaves as before. In a page that only says ahead of time what the
+  function would decide; it matters where the page is not the program's,
+  under haskell-halogen-remote, whose client reads the match while the page
+  dispatches the event, so that `HE.preventingDefault
+  (HE.matching (HE.keys ["/"]) (HE.onKeyDown (const Search)))` keeps the
+  slash from being typed over the wire too, and sends no other key.
+  `HandlerOptions` gained the field `matching` (`Nothing` for no match), and
+  the types, `EventMatch` and `KeyMatch`, are in the new module
+  `Halogen.VDom.DOM.HandlerOptions` (re-exported by
+  `Halogen.VDom.DOM.Prop`, as `HandlerOptions` is), with `matchesEvent` and
+  `isPlainLeftClick`, which reads a click natively from the event's JSON
+  too. Code that builds `HandlerOptions` with its constructor adds the field;
+  `handlerOptions` with a record update needs no change. `MonadDOM` gained
+  `setListenerOptions`, which the listener calls after adding a listener
+  whose handler declares anything and whenever a patch changes it; it does
+  nothing unless a backend says otherwise (remote's does), and `ReaderT`'s
+  and `IdentityT`'s instances pass it on, as a transformer of your own over
+  a backend should.
 - New module `Web.Storage.IndexedDB`: a key-value store over the browser's
   IndexedDB, for what is too big, too binary or too much for
   `Web.Storage.Storage` (an offline cache, a document and its attachments).
