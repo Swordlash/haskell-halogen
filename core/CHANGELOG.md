@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+Child components under a memoized node (`HH.memoized`, `HH.lazy`) survive
+the renders that skip it. Before, the first render of the parent that found
+the node's argument equal finalized every child component in it, since a
+skipped node does not visit its slots and a render takes a child it did not
+visit for gone; memoizing a part of the page that holds components (cards,
+each with a component in it) did not work. Now a skipped node's children
+stay as they are, with their state, DOM, subscriptions and forks, answer
+queries and raise outputs; they get no `Receive` while the node is skipped
+(its argument is equal, so is the input it would give them), and are
+reconciled as any others when it runs again. A memoized node inside a
+skipped one, and one moved in a keyed list, keep theirs too.
+
+`RenderSpec`'s `render` is given the render pass's child slots as a
+`ChildSlots` record (exported from `Halogen.IO.Driver`) rather than a
+function: `renderSlot` is the function it was, and `keepSlot` tells the pass
+that a slot the render left unchanged still holds its child. A renderer of
+one's own that renders every slot takes `renderSlot` from the record and is
+otherwise unchanged. `Halogen.VDom.Thunk` has `buildThunkWith` and
+`hydrateThunkWith`, which tell a `ThunkWatch` of each render that runs a
+thunk and each patch that skips one.
+
 `Halogen.Activity` says whether the program's mounted trees are busy:
 `activity` gives how many trees are mounted, how many of them are running
 work or have work queued, and how many fibers are waiting in a `liftIO`;

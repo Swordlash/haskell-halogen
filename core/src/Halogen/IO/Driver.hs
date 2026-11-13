@@ -2,6 +2,7 @@
 -- loop of its own ("Halogen.IO.Driver.Runtime").
 module Halogen.IO.Driver
   ( RenderSpec (..)
+  , ChildSlots (..)
   , runUI
   , HalogenSocket (..)
   )
