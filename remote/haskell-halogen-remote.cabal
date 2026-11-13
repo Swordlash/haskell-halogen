@@ -83,7 +83,9 @@ library
     -- The server is native: a program in a browser is the client's side of
     -- a wire, not the server's.
     if !arch(wasm32) && !arch(javascript)
-        exposed-modules: Halogen.Remote.Server
+        exposed-modules:
+          Halogen.Remote.Server
+          Halogen.Remote.Test
         build-depends:
             bytestring,
             http-types,
@@ -104,6 +106,7 @@ test-suite Halogen-remote-test
     main-is:          Test.hs
     other-modules:
       Test.Components
+      Test.Probe
       Test.Protocol
       Test.Recorder
       Test.Server
@@ -136,6 +139,7 @@ test-suite Halogen-remote-live-test
     ghc-options:      -threaded
     build-depends:
         base,
+        async,
         bytestring,
         containers,
         mtl,

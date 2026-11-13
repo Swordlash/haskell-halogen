@@ -53,12 +53,27 @@
 --   form controls, which the mirror takes as the element's.
 -- * The client starts empty: a page is not hydrated from HTML rendered
 --   ahead of the program.
+--
+-- __Whether it is busy.__ 'activity' reads the session's tree and folds in
+-- what the session has not sent: over a wire, a program is idle once the
+-- page shows what it rendered. The client forwards the questions of a page's
+-- probe (@__halogenProbe.activity()@, which @haskell-halogen-playwright@
+-- asks after every action) and 'receive' answers them through the sender,
+-- in order with the batches: "Halogen.Remote.Protocol" has the messages and
+-- the argument for their order.
+--
+-- __Identity.__ Every session has a number unique in the process
+-- ('sessionId'), which 'Eq', 'Ord' and 'Show' go by.
 module Halogen.Remote.Session
   ( Session
   , newSession
+  , sessionId
   , mount
+  , isMounted
   , receive
+  , activity
   , dispose
+  , ended
   , run
   , liveNodes
   , liveListeners
@@ -71,6 +86,7 @@ import Data.Aeson.Text (encodeToLazyText)
 import Data.Foreign (toForeign)
 import Data.Sequence qualified as Seq
 import Data.Text.Lazy qualified as Lazy
+import Halogen.Activity (Activity (..))
 import Halogen.Component (Component)
 import Halogen.IO.Driver (HalogenSocket (..), RenderSpec (..))
 import Halogen.IO.Driver qualified as Driver
@@ -78,9 +94,11 @@ import Halogen.JSBits (inBrowser)
 import Halogen.Remote.Client qualified as Client
 import Halogen.Remote.Internal (Recorder, RemoteDOM, runRemoteDOM)
 import Halogen.Remote.Internal qualified as Internal
-import Halogen.Remote.Protocol (Batch (..), EventMessage (..), Op (..), decodeEventMessage, encodeBatch)
+import Halogen.Remote.Protocol (Batch (..), EventMessage (..), FromPage (..), Op (..), decodeFromPage, encodeBatch, encodeProbeAnswer)
 import Halogen.VDom.Driver (renderSpec)
 import Protolude hiding (yield)
+import System.IO.Unsafe (unsafePerformIO)
+import Text.Show qualified as Show
 import UnliftIO (tryAny)
 import UnliftIO.Concurrent (yield)
 import UnliftIO.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
@@ -88,15 +106,43 @@ import Web.Event.Internal.Types (Event (..))
 
 -- | One client's side of the wire.
 data Session = Session
-  { recorder :: Recorder
+  { ident :: Int
+  , recorder :: Recorder
   , send :: Text -> IO ()
-  , held :: STM.TVar Bool
-  -- ^ While the component is being mounted, nothing is sent, so that the
-  -- first message holds its first render.
-  , mounted :: IORef (Maybe (RemoteDOM ()))
-  -- ^ What disposes of the component's tree, once it has one.
+  , phase :: STM.TVar Phase
+  -- ^ Until the component is mounted, nothing but the probe's answers is
+  -- sent, so that the first batch holds its first render.
+  , mounted :: IORef (Maybe Tree)
+  -- ^ The component's tree, once it has one.
   , sender :: IORef (Maybe (Async ()))
+  , flushes :: STM.TVar (Int, Int)
+  -- ^ How many batches the sender has begun to take, and how many it has
+  -- finished with (sent, or found empty): one is under way while they
+  -- differ.
+  , questions :: STM.TVar (Seq (Int, Int))
+  -- ^ The probe's questions not yet answered, in the order they came: each
+  -- with the number of batches that must be finished with first (as the
+  -- recorder counts the batches taken).
   }
+
+-- | What the session keeps of its component's tree.
+data Tree = Tree
+  { dispose :: RemoteDOM ()
+  , activity :: RemoteDOM Activity
+  }
+
+data Phase = Unmounted | Mounting | Live
+  deriving stock (Eq)
+
+instance Eq Session where
+  a == b = a.ident == b.ident
+
+instance Ord Session where
+  compare a b = compare a.ident b.ident
+
+-- | The session's number.
+instance Show Session where
+  showsPrec d session = Show.showsPrec d session.ident
 
 data SessionError
   = -- | A session shows one component; 'mount' was called a second time.
@@ -105,40 +151,82 @@ data SessionError
 
 instance Exception SessionError
 
+-- | The numbers the process has given its sessions.
+sessionNumbers :: IORef Int
+sessionNumbers = unsafePerformIO (newIORef 1)
+{-# NOINLINE sessionNumbers #-}
+
+-- | The session's number, unique in the process: what tells two sessions
+-- apart (a server's log, a test's map of its pages).
+sessionId :: Session -> Int
+sessionId session = session.ident
+
 -- | A session whose messages to the client go to @send@, which is called
 -- from a thread of the session's own, one message at a time. A @send@ that
 -- throws ends the sending (the client has gone); the caller disposes of the
 -- session.
 newSession :: (Text -> IO ()) -> IO Session
 newSession send = do
+  ident <- atomicModifyIORef' sessionNumbers (\n -> (n + 1, n))
   recorder <- Internal.newRecorder
-  held <- STM.newTVarIO True
-  session <- Session recorder send held <$> newIORef Nothing <*> newIORef Nothing
+  session <-
+    Session ident recorder send
+      <$> STM.newTVarIO Unmounted
+      <*> newIORef Nothing
+      <*> newIORef Nothing
+      <*> STM.newTVarIO (0, 0)
+      <*> STM.newTVarIO Seq.empty
   STM.atomically $ STM.writeTVar recorder.pending (Seq.singleton Clear)
   thread <- async (sending session 1)
   writeIORef session.sender (Just thread)
   pure session
 
+-- | What the sender does next.
+data Next = Stop | Answer [Int] | Flush
+
+-- | The sender: answer the questions that are due, first, then send what is
+-- recorded, between renders, as the module's header says. A question is
+-- due once the batches it waits for are finished with, so a render that
+-- never stops recording (an animation) does not keep it from its answer.
 sending :: Session -> Int -> IO ()
 sending session n = do
-  woken <- STM.atomically $ do
-    STM.readTVar session.held >>= STM.check . not
-    Internal.ready session.recorder
-  when woken $ do
-    -- Let what is about to record join the batch. A render that starts
-    -- meanwhile is waited for: the batch is taken between renders.
-    yield
-    Internal.takeBatch session.recorder >>= \case
-      Nothing -> pass
-      -- Everything it held was about nodes it forgot.
-      Just [] -> sending session n
-      Just ops -> do
-        sent <- tryAny (session.send (encodeBatch (Batch n ops)))
-        case sent of
-          Left _ -> pass
-          Right () -> sending session (n + 1)
+  let recorder = session.recorder
+  next <- STM.atomically $ do
+    open <- STM.readTVar recorder.open
+    if not open
+      then pure Stop
+      else do
+        (started, finished) <- STM.readTVar session.flushes
+        questions <- STM.readTVar session.questions
+        let (due, later) = Seq.spanl (\(_, after) -> after <= finished) questions
+        if not (Seq.null due)
+          then STM.writeTVar session.questions later $> Answer (toList (fst <$> due))
+          else do
+            STM.readTVar session.phase >>= STM.check . (== Live)
+            Internal.ready recorder >>= STM.check
+            STM.writeTVar session.flushes (started + 1, finished)
+            pure Flush
+  case next of
+    Stop -> pass
+    Answer numbers -> do
+      reading <- activity session
+      sent <- tryAny (for_ numbers (\q -> session.send (encodeProbeAnswer q reading)))
+      when (isRight sent) $ sending session n
+    Flush -> do
+      -- Let what is about to record join the batch. A render that starts
+      -- meanwhile is waited for: the batch is taken between renders.
+      yield
+      let finished = STM.atomically (STM.modifyTVar' session.flushes (second (+ 1)))
+      Internal.takeBatch recorder >>= \case
+        Nothing -> finished
+        -- Everything it held was about nodes it forgot.
+        Just [] -> finished >> sending session n
+        Just ops -> do
+          sent <- tryAny (session.send (encodeBatch (Batch n ops)))
+          finished
+          when (isRight sent) $ sending session (n + 1)
 
--- | Mount the component in the session's page: the first message the client
+-- | Mount the component in the session's page: the first batch the client
 -- gets is its first render. A session mounts one component, once.
 --
 -- A component that fails to mount (its initial state or its first render
@@ -151,13 +239,16 @@ sending session n = do
 -- one (see the module's header).
 mount :: Session -> Component q i o RemoteDOM -> i -> IO (HalogenSocket q o RemoteDOM)
 mount session component input = do
-  already <- isJust <$> readIORef session.mounted
-  when already $ throwIO AlreadyMounted
+  fresh <- STM.atomically $ do
+    now <- STM.readTVar session.phase
+    when (now == Unmounted) $ STM.writeTVar session.phase Mounting
+    pure (now == Unmounted)
+  unless fresh $ throwIO AlreadyMounted
   let recorder = session.recorder
       spec = counted (renderSpec (Internal.documentHandle recorder) (Internal.bodyHandle recorder))
   socket <- run session (Driver.runUI spec component input) `onException` dispose session
-  writeIORef session.mounted (Just socket.dispose)
-  STM.atomically (STM.writeTVar session.held False)
+  writeIORef session.mounted (Just Tree {dispose = socket.dispose, activity = socket.activity})
+  STM.atomically (STM.writeTVar session.phase Live)
   pure socket
   where
     counted :: RenderSpec RemoteDOM r -> RenderSpec RemoteDOM r
@@ -171,14 +262,69 @@ mount session component input = do
         , rootNode
         }
 
+-- | Whether a component has been mounted (and the session not disposed of
+-- since).
+isMounted :: Session -> IO Bool
+isMounted session = isJust <$> readIORef session.mounted
+
 -- | A message from the client: an event for one of the component's
 -- listeners, which runs on the caller's thread and hands its action to the
--- component's loop, as a page's callback does. A message that is not one, or
--- that comes for a listener the component has since taken away, is dropped.
+-- component's loop, as a page's callback does; or a question of the
+-- probe's, which the sender answers in its turn (see
+-- "Halogen.Remote.Protocol"). A message that is neither, or an event that
+-- comes for a listener the component has since taken away, is dropped.
 receive :: Session -> Text -> IO ()
-receive session text = for_ (decodeEventMessage text) $ \message -> do
-  event <- eventOf message
-  Internal.deliver session.recorder message event
+receive session text = for_ (decodeFromPage text) $ \case
+  PageEvent message -> do
+    event <- eventOf message
+    Internal.deliver session.recorder message event
+  ProbeQuestion question -> asked session question
+
+-- | Queue a question for the sender, after the batch that will take what is
+-- recorded now, if anything is, and after the batch being sent.
+asked :: Session -> Int -> IO ()
+asked session question = STM.atomically $ do
+  let recorder = session.recorder
+  open <- STM.readTVar recorder.open
+  when open $ do
+    now <- STM.readTVar session.phase
+    pending <- STM.readTVar recorder.pending
+    -- The batch being sent, if one is, was the last taken; what is pending
+    -- goes in the next.
+    taken <- STM.readTVar recorder.taken
+    let waitsFor = taken + (if now == Live && not (Seq.null pending) then 1 else 0)
+    STM.modifyTVar' session.questions (Seq.|> (question, waitsFor))
+
+-- | What the session is doing: its tree's reading ('trees' 0 before 'mount'
+-- and after 'dispose'), with 'running' at least 1 while the session has
+-- anything the client has not been sent (operations recorded and not yet
+-- taken into a batch, a batch being sent, a render under way) or is
+-- mounting. Idle means the client has been sent everything the component
+-- rendered.
+--
+-- The tree is read first, then the session: work that ends between the
+-- two recorded what it rendered before it ended, so it is seen unsent.
+activity :: Session -> IO Activity
+activity session = do
+  tree <-
+    readIORef session.mounted >>= \case
+      Nothing -> pure Activity {trees = 0, running = 0, waiting = 0}
+      Just t -> run session t.activity
+  let recorder = session.recorder
+  unsent <- STM.atomically $ do
+    open <- STM.readTVar recorder.open
+    now <- STM.readTVar session.phase
+    pending <- STM.readTVar recorder.pending
+    depth <- STM.readTVar recorder.rendering
+    (started, finished) <- STM.readTVar session.flushes
+    pure $
+      open
+        && ( now == Mounting
+               || depth > 0
+               || started /= finished
+               || (now == Live && not (Seq.null pending))
+           )
+  pure tree {running = max tree.running (if unsent then 1 else 0)}
 
 -- | The event a handler reads: in a browser the JavaScript object the
 -- client's JSON spells, natively the JSON itself, which "Data.Foreign"
@@ -196,8 +342,13 @@ dispose :: Session -> IO ()
 dispose session = do
   Internal.close session.recorder
   traverse_ cancel =<< atomicModifyIORef' session.sender (Nothing,)
-  atomicModifyIORef' session.mounted (Nothing,) >>= traverse_ (void . tryAny . run session)
+  atomicModifyIORef' session.mounted (Nothing,) >>= traverse_ (void . tryAny . run session . (.dispose))
   Internal.close session.recorder
+
+-- | Return once the session has been disposed of: what a server waits for
+-- to close the connection of a session someone else disposed of.
+ended :: Session -> IO ()
+ended session = STM.atomically (STM.readTVar session.recorder.open >>= STM.check . not)
 
 -- | Run a program in the session's monad: a query of the mounted component,
 -- say, through its socket.

@@ -4,6 +4,7 @@ module Main (main) where
 
 import Protolude
 import Test.Hspec (hspec)
+import Test.Probe qualified
 import Test.Protocol qualified
 import Test.Recorder qualified
 import Test.Server qualified
@@ -15,3 +16,4 @@ main = hspec $ do
   Test.Recorder.spec
   Test.Session.spec
   Test.Server.spec
+  Test.Probe.spec

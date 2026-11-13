@@ -197,6 +197,9 @@ data Recorder = Recorder
   , nextListener :: IORef ListenerId
   , listeners :: IORef (IntMap Attached)
   , pending :: STM.TVar (Seq Op)
+  , taken :: STM.TVar Int
+  -- ^ How many batches have been taken: the operations pending now go out
+  -- in the next.
   , detached :: STM.TVar (IntMap RemoteNode)
   -- ^ The nodes taken out of their parents since the last batch was taken:
   -- those still without one when the next is are forgotten.
@@ -229,6 +232,7 @@ newRecorder = do
     <*> newIORef 1
     <*> newIORef IntMap.empty
     <*> STM.newTVarIO Seq.empty
+    <*> STM.newTVarIO 0
     <*> STM.newTVarIO IntMap.empty
     <*> STM.newTVarIO 0
     <*> STM.newTVarIO True
@@ -281,6 +285,7 @@ takeBatch recorder = do
       else do
         STM.readTVar recorder.rendering >>= STM.check . (== 0)
         ops <- STM.swapTVar recorder.pending Seq.empty
+        STM.modifyTVar' recorder.taken (+ 1)
         out <- STM.swapTVar recorder.detached IntMap.empty
         pure (Just (ops, out))
   for taken $ \(ops, out) -> do

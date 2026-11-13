@@ -57,11 +57,26 @@ function halogen_remote_unlisten_all(client) {
   client.keysOf.clear();
 }
 
-// Apply one message of the program's: {"n": sequence, "ops": [...]}. The
-// nodes its removals took out that are still out at its end are forgotten.
+// Apply one message of the program's, if it is a batch: {"n": sequence,
+// "ops": [...]}. Any other message (a probe's answer, or a kind this client
+// does not know, from a newer program) changes nothing on the page.
 function halogen_remote_apply(client, text) {
-  var batch = JSON.parse(text);
-  var ops = batch.ops;
+  halogen_remote_message(client, text);
+}
+
+// The same, returning the message, for a caller that wants to see what
+// else it was (halogen_remote_connect, for the probe's answers): null when
+// it is not a JSON object.
+function halogen_remote_message(client, text) {
+  var message = JSON.parse(text);
+  if (message === null || typeof message !== "object") return null;
+  if (Array.isArray(message.ops)) halogen_remote_batch(client, message.ops);
+  return message;
+}
+
+// A batch's operations. The nodes its removals took out that are still out
+// at its end are forgotten.
+function halogen_remote_batch(client, ops) {
   client.removed = [];
   for (var i = 0; i < ops.length; i++) halogen_remote_op(client, ops[i]);
   var removed = client.removed;
@@ -368,16 +383,48 @@ function halogen_remote_ignore() {}
 // client connects again after a delay that doubles each time, up to
 // options.maxDelay (10 s; options.minDelay is the first, 0.5 s); each
 // connection is a new session, which begins by emptying the container.
-// The container's data-halogen-remote says "connected" or "disconnected",
-// for the page's styling. Returns { close() }, which stops for good.
+// With options.reconnect false it connects once, and a connection that
+// closes stays closed (a test's page, whose session is the test's). The
+// container's data-halogen-remote says "connected" or "disconnected", for
+// the page's styling. Returns { close() }, which stops for good.
+//
+// When the page has a probe (globalThis.__halogenProbe an object, as
+// haskell-halogen-playwright's pages have before their scripts run), the
+// client gives it what haskell-halogen-core's programs give it
+// (core/jsbits/activity.js), in the same list, so that a page with programs
+// of both kinds sums them all: its question is forwarded to the session,
+// whose answer comes in order with its batches (Halogen.Remote.Protocol),
+// so that when it resolves the page shows everything the answer accounts
+// for. With no open connection the client answers at once that there is
+// nothing: no tree, nothing running.
 function halogen_remote_connect(address, container, options) {
   var settings = options || {};
   var minDelay = typeof settings.minDelay === "number" ? settings.minDelay : 500;
   var maxDelay = typeof settings.maxDelay === "number" ? settings.maxDelay : 10000;
-  var state = { socket: null, attempts: 0, stopped: false, retry: null };
+  var reconnect = settings.reconnect !== false;
+  var state = { socket: null, attempts: 0, stopped: false, retry: null, nextQuestion: 1, questions: new Map() };
   var url = new URL(address, location.href);
   if (url.protocol === "http:") url.protocol = "ws:";
   else if (url.protocol === "https:") url.protocol = "wss:";
+  // The questions of a connection that ends are answered: nothing is
+  // there any more.
+  function forgetQuestions() {
+    var waiting = state.questions;
+    state.questions = new Map();
+    waiting.forEach(function (resolve) {
+      resolve(halogen_remote_nothing());
+    });
+  }
+  function ask() {
+    var socket = state.socket;
+    if (socket === null || socket.readyState !== WebSocket.OPEN) return Promise.resolve(halogen_remote_nothing());
+    return new Promise(function (resolve) {
+      var n = state.nextQuestion++;
+      state.questions.set(n, resolve);
+      socket.send(JSON.stringify({ probe: n }));
+    });
+  }
+  var asker = halogen_remote_probe_install(ask);
   function connect() {
     state.retry = null;
     if (state.stopped) return;
@@ -392,12 +439,21 @@ function halogen_remote_connect(address, container, options) {
       container.setAttribute("data-halogen-remote", "connected");
     };
     socket.onmessage = function (message) {
-      if (typeof message.data === "string") halogen_remote_apply(client, message.data);
+      if (typeof message.data !== "string") return;
+      var received = halogen_remote_message(client, message.data);
+      if (received !== null && typeof received.probe === "number" && !Array.isArray(received.ops)) {
+        var resolve = state.questions.get(received.probe);
+        if (resolve) {
+          state.questions.delete(received.probe);
+          resolve({ trees: received.trees, running: received.running, waiting: received.waiting });
+        }
+      }
     };
     socket.onclose = function () {
       halogen_remote_unlisten_all(client);
       container.setAttribute("data-halogen-remote", "disconnected");
-      if (!state.stopped) {
+      if (state.socket === socket) forgetQuestions();
+      if (!state.stopped && reconnect) {
         var delay = Math.min(maxDelay, minDelay * Math.pow(2, state.attempts));
         state.attempts += 1;
         state.retry = setTimeout(connect, delay);
@@ -406,12 +462,56 @@ function halogen_remote_connect(address, container, options) {
   }
   connect();
   return {
-    // A reconnection that is waiting for its delay does not happen.
+    // A reconnection that is waiting for its delay does not happen, and the
+    // probe no longer asks this client.
     close: function () {
       state.stopped = true;
       if (state.retry !== null) clearTimeout(state.retry);
       state.retry = null;
       if (state.socket) state.socket.close();
+      halogen_remote_probe_remove(asker);
+      forgetQuestions();
     },
   };
+}
+
+function halogen_remote_nothing() {
+  return { trees: 0, running: 0, waiting: 0 };
+}
+
+// Add an asker to the page's probe, if the page has one, as
+// core/jsbits/activity.js does (the same list under the same symbol, and
+// the same sum if this client is the first to come): the asker, or null.
+function halogen_remote_probe_install(ask) {
+  var probe = globalThis.__halogenProbe;
+  if (probe === null || typeof probe !== "object") return null;
+  var programs = Symbol.for("halogen.activity.programs");
+  if (!Array.isArray(probe[programs])) {
+    Object.defineProperty(probe, programs, { value: [], enumerable: false });
+    probe.activity = function () {
+      return Promise.all(
+        probe[programs].map(function (asking) {
+          return asking();
+        })
+      ).then(function (answers) {
+        return answers.reduce(
+          function (sum, a) {
+            return { trees: sum.trees + a.trees, running: sum.running + a.running, waiting: sum.waiting + a.waiting };
+          },
+          { trees: 0, running: 0, waiting: 0 }
+        );
+      });
+    };
+  }
+  probe[programs].push(ask);
+  return ask;
+}
+
+function halogen_remote_probe_remove(ask) {
+  var probe = globalThis.__halogenProbe;
+  if (ask === null || probe === null || typeof probe !== "object") return;
+  var list = probe[Symbol.for("halogen.activity.programs")];
+  if (!Array.isArray(list)) return;
+  var at = list.indexOf(ask);
+  if (at >= 0) list.splice(at, 1);
 }

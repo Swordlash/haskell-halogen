@@ -74,16 +74,80 @@
 -- @checked@, @selectedIndex@, @tagName@ and @id@, and of a link (an @a@ or
 -- an @area@) its @target@ when it names one and @download: true@ when it
 -- has the attribute: what "Halogen.Router"'s @isPlainLeftClick@ reads.
+--
+-- = The probe
+--
+-- A test that drives the page from outside (@haskell-halogen-playwright@)
+-- asks the page's @globalThis.__halogenProbe.activity()@ after every action
+-- whether the program is busy ("Halogen.Activity"). Over a wire the program
+-- is not in the page, so the client forwards the question, and the program
+-- answers it. __To the program__, a question, with a number the client
+-- chose:
+--
+-- > {"probe": 3}
+--
+-- __To the page__, its answer, a message that is not a batch (it has no
+-- @ops@):
+--
+-- > {"probe": 3, "trees": 1, "running": 0, "waiting": 0}
+--
+-- @trees@ is 1 while the session's component is mounted and 0 before and
+-- after; @running@ is 1 while its tree is running or has work queued, or
+-- while the session has anything the page has not been sent (operations
+-- recorded and not yet in a batch, a batch being sent, a render under
+-- way), and 0 otherwise; @waiting@ is how many of its fibers wait in a
+-- 'liftIO'. So "idle" over a wire means that the page shows what the
+-- program rendered: rendered, and sent.
+--
+-- The answer is sent through the session's sender, in order with its
+-- batches, and only once every operation recorded when the question
+-- arrived has been sent: if anything was waiting to go then, the answer
+-- waits for the batch that takes it (and for the render under way, since a
+-- batch is taken only between renders); the reading is taken when the
+-- answer is sent, not when the question arrived. That is the contract, and
+-- it rests on three facts of order:
+--
+-- * The page's messages cross one socket, in order, and the program
+--   handles them one at a time: an event the page sent before the question
+--   has been handed to the component's loop (its handler run, or queued)
+--   before the question is read, so a reading taken after the question
+--   sees that work, as running, waiting or done.
+--
+-- * The tree's reading is taken before the session's own state: work that
+--   ends between the two has recorded what it rendered before it ended, so
+--   the session sees it as unsent.
+--
+-- * The client applies messages in the order they arrive and applies a
+--   batch synchronously: when the page's promise resolves with an answer,
+--   every batch sent before the answer is on the page.
+--
+-- So an idle answer means that every event the page sent before asking has
+-- been handled and what it rendered is on the page, short of what is still
+-- waiting in a 'liftIO' (counted in @waiting@) and what has not happened
+-- yet (a timer, a pause in 'Halogen.Query.HalogenM.delay').
+--
+-- = Messages a side does not know
+--
+-- Either side ignores a message it does not know (a JSON object with
+-- neither @ops@ nor @probe@, for the client; with neither @listener@ nor
+-- @probe@, for the program), so that a kind added later does not break an
+-- older client or program.
 module Halogen.Remote.Protocol
   ( NodeId
   , ListenerId
   , Op (..)
   , Batch (..)
   , EventMessage (..)
+  , FromProgram (..)
+  , FromPage (..)
   , encodeOptions
   , decodeOptions
   , encodeBatch
   , decodeEventMessage
+  , encodeProbeAnswer
+  , decodeFromProgram
+  , encodeProbeQuestion
+  , decodeFromPage
   )
 where
 
@@ -91,10 +155,11 @@ import Control.Monad.Fail (fail)
 import Data.Aeson (FromJSON (..), ToJSON (..), Value (..), (.:), (.:?), (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Text (encodeToLazyText)
-import Data.Aeson.Types (Parser)
+import Data.Aeson.Types (Parser, parseMaybe)
 import Data.Scientific (floatingOrInteger, fromFloatDigits)
 import Data.Text.Lazy qualified as Lazy
 import Data.Vector qualified as Vector
+import Halogen.Activity (Activity (..))
 import Halogen.VDom.DOM.HandlerOptions (EventMatch (..), HandlerOptions (..), KeyMatch (..))
 import Halogen.VDom.DOM.Monad (PropScalar (..))
 import Protolude
@@ -150,11 +215,51 @@ data EventMessage = EventMessage
   }
   deriving stock (Eq, Show)
 
+-- | A message to the page: a batch, or the answer to a question of the
+-- probe's.
+data FromProgram
+  = ProgramBatch Batch
+  | -- | The question's number, and the answer.
+    ProbeAnswer Int Activity
+  deriving stock (Eq, Show)
+
+-- | A message to the program: an event, or a question of the probe's.
+data FromPage
+  = PageEvent EventMessage
+  | -- | The question's number, which the answer repeats.
+    ProbeQuestion Int
+  deriving stock (Eq, Show)
+
 encodeBatch :: Batch -> Text
 encodeBatch = Lazy.toStrict . encodeToLazyText
 
 decodeEventMessage :: Text -> Maybe EventMessage
 decodeEventMessage = Aeson.decodeStrictText
+
+encodeProbeAnswer :: Int -> Activity -> Text
+encodeProbeAnswer question a =
+  Lazy.toStrict . encodeToLazyText $
+    Aeson.object ["probe" .= question, "trees" .= a.trees, "running" .= a.running, "waiting" .= a.waiting]
+
+-- | What the program sent, as the client reads it: 'Nothing' for what is
+-- neither a batch nor an answer (which the client ignores).
+decodeFromProgram :: Text -> Maybe FromProgram
+decodeFromProgram text =
+  (ProgramBatch <$> Aeson.decodeStrictText text) <|> (Aeson.decodeStrictText text >>= parseMaybe answer)
+  where
+    answer = Aeson.withObject "ProbeAnswer" $ \o ->
+      ProbeAnswer <$> o .: "probe" <*> (Activity <$> o .: "trees" <*> o .: "running" <*> o .: "waiting")
+
+encodeProbeQuestion :: Int -> Text
+encodeProbeQuestion question = Lazy.toStrict (encodeToLazyText (Aeson.object ["probe" .= question]))
+
+-- | What the page sent: 'Nothing' for what is neither an event nor a
+-- question (which the program ignores).
+decodeFromPage :: Text -> Maybe FromPage
+decodeFromPage text =
+  (PageEvent <$> decodeEventMessage text) <|> (Aeson.decodeStrictText text >>= parseMaybe question)
+  where
+    question = Aeson.withObject "ProbeQuestion" $ \o -> ProbeQuestion <$> o .: "probe"
 
 instance ToJSON Op where
   toJSON = \case
