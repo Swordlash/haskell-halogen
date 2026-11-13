@@ -1,3 +1,5 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 -- | The loopback in a real page: the whole pipeline, mirror, JSON, client,
 -- the page's own events and the patches they cause, driven as a reader
 -- would drive it.
@@ -5,17 +7,37 @@ module Test.Loopback (spec) where
 
 import Control.Monad.UUID (MonadUUID)
 import Data.Row (Empty)
+import Data.Text qualified as T
 import Halogen qualified as H
+import Halogen.Activity qualified as Activity
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Properties qualified as HP
+import Halogen.JSBits (JSText, Safety (..), browserJS, fromJSText)
+import Halogen.JSBits.Promise (Promise, wait)
 import Halogen.Remote.DOM (RemoteDOM)
 import Halogen.Remote.Loopback (Loopback (..), Traffic (..))
 import Halogen.Remote.Loopback qualified as Loopback
 import Halogen.Subscription qualified as HS
-import Protolude hiding (find)
+import Protolude hiding (find, wait)
 import Test.Components
 import Test.Hspec.Halogen
 import UnliftIO.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
+
+$( browserJS
+     ["test/jsbits/probe.js"]
+     [ ("js_probe_set", "remote_probe_set", Safe, [t|IO ()|])
+     , ("js_probe_ask", "remote_probe_ask", Safe, [t|IO (Promise JSText)|])
+     , ("js_probe_askers", "remote_probe_askers", Safe, [t|IO Int|])
+     ]
+ )
+
+-- | Trees, running, waiting, as the page's probe answers.
+probe :: PageM s (Int, Int, Int)
+probe = unsafeIOToPageM $ do
+  answer <- fromJSText <$> (wait =<< js_probe_ask)
+  case mapM (readMaybe . T.unpack) (T.words answer) of
+    Just [t, r, w] -> pure (t, r, w)
+    _ -> panic ("the probe answered " <> answer)
 
 data HostQuery a = Dispose a
 
@@ -142,6 +164,23 @@ spec m = do
     find ui "#submitted" >>= (`shouldHaveText` "1")
     find ui "#submit" >>= click
     find ui "#submitted" >>= (`shouldHaveText` "2")
+
+  it "adds nothing to the page's probe: the program in the page answers for the loopback's tree, once" $ runPage $ do
+    unsafeIOToPageM js_probe_set
+    traffic <- unsafeIOToPageM (newIORef [])
+    -- The host's tree and the loopback's, both this program's: core gives
+    -- the probe its one asker as the first is mounted, and the loopback's
+    -- client gives it none.
+    ui <- mount m (host traffic counter) ()
+    find ui "#count" >>= (`shouldHaveText` "0")
+    unsafeIOToPageM js_probe_askers `shouldReturn` 1
+    (trees, _, _) <- probe
+    inProgram <- unsafeIOToPageM Activity.activity
+    trees `shouldBe` inProgram.trees
+    _ <- query ui (Dispose ())
+    -- The loopback's tree is gone, and counted gone once.
+    (fewer, _, _) <- probe
+    fewer `shouldBe` trees - 1
 
   it "lets its element go when the component fails to mount" $ runPage $ do
     ui <- mount m (trying failing) ()

@@ -21,7 +21,7 @@ category:           Web
 tested-with:        GHC == 9.10.3, GHC == 9.12.4, GHC == 9.14.1
 build-type:         Simple
 extra-doc-files:    CHANGELOG.md, README.md
-extra-source-files: jsbits/*.js, test/web/*.html
+extra-source-files: jsbits/*.js, test/jsbits/*.js, test/web/*.html
 
 flag interactive
     description: Build the browser test suite for browser GHCi (toolchain/dev-test.sh)
@@ -168,6 +168,8 @@ test-suite Halogen-remote-browser-test
       Test.Loopback
     build-depends:
         protolude,
+        text,
+        haskell-halogen-jsbits,
         row-types,
         unliftio,
         haskell-halogen-core,
