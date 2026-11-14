@@ -19,16 +19,26 @@
 //   {"event": "closed", "page": 2}
 //   {"event": "request", "context": 1, "url": "...", "method": "GET", "resourceType": "script"}
 //   {"event": "requestfailed", "context": 1, "url": "...", "method": "GET", "failure": "net::ERR_FAILED"}
+//   {"event": "exchange", "context": 1, "url": "...", "method": "POST", "resourceType": "fetch",
+//    "requestHeaders": [["cookie", "..."], ...], "postData": "<base64>" | null,
+//    "status": 200 | null, "responseHeaders": [[name, value], ...],
+//    "responseBody": "<base64>" | null, "failure": "net::..." | null}
+//                                            a request of a context that records
+//                                            its exchanges, once it has ended
 //   {"event": "unrouted", "routes": [3, 4]}  these routes went with their page
 //                                            or context; no ask of theirs is
 //                                            waiting for an answer any more
 // node to Haskell, a question, which Haskell answers once:
 //   {"ask": 12, "route": 3, "request": {"url": "...", "method": "GET", "resourceType": "fetch",
-//                                       "headers": {...}, "postData": "<base64>" | null}}
+//                                       "headers": {...}, "allHeaders": {...}, "postData": "<base64>" | null}}
 // Haskell to node, its answer:
 //   {"answer": 12, "action": "continue"}
 //   {"answer": 12, "action": "fulfill", "status": 200, "headers": {...}, "contentType": "..." | null, "body": "<base64>"}
 //   {"answer": 12, "action": "abort", "error": "connectionrefused"}
+// While a route's ask waits for its answer, Haskell may call "fetchRouted"
+// with the ask's number: the request is sent to the server, and the reply is
+// the response (status, headers, body), which the handler then looks at or
+// changes before it answers "fulfill" with it.
 // Messages are told apart by their keys: "id" (a call, or its reply),
 // "event", "ask" and "answer". Bytes cross as base64.
 //
@@ -121,6 +131,45 @@ const pages = new Map();
 let nextHandle = 1;
 // The downloads being waited for, by the number expectDownload gave.
 const downloads = new Map();
+
+// A context's exchanges, recorded when the context's options ask for it:
+// each request once it has ended (finished, or failed), with every header
+// it was sent with (cookies included, which requests leave out), its body,
+// and the response: status, headers, and its body when it is at most the
+// limit's bytes (none for a redirect). Reading the request's actual headers
+// and the response's body is a round trip to the browser each, which is why
+// a context only does this when asked.
+const recordExchanges = (context, id, limit) => {
+  const record = async (request, failure) => {
+    const exchange = {
+      event: "exchange",
+      context: id,
+      url: request.url(),
+      method: request.method(),
+      resourceType: request.resourceType(),
+      requestHeaders: headerList(await request.headersArray().catch(() => [])),
+      postData: request.postDataBuffer()?.toString("base64") ?? null,
+      status: null,
+      responseHeaders: [],
+      responseBody: null,
+      failure,
+    };
+    if (failure === null) {
+      const response = await request.response().catch(() => null);
+      if (response) {
+        exchange.status = response.status();
+        exchange.responseHeaders = headerList(await response.headersArray().catch(() => []));
+        const body = await response.body().catch(() => null);
+        if (body !== null && body.length <= limit) exchange.responseBody = body.toString("base64");
+      }
+    }
+    send(exchange);
+  };
+  const recording = (request, failure) =>
+    record(request, failure).catch((error) => process.stderr.write(`haskell-halogen-playwright: recording ${request.url()}: ${error?.message ?? error}\n`));
+  context.on("requestfinished", (request) => recording(request, null));
+  context.on("requestfailed", (request) => recording(request, request.failure()?.errorText ?? ""));
+};
 
 const contextOf = (id) => {
   const context = contexts.get(id);
@@ -369,9 +418,13 @@ const wanted = (entry, request) =>
   (entry.resourceTypes == null || entry.resourceTypes.includes(request.resourceType())) &&
   (entry.methods == null || entry.methods.includes(request.method().toUpperCase()));
 
-const routeHandler = (entry) => (route) => {
+const routeHandler = (entry) => async (route) => {
   const request = route.request();
   if (!wanted(entry, request)) return route.fallback();
+  // Every header the browser sends, cookies included: Playwright documents
+  // headers() as leaving those out (Chromium gives them for a routed request
+  // all the same). For a routed request they are known at once.
+  const allHeaders = await request.allHeaders().catch(() => request.headers());
   return new Promise((resolve) => {
     const ask = { id: nextAsk++, entry, route, resolve };
     if (entry.gone) return letGo(ask);
@@ -385,11 +438,16 @@ const routeHandler = (entry) => (route) => {
         method: request.method(),
         resourceType: request.resourceType(),
         headers: request.headers(),
+        allHeaders,
         postData: request.postDataBuffer()?.toString("base64") ?? null,
       },
     });
   });
 };
+
+// The headers of a response, in order, each name in lower case: a list, as
+// a header may come more than once (set-cookie).
+const headerList = (headers) => headers.map(({ name, value }) => [name.toLowerCase(), value]);
 
 // Haskell's answer to an ask. One for an ask that has gone (its route was
 // removed, its page closed) is ignored.
@@ -491,6 +549,7 @@ const methods = {
     context.on("requestfailed", (request) =>
       send({ event: "requestfailed", context: id, url: request.url(), method: request.method(), failure: request.failure()?.errorText ?? "" }),
     );
+    if (o.recordExchanges != null) recordExchanges(context, id, o.recordExchanges);
     return id;
   },
   async addInitScript(m) {
@@ -715,6 +774,25 @@ const methods = {
     await entry.target.unroute(entry.pattern, entry.handler, { behavior: "ignoreErrors" }).catch(() => {});
     return null;
   },
+  // A routed request sent on to the server, while its ask waits: the
+  // response, for the handler to look at or change before it answers. The
+  // body is the one the page would read, decoded, so the headers that
+  // described the bytes on the wire (their length, their encoding) are left
+  // out: fulfilled with another body, they would be wrong.
+  async fetchRouted(m) {
+    const ask = asks.get(m.ask);
+    if (!ask?.route) {
+      throw Object.assign(new Error(`the request ${m.ask} is no longer the route's to fetch: its route, its page or its context went`), { name: "ClosedError" });
+    }
+    const response = await ask.route.fetch({ timeout: within(m) });
+    const hop = new Set(["content-length", "content-encoding", "transfer-encoding"]);
+    return {
+      status: response.status(),
+      headers: headerList(response.headersArray()).filter(([name]) => !hop.has(name)),
+      body: (await response.body()).toString("base64"),
+    };
+  },
+
 
   // Downloads: armed before the action that causes one, so that it cannot
   // be missed, and awaited after it.

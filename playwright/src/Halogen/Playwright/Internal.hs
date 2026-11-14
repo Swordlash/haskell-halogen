@@ -50,6 +50,9 @@ module Halogen.Playwright.Internal
   , waitForLog
   , Request (..)
   , contextRequests
+  , Exchange (..)
+  , contextExchanges
+  , waitForExchangeLog
   , FailedRequest (..)
   , failedRequests
   , routeFailures
@@ -68,7 +71,9 @@ import Data.Aeson (FromJSON, Value (..), (.:), (.:?), (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types qualified as Aeson
+import Data.ByteString (ByteString)
 import Data.ByteString qualified as ByteString
+import Data.ByteString.Base64 qualified as Base64
 import Data.ByteString.Char8 qualified as Char8
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Foldable (for_)
@@ -152,6 +157,9 @@ data Playwright = Playwright
   -- ^ Changed whenever a page's log is, for a wait on what a page says.
   , requestLogs :: IORef (IntMap (Seq Request))
   -- ^ Each context's requests, oldest first.
+  , exchangeLogs :: IORef (IntMap (Seq Exchange))
+  -- ^ Each context's exchanges, in the order they ended, when the context
+  -- records them.
   , failures :: IORef (IntMap ContextFailures)
   -- ^ Each context's failed requests and failed route handlers.
   , routes :: IORef (IntMap RouteEntry)
@@ -261,13 +269,18 @@ pageLog pw page = fromMaybe emptyLog . IntMap.lookup page <$> readIORef pw.logs
 -- again each time the driver's reader adds to any page's, and never on a
 -- clock.
 waitForLog :: Playwright -> Int -> Int -> (PageLog -> Maybe a) -> IO (Maybe a)
-waitForLog pw page ms reading = do
+waitForLog pw page ms reading = waitForReading pw ms (reading <$> pageLog pw page)
+
+-- | Read again each time the driver's reader adds to a log, until the
+-- reading gives something or the milliseconds have passed.
+waitForReading :: Playwright -> Int -> IO (Maybe a) -> IO (Maybe a)
+waitForReading pw ms reading = do
   late <- registerDelay (ms * 1000)
   let loop = do
         -- Read before the log, so that an entry added after the log was
         -- read changes what was seen, and is read on the next round.
         seen <- readTVarIO pw.logged
-        found <- reading <$> pageLog pw page
+        found <- reading
         case found of
           Just a -> pure (Just a)
           Nothing -> do
@@ -291,6 +304,40 @@ data Request = Request
 -- | A context's requests so far, oldest first.
 contextRequests :: Playwright -> Int -> IO (Seq Request)
 contextRequests pw context = fromMaybe Seq.empty . IntMap.lookup context <$> readIORef pw.requestLogs
+
+-- | A request of a context that records its exchanges, once it has ended:
+-- what was asked, with every header the browser sent (cookies included)
+-- and the body, and what came back.
+data Exchange = Exchange
+  { url :: Text
+  , method :: Text
+  , resourceType :: Text
+  , requestHeaders :: [(Text, Text)]
+  -- ^ Every header the request was sent with, as the browser sent it
+  -- (@cookie@ among them), each name in lower case.
+  , postData :: Maybe ByteString
+  , status :: Maybe Int
+  -- ^ The response's status; 'Nothing' when there was no response (the
+  -- request failed: 'failure').
+  , responseHeaders :: [(Text, Text)]
+  -- ^ Each name in lower case, a header that came more than once (a
+  -- @set-cookie@) once for each time.
+  , responseBody :: Maybe ByteString
+  -- ^ The response's body, as the page read it (decoded); 'Nothing' when
+  -- it was larger than the context's limit, when there was none to read (a
+  -- redirect's), or no response.
+  , failure :: Maybe Text
+  -- ^ Why the request failed, Chromium's error text, when it did.
+  }
+  deriving stock (Eq, Show)
+
+-- | A context's exchanges so far, in the order they ended.
+contextExchanges :: Playwright -> Int -> IO (Seq Exchange)
+contextExchanges pw context = fromMaybe Seq.empty . IntMap.lookup context <$> readIORef pw.exchangeLogs
+
+-- | 'waitForLog' for a context's exchanges.
+waitForExchangeLog :: Playwright -> Int -> Int -> (Seq Exchange -> Maybe a) -> IO (Maybe a)
+waitForExchangeLog pw context ms reading = waitForReading pw ms (reading <$> contextExchanges pw context)
 
 -- | A request of a context's that failed: refused, cut off, or aborted by a
 -- route (Chromium's error text, such as @net::ERR_CONNECTION_REFUSED@).
@@ -377,11 +424,12 @@ withPlaywright options body =
       logs <- newIORef IntMap.empty
       logged <- newTVarIO 0
       requestLogs <- newIORef IntMap.empty
+      exchangeLogs <- newIORef IntMap.empty
       failures <- newIORef IntMap.empty
       routes <- newIORef IntMap.empty
       errorLines <- newIORef Seq.empty
       ready <- newEmptyMVar
-      let pw = Playwright {options, input, process, writing, pending, nextId, gone, logs, logged, requestLogs, failures, routes, errorLines}
+      let pw = Playwright {options, input, process, writing, pending, nextId, gone, logs, logged, requestLogs, exchangeLogs, failures, routes, errorLines}
       stderrDone <- newEmptyMVar
       _ <- forkIO (relayErrors pw (Process.getStderr process) `finally` putMVar stderrDone ())
       _ <- forkIO (readReplies pw (Process.getStdout process) ready stderrDone)
@@ -554,6 +602,11 @@ readReplies pw h ready stderrDone = (forever readOne `catchEnd` pure ()) `finall
         modifyLog page (\l -> l {dialogs = l.dialogs Seq.|> Dialog {kind, message}})
       "request" -> for_ (Aeson.parseMaybe (\v -> (,,,) <$> v .: "context" <*> v .: "url" <*> v .: "method" <*> v .: "resourceType") o) $ \(context, url, method, resourceType) ->
         atomicModifyIORef' pw.requestLogs (\m -> (IntMap.alter (Just . (Seq.|> Request {url, method, resourceType}) . fromMaybe Seq.empty) context m, ()))
+      "exchange" -> case Aeson.parseEither exchangeParser o of
+        Right (context, exchange) -> do
+          atomicModifyIORef' pw.exchangeLogs (\m -> (IntMap.alter (Just . (Seq.|> exchange) . fromMaybe Seq.empty) context m, ()))
+          atomically (modifyTVar' pw.logged (+ 1))
+        Left e -> hPutStrLn stderr ("[playwright] an exchange that cannot be read: " <> e)
       "requestfailed" -> for_ (Aeson.parseMaybe (\v -> (,,,) <$> v .: "context" <*> v .: "url" <*> v .: "method" <*> v .: "failure") o) $ \(context, url, method, failure) ->
         addFailure pw context (\f -> f {requests = lastFifty (f.requests Seq.|> FailedRequest {url, method, failure})})
       "unrouted" -> for_ (Aeson.parseMaybe (.: "routes") o) $ \ids -> do
@@ -592,6 +645,26 @@ readReplies pw h ready stderrDone = (forever readOne `catchEnd` pure ()) `finall
       t1 <- forkIO (readMVar m >> void (tryPutMVar result ()))
       t2 <- forkIO (threadDelay 1_000_000 >> void (tryPutMVar result ()))
       takeMVar result `finally` (killThread t1 >> killThread t2)
+
+-- | An exchange event: its context, and the exchange.
+exchangeParser :: Aeson.Object -> Aeson.Parser (Int, Exchange)
+exchangeParser v = do
+  context <- v .: "context"
+  url <- v .: "url"
+  method <- v .: "method"
+  resourceType <- v .: "resourceType"
+  requestHeaders <- v .: "requestHeaders" >>= traverse pair
+  postData <- v .:? "postData" >>= traverse bytes
+  status <- v .:? "status"
+  responseHeaders <- v .: "responseHeaders" >>= traverse pair
+  responseBody <- v .:? "responseBody" >>= traverse bytes
+  failure <- v .:? "failure"
+  pure (context, Exchange {url, method, resourceType, requestHeaders, postData, status, responseHeaders, responseBody, failure})
+  where
+    pair = \case
+      [name, value] -> pure (name, value)
+      other -> fail ("a header is a name and a value: " <> show other)
+    bytes t = either (fail . ("base64: " <>)) pure (Base64.decode (Text.encodeUtf8 t))
 
 userErrorText :: Text -> IOError
 userErrorText = userError . Text.unpack
@@ -650,7 +723,8 @@ addRoute pw context target pattern handler = addRouteWith pw context target patt
 
 -- | 'addRoute' with more of the route's fields for node (@"resourceTypes"@,
 -- @"methods"@: node asks only about the requests they let through), and a
--- handler that is also given the ask's number.
+-- handler that is also given the ask's number, for a call about the request
+-- while it waits (@"fetchRouted"@).
 addRouteWith :: Playwright -> Int -> Aeson.Pair -> Text -> [Aeson.Pair] -> (Int -> Aeson.Object -> IO [Aeson.Pair]) -> IO Int
 addRouteWith pw context target pattern fields handler =
   addHandler pw context pattern handler' $ \route ->

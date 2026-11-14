@@ -290,6 +290,28 @@ are made: a worker's requests are its context's, not always its page's, which
 is why it is asked of the context. `workers page` is how many dedicated Web
 Workers the page has alive.
 
+A context opened with `recordExchanges = Just limit` also keeps each request,
+once it has ended, with what was sent and what came back: `exchanges context`.
+An `Exchange` has the request's address, method and resource type, every header
+it was sent with (`cookie` among them, which a page's script never sees), its
+body, and the response's status, headers (a `set-cookie` that came twice is
+there twice) and body, kept when it is at most `limit` bytes; or why it failed.
+It is opt-in because it costs the driver two more questions to the browser per
+request and the memory of what it keeps. `waitForExchange context test` is the
+first that satisfies a test, from the context's start, waiting for one if there
+is none yet: an exchange is kept a moment after the page has its response, once
+its body has been read, so the one an action caused is waited for, not read.
+
+```haskell
+withContext pw defaultContextOptions {recordExchanges = Just 65536} $ \ctx -> do
+  ...
+  click (byRoleNamed page "button" "Save")
+  saved <- waitForExchange ctx (\e -> e.method == "POST" && "/api/save" `Text.isSuffixOf` e.url)
+  saved.status `shouldBe` Just 200
+  lookup "cookie" saved.requestHeaders `shouldBe` Just ("session=" <> token)
+  (decodeStrict =<< saved.responseBody) `shouldBe` Just (object ["saved" .= True])
+```
+
 ## Requests answered by the test
 
 `route page glob handler` (or `route context glob handler`) hands each
@@ -312,8 +334,26 @@ unroute unreachable
 `Continue` lets the request go on (to the route added before, or the
 network), `Fulfill response` answers it, `Abort code` fails it with
 Playwright's error code. The handler is given the address, the method, the
-resource type, the headers and the body, so watching what was asked while
-letting it through is a handler that records and continues.
+resource type, the headers (`allHeaders` has every one the browser sends,
+cookies included) and the body, so watching what was asked while letting it
+through is a handler that records and continues.
+
+To see what the server answered, a handler sends the request on and is given
+the response, `fetchResponse request`: its status, its headers and its body (as
+the page would read it, decoded, so without the headers that described the
+bytes on the wire), to look at or to change before it answers `Fulfill` with
+it. `passThrough` is the handler that only looks:
+
+```haskell
+-- The server's settings, with the dark theme on.
+_ <- route page "**/api/settings" $ \request -> do
+  r <- fetchResponse request
+  pure (Fulfill r {body = "{\"theme\": \"dark\"}"})
+
+-- Every answer of the API's, kept, and given to the page as it came.
+_ <- route page "**/api/**" $ passThrough $ \request response ->
+  atomicModifyIORef' answers (\as -> (as <> [(request.url, response.status, response.body)], ()))
+```
 
 `routeWith` and `holdWith` take a `RouteFilter`: a glob, and, when they are not
 empty, the resource types (`fetch`, `image`, `document`, ...) and the methods
@@ -510,8 +550,9 @@ hspec's: hspec's own `focus` would otherwise meet the page's.
 Written against the smoke tests it is to run, it leaves out what they do not
 use, and some of what they do: traces, video and other browsers;
 `exposeFunction` (a page calling the test; it would be one more kind of ask,
-answered with JSON); popups; a wait for a response (see the pauses above);
-and the mouse's buttons pressed and released apart.
+answered with JSON); popups; a wait for a response of the page's own (see the
+pauses above; `waitForExchange` is one after the fact); and the mouse's buttons
+pressed and released apart.
 
 ## Its own tests
 

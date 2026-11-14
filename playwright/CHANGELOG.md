@@ -111,6 +111,21 @@ of them unanswered, so a gate that has done its work is released and left
 What porting a server's smoke test (a login, its API, a Content Security
 Policy, an editor in an iframe) needed, each with a test of its own:
 
+- A route's handler can send its request on and look at the response:
+  `fetchResponse` gives the server's `Response` (status, headers, the body as
+  the page reads it) to change or to answer with, and `passThrough` is the
+  handler that only looks. `RoutedRequest` has two more fields, `allHeaders`
+  (every header the browser sends, cookies included) and `asked` (the
+  request as the driver holds it, which `fetchResponse` needs): code that
+  builds a `RoutedRequest` itself gives them, code that reads its fields is
+  unchanged.
+- A context's exchanges, opt-in: `ContextOptions`' `recordExchanges = Just
+  limit` keeps each request once it has ended with every header it was sent
+  with, its body, and the response's status, headers and body (up to `limit`
+  bytes), or why it failed; `exchanges` and `waitForExchange` read them.
+  `requests` is as it was. `defaultContextOptions` records nothing, so a
+  context made from it is unchanged; code that writes a `ContextOptions` out
+  in full gives the field.
 - `routeWith` and `holdWith`, a route and a gate that take a `RouteFilter`:
   a glob, resource types and methods, decided in the driver, so that a gate
   on an API's `fetch` requests lets its images, and the page's `load`,
