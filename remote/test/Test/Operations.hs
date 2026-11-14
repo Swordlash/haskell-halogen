@@ -12,13 +12,14 @@ import Halogen.Remote.Internal (runRemoteDOM)
 import Halogen.Remote.Internal qualified as Internal
 import Halogen.Remote.Protocol (NodeId, Op (..))
 import Halogen.Remote.Session qualified as Session
-import Halogen.VDom.DOM.Monad (MonadBrowserDOM (..), MonadDOM (..))
+import Halogen.VDom.DOM.Monad (MonadAttributes (..), MonadBrowserDOM (..), MonadDOM (..))
 import Halogen.VDom.Types (ElemName (..))
 import Protolude
 import Test.Components
 import Test.Hspec (Spec, describe, it, shouldBe, shouldReturn, shouldSatisfy, xdescribe)
 import Test.Session (clickOn, elementWithId, listenerOn, mounted, nextOps, required, silent)
 import Web.DOM.Internal.Types (HTMLElement (..), Node (..))
+import Web.HTML.Common (AttrName (..))
 import Web.HTML.HTMLElement qualified as HTMLElement
 
 -- | Click a button the first render made, by its id.
@@ -97,6 +98,31 @@ spec = (if inBrowser then xdescribe else describe) "what a component does to the
     -- Forgotten now: a call on it is nobody's.
     HTMLElement.click clickable
     Internal.takeBatch recorder `shouldReturn` Just []
+
+  it "keeps what the batch said of such a node before the call, and leaves out what it said after" $ do
+    -- A link made, given its address, clicked and taken out again by one
+    -- action: the click must find the address.
+    recorder <- Internal.newRecorder
+    let HTMLElement bodyValue = Internal.bodyHandle recorder
+        body = Node bodyValue
+    runRemoteDOM recorder $ do
+      anchor <- createElement Nothing (ElemName "a") (Internal.documentHandle recorder)
+      node <- elementToNode anchor
+      appendChild node body
+      setAttribute Nothing (AttrName "href") "/report.csv" anchor
+      liftIO (for_ (HTMLElement.fromElement anchor) HTMLElement.click)
+      setAttribute Nothing (AttrName "class") "done" anchor
+      removeChild node body
+    batch <- Internal.takeBatch recorder
+    made <- required "the link" (head [n | Create n _ "a" <- fold batch])
+    fmap (dropWhile (/= Create made Nothing "a")) batch
+      `shouldBe` Just
+        [ Create made Nothing "a"
+        , Insert 1 0 made
+        , SetAttribute made Nothing "href" "/report.csv"
+        , Call made "click" []
+        , Remove 1 made
+        ]
 
   it "sets the document's title, from Initialize and from a click" $ do
     (session, wire, ops, _) <- mounted titling

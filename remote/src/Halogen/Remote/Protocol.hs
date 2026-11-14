@@ -82,7 +82,9 @@
 -- its listeners stopped): the client forgets all of it anyway. A @call@ on
 -- such a node is the exception: it is sent, in its place before the
 -- @remove@, since what a method does need not stay inside the node (a link
--- clicked to start a download, then hidden).
+-- clicked to start a download, then hidden), and with it everything the
+-- batch says before it, so that the node is as the program had it when it
+-- called.
 --
 -- __To the program__, one JSON object per event a listener heard:
 --

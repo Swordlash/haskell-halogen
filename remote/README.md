@@ -99,7 +99,8 @@ has no parent is forgotten with its subtree and their listeners, and is never na
 batch leaves out what would happen inside such a node (its children taken out of it, its
 listeners stopped), which the client forgets with it; a `call` the program made on it before it
 went stays, before its `remove`, since a method can do something outside the node (a link clicked
-to start a download, then hidden).
+to start a download, then hidden), and so does everything the batch says before that call (the
+link's `href`, set by the same action).
 
 `options` follows the `listen` of a handler that declares anything, in the same batch, and comes
 again whenever a render changes what it declares: `{"preventDefault": true, "stopPropagation":

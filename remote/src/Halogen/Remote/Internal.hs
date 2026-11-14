@@ -53,7 +53,9 @@
 -- does need not stay inside the node (a link clicked through its ref to
 -- start a download, and hidden by the same action), and whether it happens
 -- must not depend on whether a batch was taken between the call and the
--- removal.
+-- removal. Nor is anything left out that the batch says before the last
+-- such call, since the call acts on the node as it was then (the link's
+-- address, set by the same action): only what follows it is.
 module Halogen.Remote.Internal
   ( -- * The monad
     RemoteDOM (..)
@@ -363,8 +365,8 @@ ready recorder = do
 -- for the one there is to end), and forget the nodes it leaves without a
 -- parent: 'Nothing' once the recorder is closed. What the batch says about
 -- the nodes forgotten, other than their removal, the insertions that moved
--- nodes about and the methods called on them, is left out (see the module's
--- header).
+-- nodes about, the methods called on them and everything before the last of
+-- those, is left out (see the module's header).
 takeBatch :: Recorder -> IO (Maybe [Op])
 takeBatch recorder = do
   taken <- STM.atomically $ do
@@ -382,8 +384,18 @@ takeBatch recorder = do
       readIORef node.parent >>= \case
         Nothing -> forget recorder node
         Just _ -> pure IntSet.empty
-    pure (filter (not . within gone) (toList ops))
+    pure (leavingOut gone (toList ops))
   where
+    -- What is said about a forgotten node is left out only after the last
+    -- method called on such a node: up to there the client must have the
+    -- node as the program had it when it called (a link given its address
+    -- by the same action that clicks it and hides it).
+    leavingOut gone ops =
+      let called = \case
+            Call n _ _ -> n `IntSet.member` gone
+            _ -> False
+          (after, upToCall) = break called (reverse ops)
+       in reverse upToCall <> filter (not . within gone) (reverse after)
     -- An operation whose effect stays inside what is forgotten. A removal
     -- from a forgotten node is one only when the child is forgotten too: a
     -- child that lives on is put somewhere else by an insertion the batch
