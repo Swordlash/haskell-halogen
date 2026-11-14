@@ -158,6 +158,7 @@ test-suite Halogen-remote-live-test
         unliftio,
         warp,
         haskell-halogen-core,
+        haskell-halogen-jsbits,
         haskell-halogen-playwright,
         haskell-halogen-remote,
         haskell-halogen-router
