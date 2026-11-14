@@ -28,8 +28,11 @@ over a wire: only the entry point names the monad, `RemoteDOM`, as a page's name
 are. It keeps a mirror of what the client shows (each node's kind, children, parent, attributes,
 properties and listeners), which answers everything the reconciler and the driver read back, and
 records every change it makes for the session to send. It has every instance a component monad
-needs (`MonadUnliftIO`, `MonadBrowserDOM`, forking, killing, parallelism, UUIDs); storage is the
-session's, in memory.
+needs (`MonadUnliftIO`, `MonadBrowserDOM`, forking, killing, parallelism, UUIDs). It also keeps
+a mirror of the page itself, which the client fills when it connects and keeps up to date: the
+page's address (the window's `location`, its `<base href>`) and the library's items in its two
+stores, so a router routes the page and storage is the page's own (see "The page's address and
+stores", below).
 
 A handle the driver holds (a `Node`, an `Element`) is a value holding the node's number which,
 natively, answers for itself when the program uses the `Web.*` types on it (haskell-halogen-jsbits'
@@ -66,7 +69,42 @@ more, disposes of the component's tree and forgets the mirror. A component that 
 throws what it threw.
 
 `Halogen.Remote.Server` and `Halogen.Remote.Loopback` are both made of this; so is a test, whose
-wire can be a list (see `test/Test/Session.hs`).
+wire can be a list (see `test/Test/Session.hs`). A session given no `hello` (one driven by hand)
+is at `/`, with no base and empty stores.
+
+## The page's address and stores
+
+An application's own code routes and stores over the wire as in a page, unchanged:
+
+```haskell
+Server.serveWith settings $ \_ session -> do
+  router <- Session.run session $ do
+    base <- Router.pageBase                    -- the page's <base href>
+    Router.newRouter base Home route           -- at the page's route
+  void (Session.mount session app router)
+```
+
+The client says first, as it connects, where its page is (`location.href`, and its `<base href>`)
+and what its `localStorage` and `sessionStorage` hold under haskell-halogen-core's
+`haskell-halogen:` prefix, and the server hands that to the session before it calls anything for
+the connection. The session keeps it as a mirror: the window's `location` (`pathname`, `search`,
+`hash`, `href`, `origin`) and the document's `baseURI` answer from it, and the storage methods of
+`MonadBrowserDOM` read it. So `Router.newRouter` (natively, through a window that answers for its
+`location` and `history`) starts at the page's route; `navigate` and `redirect` (and a followed
+`Router.link`) move the mirror at once and send `history.pushState` or `replaceState` for the page
+to perform, with no page load; when the page goes back or forward the client sends where it is
+now before the `popstate` the router hears; and a reload at a deep route shows it again, in a new
+session. What `Web.Storage.Storage` (or the storage hooks) writes is written to the mirror and
+sent for the page to write, so it is the page's own: it survives a reload, a reconnection and the
+session, another tab of the same origin sees it, and another tab's change reaches the mirror
+(the window's `storage` event). A hash router (`newHashRouter`) works the same way, in the
+fragment.
+
+What does not cross: only the library's items of the stores (a key without the prefix reads as
+absent); the state a push is given (the page's entries get `null`, as the router gives them); a
+write the page refuses (its quota, its storage denied, an address of another origin) is logged in
+the page with `console.warn`, and the program, whose mirror has moved, does not hear of it.
+Scroll restoration, the window's size, IndexedDB and the clipboard are the page's alone.
 
 ## The protocol: `Halogen.Remote.Protocol`
 
@@ -90,6 +128,10 @@ its name first:
 | `["options", node, type, listener, options]` | what the listener's handler declared |
 | `["call", node, method, [arguments]]` | call one of an element's methods, from the allowlist below |
 | `["set", node, name, value]` | assign a property: the document's `title`, on node 0 |
+| `["history", "push", address]` | `history.pushState(null, "", address)` (`null`: the page's own) |
+| `["history", "replace", address]` | `history.replaceState(null, "", address)` |
+| `["history", "go", n]` | `history.go(n)`, back for a negative `n` |
+| `["storage", store, key, value]` | `localStorage` (`"local"`) or `sessionStorage` (`"session"`): set the item, or remove it for `null` |
 
 Node 0 is the window, node 1 the container the client was attached to (the component's body);
 the session numbers every other node. `insert`'s index is where the child ends up once it has
@@ -142,6 +184,23 @@ and `currentTarget`'s `value`, `checked`, `selectedIndex`, `tagName` and `id`, a
 JSON (haskell-halogen-core's `Data.Foreign` reads an aeson object as a browser's event), so
 `HE.onValueInput`, `HE.onChecked` and a key handler work as in a page.
 
+To the program, first, before anything else, where the page is and what its stores hold of the
+library's items (a store the page is denied is empty); `base` is the page's `document.baseURI`
+when it has a `<base href>`, and `null` otherwise:
+
+```json
+{"hello": {"location": "https://example.com/blog/post/1?q=2#top", "base": "https://example.com/blog/",
+           "storage": {"local": {"haskell-halogen:count": "Mw=="}, "session": {}}}}
+```
+
+It is as large as those items are, which a browser caps at about 5 MB per store and origin, and
+which are usually a few bytes. Then, when the page goes back or forward (or its fragment is edited
+by hand), `{"location": "https://example.com/blog/"}`, from the client's own `popstate` (and
+`hashchange`) listener, added before any of the program's, so it crosses before the event a
+listener of the program's hears; and when another tab changes an item of the library's in local
+storage, `{"storage": {"kind": "local", "key": "haskell-halogen:count", "value": "NA=="}}` (`value`
+`null` for an item removed, `key` `null` for a store emptied).
+
 The page's probe (below, "Testing a component in a real page") asks over the same socket. To
 the program, `{"probe": 3}`, a number the client chose; to the page, a message that is not a
 batch, `{"probe": 3, "trees": 1, "running": 0, "waiting": 0}`. `trees` is 1 while the session's
@@ -149,8 +208,9 @@ component is mounted, `running` is 1 while its tree is busy or the session has a
 sent (operations not yet in a batch, a batch being sent, a render under way), and `waiting` its
 fibers in a `liftIO`. The answer is sent in order with the batches, and only once everything
 recorded when the question arrived has been sent. Either side ignores a message of a kind it does
-not know (for the client, an object with neither `ops` nor `probe`; for the program, with
-neither `listener` nor `probe`).
+not know (for the client, an object with neither `ops` nor `probe`; for the program, with none of
+`listener`, `probe`, `hello`, `location` and `storage`), and the client an operation it does not
+know.
 
 ## The client: `jsbits/remote.js`
 
@@ -170,6 +230,8 @@ Plain functions on the global object, which the server serves at its path with `
 - `halogen_remote_attach(container, send)` is a client without a socket, whose events go to
   `send` as JSON text; `halogen_remote_apply(client, text)` applies a batch and
   `halogen_remote_detach(client)` stops listening and empties the container.
+  `halogen_remote_hello_text()` is the page's first message, which `connect` sends as the socket
+  opens and the loopback hands its session before it mounts.
 
 ## The server: `Halogen.Remote.Server` (native)
 
@@ -188,7 +250,10 @@ and its new session: it mounts what it wants (`Session.mount session component i
 returns, and may keep the session and the socket. A `connect` that throws ends that session only;
 one that mounts nothing has the connection closed with the reason "nothing was mounted for this
 connection". A session the program disposes of itself has its connection closed. The server
-answers the probe's questions by itself.
+answers the probe's questions by itself. Before it calls anything for a connection it waits for
+the client's first message, the page's `hello`, and hands it to the session, so what `connect`
+runs in `Session.run session` (a router) and the component it mounts see the page's address and
+stores; a client that sends something else first gets a session at `/` with empty stores.
 
 ## The loopback: `Halogen.Remote.Loopback`
 
@@ -200,7 +265,10 @@ is sent as soon as the component is mounted, before a subscriber to `traffic` (w
 the first included, to `watch` as well, which a page showing the traffic subscribes to first. It is the server
 minus the socket, which makes it the way to see the wire (the tutorial's lesson 21 shows its
 traffic) and to test, in a browser, a component meant to be served. Natively it throws
-`NotAvailable`.
+`NotAvailable`. The client's first message, the page's `hello`, is handed to the session before
+the component is mounted, as over a socket (and appears first on `traffic`), so storage is the
+page's own; a router made in the component's program reads and writes the page's own address
+directly, since the program is in the page.
 
 One thing differs from a server's session: what the component does to the page through the `Web.*`
 types is not carried out, neither by the page's own program nor through the wire. In a page a
@@ -241,7 +309,8 @@ Each `mounting` registers the component under a key of its own and gives the add
 that shows it: a bare HTML page with a container and the client, which connects once, without
 reconnecting, with that key, and gets that component and no other. So examples do not share a
 mount, and can run in parallel against one server. `withTestServerWith` takes `TestSettings`:
-`shell`, the page around the client's HTML (the application's stylesheets, a `<base>`, scripts),
+`shell`, the page around the client's HTML (the application's stylesheets, scripts; the server
+puts the key's `<base href>` first in its head),
 `pages`, files to serve beside it, and `connectTimeout`. When the page closes its connection the
 session is disposed of; when `withTestServer` returns, every session is; and a test that
 disposes of `mounted.session` itself has the page's connection closed, which leaves the page
@@ -260,9 +329,34 @@ instead of giving the page the answer, so the action settles once that is handle
 `waitQuiet` also waits for the fibers waiting in a `liftIO`; a pause in `H.delay` is not
 waited for, as in a page.
 
+**Routes and reloads.** Every address under the one `mounting` gives (which ends with a `/`) is
+the same page, with a `<base href>` naming that address, so a page can be opened at a route and
+`Router.pageBase` is that base. `mountingEach server program` registers a program, run in each new
+session's monad once the page has said where it is, that makes the component and its input (a
+router, as an application's `main` makes it); every connection with that key mounts what it makes
+then, so a test can reload the page (or open it again) and get a new session, and the action it
+gives waits for the next connection, in order:
+
+```haskell
+(address, next) <- mountingEach server $ do
+  base <- Router.pageBase
+  router <- Router.newRouter base Home route
+  pure (app, router)
+visit page (address <> "blog/post/1")              -- shows the post
+_ <- next
+click (locator page "#to-about")                   -- the page's address is the route's
+evaluate page "location.pathname" `shouldReturn` ("/mount/1/about" :: Text)
+reload page >> waitStarted page
+again <- next                                      -- a new session, at /about
+```
+
+A key `mounting` registers is mounted once, as before. Back and Forward are `history.back()` in
+`evaluate`, as a promise that resolves on the page's `popstate`, then `settle`: Playwright's
+`goBack` waits for a load that a traversal within the document does not give.
+
 **What such a test cannot see** is what only a browser does with the program in it: a ref is a
 node of the session's mirror, so what the page would answer (measuring, `document.activeElement`,
-a dialog's `open`), a canvas and the address bar are not there; the program has the page's events
+a dialog's `open`) and a canvas are not there; the program has the page's events
 only after the page is done with them (see below); and the page is not hydrated from prerendered
 HTML. What the component does to the page through the `Web.*` types (a focus, a dialog opened and
 closed, an element scrolled into view, the title) crosses the wire, and the page shows it. Layout and CSS are the page's and work, but a component that reads them back
@@ -320,6 +414,8 @@ The program and the page are apart, and the wire takes time:
   its current target's `value`, `checked` and `selectedIndex`, which the mirror takes as the
   element's, so a component that turns an edit down still puts its own value back.
 - **Hydration.** The client starts empty: it does not adopt HTML a server rendered ahead of time.
+- **The rest of the window.** The page's address and the library's items of its stores cross
+  (above); scroll restoration, the window's size, IndexedDB and the clipboard do not.
 
 ## Tests
 
@@ -336,7 +432,13 @@ render), the protocol's JSON, the probe's questions and answers (before the moun
 batches that carry what was recorded when it asked, what is unsent counted as running, a fiber
 waiting, after disposal), a session's identity, and natively a component served over a real
 WebSocket, by `application` and by `applicationWith` (a component per query string, a connection
-nothing was mounted for closed with why, the probe answered over the socket).
+nothing was mounted for closed with why, the probe answered over the socket, the page's first
+message handed to the session before the function and anything else first taken as any message),
+and the page as the session keeps it (the `hello`'s stores before anything is mounted, writes and
+removals sent and read back at once, another tab's change; natively the `hello`'s address and
+base read by a router, `navigate` and `redirect` moving the mirror and sent as `history`
+operations, a hash router's push, a location message followed by a `popstate` patching a routed
+component, the root without a `hello`).
 `Halogen-remote-live-test` serves to Chromium through `haskell-halogen-playwright`, natively:
 `Server.application` behind a proxy the test can cut, and `Halogen.Remote.Test` as a suite would
 use it, reading the page once after each action (visit, a click whose work holds the loop,
@@ -344,11 +446,17 @@ use it, reading the page once after each action (visit, a click whose work holds
 reconnection, a query from the test, and what the component does to the page: the field it focuses
 is `document.activeElement`, in `Initialize` and after a click, its dialog opens as a modal and
 closes, an element far down is scrolled into view, a method off the list is not called, and the
-title is what it set).
+title is what it set), and, through `mountingEach`, a routed component opened at a deep route whose
+links change the page's address with no page load, Back and Forward, a redirect Back skips, a
+reload at a deep route in a new session, a hash router, a count in the page's own `localStorage`
+read by the next session after a reload, an item the page held before it connected read on the
+first render, and a count in `sessionStorage` across a reload.
 `Halogen-remote-browser-test` runs the loopback in headless Chromium (hspec-halogen) on both
 browser backends: real clicks and typing through the client, a child's element kept across its
 parent's new element, a form whose submission the page does not carry out (with and without
 `HE.preventingDefault`), a link the page does not follow, a key a handler declares kept from
 being typed, what a component does to the page through the `Web.*` types not carried out (its
-handles are numbers there), a component that fails to mount, disposal, and the page's probe, to which the
-loopback's client adds nothing (the program in the page answers for the loopback's tree, once).
+handles are numbers there), a component that fails to mount, disposal, the page's probe, to which the
+loopback's client adds nothing (the program in the page answers for the loopback's tree, once), a
+count kept in the page's own `localStorage` that the next mount reads (the `hello` first on the
+wire), and a hash router over the page's own address, Back included.

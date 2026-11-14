@@ -8,10 +8,13 @@ A port of purescript-halogen to GHC Haskell, as a multi-package cabal project: `
 (`haskell-halogen-core`, the port itself), `jsbits` (compile-time shared JavaScript embedding), `hooks` (`purescript-halogen-hooks` port), `store` (`purescript-halogen-store` port: one store, a pure reducer, components connected to the part of it they need), `lazy` (`haskell-halogen-lazy`: a wrapper that shows a placeholder until a loader hands it the real component, as React's `lazy`, and `Halogen.Lazy.Dyld`, a loader that has GHC's wasm dyld link a shared library into the running program; `lazy/demo` is `haskell-halogen-lazy-demo`, the types its demo library shares with the tutorial, and `lazy/demo/feature` the library, which the rootfs builds), `remote` (`haskell-halogen-remote`: a
 LiveView, a component whose DOM is on the other side of a wire: `RemoteDOM`, one more backend, keeps a
 mirror of the page and records each change, a session sends them as JSON to a thin client,
-`remote/jsbits/remote.js`, and runs the listener each event from the page names;
+`remote/jsbits/remote.js`, and runs the listener each event from the page names; the client says first
+where its page is and what its stores hold (the `hello`), which the session mirrors, so a router made in
+`RemoteDOM` follows the page's address (pushes and Back/Forward cross) and storage is the page's own;
 `Halogen.Remote.Server` serves a component over WebSockets natively (`applicationWith`: a function per
 connection mounts what it asked for), `Halogen.Remote.Loopback` runs
-the same pipeline inside one page, and `Halogen.Remote.Test` is a component per page of a native test, mounted
+the same pipeline inside one page, and `Halogen.Remote.Test` is a component per page of a native test (at a
+route, and again after a reload with `mountingEach`), mounted
 in the test's process and driven through `haskell-halogen-playwright`, whose probe the session answers over the
 wire), `router` (`purescript-routing-duplex` port, with the
 browser's history), `net` (the browser's networking: `fetch`, a thin binding on
@@ -368,9 +371,12 @@ A plain property read or method call needs no `.js` file: `Halogen.JSBits.Fields
 writes a `HasField` instance per member with the JavaScript inline (core's `Web.*` types are
 written with it, the instances beside each newtype), and `jsFieldFunctions` the same as functions.
 Natively a field is `inert` unless the value answers for itself (`Halogen.JSBits.Value.withNativeObject`,
-a `NativeObject`): then a method returning `()`, a `_set`, a `Fixed` object member and a `jsCast`
-ask it first. `MemDOM`'s handles answer by noting calls on the node (`performedOn`), `RemoteDOM`'s
-by recording `call`/`set` operations the client performs from an allowlist; reads stay inert.
+a `NativeObject`): then a method returning `()`, a `_set`, a `Fixed` object member, a `Live` read of a
+text or an object (`live`) and a `jsCast` ask it first. `MemDOM`'s handles answer by noting calls on the
+node (`performedOn`), `RemoteDOM`'s by recording `call`/`set` operations the client performs from an
+allowlist, and its window by answering `location` from the session's mirror of the page's address and
+recording `history`'s pushes as operations; other reads stay inert. The router asks the window natively,
+so it follows a page across a wire without depending on `remote`.
 A `Safe` binding catches what its JavaScript throws and throws it as a `JSError` (on wasm an
 exception out of a synchronous import would end the program); `Unsafe` is for functions that cannot
 throw and are called on every render, such as core's DOM operations.

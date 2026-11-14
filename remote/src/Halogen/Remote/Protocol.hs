@@ -120,10 +120,11 @@
 -- @origin@), the document's @baseURI@ is @base@ (and empty with none), and
 -- the storage methods of 'Halogen.VDom.DOM.Monad.MonadBrowserDOM' read it.
 -- "Halogen.Remote.Server" waits for this message before it calls anything
--- for the connection; a session that is given something else first, or
--- nothing, is at @\/@ with no base and empty stores. Its size is that of
--- the library's items in the page's two stores, at most what a browser
--- lets an origin keep (about 5 MB each), and in practice a few bytes.
+-- for the connection; a session that is given something else first (or,
+-- driven by hand, nothing) is at @\/@ with no base and empty stores.
+-- Its size is that of the library's items in the page's two stores, at
+-- most what a browser lets an origin keep (about 5 MB each), and in
+-- practice a few bytes.
 --
 -- Then, whenever the page goes back or forward through its history (and
 -- when the reader edits its fragment), its address, sent from the client's
@@ -135,7 +136,7 @@
 --
 -- And when another tab changes an item of this library's in local storage
 -- (the window's @storage@ event), the change: an item's new text, @null@
--- for one removed, or no key at all for a store emptied:
+-- for one removed, and a @key@ of @null@ for a store emptied:
 --
 -- > {"storage": {"kind": "local", "key": "haskell-halogen:count", "value": "NA=="}}
 --

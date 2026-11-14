@@ -98,3 +98,23 @@ before the node went, in the same batch, is performed before its removal). An ev
 makes the page send (a `focus` the component asked for, heard by its own `onFocus`) is waited for
 by the page's probe: the client asks the session again when it has sent an event since its question. In the
 loopback, where a handle is the engine's value, nothing of this is carried out.
+
+**The page's address and stores cross.** The client's first message, as it connects, says where its
+page is (`location.href`, and its `<base href>`) and what its `localStorage` and `sessionStorage`
+hold under the library's `haskell-halogen:` prefix; then it sends where the page is whenever it goes
+back or forward, before the `popstate` the program hears, and another tab's change to the library's
+items. The session mirrors all of it: the window's `location` and the document's `baseURI` answer
+from it, `history.pushState`, `replaceState`, `back`, `forward` and `go` are sent as `history`
+operations the page performs (the mirror moving at once for a push or a replacement), and the
+storage methods of `MonadBrowserDOM` read the mirror and send `storage` operations. So
+haskell-halogen-router's router, made in the session's monad, starts at the page's route, changes
+the page's address with no page load, hears Back and Forward, and `pageBase` is the page's base;
+and what a component stores is the page's own, which outlives the session. The server waits for the
+client's first message before it calls anything for a connection; a client that sends something
+else first gets a session at `/` with empty stores. The loopback hands its session the page's
+first message before it mounts, which appears first on its `traffic`.
+`Halogen.Remote.Test` serves every address under a key's address as that key's page, with a
+`<base href>` naming it (the address `mounting` gives now ends with `/`), and `mountingEach`
+registers a program, run in each new session's monad, whose component every connection mounts
+afresh, with an action that waits for the next connection: a test opens its page at a route and
+reloads it.
