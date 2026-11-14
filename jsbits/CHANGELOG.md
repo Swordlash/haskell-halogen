@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+**Natively a value can answer for itself** when a member of it is used:
+`withNativeObject object value` is the value (what it holds is read as before) with
+a `NativeObject`, whose `call`, `set`, `get` and `instanceOf` say what a
+method's call, a property's assignment, a fixed object member and a checked
+cast do with it. The fields `jsFields` writes ask it natively before they fall
+back to `inert`: a `Method` whose result is `()` asks it to carry out the
+call, a `Writable` member's `_set` field the assignment, a `Fixed` member
+whose type is an object (a newtype over a `JSVal`) for the object, and
+`jsCast` whether the value is an instance of the class. A read of anything
+else and a method with a result keep their inert answers, as does every
+member of a value that does not answer, which is every value made before
+this release. A backend that is not a browser makes its handles this way, so
+that what a program does to the page through the `Web.*` types reaches it.
+Nothing changes in the browsers, where `withNativeObject` gives the value itself.
+`textValue` is a `Text` as a value of any kind. Natively `JSVal` is a data
+type with a pattern `JSVal`, which builds and takes apart a value as the
+newtype's constructor did.
+
 `Halogen.JSBits.Fields` binds the members of JavaScript objects as record
 fields, with the JavaScript inline in each import, so a type needs no `.js`
 file. `jsFields ''T [...]` writes a `HasField` instance for each member of

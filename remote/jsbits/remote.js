@@ -35,6 +35,9 @@ function halogen_remote_attach(container, send) {
     keysOf: new Map(),
     // The nodes the batch being applied has taken out.
     removed: [],
+    // How many of the program's calls it has carried out
+    // (halogen_remote_connect's probe waits for a frame after one).
+    calls: 0,
   };
   halogen_remote_forget_all(client);
   container.setAttribute("data-halogen-remote", "attached");
@@ -163,8 +166,38 @@ function halogen_remote_op(client, op) {
     case "options":
       halogen_remote_options(client, op[1], op[2], op[3], op[4]);
       break;
+    case "call":
+      client.calls += 1;
+      halogen_remote_call(nodes.get(op[1]), op[2], op[3]);
+      break;
+    case "set":
+      // The document's title, on node 0 (the window, which the program
+      // knows as its document too), and nothing else.
+      if (op[1] === 0 && op[2] === "title" && typeof op[3] === "string" && typeof document !== "undefined") document.title = op[3];
+      break;
     default:
       break;
+  }
+}
+
+// The methods of an element the program may call through the wire: what a
+// component does to the page through the Web.* types that a page across a
+// wire has to do for it (Halogen.Remote.Protocol). Only these, with the
+// arguments the program sends (already read down to what each takes), and
+// only on an element: the list is not a way to call anything by name.
+var halogen_remote_methods = ["focus", "blur", "click", "select", "scrollIntoView", "showModal", "show", "close"];
+
+// A call of one of them. A node the client does not have (forgotten, or
+// never made) is not called; neither is a method the element does not have
+// (show on a div). One that throws (showModal on a dialog already open as a
+// non-modal one) is logged, and the rest of the batch goes on.
+function halogen_remote_call(node, method, args) {
+  if (!node || typeof Element === "undefined" || !(node instanceof Element)) return;
+  if (halogen_remote_methods.indexOf(method) < 0 || typeof node[method] !== "function") return;
+  try {
+    node[method].apply(node, Array.isArray(args) ? args : []);
+  } catch (e) {
+    if (typeof console !== "undefined") console.warn("halogen-remote: " + method + " failed:", e);
   }
 }
 
@@ -397,12 +430,37 @@ function halogen_remote_ignore() {}
 // so that when it resolves the page shows everything the answer accounts
 // for. With no open connection the client answers at once that there is
 // nothing: no tree, nothing running.
+//
+// An answer accounts for the events the page sent before the question. A
+// batch can make the page send one after it: a focus or a click the
+// program asked for (a "call"), heard by a listener of the program's own.
+// So an answer that arrives after the client has sent an event since the
+// question is not given to the page: the client asks again, and the page
+// has the answer to a question no event followed. A call can also make the
+// page dispatch an event a moment later (a dialog's "close" comes with the
+// page's next frame), so from a batch with a call until the page has had a
+// frame (halogen_remote_after_frame) the client holds the answers it
+// receives, and looks whether an event went out only then.
 function halogen_remote_connect(address, container, options) {
   var settings = options || {};
   var minDelay = typeof settings.minDelay === "number" ? settings.minDelay : 500;
   var maxDelay = typeof settings.maxDelay === "number" ? settings.maxDelay : 10000;
   var reconnect = settings.reconnect !== false;
-  var state = { socket: null, attempts: 0, stopped: false, retry: null, nextQuestion: 1, questions: new Map() };
+  var state = {
+    socket: null,
+    attempts: 0,
+    stopped: false,
+    retry: null,
+    nextQuestion: 1,
+    // The questions asked and not answered: what resolves each, and how
+    // many events the client had sent as it asked.
+    questions: new Map(),
+    sent: 0,
+    // The frames being waited for after a call, and the answers held
+    // until there is none.
+    frames: 0,
+    held: [],
+  };
   var url = new URL(address, location.href);
   if (url.protocol === "http:") url.protocol = "ws:";
   else if (url.protocol === "https:") url.protocol = "wss:";
@@ -411,17 +469,42 @@ function halogen_remote_connect(address, container, options) {
   function forgetQuestions() {
     var waiting = state.questions;
     state.questions = new Map();
-    waiting.forEach(function (resolve) {
-      resolve(halogen_remote_nothing());
+    waiting.forEach(function (asked) {
+      asked.resolve(halogen_remote_nothing());
     });
+  }
+  function open(socket) {
+    return state.socket === socket && socket.readyState === WebSocket.OPEN;
+  }
+  // Ask the session, noting how many events the client has sent as it
+  // asks.
+  function question(socket, resolve) {
+    var n = state.nextQuestion++;
+    state.questions.set(n, { resolve: resolve, sent: state.sent });
+    socket.send(JSON.stringify({ probe: n }));
   }
   function ask() {
     var socket = state.socket;
     if (socket === null || socket.readyState !== WebSocket.OPEN) return Promise.resolve(halogen_remote_nothing());
     return new Promise(function (resolve) {
-      var n = state.nextQuestion++;
-      state.questions.set(n, resolve);
-      socket.send(JSON.stringify({ probe: n }));
+      question(socket, resolve);
+    });
+  }
+  // Give the page the answer to its question, unless the client has sent
+  // an event since it asked: then the answer does not account for it, and
+  // the client asks again.
+  function answered(socket, asked, reading) {
+    if (!open(socket)) asked.resolve(halogen_remote_nothing());
+    else if (state.sent !== asked.sent) question(socket, asked.resolve);
+    else asked.resolve(reading);
+  }
+  // The answers held, once no frame is waited for.
+  function release() {
+    if (state.frames > 0) return;
+    var held = state.held;
+    state.held = [];
+    held.forEach(function (answer) {
+      answered(answer.socket, answer.asked, answer.reading);
     });
   }
   var asker = halogen_remote_probe_install(ask);
@@ -431,7 +514,10 @@ function halogen_remote_connect(address, container, options) {
     var socket = new WebSocket(url.href);
     state.socket = socket;
     var client = halogen_remote_attach(container, function (text) {
-      if (socket.readyState === WebSocket.OPEN) socket.send(text);
+      if (socket.readyState === WebSocket.OPEN) {
+        state.sent += 1;
+        socket.send(text);
+      }
     });
     container.setAttribute("data-halogen-remote", "disconnected");
     socket.onopen = function () {
@@ -440,12 +526,24 @@ function halogen_remote_connect(address, container, options) {
     };
     socket.onmessage = function (message) {
       if (typeof message.data !== "string") return;
+      var calls = client.calls;
       var received = halogen_remote_message(client, message.data);
+      if (client.calls !== calls) {
+        // The batch held a call: an event it makes the page dispatch
+        // later comes with the next frame.
+        state.frames += 1;
+        halogen_remote_after_frame(function () {
+          state.frames -= 1;
+          release();
+        });
+      }
       if (received !== null && typeof received.probe === "number" && !Array.isArray(received.ops)) {
-        var resolve = state.questions.get(received.probe);
-        if (resolve) {
+        var asked = state.questions.get(received.probe);
+        if (asked) {
           state.questions.delete(received.probe);
-          resolve({ trees: received.trees, running: received.running, waiting: received.waiting });
+          var reading = { trees: received.trees, running: received.running, waiting: received.waiting };
+          state.held.push({ socket: socket, asked: asked, reading: reading });
+          release();
         }
       }
     };
@@ -473,6 +571,27 @@ function halogen_remote_connect(address, container, options) {
       forgetQuestions();
     },
   };
+}
+
+// Run once the page has drawn a frame and the tasks queued by then have
+// run: by then it has dispatched the events a call made it queue (a
+// dialog's "close" is dispatched with the next frame). A page that draws
+// no frames (one in the background) is not waited for longer than a tenth
+// of a second.
+function halogen_remote_after_frame(run) {
+  var done = false;
+  function once() {
+    if (!done) {
+      done = true;
+      run();
+    }
+  }
+  if (typeof requestAnimationFrame === "function") {
+    requestAnimationFrame(function () {
+      setTimeout(once, 0);
+    });
+  }
+  setTimeout(once, 100);
 }
 
 function halogen_remote_nothing() {

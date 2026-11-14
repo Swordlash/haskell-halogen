@@ -106,6 +106,7 @@ test-suite Halogen-remote-test
     main-is:          Test.hs
     other-modules:
       Test.Components
+      Test.Operations
       Test.Probe
       Test.Protocol
       Test.Recorder
@@ -118,6 +119,7 @@ test-suite Halogen-remote-test
         row-types,
         text,
         haskell-halogen-core,
+        haskell-halogen-jsbits,
         haskell-halogen-remote,
         haskell-halogen-router
 
@@ -136,10 +138,13 @@ test-suite Halogen-remote-live-test
     type:             exitcode-stdio-1.0
     hs-source-dirs:   test
     main-is:          Live.hs
+    other-modules:
+      Test.Components
     ghc-options:      -threaded
     build-depends:
         base,
         async,
+        protolude,
         bytestring,
         containers,
         mtl,

@@ -1,3 +1,5 @@
+{-# LANGUAGE PatternSynonyms #-}
+
 -- | Values without JavaScript, in native and standalone WASI builds.
 -- Used by code that builds a value or takes one apart
 -- (haskell-halogen-core's "Data.Foreign", which reads an event made from
@@ -5,12 +7,13 @@
 -- handles' values). "Halogen.JSBits.Value" exports the two types, without
 -- their constructors, on every backend.
 module Halogen.JSBits.Native
-  ( JSVal (..)
+  ( JSVal (NativeValue, JSVal)
   , Callback (..)
   )
 where
 
 import Data.Dynamic (Dynamic)
+import Halogen.JSBits.Object (NativeObject)
 
 -- | A value is whatever Haskell made it from, kept with its type: a number
 -- from 'Halogen.JSBits.Value.toJSInt', the text a stub was given, a node of
@@ -19,7 +22,21 @@ import Data.Dynamic (Dynamic)
 -- looks for the type it wants and, when the value holds something else,
 -- gives the answer a stub would, so nothing ever reads a value as what it
 -- does not hold.
-newtype JSVal = JSVal Dynamic
+--
+-- A value can also answer for itself when a member of it is used
+-- ('NativeObject', made with 'Halogen.JSBits.Value.withNativeObject'): what it
+-- holds is read as any value's is, and the object is asked only by the
+-- members "Halogen.JSBits.Fields" writes.
+data JSVal = NativeValue Dynamic (Maybe (NativeObject JSVal))
+
+-- | A value holding what it was made from, answering nothing: what building
+-- one makes, and what taking one apart reads, whether it answers or not.
+pattern JSVal :: Dynamic -> JSVal
+pattern JSVal held <- NativeValue held _
+  where
+    JSVal held = NativeValue held Nothing
+
+{-# COMPLETE JSVal #-}
 
 -- | A callback is a value holding its function, as on WebAssembly it is the
 -- JavaScript function: a value, so that what it holds can also be something

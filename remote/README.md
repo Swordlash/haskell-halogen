@@ -31,8 +31,13 @@ records every change it makes for the session to send. It has every instance a c
 needs (`MonadUnliftIO`, `MonadBrowserDOM`, forking, killing, parallelism, UUIDs); storage is the
 session's, in memory.
 
-A handle the driver holds (a `Node`, an `Element`) is a value holding the node's number, so code
-that hands one to the browser gets an error about a number rather than a crash.
+A handle the driver holds (a `Node`, an `Element`) is a value holding the node's number which,
+natively, answers for itself when the program uses the `Web.*` types on it (haskell-halogen-jsbits'
+`withNativeObject`): a method or an assignment the client may carry out is recorded as an operation, so
+that what a component does to the page through a ref crosses the wire without the component
+changing (see "What crosses", below), and a checked cast (`H.getHTMLElementRef`,
+`HTMLDialogElement.fromElement`) asks what the node is. In a page (the loopback) a handle is the
+number itself, which answers nothing.
 
 ## The session: `Halogen.Remote.Session`
 
@@ -83,6 +88,8 @@ its name first:
 | `["listen", node, type, listener]` | listen for events of a type |
 | `["unlisten", node, type, listener]` | stop |
 | `["options", node, type, listener, options]` | what the listener's handler declared |
+| `["call", node, method, [arguments]]` | call one of an element's methods, from the allowlist below |
+| `["set", node, name, value]` | assign a property: the document's `title`, on node 0 |
 
 Node 0 is the window, node 1 the container the client was attached to (the component's body);
 the session numbers every other node. `insert`'s index is where the child ends up once it has
@@ -90,13 +97,33 @@ been taken from wherever it was. A node taken out and not put back by the end of
 gone, on both sides: after the batch's last operation, each node a `remove` took out that still
 has no parent is forgotten with its subtree and their listeners, and is never named again. A
 batch leaves out what would happen inside such a node (its children taken out of it, its
-listeners stopped), which the client forgets with it.
+listeners stopped), which the client forgets with it, but only after the batch's last `call`:
+everything before a `call` is sent, so that the method is carried out on the page as the program
+had it (a link clicked to start a download and then hidden, with the `href` the same action gave
+it; a form submitted with a field that is then taken away).
 
 `options` follows the `listen` of a handler that declares anything, in the same batch, and comes
 again whenever a render changes what it declares: `{"preventDefault": true, "stopPropagation":
 false, "match": m}`, where `m` is `null` (no match), `"any"`, `"plain-left-click"` or a list of
 keys, `[{"key": "/"}, {"key": "s", "ctrlKey": true}]` (a modifier left out goes either way). The
 client acts on it while the page dispatches the event (see "What cannot cross a wire", below).
+
+`call` and `set` are what the program did to the page through the `Web.*` types, which the client
+carries out from an allowlist, not as a way to call anything by name:
+
+| method | arguments |
+| --- | --- |
+| `focus` | none, or `{"preventScroll": true}` (`HTMLElement.focusWithoutScrolling`) |
+| `blur`, `click`, `select`, `show`, `showModal` | none |
+| `close` | none, or the dialog's return value |
+| `scrollIntoView` | none, or `{"block": …, "inline": …, "behavior": …}` (`Element.scrollIntoViewBlock`) |
+
+on an element, and `set` of `title` on node 0, which the client applies to `document.title`. The
+program records nothing else, and the client ignores anything else, a call on a node it does not
+have, and a method the element does not have; a call that throws in the page (`showModal` on a
+dialog already open) is logged with `console.warn` and the batch goes on. A call follows the
+operations that made its node, and the client applies a batch synchronously, in order, so a focus
+in an `Initialize` reaches the element its first render made.
 
 To the program, one JSON object per event:
 
@@ -175,6 +202,16 @@ minus the socket, which makes it the way to see the wire (the tutorial's lesson 
 traffic) and to test, in a browser, a component meant to be served. Natively it throws
 `NotAvailable`.
 
+One thing differs from a server's session: what the component does to the page through the `Web.*`
+types is not carried out, neither by the page's own program nor through the wire. In a page a
+handle is the engine's value, the node's number, and only natively does a handle answer for itself:
+a checked cast of one (`H.getHTMLElementRef`, `HTMLDialogElement.fromElement`) gives `Nothing`, so a
+component written as for a page skips the call, and one that calls a method on a handle without a
+cast, or sets the title, gets the browser's `TypeError` for a number as a `JSError` (or, for the
+title, nothing, where the page's JavaScript is not strict). Carrying them out would take
+handles that are JavaScript objects calling back into the program, and casts that ask them, which
+would change how every cast works in a browser.
+
 ## Testing a component in a real page: `Halogen.Remote.Test` (native)
 
 A component's test can run it in the test's own process, natively, and show it in a real page
@@ -217,24 +254,46 @@ so a busy example does not hold up another. The answer is idle only once the com
 handled every event the page sent before asking (one socket, in order: the event reached the
 component's loop before the question was read) and the page shows what it rendered (the answer
 is sent after the batches that carry it, and the client applies a batch before it reads the next
-message). `waitQuiet` also waits for the fibers waiting in a `liftIO`; a pause in `H.delay` is not
+message). An event the page sends because of what the program did to it (a `focus` the component
+asked for, heard by its own `onFocus`) leaves after the question: the client then asks again
+instead of giving the page the answer, so the action settles once that is handled too.
+`waitQuiet` also waits for the fibers waiting in a `liftIO`; a pause in `H.delay` is not
 waited for, as in a page.
 
 **What such a test cannot see** is what only a browser does with the program in it: a ref is a
-node of the session's mirror, so focusing, measuring or a canvas do nothing; `showModal`, the
-document's title, the address bar and scrolling are not forwarded; the program has the page's
-events only after the page is done with them (see below); and the page is not hydrated from
-prerendered HTML. Layout and CSS are the page's and work, but a component that reads them back
+node of the session's mirror, so what the page would answer (measuring, `document.activeElement`,
+a dialog's `open`), a canvas and the address bar are not there; the program has the page's events
+only after the page is done with them (see below); and the page is not hydrated from prerendered
+HTML. What the component does to the page through the `Web.*` types (a focus, a dialog opened and
+closed, an element scrolled into view, the title) crosses the wire, and the page shows it. Layout and CSS are the page's and work, but a component that reads them back
 cannot. Test those with `hspec-halogen`, which runs the real program in the page (on WebAssembly
 or the JavaScript backend), or with `haskell-halogen-playwright` against the built application.
+
+## What crosses
+
+What a component does to the page through the `Web.*` types, written as for a page, crosses as it
+is: `H.getHTMLElementRef label >>= traverse_ (H.liftEffect . liftIO . HTMLElement.focus)`, a
+dialog's `showModal` and `close` through `HTMLDialogElement.fromElement`, `blur`, `click`,
+`select`, `scrollIntoView` (and `Element.scrollIntoViewBlock`), `focusWithoutScrolling`, and the
+document's title (`doc.title_set`, with the document from `window >>= document` or the window's
+`document` field). Each is recorded when it is made, from `IO` on whatever thread the effect runs,
+and goes with the batch being recorded: a render's, so a focus in an `Initialize` comes after the
+operations that made the element, or the next one. A call on an element that the same action then
+takes off the page is still performed, before the removal. A call on a node the program has forgotten,
+and any method or property not on the list (an attribute set through `setAttribute`, removing an
+element with `remove`), records nothing, as before.
 
 ## What cannot cross a wire
 
 The program and the page are apart, and the wire takes time:
 
-- **Refs.** `H.getRef` gives a node of the mirror, not an element of the page: an effect that
-  talks to the browser through it (focusing, measuring, drawing on a canvas) does nothing useful,
-  as under the in-memory DOM.
+- **Reads of the page.** `H.getRef` gives a node of the mirror, not an element of the page:
+  what only the page knows cannot be read through it in time, so a read keeps its inert answer
+  (`False`, 0, empty, `Nothing`): measuring, `document.activeElement`, `isConnected`, a dialog's
+  `open` (which the reader can change with Escape, unknown to the program unless a handler
+  listens), the clipboard, a canvas, and a method with a result. A method that is not on the
+  allowlist does nothing, and the mirror's own answers (`querySelector`) are what the program
+  rendered.
 - **What a handler decides.** A handler hears of an event after the page is done with it, too
   late to prevent its default: `preventDefault` called from an action does nothing, and neither
   does a choice only the handler's function can make. What the page must decide while it
@@ -255,7 +314,8 @@ The program and the page are apart, and the wire takes time:
   component, a ctrl-click opens a new tab. For a handler that declares nothing the client
   prevents the default of every `submit` it listens for and of a plain `click` on an `a` element
   (one the browser would follow in this tab), and of nothing else.
-- **Focus and selection** are the page's. The client sets an element's `value` only when it
+- **Focus and selection** are the page's, except where the component moves the focus itself
+  (above). The client sets an element's `value` only when it
   differs from what the element holds, so text being typed is not undone, and each event reports
   its current target's `value`, `checked` and `selectedIndex`, which the mirror takes as the
   element's, so a component that turns an edit down still puts its own value back.
@@ -265,6 +325,9 @@ The program and the page are apart, and the wire takes time:
 
 `Halogen-remote-test` runs natively and, under Node, on both browser backends: a session whose
 wire is a list (the first render, a click's patch and position, an input's value, a child removed,
+natively a focus in `Initialize` after the element's creation, a focus, a dialog opened and closed
+and a scroll each after its click, the title set two ways, nothing recorded for a node gone or a
+method not on the list,
 a child kept while its parent replaces the element around it, a handler that prevents the default,
 a link followed on a plain click and on no other, a listener's declared options sent with it and
 when they change, an unknown listener, a component that fails to mount, disposal), the recorder on its own (a node
@@ -278,10 +341,14 @@ nothing was mounted for closed with why, the probe answered over the socket).
 `Server.application` behind a proxy the test can cut, and `Halogen.Remote.Test` as a suite would
 use it, reading the page once after each action (visit, a click whose work holds the loop,
 `waitQuiet` for a `liftIO`, a pause not waited for, two pages in parallel with one kept busy, no
-reconnection, a query from the test).
+reconnection, a query from the test, and what the component does to the page: the field it focuses
+is `document.activeElement`, in `Initialize` and after a click, its dialog opens as a modal and
+closes, an element far down is scrolled into view, a method off the list is not called, and the
+title is what it set).
 `Halogen-remote-browser-test` runs the loopback in headless Chromium (hspec-halogen) on both
 browser backends: real clicks and typing through the client, a child's element kept across its
 parent's new element, a form whose submission the page does not carry out (with and without
 `HE.preventingDefault`), a link the page does not follow, a key a handler declares kept from
-being typed, a component that fails to mount, disposal, and the page's probe, to which the
+being typed, what a component does to the page through the `Web.*` types not carried out (its
+handles are numbers there), a component that fails to mount, disposal, and the page's probe, to which the
 loopback's client adds nothing (the program in the page answers for the loopback's tree, once).

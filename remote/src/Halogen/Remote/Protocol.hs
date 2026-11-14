@@ -22,6 +22,8 @@
 -- > ["listen", node, type, listener]           listen for events of a type
 -- > ["unlisten", node, type, listener]         stop
 -- > ["options", node, type, listener, options] what the listener's handler declared
+-- > ["call", node, method, [arguments]]       call one of the node's methods
+-- > ["set", node, name, value]                 assign one of its properties
 --
 -- Node 0 is the window (what the component's program knows as both the
 -- window and the document) and node 1 the container the client attached
@@ -50,6 +52,25 @@
 -- default of a @submit@ and of a click on an @a@ the browser would follow
 -- in this tab, and of nothing else.
 --
+-- @call@ and @set@ are what the program did to the page through the @Web.*@
+-- types (a field focused, a dialog opened, the title set), which the page
+-- carries out from an allowlist, as data, and not as a way to call anything
+-- by name. A call is one of
+--
+-- > focus          [] or [{"preventScroll": b}]
+-- > blur, click, select, show, showModal   []
+-- > close          [] or [returnValue], a string
+-- > scrollIntoView [] or [{"block": s, "inline": s, "behavior": s}], each optional
+--
+-- on an element; a set is @title@ on node 0, the document's title. The
+-- client ignores anything else, and a call on a node it does not have; one
+-- that throws in the page (@showModal@ on a dialog already open) is logged
+-- and does not stop the batch. The program records only these, so nothing
+-- else crosses. A call comes after the operations that made its node, in
+-- the same batch or a later one, and the client applies a batch in order,
+-- synchronously: @focus@ on a node the batch created and attached reaches
+-- it there.
+--
 -- A node taken out and not put back by the end of the batch is gone, on both
 -- sides: once the last operation is applied, each node a @remove@ took out
 -- that still has no parent is forgotten, with everything under it and the
@@ -58,7 +79,11 @@
 -- component does when its parent replaces the element around it, and a
 -- batch never ends in the middle of a render. A batch says nothing about
 -- what happens inside a node it leaves gone (its children taken out of it,
--- its listeners stopped): the client forgets all of it anyway.
+-- its listeners stopped): the client forgets all of it anyway. That is so
+-- only after the batch's last @call@: everything before a @call@ is sent,
+-- so that the client carries it out on the page as the program had it (a
+-- link clicked to start a download, with the address the same action gave
+-- it, then hidden; a form submitted with a field that is then taken away).
 --
 -- __To the program__, one JSON object per event a listener heard:
 --
@@ -125,6 +150,15 @@
 -- been handled and what it rendered is on the page, short of what is still
 -- waiting in a 'liftIO' (counted in @waiting@) and what has not happened
 -- yet (a timer, a pause in 'Halogen.Query.HalogenM.delay').
+--
+-- A batch can itself make the page send an event, after the question: a
+-- @call@ of @focus@ or @click@ on an element the program listens to. The
+-- answer that follows the batch does not account for that event, so the
+-- client (@jsbits/remote.js@) does not give the page an answer when it has
+-- sent an event since the question: it asks again, until an answer comes
+-- that no event followed. From a batch with a @call@ until the page's next
+-- frame it holds the answers it receives, since some events a call causes
+-- are dispatched then (a dialog's @close@).
 --
 -- = Messages a side does not know
 --
@@ -196,6 +230,11 @@ data Op
   | -- | The node, the event type and the listener, and what its handler
     -- declared now.
     ListenerOptions NodeId Text ListenerId HandlerOptions
+  | -- | The node, the method and its arguments: one of the allowlist's
+    -- (see the module's header).
+    Call NodeId Text [Value]
+  | -- | The node, the property and its value: the document's title.
+    Assign NodeId Text Value
   deriving stock (Eq, Show)
 
 -- | The operations one message carries, and its place among the session's.
@@ -276,6 +315,8 @@ instance ToJSON Op where
     Listen n ty l -> tagged "listen" [toJSON n, toJSON ty, toJSON l]
     Unlisten n ty l -> tagged "unlisten" [toJSON n, toJSON ty, toJSON l]
     ListenerOptions n ty l o -> tagged "options" [toJSON n, toJSON ty, toJSON l, encodeOptions o]
+    Call n method arguments -> tagged "call" [toJSON n, toJSON method, toJSON arguments]
+    Assign n name value -> tagged "set" [toJSON n, toJSON name, value]
     where
       tagged :: Text -> [Value] -> Value
       tagged tag rest = Array (Vector.fromList (String tag : rest))
@@ -309,6 +350,8 @@ instance FromJSON Op where
         ("listen", [n, ty, l]) -> Listen <$> parseJSON n <*> parseJSON ty <*> parseJSON l
         ("unlisten", [n, ty, l]) -> Unlisten <$> parseJSON n <*> parseJSON ty <*> parseJSON l
         ("options", [n, ty, l, o]) -> ListenerOptions <$> parseJSON n <*> parseJSON ty <*> parseJSON l <*> decodeOptions o
+        ("call", [n, method, arguments]) -> Call <$> parseJSON n <*> parseJSON method <*> parseJSON arguments
+        ("set", [n, name, value]) -> Assign <$> parseJSON n <*> parseJSON name <*> pure value
         _ -> fail ("not an operation: " <> toS tag <> " with " <> show (length rest) <> " arguments")
 
       unscalar :: Value -> Parser PropScalar

@@ -56,6 +56,7 @@ import Network.Socket.ByteString qualified as Socket
 import Network.Wai.Handler.Warp qualified as Warp
 import Prelude
 import System.Timeout (timeout)
+import Test.Components (hearing, operating, titling)
 import Web.UIEvent.KeyboardEvent.EventTypes qualified as KET
 
 -- | What the sessions' components tell the test.
@@ -449,6 +450,56 @@ testing server = playwright $ describe "a component per page, mounted in the tes
     activity page `shouldReturn` Just Activity {trees = 0, running = 0, waiting = 0}
     -- What it showed stays on the page.
     readOnce page "#label" `shouldReturn` "ready"
+
+  -- What the component does to the page through the Web types, carried
+  -- out by the client: each read once, after the action settles.
+  it "gives the focus to a field the component focuses, in Initialize and after a click" $ inPage $ \page -> do
+    (address, _) <- mounting server operating ()
+    visit page address
+    evaluate page "document.activeElement && document.activeElement.id" `shouldReturn` ("first" :: Text)
+    click (locator page "#focus-second")
+    evaluate page "document.activeElement && document.activeElement.id" `shouldReturn` ("second" :: Text)
+
+  -- An event the page sends because of what the program did to it, after
+  -- the driver's question: the click settles only once it is handled too.
+  it "waits for the component to hear the focus it asked for, and a dialog's close" $ inPage $ \page -> do
+    (address, _) <- mounting server hearing ()
+    visit page address
+    click (locator page "#focus-field")
+    readOnce page "#heard" `shouldReturn` "focus"
+    click (locator page "#close-heard")
+    readOnce page "#heard" `shouldReturn` "focus, close"
+
+  it "opens a dialog as a modal with showModal, and closes it with close" $ inPage $ \page -> do
+    (address, _) <- mounting server operating ()
+    visit page address
+    let dialog = "(() => { const d = document.querySelector('#dialog'); return [d.open, d.matches(':modal')]; })()"
+    evaluate page dialog `shouldReturn` [False, False]
+    click (locator page "#open")
+    evaluate page dialog `shouldReturn` [True, True]
+    click (locator page "#close")
+    evaluate page dialog `shouldReturn` [False, False]
+
+  it "scrolls an element far down the page into view" $ inPage $ \page -> do
+    (address, _) <- mounting server operating ()
+    visit page address
+    let inView = "(() => { const r = document.querySelector('#far').getBoundingClientRect(); return r.top >= 0 && r.bottom <= window.innerHeight; })()"
+    evaluate page inView `shouldReturn` False
+    click (locator page "#scroll")
+    evaluate page inView `shouldReturn` True
+
+  it "carries out no method the client does not allow" $ inPage $ \page -> do
+    (address, _) <- mounting server operating ()
+    visit page address
+    click (locator page "#not-listed")
+    getAttribute (locator page "#second") "data-set" `shouldReturn` Nothing
+
+  it "sets the page's title as the component sets it, and again when it sets another" $ inPage $ \page -> do
+    (address, _) <- mounting server titling ()
+    visit page address
+    evaluate page "document.title" `shouldReturn` ("First title" :: Text)
+    click (locator page "#retitle")
+    evaluate page "document.title" `shouldReturn` ("Second title" :: Text)
 
   it "shows what a query from the test changed, once settled" $ inPage $ \page -> do
     (address, connected) <- mounting server view ()

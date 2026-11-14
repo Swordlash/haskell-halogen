@@ -6,6 +6,7 @@ module Halogen.VDom.Types
   , ElemName (..)
   , Namespace (..)
   , unNamespace
+  , elementInstanceOf
   )
 where
 
@@ -19,6 +20,52 @@ newtype Namespace = Namespace Text
 
 unNamespace :: Namespace -> Text
 unNamespace (Namespace ns) = ns
+
+-- | Whether an element of a namespace and a name is an instance of a DOM
+-- class, by the class's JavaScript name, as a browser answers
+-- @instanceof@: every element is an @EventTarget@, a @Node@ and an
+-- @Element@, an HTML one an @HTMLElement@ and the class of its tag
+-- (@HTMLDialogElement@ for a @dialog@), an SVG one an @SVGElement@. What a
+-- backend that is not a browser answers for its elements' checked casts
+-- ('Halogen.JSBits.Value.NativeObject'), so that
+-- 'Halogen.Query.getHTMLElementRef' and @HTMLDialogElement.fromElement@
+-- find the element there too. A tag missing from the table here is only an
+-- @HTMLElement@.
+elementInstanceOf :: Maybe Namespace -> ElemName -> Text -> Bool
+elementInstanceOf namespace (ElemName tag) klass
+  | klass `elem` ["EventTarget", "Node", "Element"] = True
+  | otherwise = case namespace of
+      Nothing -> html
+      Just (Namespace "http://www.w3.org/1999/xhtml") -> html
+      Just (Namespace "http://www.w3.org/2000/svg") -> klass == "SVGElement" || (tag == "svg" && klass == "SVGSVGElement")
+      Just _ -> False
+  where
+    html = klass == "HTMLElement" || (tag, klass) `elem` htmlClasses
+    htmlClasses =
+      [ ("a", "HTMLAnchorElement")
+      , ("audio", "HTMLAudioElement")
+      , ("body", "HTMLBodyElement")
+      , ("button", "HTMLButtonElement")
+      , ("canvas", "HTMLCanvasElement")
+      , ("details", "HTMLDetailsElement")
+      , ("dialog", "HTMLDialogElement")
+      , ("div", "HTMLDivElement")
+      , ("form", "HTMLFormElement")
+      , ("iframe", "HTMLIFrameElement")
+      , ("img", "HTMLImageElement")
+      , ("input", "HTMLInputElement")
+      , ("label", "HTMLLabelElement")
+      , ("li", "HTMLLIElement")
+      , ("ol", "HTMLOListElement")
+      , ("option", "HTMLOptionElement")
+      , ("p", "HTMLParagraphElement")
+      , ("select", "HTMLSelectElement")
+      , ("span", "HTMLSpanElement")
+      , ("table", "HTMLTableElement")
+      , ("textarea", "HTMLTextAreaElement")
+      , ("ul", "HTMLUListElement")
+      , ("video", "HTMLVideoElement")
+      ]
 
 data VDom a w
   = Text Text

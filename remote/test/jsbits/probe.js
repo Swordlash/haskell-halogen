@@ -19,3 +19,9 @@ function remote_probe_askers() {
   const list = globalThis.__halogenProbe?.[Symbol.for("halogen.activity.programs")];
   return Array.isArray(list) ? list.length : 0;
 }
+
+// The id of the element that has the focus, empty when it has none.
+function remote_active_id() {
+  const active = document.activeElement;
+  return active && typeof active.id === "string" ? active.id : "";
+}

@@ -21,6 +21,7 @@ import Test.Hspec (hspec)
 import Test.Hydrate qualified as Hydrate
 import Test.IndexedDB qualified as IndexedDB
 import Test.IndexedRows qualified as IndexedRows
+import Test.NativeAnswers qualified as NativeAnswers
 import Test.NativeDom qualified as NativeDom
 import Test.NativeEvents qualified as NativeEvents
 import Test.Refs qualified as Refs
@@ -53,6 +54,7 @@ main = hspec $ do
   Hydrate.spec
   IndexedDB.spec
   IndexedRows.spec
+  NativeAnswers.spec
   NativeDom.spec
   NativeEvents.spec
   Refs.spec

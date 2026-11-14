@@ -19,6 +19,7 @@ flag wasi
 
 library
   exposed-modules: Halogen.JSBits, Halogen.JSBits.Fields, Halogen.JSBits.Inline, Halogen.JSBits.Promise, Halogen.JSBits.Value
+  other-modules: Halogen.JSBits.Object
   hs-source-dirs: src
   default-language: GHC2021
   ghc-options: -Wall -Wextra -Wredundant-constraints -Wunused-packages
@@ -40,6 +41,19 @@ test-suite jsbits-test
     build-depends: base, bytestring, ghc-experimental, haskell-halogen-jsbits
   else
     buildable: False
+
+-- What the fields Halogen.JSBits.Fields writes ask, natively, of a value
+-- that answers for itself; native only, since in a browser the engine answers.
+test-suite jsbits-native-test
+  type: exitcode-stdio-1.0
+  main-is: Native.hs
+  hs-source-dirs: test
+  default-language: GHC2021
+  ghc-options: -Wall -Wextra -Wredundant-constraints -Wunused-packages
+  if arch(wasm32) || arch(javascript) || flag(wasi)
+    buildable: False
+  else
+    build-depends: base, haskell-halogen-jsbits, text
 
 -- Promise's, on every backend: under Node on both browser backends, and
 -- natively, where there is nothing to await. On WebAssembly it is a reactor

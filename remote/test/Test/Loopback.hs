@@ -28,6 +28,7 @@ $( browserJS
      [ ("js_probe_set", "remote_probe_set", Safe, [t|IO ()|])
      , ("js_probe_ask", "remote_probe_ask", Safe, [t|IO (Promise JSText)|])
      , ("js_probe_askers", "remote_probe_askers", Safe, [t|IO Int|])
+     , ("js_active_id", "remote_active_id", Safe, [t|IO JSText|])
      ]
  )
 
@@ -181,6 +182,25 @@ spec m = do
     -- The loopback's tree is gone, and counted gone once.
     (fewer, _, _) <- probe
     fewer `shouldBe` trees - 1
+
+  -- In the loopback the program is in the page, but its handles are the
+  -- session's node numbers, not the page's elements, and in a browser a
+  -- handle is the engine's value, which answers for itself only natively:
+  -- a checked cast of one ('H.getHTMLElementRef', a dialog's fromElement)
+  -- is no cast, so what a component does to the page through the Web types
+  -- is not carried out, neither here nor through the wire, rather than
+  -- twice. The component goes on.
+  it "carries out nothing a component does to the page through the Web types, and goes on" $ runPage $ do
+    traffic <- unsafeIOToPageM (newIORef [])
+    ui <- mount m (host traffic operating) ()
+    _ <- find ui "#first"
+    (fromJSText <$> unsafeIOToPageM js_active_id) >>= (`shouldSatisfy` (/= "first"))
+    find ui "#focus-second" >>= click
+    (fromJSText <$> unsafeIOToPageM js_active_id) >>= (`shouldSatisfy` (/= "second"))
+    find ui "#open" >>= click
+    find ui "#dialog" >>= (`getProperty` "open") >>= (`shouldBe` "false")
+    find ui "#forget" >>= click
+    eventually (find ui "#far" >>= (`getProperty` "nextElementSibling") >>= (`shouldBe` "null"))
 
   it "lets its element go when the component fails to mount" $ runPage $ do
     ui <- mount m (trying failing) ()

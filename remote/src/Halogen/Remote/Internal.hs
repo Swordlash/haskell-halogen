@@ -12,9 +12,16 @@
 -- a number in a browser and an 'Int' natively: the mirror is looked up by
 -- it in the recorder's table. A handle is never anything but a value of the
 -- kind its backend makes, so code that hands one to the browser (an effect
--- given a 'Halogen.Query.HalogenM.getRef' element) gets an error from the
--- browser about a number, rather than the browser reading a Haskell record
--- as a JavaScript value.
+-- given a 'Halogen.Query.HalogenM.getRef' element, in the loopback) gets an
+-- error from the browser about a number, rather than the browser reading a
+-- Haskell record as a JavaScript value.
+--
+-- Natively the value also answers for itself ('withNativeObject'): what the
+-- program does to the page through the @Web.*@ types on a handle (a focus,
+-- a dialog's @showModal@, the document's title) is recorded as an operation
+-- for the client, if it is one the client performs ('operations'), and a
+-- checked cast asks what the node is. In a browser the number answers
+-- nothing.
 --
 -- __A node taken out and not put back by the end of the batch is gone, on
 -- both sides.__ The browser forgets a node when nothing holds it, which a
@@ -41,6 +48,15 @@
 -- of a removed element's children, which takes each out of it and stops
 -- its listeners, a property set on it) is left out of it: the client
 -- forgets the node with everything under it, so none of it would show.
+-- That holds only for what the page is left with, though, and a method the
+-- program called is carried out on the page as it is when the client gets
+-- to it: a link clicked through its ref to start a download and hidden by
+-- the same action, with the address that action gave it; a form submitted
+-- with a field the action added and then took away. What a call does must
+-- not depend on whether a batch was taken between it and the removal, so
+-- nothing is left out of a batch before its last call, whichever node the
+-- call is on: the client has the page then as the program had it. Only
+-- what follows the last call is left out.
 module Halogen.Remote.Internal
   ( -- * The monad
     RemoteDOM (..)
@@ -74,14 +90,14 @@ import Control.Monad.UUID (MonadUUID (..))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
-import Data.Foreign (foreignToInt)
+import Data.Foreign (foreignToBool, foreignToInt, foreignToString, readProp)
 import Data.IntMap.Strict qualified as IntMap
 import Data.IntSet qualified as IntSet
 import Data.Map.Strict qualified as Map
 import Data.Scientific (floatingOrInteger)
 import Data.Sequence qualified as Seq
 import Data.Text qualified as Text
-import Halogen.JSBits (JSVal, toJSInt)
+import Halogen.JSBits (JSVal, NativeObject (..), toJSInt, withNativeObject)
 import Halogen.Remote.Protocol (EventMessage (..), ListenerId, NodeId, Op (..))
 import Halogen.VDom.DOM.HandlerOptions (HandlerOptions)
 import Halogen.VDom.DOM.Monad
@@ -93,7 +109,7 @@ import Halogen.VDom.DOM.Monad
   , StorageKind
   , propScalar
   )
-import Halogen.VDom.Types (ElemName (..), Namespace (..))
+import Halogen.VDom.Types (ElemName (..), Namespace (..), elementInstanceOf)
 import Protolude hiding (Handler, handle, join)
 import UnliftIO (MonadUnliftIO (..))
 import UnliftIO.Async qualified as Async
@@ -164,7 +180,8 @@ data Kind
 data RemoteNode = RemoteNode
   { ident :: NodeId
   , handle :: JSVal
-  -- ^ The value every handle for this node holds, made once.
+  -- ^ The value every handle for this node holds, made once: the node's
+  -- number, answering for itself ('operations').
   , kind :: Kind
   , content :: IORef Text
   , kids :: IORef [RemoteNode]
@@ -209,6 +226,7 @@ data Recorder = Recorder
   -- ^ Recording; 'False' once the session is over, when an operation has
   -- no one to go to.
   , storage :: IORef (Map StorageKind (Map Text Text))
+  , sink :: Sink
   , document :: RemoteNode
   , body :: RemoteNode
   }
@@ -221,34 +239,107 @@ bodyId = 1
 -- window and the container it attached to, and nothing pending.
 newRecorder :: IO Recorder
 newRecorder = do
-  nodes <- newIORef IntMap.empty
-  root <- blank documentId DocumentNode
-  body <- blank bodyId (ElementNode Nothing (ElemName "body"))
+  sink <- Sink <$> newIORef IntMap.empty <*> STM.newTVarIO Seq.empty <*> STM.newTVarIO True
+  root <- blank sink documentId DocumentNode
+  body <- blank sink bodyId (ElementNode Nothing (ElemName "body"))
   writeIORef root.kids [body]
   writeIORef body.parent (Just root)
-  writeIORef nodes (IntMap.fromList [(documentId, root), (bodyId, body)])
-  Recorder nodes
+  writeIORef sink.nodes (IntMap.fromList [(documentId, root), (bodyId, body)])
+  Recorder sink.nodes
     <$> newIORef (bodyId + 1)
     <*> newIORef 1
     <*> newIORef IntMap.empty
-    <*> STM.newTVarIO Seq.empty
+    <*> pure sink.pending
     <*> STM.newTVarIO 0
     <*> STM.newTVarIO IntMap.empty
     <*> STM.newTVarIO 0
-    <*> STM.newTVarIO True
+    <*> pure sink.open
     <*> newIORef Map.empty
+    <*> pure sink
     <*> pure root
     <*> pure body
 
-blank :: NodeId -> Kind -> IO RemoteNode
-blank ident kind =
-  RemoteNode ident (toJSInt ident) kind
+-- | What a node's handle needs to record what the program does to the page
+-- through it: the recorder's table and its pending operations, which a
+-- handle reaches from 'IO', on whatever thread the component's effect runs.
+data Sink = Sink
+  { nodes :: IORef (IntMap RemoteNode)
+  , pending :: STM.TVar (Seq Op)
+  , open :: STM.TVar Bool
+  }
+
+blank :: Sink -> NodeId -> Kind -> IO RemoteNode
+blank sink ident kind =
+  RemoteNode ident handle kind
     <$> newIORef ""
     <*> newIORef []
     <*> newIORef Nothing
     <*> newIORef Map.empty
     <*> newIORef Map.empty
     <*> newIORef []
+  where
+    handle = withNativeObject (operations sink ident kind handle) (toJSInt ident)
+
+-- | What a node's handle does when the program uses the @Web.*@ types on
+-- it ("Halogen.JSBits.Fields"): a call or an assignment the client may
+-- carry out is recorded for it, after what is recorded already (so after
+-- the operations that made the node), and joins the batch being recorded:
+-- a render's, if a render is under way (a focus in an @Initialize@ is in
+-- the batch with the element's creation), or the next. Anything else, and
+-- anything on a node the program has forgotten, does nothing, as before.
+--
+-- A checked cast asks what the node is ('elementInstanceOf'), so
+-- 'Halogen.Query.getHTMLElementRef' and a dialog's @fromElement@ find it;
+-- the document is the window too, as node 0 is both, and is its own
+-- @document@. Reads are not answered: the page has the values, across the
+-- wire, and a read cannot wait for them.
+operations :: Sink -> NodeId -> Kind -> JSVal -> NativeObject JSVal
+operations sink ident kind self =
+  NativeObject
+    { call = \method arguments -> case kind of
+        ElementNode {} -> for_ (allowedCall method arguments) (recordFrom sink ident . Call ident method)
+        _ -> pass
+    , set = \name value -> case kind of
+        DocumentNode | name == "title" -> recordFrom sink ident (Assign ident name (Aeson.String (foreignToString value)))
+        _ -> pass
+    , get = \name -> case kind of
+        DocumentNode | name == "document" -> Just self
+        _ -> Nothing
+    , instanceOf = \klass -> case kind of
+        ElementNode ns name -> elementInstanceOf ns name klass
+        TextNode -> klass `elem` ["EventTarget", "Node", "CharacterData", "Text"]
+        DocumentNode -> klass `elem` ["EventTarget", "Node", "Document", "HTMLDocument", "Window"]
+    }
+
+-- | The methods the client performs, each with the arguments it takes,
+-- read from what the program passed: the arguments to send, or 'Nothing'
+-- for a call that is not one of them. The client has the same list; see
+-- "Halogen.Remote.Protocol".
+allowedCall :: Text -> [JSVal] -> Maybe [Aeson.Value]
+allowedCall method arguments = case method of
+  "focus" -> Just (options [("preventScroll", fmap Aeson.Bool . readProp "preventScroll" (Just . foreignToBool))])
+  "scrollIntoView" -> Just (options [(k, fmap Aeson.String . readProp k (Just . foreignToString)) | k <- ["block", "inline", "behavior"]])
+  "close" -> Just [Aeson.String (foreignToString a) | a <- take 1 arguments]
+  _
+    | method `elem` ["blur", "click", "select", "show", "showModal"] -> Just []
+    | otherwise -> Nothing
+  where
+    -- The options object of the first argument, with the fields read; none
+    -- when it has none of them.
+    options fields = case arguments of
+      a : _
+        | found@(_ : _) <- [(Key.fromText k, v) | (k, read') <- fields, Just v <- [read' a]] ->
+            [Aeson.Object (KeyMap.fromList found)]
+      _ -> []
+
+-- | Record an operation about a node from a handle, unless the node has
+-- been forgotten or the recorder closed.
+recordFrom :: Sink -> NodeId -> Op -> IO ()
+recordFrom sink ident op = do
+  known <- IntMap.member ident <$> readIORef sink.nodes
+  when known $ STM.atomically $ do
+    open <- STM.readTVar sink.open
+    when open $ STM.modifyTVar' sink.pending (Seq.|> op)
 
 -- | The body, as the driver mounts into it.
 bodyHandle :: Recorder -> HTMLElement
@@ -275,7 +366,8 @@ ready recorder = do
 -- for the one there is to end), and forget the nodes it leaves without a
 -- parent: 'Nothing' once the recorder is closed. What the batch says about
 -- the nodes forgotten, other than their removal and the insertions that
--- moved nodes about, is left out (see the module's header).
+-- moved nodes about, is left out, after the batch's last call of a method
+-- (see the module's header).
 takeBatch :: Recorder -> IO (Maybe [Op])
 takeBatch recorder = do
   taken <- STM.atomically $ do
@@ -293,8 +385,17 @@ takeBatch recorder = do
       readIORef node.parent >>= \case
         Nothing -> forget recorder node
         Just _ -> pure IntSet.empty
-    pure (filter (not . within gone) (toList ops))
+    pure (leavingOut gone (toList ops))
   where
+    -- What is said about a forgotten node is left out only after the last
+    -- method the batch calls: up to there the client must have the page
+    -- as the program had it when it called, the nodes that go included.
+    leavingOut gone ops =
+      let called = \case
+            Call {} -> True
+            _ -> False
+          (after, upToCall) = break called (reverse ops)
+       in reverse upToCall <> filter (not . within gone) (reverse after)
     -- An operation whose effect stays inside what is forgotten. A removal
     -- from a forgotten node is one only when the child is forgotten too: a
     -- child that lives on is put somewhere else by an insertion the batch
@@ -309,6 +410,8 @@ takeBatch recorder = do
       Listen n _ _ -> n `IntSet.member` gone
       Unlisten n _ _ -> n `IntSet.member` gone
       ListenerOptions n _ _ _ -> n `IntSet.member` gone
+      Assign n _ _ -> n `IntSet.member` gone
+      -- A 'Call' on a forgotten node cannot follow the last call.
       _ -> False
 
 -- | Run a render, counted as under way while it runs (and fails), so that no
@@ -347,7 +450,7 @@ newNode kind = do
   recorder <- recorderHere
   liftIO $ do
     ident <- atomicModifyIORef' recorder.nextNode (\n -> (n + 1, n))
-    node <- blank ident kind
+    node <- blank recorder.sink ident kind
     atomicModifyIORef' recorder.nodes (\m -> (IntMap.insert ident node m, ()))
     pure node
 
