@@ -1,7 +1,7 @@
 {-# LANGUAGE NoFieldSelectors #-}
 
 -- | What a value does for itself, natively, when a member of it is used:
--- see 'Halogen.JSBits.Value.answering'.
+-- see 'Halogen.JSBits.Value.withNativeObject'.
 module Halogen.JSBits.Object
   ( NativeObject (..)
   )

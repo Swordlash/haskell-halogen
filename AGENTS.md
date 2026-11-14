@@ -367,7 +367,7 @@ they block; on JS, `syncCallback1 ContinueAsync` gives the same behaviour.
 A plain property read or method call needs no `.js` file: `Halogen.JSBits.Fields.jsFields`
 writes a `HasField` instance per member with the JavaScript inline (core's `Web.*` types are
 written with it, the instances beside each newtype), and `jsFieldFunctions` the same as functions.
-Natively a field is `inert` unless the value answers for itself (`Halogen.JSBits.Value.answering`,
+Natively a field is `inert` unless the value answers for itself (`Halogen.JSBits.Value.withNativeObject`,
 a `NativeObject`): then a method returning `()`, a `_set`, a `Fixed` object member and a `jsCast`
 ask it first. `MemDOM`'s handles answer by noting calls on the node (`performedOn`), `RemoteDOM`'s
 by recording `call`/`set` operations the client performs from an allowlist; reads stay inert.

@@ -16,7 +16,7 @@
 -- error from the browser about a number, rather than the browser reading a
 -- Haskell record as a JavaScript value.
 --
--- Natively the value also answers for itself ('answering'): what the
+-- Natively the value also answers for itself ('withNativeObject'): what the
 -- program does to the page through the @Web.*@ types on a handle (a focus,
 -- a dialog's @showModal@, the document's title) is recorded as an operation
 -- for the client, if it is one the client performs ('operations'), and a
@@ -88,7 +88,7 @@ import Data.Map.Strict qualified as Map
 import Data.Scientific (floatingOrInteger)
 import Data.Sequence qualified as Seq
 import Data.Text qualified as Text
-import Halogen.JSBits (JSVal, NativeObject (..), answering, toJSInt)
+import Halogen.JSBits (JSVal, NativeObject (..), toJSInt, withNativeObject)
 import Halogen.Remote.Protocol (EventMessage (..), ListenerId, NodeId, Op (..))
 import Halogen.VDom.DOM.HandlerOptions (HandlerOptions)
 import Halogen.VDom.DOM.Monad
@@ -269,7 +269,7 @@ blank sink ident kind =
     <*> newIORef Map.empty
     <*> newIORef []
   where
-    handle = answering (operations sink ident kind handle) (toJSInt ident)
+    handle = withNativeObject (operations sink ident kind handle) (toJSInt ident)
 
 -- | What a node's handle does when the program uses the @Web.*@ types on
 -- it ("Halogen.JSBits.Fields"): a call or an assignment the client may

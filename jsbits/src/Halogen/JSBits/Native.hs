@@ -24,7 +24,7 @@ import Halogen.JSBits.Object (NativeObject)
 -- does not hold.
 --
 -- A value can also answer for itself when a member of it is used
--- ('NativeObject', made with 'Halogen.JSBits.Value.answering'): what it
+-- ('NativeObject', made with 'Halogen.JSBits.Value.withNativeObject'): what it
 -- holds is read as any value's is, and the object is asked only by the
 -- members "Halogen.JSBits.Fields" writes.
 data JSVal = NativeValue Dynamic (Maybe (NativeObject JSVal))

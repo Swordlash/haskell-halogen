@@ -87,7 +87,7 @@ component changing: a focus through a ref (`H.getHTMLElementRef`, then `HTMLElem
 `focusWithoutScrolling`), `blur`, `click`, an input's `select`, `scrollIntoView` (and
 `Element.scrollIntoViewBlock`), a dialog's `showModal`, `show` and `close` (through
 `HTMLDialogElement.fromElement`), and the document's title (`doc.title_set`). Natively a handle
-answers for itself (haskell-halogen-jsbits' `answering`): the call is recorded as an operation,
+answers for itself (haskell-halogen-jsbits' `withNativeObject`): the call is recorded as an operation,
 `["call", node, method, [arguments]]` or `["set", 0, "title", value]`, in the batch being recorded
 (a render's, so a focus in an `Initialize` comes after the element's creation), and the client
 performs it from an allowlist, logging one that throws. A cast of a handle asks what its node is, so

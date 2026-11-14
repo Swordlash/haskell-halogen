@@ -33,7 +33,7 @@ session's, in memory.
 
 A handle the driver holds (a `Node`, an `Element`) is a value holding the node's number which,
 natively, answers for itself when the program uses the `Web.*` types on it (haskell-halogen-jsbits'
-`answering`): a method or an assignment the client may carry out is recorded as an operation, so
+`withNativeObject`): a method or an assignment the client may carry out is recorded as an operation, so
 that what a component does to the page through a ref crosses the wire without the component
 changing (see "What crosses", below), and a checked cast (`H.getHTMLElementRef`,
 `HTMLDialogElement.fromElement`) asks what the node is. In a page (the loopback) a handle is the

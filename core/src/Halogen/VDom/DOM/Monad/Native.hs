@@ -60,7 +60,7 @@ import Data.Text qualified as T
 import Data.Text.Lazy qualified as TL
 import Data.Text.Lazy.Builder qualified as TB
 import HPrelude
-import Halogen.JSBits (JSVal, NativeObject (..), answering, jsValText)
+import Halogen.JSBits (JSVal, NativeObject (..), jsValText, withNativeObject)
 import Halogen.JSBits.Native (Callback (..))
 import Halogen.VDom.DOM.Monad.Class
 import Halogen.VDom.DOM.Monad.Mem
@@ -198,7 +198,7 @@ newNode k = do
 -- is an instance of, so that a checked cast
 -- ('Halogen.Query.getHTMLElementRef') finds an element.
 handleOf :: NativeNode -> JSVal
-handleOf node = answering object (toForeign node)
+handleOf node = withNativeObject object (toForeign node)
   where
     object =
       NativeObject

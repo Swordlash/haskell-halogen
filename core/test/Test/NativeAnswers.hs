@@ -34,7 +34,7 @@ import Data.Void (Void)
 import Halogen qualified as H
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Properties qualified as HP
-import Halogen.JSBits (JSVal, NativeObject (..), answering, jsValText, toJSInt)
+import Halogen.JSBits (JSVal, NativeObject (..), withNativeObject, jsValText, toJSInt)
 import Halogen.VDom.DOM.Monad (MonadBrowserDOM, runMemDOM)
 import Halogen.VDom.DOM.Monad qualified as DOM
 import Halogen.VDom.DOM.Monad.Native qualified as N
@@ -63,7 +63,7 @@ recording klass = do
           , get = \name -> if name == "document" then Just (toJSInt 8) else Nothing
           , instanceOf = (`elem` ["Element", "HTMLElement", klass])
           }
-  pure (answering object (toJSInt 7), asked)
+  pure (withNativeObject object (toJSInt 7), asked)
 
 names :: [Asked] -> [Text]
 names = map $ \case

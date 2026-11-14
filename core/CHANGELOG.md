@@ -3,7 +3,7 @@
 ## Unreleased
 
 The in-memory DOM's handles answer for themselves when a program uses the
-`Web.*` types on them (haskell-halogen-jsbits' `answering`): a method that
+`Web.*` types on them (haskell-halogen-jsbits' `withNativeObject`): a method that
 returns nothing or a property's assignment is noted on the node, and
 `Halogen.VDom.DOM.Monad.Native.performedOn` gives what was done to it, in
 order (`Called "focus"`, `Called "showModal"`, `Assigned "title" "Notes"`),

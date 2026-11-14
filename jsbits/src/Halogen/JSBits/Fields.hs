@@ -70,7 +70,7 @@
 --
 -- = Natively
 --
--- A value can answer for itself natively ('Halogen.JSBits.Value.answering',
+-- A value can answer for itself natively ('Halogen.JSBits.Value.withNativeObject',
 -- with a 'Halogen.JSBits.Value.NativeObject'): a backend that is not a
 -- browser makes its handles that way, so that what a program does to the
 -- page through these fields reaches it (haskell-halogen-remote sends a
@@ -221,7 +221,7 @@ jsFieldFunctions receiver handWritten = do
 -- ''Event ''KeyboardEvent)@ writes @fromEvent :: Event -> Maybe
 -- KeyboardEvent@, which asks @instanceof KeyboardEvent@. An engine with no
 -- such class (Node has no @KeyboardEvent@) gives 'Nothing'. Natively a
--- value that answers for itself ('Halogen.JSBits.Value.answering') is asked
+-- value that answers for itself ('Halogen.JSBits.Value.withNativeObject') is asked
 -- whether it is an instance of the class, and any other value is not one.
 jsCast :: String -> Name -> Name -> Q [Dec]
 jsCast function from to = do

@@ -34,7 +34,7 @@ $(inlineJS "js_focus_without_scrolling" "$1.focus({ preventScroll: true })" [t|H
 --
 -- Natively it is @focus@ with its options, @{preventScroll: true}@ (as
 -- JSON), for an element that answers for itself
--- ('Halogen.JSBits.Value.answering': a remote client's page focuses it so).
+-- ('Halogen.JSBits.Value.withNativeObject': a remote client's page focuses it so).
 focusWithoutScrolling :: HTMLElement -> IO ()
 focusWithoutScrolling element
   | inBrowser = js_focus_without_scrolling element

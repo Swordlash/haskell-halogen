@@ -33,7 +33,7 @@ module Halogen.JSBits.Value
   , invokeCallback
   , inBrowser
   , NativeObject (..)
-  , answering
+  , withNativeObject
   , nativeCall
   , nativeSet
   , nativeGet
@@ -83,10 +83,10 @@ import Halogen.JSBits.Native (Callback (..), JSVal (..))
 -- not a browser makes its handles of. What the value holds is read as
 -- before. In a browser the value is the engine's and answers as JavaScript
 -- does, so this is the value itself.
-answering :: NativeObject JSVal -> JSVal -> JSVal
+withNativeObject :: NativeObject JSVal -> JSVal -> JSVal
 
 -- | What "Halogen.JSBits.Fields" writes natively for a member: the
--- object's answer, if the value is one that answers ('answering'), and
+-- object's answer, if the value is one that answers ('withNativeObject'), and
 -- otherwise the inert one (nothing done, 'Nothing', 'False'). In a browser
 -- they are never asked, and give the inert answer.
 nativeCall :: JSVal -> Text -> [JSVal] -> IO ()
@@ -311,7 +311,7 @@ foreign import javascript unsafe "((o) => { const e = o.error; try { return e !=
 foreign import javascript unsafe "((o) => { const e = o.error; try { return e !== null && typeof e === \"object\" && typeof e.name === \"string\" ? String(e.message ?? \"\") : String(e); } catch (_) { return \"\"; } })"
   js_thrown_message :: JSVal -> IO JSText
 
-answering _ value = value
+withNativeObject _ value = value
 nativeCall _ _ _ = pure ()
 nativeSet _ _ _ = pure ()
 nativeGet _ _ = Nothing
@@ -427,7 +427,7 @@ foreign import javascript unsafe "$1($2)" js_invoke :: Callback -> JSVal -> IO (
 
 foreign import javascript unsafe "null" js_null :: JSVal
 
-answering _ value = value
+withNativeObject _ value = value
 nativeCall _ _ _ = pure ()
 nativeSet _ _ _ = pure ()
 nativeGet _ _ = Nothing
@@ -459,7 +459,7 @@ freeCallback _ = pure ()
 invokeCallback (Callback (JSVal held)) argument =
   maybe (pure ()) ($ argument) (fromDynamic held :: Maybe (JSVal -> IO ()))
 
-answering object (JSVal held) = NativeValue held (Just object)
+withNativeObject object (JSVal held) = NativeValue held (Just object)
 nativeCall (NativeValue _ object) name arguments = maybe (pure ()) (\o -> o.call name arguments) object
 nativeSet (NativeValue _ object) name value = maybe (pure ()) (\o -> o.set name value) object
 nativeGet (NativeValue _ object) name = object >>= \o -> o.get name

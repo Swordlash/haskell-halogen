@@ -7,7 +7,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 -- | Natively, the fields "Halogen.JSBits.Fields" writes ask a value that
--- answers for itself ('answering'), and give every other value their inert
+-- answers for itself ('withNativeObject'), and give every other value their inert
 -- answers, as before.
 module Main (main) where
 
@@ -16,7 +16,7 @@ import Data.Dynamic (fromDynamic)
 import Data.IORef (atomicModifyIORef', newIORef, readIORef)
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Halogen.JSBits (Inert, JSVal, NativeObject (..), answering, jsValText, toJSInt)
+import Halogen.JSBits (Inert, JSVal, NativeObject (..), jsValText, toJSInt, withNativeObject)
 import Halogen.JSBits.Fields (Member (..), jsCast, jsFields)
 import Halogen.JSBits.Native (JSVal (JSVal))
 
@@ -50,7 +50,7 @@ main = do
           , instanceOf = (== "Other")
           }
       shown value = let t = jsValText value in if Text.null t then "a value" else t
-      answers = Thing (answering object (toJSInt 1))
+      answers = Thing (withNativeObject object (toJSInt 1))
       plain = Thing (toJSInt 1)
 
   answers.poke 3 "x"

@@ -27,7 +27,7 @@
 -- * A ref ('Halogen.Query.HalogenM.getRef') is a node of the session's
 --   mirror, not an element of the page. What a component does to the page
 --   through it with the @Web.*@ types does cross: natively a handle answers
---   for itself ("Halogen.JSBits.Value"'s @answering@), and a focus, @blur@,
+--   for itself ("Halogen.JSBits.Value"'s @withNativeObject@), and a focus, @blur@,
 --   @click@, @select@, @scrollIntoView@, a dialog's @showModal@, @show@ and
 --   @close@, and the document's title are recorded as operations the client
 --   performs from an allowlist ("Halogen.Remote.Protocol"), in the batch

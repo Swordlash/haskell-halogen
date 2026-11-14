@@ -81,7 +81,7 @@ $(inlineJS "js_scroll_into_view_block" "$1.scrollIntoView({ block: $2 })" [t|Ele
 -- | 'scrollIntoView', saying where in the viewport the element goes.
 -- Natively it is @scrollIntoView@ with its options, @{block: ...}@ (as
 -- JSON), for an element that answers for itself
--- ('Halogen.JSBits.Value.answering').
+-- ('Halogen.JSBits.Value.withNativeObject').
 scrollIntoViewBlock :: Element -> ScrollBlock -> IO ()
 scrollIntoViewBlock element block
   | inBrowser = js_scroll_into_view_block element (toJSText name)
