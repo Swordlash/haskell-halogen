@@ -66,7 +66,8 @@
 -- 'browserProcesses' is the browser's processes and their memory.
 -- 'webSocketFrames' and 'waitForWebSocket' are what crossed the page's
 -- WebSockets; 'gotoStatus' is a navigation's status; 'screenshotWith'
--- takes the window alone. A context whose options say
+-- takes the window alone. 'listenCDP' keeps a DevTools event, for
+-- 'cdpEvents' and 'waitForCDP'. A context whose options say
 -- 'recordExchanges' keeps each request with its headers and body and its
 -- response ('exchanges', 'waitForExchange').
 --
@@ -298,6 +299,9 @@ module Halogen.Playwright
     -- * The Chrome DevTools Protocol
   , cdp
   , throttleCPU
+  , listenCDP
+  , cdpEvents
+  , waitForCDP
 
     -- * Pictures and print
   , screenshot
@@ -326,6 +330,7 @@ import Data.ByteString.Base64 qualified as Base64
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Foldable (find, toList)
 import Data.Maybe (fromMaybe, isJust)
+import Data.Sequence qualified as Seq
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
@@ -1967,6 +1972,50 @@ cdp p method params = onPage p "cdp" ["cdpMethod" .= method, "params" .= paramsO
       Aeson.Array a | null a -> object []
       Aeson.Null -> object []
       other -> other
+
+-- | Keep, from now on, every occurrence of a DevTools event on the page's
+-- session (the one 'cdp' calls on), with its parameters, for 'cdpEvents'
+-- and 'waitForCDP': the way the page's console is kept. Most events come
+-- only once their domain is enabled, by a call on the same session:
+--
+-- > listenCDP page "Network.webSocketFrameReceived"
+-- > _ :: Value <- cdp page "Network.enable" ()
+--
+-- Listening twice to an event is listening once.
+listenCDP :: (MonadIO m) => Page -> Text -> m ()
+listenCDP p event = onPage p "listenCDP" ["cdpEvent" .= event]
+
+-- | The parameters of every occurrence of the event kept so far ('listenCDP'),
+-- oldest first.
+cdpEvents :: (MonadIO m) => Page -> Text -> m [Value]
+cdpEvents p event = liftIO $ do
+  kept <- toList . (.cdpEvents) <$> pageLog p.playwright p.handle
+  pure [params | (name, params) <- kept, name == event]
+
+-- | The parameters of the first occurrence of the event, since 'listenCDP',
+-- that satisfy the test, waiting for one if there is none yet, up to the
+-- page's timeout: as 'waitForConsole', one that came before the call
+-- counts.
+--
+-- > sent <- waitForCDP page "Network.requestWillBeSent" (\v -> address `Text.isInfixOf` Text.pack (show v))
+waitForCDP :: (MonadIO m) => Page -> Text -> (Value -> Bool) -> m Value
+waitForCDP p event test = liftIO $ do
+  found <- waitForLog p.playwright p.handle (timeoutOf p) (find test . fmap snd . Seq.filter ((== event) . fst) . (.cdpEvents))
+  case found of
+    Just v -> pure v
+    Nothing -> do
+      seen <- length . Seq.filter ((== event) . fst) . (.cdpEvents) <$> pageLog p.playwright p.handle
+      throwIO $
+        PlaywrightError
+          "waitForCDP"
+          "TimeoutError"
+          ( "no "
+              <> event
+              <> " satisfied the test within "
+              <> Text.pack (show (timeoutOf p))
+              <> "ms; "
+              <> (if seen == 0 then "none came (is it listened to, with listenCDP, and its domain enabled?)" else Text.pack (show seen) <> " came")
+          )
 
 -- | Slow the page's processor down by a factor (1 is full speed again), as
 -- Chromium's DevTools do. 'throttle' in the options does this to every

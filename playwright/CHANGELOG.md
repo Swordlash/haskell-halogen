@@ -130,3 +130,6 @@ Policy, an editor in an iframe) needed, each with a test of its own:
   a glob, resource types and methods, decided in the driver, so that a gate
   on an API's `fetch` requests lets its images, and the page's `load`,
   through. `route` and `hold` are as they were.
+- The Chrome DevTools Protocol's events: `listenCDP` keeps an event of the
+  page's session from then on, `cdpEvents` reads them and `waitForCDP` waits
+  for one, as the console is kept and waited on.

@@ -255,10 +255,12 @@ data PageLog = PageLog
   , dialogs :: Seq Dialog
   , webSocketFrames :: Seq WebSocketFrame
   -- ^ Every frame of every WebSocket the page opened, both ways.
+  , cdpEvents :: Seq (Text, Value)
+  -- ^ The DevTools events listened to, each its name and its parameters.
   }
 
 emptyLog :: PageLog
-emptyLog = PageLog Seq.empty Seq.empty Seq.empty Seq.empty
+emptyLog = PageLog Seq.empty Seq.empty Seq.empty Seq.empty Seq.empty
 
 -- | What a page has said so far.
 pageLog :: Playwright -> Int -> IO PageLog
@@ -607,6 +609,8 @@ readReplies pw h ready stderrDone = (forever readOne `catchEnd` pure ()) `finall
           atomicModifyIORef' pw.exchangeLogs (\m -> (IntMap.alter (Just . (Seq.|> exchange) . fromMaybe Seq.empty) context m, ()))
           atomically (modifyTVar' pw.logged (+ 1))
         Left e -> hPutStrLn stderr ("[playwright] an exchange that cannot be read: " <> e)
+      "cdp" -> for_ (Aeson.parseMaybe (\v -> (,,) <$> v .: "page" <*> v .: "name" <*> v .: "params") o) $ \(page, name, params) ->
+        modifyLog page (\l -> l {cdpEvents = l.cdpEvents Seq.|> (name, params)})
       "requestfailed" -> for_ (Aeson.parseMaybe (\v -> (,,,) <$> v .: "context" <*> v .: "url" <*> v .: "method" <*> v .: "failure") o) $ \(context, url, method, failure) ->
         addFailure pw context (\f -> f {requests = lastFifty (f.requests Seq.|> FailedRequest {url, method, failure})})
       "unrouted" -> for_ (Aeson.parseMaybe (.: "routes") o) $ \ids -> do

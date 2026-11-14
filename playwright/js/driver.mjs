@@ -25,6 +25,8 @@
 //    "responseBody": "<base64>" | null, "failure": "net::..." | null}
 //                                            a request of a context that records
 //                                            its exchanges, once it has ended
+//   {"event": "cdp", "page": 2, "name": "Network.requestWillBeSent", "params": {...}}
+//                                            a DevTools event the test listens to
 //   {"event": "unrouted", "routes": [3, 4]}  these routes went with their page
 //                                            or context; no ask of theirs is
 //                                            waiting for an answer any more
@@ -131,6 +133,8 @@ const pages = new Map();
 let nextHandle = 1;
 // The downloads being waited for, by the number expectDownload gave.
 const downloads = new Map();
+// The DevTools events listened to, by page.
+const listening = new WeakMap();
 
 // A context's exchanges, recorded when the context's options ask for it:
 // each request once it has ended (finished, or failed), with every header
@@ -793,6 +797,19 @@ const methods = {
     };
   },
 
+  // A DevTools event of the page's session, sent to Haskell each time it
+  // comes, from now on. Listening twice to one event is listening once.
+  async listenCDP(m) {
+    const page = pageOf(m.page);
+    const session = await sessionOf(page);
+    let heard = listening.get(page);
+    if (!heard) listening.set(page, (heard = new Set()));
+    if (!heard.has(m.cdpEvent)) {
+      heard.add(m.cdpEvent);
+      session.on(m.cdpEvent, (params) => send({ event: "cdp", page: m.page, name: m.cdpEvent, params: params ?? null }));
+    }
+    return null;
+  },
 
   // Downloads: armed before the action that causes one, so that it cannot
   // be missed, and awaited after it.

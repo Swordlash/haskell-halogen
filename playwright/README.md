@@ -478,8 +478,19 @@ first use, one per page) and decodes its result, for what Playwright has no call
 for: a virtual authenticator for passkeys, Chromium's installability check, an
 element's event listeners. `throttleCPU page rate` slows the page's processor
 down, as the `throttle` option does for every page. Like `evaluate`, `cdp`
-does not settle. No events: none of the scripts this was written from listens
-to one.
+does not settle.
+
+Its events are kept as the console is: `listenCDP page event` keeps every
+occurrence from then on (on the same session, so the domain is enabled with a
+`cdp` call), `cdpEvents page event` is their parameters so far, and
+`waitForCDP page event test` the first that satisfies a test, waiting for one if
+there is none yet.
+
+```haskell
+listenCDP page "Network.webSocketFrameReceived"
+_ :: Value <- cdp page "Network.enable" ()
+frame <- waitForCDP page "Network.webSocketFrameReceived" (const True)
+```
 
 ```haskell
 _ :: Value <- cdp page "WebAuthn.enable" ()
