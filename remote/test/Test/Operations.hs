@@ -7,9 +7,8 @@
 module Test.Operations (spec) where
 
 import Data.Aeson (Value (..), object, (.=))
-import Data.Coerce (coerce)
 import Data.Foreign (foreignToString, readProp)
-import Halogen.JSBits (JSVal, inBrowser)
+import Halogen.JSBits (inBrowser)
 import Halogen.Remote.Internal (runRemoteDOM)
 import Halogen.Remote.Internal qualified as Internal
 import Halogen.Remote.Protocol (NodeId, Op (..))
@@ -104,7 +103,7 @@ spec = (if inBrowser then xdescribe else describe) "what a component does to the
     anchor.textContent `shouldReturn` ""
     isNothing (Element.closestNow anchor "a") `shouldBe` True
     Element.getAttributeNow anchor "href" `shouldBe` Nothing
-    readProp "href" (Just . foreignToString) (coerce anchor :: JSVal) `shouldBe` Nothing
+    (case anchor of Element held -> readProp "href" (Just . foreignToString) held) `shouldBe` Nothing
     -- And none of them is an operation.
     Internal.takeBatch recorder `shouldReturn` Just []
 
