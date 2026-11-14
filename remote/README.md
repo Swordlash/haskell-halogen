@@ -350,9 +350,9 @@ reload page >> waitStarted page
 again <- next                                      -- a new session, at /about
 ```
 
-A key `mounting` registers is mounted once, as before. Back and Forward are `history.back()` in
-`evaluate`, as a promise that resolves on the page's `popstate`, then `settle`: Playwright's
-`goBack` waits for a load that a traversal within the document does not give.
+A key `mounting` registers is mounted once, as before. Back and Forward are the driver's
+`goBack` and `goForward`, which return once the page has gone, within the document or to another,
+and settle through the probe.
 
 **What such a test cannot see** is what only a browser does with the program in it: a ref is a
 node of the session's mirror, so what the page would answer (measuring, `document.activeElement`,

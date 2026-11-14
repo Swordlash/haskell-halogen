@@ -514,17 +514,12 @@ testing server = playwright $ describe "a component per page, mounted in the tes
         router <- if hashed then Router.newHashRouter Front spots else Router.newRouter base Front spots
         pure (routing, router)
       pathname page = evaluate page "location.pathname" :: IO Text
-      -- Back and Forward, through the page's history: the promise resolves
-      -- once the page has dispatched the popstate, after the client's
-      -- listener and the router's (added before the test's), so the
-      -- location and the event have been sent, and the settle after it asks
-      -- the probe behind them on the same socket. Playwright's goBack waits
-      -- for a load, which a traversal within the document does not give.
-      traverse' page how = do
-        True <- evaluate page ("new Promise((done) => { addEventListener('popstate', () => done(true), { once: true }); history." <> how <> "(); })")
-        settle page
-      back page = traverse' page "back"
-      forward page = traverse' page "forward"
+      -- Back and Forward as the browser's buttons do them: the driver's
+      -- goBack returns once the page has gone (within the document here,
+      -- so with its popstate, after the client's listener and the
+      -- router's), and settles through the probe behind them.
+      back = goBack
+      forward = goForward
       under address = Text.dropWhile (/= '/') (Text.drop (Text.length "http://") address)
 
   it "opens a routed component at a deep route, and follows its links with the page's address, back and forward" $ inPage $ \page -> do
