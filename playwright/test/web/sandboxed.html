@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Frames that may not run scripts</title></head>
+<body>
+  <!-- Frames sandboxed without allow-scripts, as a page shows untrusted
+       markup: one in the page as it loads, and one the page's script makes
+       a moment later (the button makes another). Chromium writes an error
+       to the page's console for every script something tries to run in
+       such a frame, so nothing of the driver's may run there. Each has a
+       <details>, which a click opens without any script. -->
+  <p id="frames">1</p>
+  <iframe sandbox title="There from the start" srcdoc="<p>frame</p><details><summary>more</summary><p>shown</p></details>"></iframe>
+  <button id="more">more</button>
+  <script>
+    const another = (label) => {
+      const frame = document.createElement("iframe");
+      frame.setAttribute("sandbox", "");
+      frame.title = label;
+      document.body.append(frame);
+      frame.srcdoc = "<p>" + label + "</p><details><summary>more</summary><p>shown</p></details>";
+      document.getElementById("frames").textContent = String(document.querySelectorAll("iframe").length);
+    };
+    setTimeout(() => another("late"), 100);
+    document.getElementById("more").addEventListener("click", () => another("asked for"));
+  </script>
+</body>
+</html>

@@ -253,8 +253,27 @@ const register = (page) => {
 // go in this document's entries (go(0), which reloads; back from the
 // first) is not counted. The methods keep their names and lengths, and
 // call the page's own History's.
+//
+// None of that is done in a document that may not run scripts: a frame
+// sandboxed without allow-scripts (untrusted markup shown in a page), or
+// any document where JavaScript is off. An init script runs there all the
+// same, being the protocol's, but a listener or a timer it left would be
+// the document's script: the browser refuses to run it and writes an error
+// to the page's console each time ("Blocked script execution in
+// 'about:blank' because the document's frame is sandboxed", for the
+// pagehide of a frame's first document). No script of such a document can
+// ask for a move, so there is nothing to note.
+//
+// Whether a document may run scripts is asked of the media query
+// "scripting", which runs nothing, changes nothing in the document and is
+// no sink a page's policy governs: none for a sandbox without allow-scripts
+// (the attribute, one inherited from a frame around, or a Content Security
+// Policy's), and for JavaScript turned off; in an HTML document, an SVG one
+// and an XHTML one alike. A browser that does not know the query answers
+// that it does not match, and the document is taken to run scripts.
 const probeScript = () => {
   if (globalThis.__halogenProbe === undefined) globalThis.__halogenProbe = {};
+  if (typeof matchMedia === "function" && matchMedia("(scripting: none)").matches) return;
   const key = Symbol.for("halogen.playwright.traversals");
   if (typeof History !== "function" || typeof addEventListener !== "function" || globalThis[key]) return;
   // Each move under way is a token of its own, so that one's half second
@@ -354,6 +373,11 @@ const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 //
 // No clock is involved except the deadline and the frame's bound.
 const inPageSettle = async ({ deadline, quiet, pause, frameBound }) => {
+  // A document that may not run scripts (a frame sandboxed without
+  // allow-scripts; see probeScript) has no program, and no task, timer or
+  // frame callback of its would ever run: asking for one would wait for
+  // ever and write an error to the page's console. It has settled.
+  if (typeof matchMedia === "function" && matchMedia("(scripting: none)").matches) return { program: false };
   const task = () =>
     new Promise((resolve) =>
       globalThis.scheduler?.postTask ? scheduler.postTask(resolve, { priority: "background" }) : setTimeout(resolve, 0),

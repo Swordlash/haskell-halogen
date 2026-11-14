@@ -27,7 +27,9 @@ import Network.Wai.Handler.Warp qualified as Warp
 -- * @api/moved@: a redirect to @second.html@, setting a cookie (@moved=1@);
 -- * any file of @test/web@, and with @?csp@ in its address, sent with
 --   @Content-Security-Policy: script-src 'self'@: the page's own scripts
---   and no others, no inline script, no @eval@.
+--   and no others, no inline script, no @eval@; with @?trusted@, sent with
+--   @Content-Security-Policy: require-trusted-types-for 'script'@: no
+--   string may be given to @innerHTML@ and the like.
 withServer :: (Text -> IO a) -> IO a
 withServer body =
   Warp.testWithApplication (pure app) $ \port -> body ("http://127.0.0.1:" <> Text.pack (show port) <> "/")
@@ -56,6 +58,8 @@ withServer body =
       _
         | any ((== "csp") . fst) (Wai.queryString request) ->
             static request (respond . Wai.mapResponseHeaders (("content-security-policy", "script-src 'self'") :))
+        | any ((== "trusted") . fst) (Wai.queryString request) ->
+            static request (respond . Wai.mapResponseHeaders (("content-security-policy", "require-trusted-types-for 'script'") :))
         | otherwise -> static request respond
 
 -- | A 32 by 32 PNG.

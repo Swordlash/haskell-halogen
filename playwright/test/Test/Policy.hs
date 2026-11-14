@@ -14,6 +14,23 @@ import Test.Server (withServer)
 spec :: SpecWith Playwright
 spec = describe "a Content Security Policy" $ do
   mapM_ underPolicy [("in a header", "csp.html?csp"), ("in a meta element", "csp-meta.html")]
+
+  -- Trusted Types: a string given to innerHTML throws there, and the
+  -- browser says so in the console. Nothing the driver does in the page to
+  -- settle an action is such a sink.
+  it "settles an action under a policy that requires Trusted Types, writing nothing of its own" $ \pw -> withServer $ \base -> withPage pw $ \page -> do
+    visit page (base <> "csp.html?trusted")
+    -- The policy is in force.
+    evaluate page "(() => { try { document.body.insertAdjacentHTML('beforeend', '<i></i>'); return 'taken'; } catch (e) { return e.name; } })()"
+      `shouldReturn` ("TypeError" :: Text)
+    seen <- length <$> consoleMessages page
+    click (locator page "#slow")
+    textContent (locator page "#state") `shouldReturn` "done"
+    click (locator page "#wait")
+    waitQuiet page
+    textContent (locator page "#state") `shouldReturn` "answered"
+    map (.text) . drop seen <$> consoleMessages page `shouldReturn` []
+    pageErrors page `shouldReturn` []
   where
     underPolicy (how, path) = it ("lets every wait work under a policy " <> how) $ \pw -> withServer $ \base -> withPage pw $ \page -> do
       -- The probe is an init script, which the policy does not govern.
