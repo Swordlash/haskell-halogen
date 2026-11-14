@@ -56,7 +56,7 @@ import Network.Socket.ByteString qualified as Socket
 import Network.Wai.Handler.Warp qualified as Warp
 import Prelude
 import System.Timeout (timeout)
-import Test.Components (operating, titling)
+import Test.Components (hearing, operating, titling)
 import Web.UIEvent.KeyboardEvent.EventTypes qualified as KET
 
 -- | What the sessions' components tell the test.
@@ -459,6 +459,16 @@ testing server = playwright $ describe "a component per page, mounted in the tes
     evaluate page "document.activeElement && document.activeElement.id" `shouldReturn` ("first" :: Text)
     click (locator page "#focus-second")
     evaluate page "document.activeElement && document.activeElement.id" `shouldReturn` ("second" :: Text)
+
+  -- An event the page sends because of what the program did to it, after
+  -- the driver's question: the click settles only once it is handled too.
+  it "waits for the component to hear the focus it asked for, and a dialog's close" $ inPage $ \page -> do
+    (address, _) <- mounting server hearing ()
+    visit page address
+    click (locator page "#focus-field")
+    readOnce page "#heard" `shouldReturn` "focus"
+    click (locator page "#close-heard")
+    readOnce page "#heard" `shouldReturn` "focus, close"
 
   it "opens a dialog as a modal with showModal, and closes it with close" $ inPage $ \page -> do
     (address, _) <- mounting server operating ()

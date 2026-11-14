@@ -94,5 +94,7 @@ performs it from an allowlist, logging one that throws. A cast of a handle asks 
 the casts that gave `Nothing` natively now find the element. Reads still cannot cross in time and
 keep their inert answers (measuring, `document.activeElement`, a dialog's `open`, the clipboard);
 nothing off the allowlist is recorded; a call on a node that has gone records nothing (one made
-before the node went, in the same batch, is performed before its removal). In the
+before the node went, in the same batch, is performed before its removal). An event such a call
+makes the page send (a `focus` the component asked for, heard by its own `onFocus`) is waited for
+by the page's probe: the client asks the session again when it has sent an event since its question. In the
 loopback, where a handle is the engine's value, nothing of this is carried out.

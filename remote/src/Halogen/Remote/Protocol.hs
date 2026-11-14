@@ -152,6 +152,15 @@
 -- waiting in a 'liftIO' (counted in @waiting@) and what has not happened
 -- yet (a timer, a pause in 'Halogen.Query.HalogenM.delay').
 --
+-- A batch can itself make the page send an event, after the question: a
+-- @call@ of @focus@ or @click@ on an element the program listens to. The
+-- answer that follows the batch does not account for that event, so the
+-- client (@jsbits/remote.js@) does not give the page an answer when it has
+-- sent an event since the question: it asks again, until an answer comes
+-- that no event followed. From a batch with a @call@ until the page's next
+-- frame it holds the answers it receives, since some events a call causes
+-- are dispatched then (a dialog's @close@).
+--
 -- = Messages a side does not know
 --
 -- Either side ignores a message it does not know (a JSON object with

@@ -254,7 +254,10 @@ so a busy example does not hold up another. The answer is idle only once the com
 handled every event the page sent before asking (one socket, in order: the event reached the
 component's loop before the question was read) and the page shows what it rendered (the answer
 is sent after the batches that carry it, and the client applies a batch before it reads the next
-message). `waitQuiet` also waits for the fibers waiting in a `liftIO`; a pause in `H.delay` is not
+message). An event the page sends because of what the program did to it (a `focus` the component
+asked for, heard by its own `onFocus`) leaves after the question: the client then asks again
+instead of giving the page the answer, so the action settles once that is handled too.
+`waitQuiet` also waits for the fibers waiting in a `liftIO`; a pause in `H.delay` is not
 waited for, as in a page.
 
 **What such a test cannot see** is what only a browser does with the program in it: a ref is a

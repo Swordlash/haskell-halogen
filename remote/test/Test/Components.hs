@@ -14,12 +14,14 @@ module Test.Components
   , searching
   , failing
   , operating
+  , hearing
   , titling
   )
 where
 
 import Control.Monad.UUID (MonadUUID)
 import Data.Row (Empty, type (.==))
+import Data.Text qualified as T
 import Halogen qualified as H
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Events qualified as HE
@@ -31,6 +33,7 @@ import Protolude
 import Web.DOM.Element qualified as Element
 import Web.DOM.Internal.Types (Element)
 import Web.Event.Event (EventType (..))
+import Web.HTML.Common (AttrName (..))
 import Web.HTML.HTMLDialogElement qualified as HTMLDialogElement
 import Web.HTML.HTMLElement qualified as HTMLElement
 import Web.UIEvent.KeyboardEvent.EventTypes qualified as KET
@@ -329,6 +332,52 @@ operating =
              , HH.div [HP.id "far", HP.ref s.far] [HH.text "Far down"]
              ]
           <> [HH.input [HP.id "doomed", HP.ref s.doomed] | s.shown]
+
+data Hearing = Hearing
+  { field :: H.RefLabel
+  , dialog :: H.RefLabel
+  , heard :: [Text]
+  }
+
+data Hear
+  = FocusField
+  | CloseDialogHeard
+  | Heard Text
+
+-- | A component that listens to what it does to the page: a button focuses
+-- a field whose @focus@ it hears, and another closes a dialog (shown open)
+-- whose @close@ it hears. What it heard is in @#heard@. Hearing takes it a
+-- while, so that a test that reads the page before the event is handled
+-- reads what was there before.
+hearing :: forall m. (MonadIO m, MonadUUID m) => H.Component H.VoidF () Void m
+hearing =
+  H.component
+    (\() -> Hearing <$> H.newRefLabel "field" <*> H.newRefLabel "dialog" <*> pure [])
+    render
+    [ H.onAction $ \case
+        FocusField -> do
+          s <- get
+          H.getHTMLElementRef s.field >>= traverse_ (H.liftEffect . liftIO . HTMLElement.focus)
+        CloseDialogHeard -> do
+          s <- get
+          dialog <- (>>= HTMLDialogElement.fromElement) <$> H.getRef s.dialog
+          for_ dialog (H.liftEffect . liftIO . HTMLDialogElement.close)
+        Heard what -> do
+          H.liftEffect (liftIO (threadDelay 50000))
+          modify (\s -> s {heard = s.heard <> [what]})
+    ]
+  where
+    render :: Hearing -> H.ComponentHTML Hear Empty m
+    render s =
+      HH.div_
+        [ HH.input [HP.id "heard-field", HP.ref s.field, HE.onFocus (const (Heard "focus"))]
+        , HH.button [HP.id "focus-field", HE.onClick (const FocusField)] [HH.text "Focus"]
+        , HH.button [HP.id "close-heard", HE.onClick (const CloseDialogHeard)] [HH.text "Close"]
+        , HH.dialog
+            [HP.ref s.dialog, HP.attr (AttrName "open") "", HE.handler (EventType "close") (const (Heard "close"))]
+            [HH.text "Open from the start"]
+        , HH.p [HP.id "heard"] [HH.text (T.intercalate ", " s.heard)]
+        ]
 
 data Retitle = Retitle Text
 
