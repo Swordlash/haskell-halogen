@@ -14,17 +14,17 @@ index-state: 2026-09-27T00:00:00Z
 package *
   ghc-options: -O2 -fexpose-all-unfoldings -fspecialise-aggressively -ddisable-js-c-sources
 
--- The compiler's own garbage collector, for core alone: compacting rather
--- than copying. Measured on a CI runner (16 GB): while it compiles core,
--- most of whose hundred and twenty modules have a splice (the Web types'
--- fields), the compiler's process grows module by module, to 13.7 GB by the
--- ninetieth, with 1.2 GB of the machine left; now and then a build did not
--- fit, and the job stopped answering. A copying collection needs room for a
--- second copy of what is live while it runs, and a compacting one collects
--- in place, at the price of slower collections: this is to see how much of
--- those gigabytes is that second copy.
-package haskell-halogen-core
-  ghc-options: +RTS -c -RTS
+-- What compiling core costs on this backend, measured on a CI runner
+-- (16 GB): the compiler's process grows with every module that has a splice
+-- (core has about forty: the Web types' fields, the browser bindings, the
+-- element rows), by some 390 MB each, which it keeps to the end of the
+-- package: 4.3 GB at module 36, 9.6 GB at 59, 14.1 GB at 90, with 0.6 GB of
+-- the machine left and 1.9 GB in swap. Starting the compiler with its
+-- compacting collector (+RTS -c) changed nothing, so those gigabytes are
+-- what it holds, not a collection's second copy. A new module with a splice
+-- in core costs the same again: put a binding in a module that already has
+-- one, or in another package. CI gives the job more swap
+-- (.github/workflows/build.yml).
 
 with-compiler: javascript-unknown-ghcjs-ghc-9.12.2
 with-hc-pkg: javascript-unknown-ghcjs-ghc-pkg-9.12.2
