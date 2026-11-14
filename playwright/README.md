@@ -315,6 +315,18 @@ Playwright's error code. The handler is given the address, the method, the
 resource type, the headers and the body, so watching what was asked while
 letting it through is a handler that records and continues.
 
+`routeWith` and `holdWith` take a `RouteFilter`: a glob, and, when they are not
+empty, the resource types (`fetch`, `image`, `document`, ...) and the methods
+it takes. The driver decides them before the test is asked, so a request they
+leave out costs nothing and goes on as if the route were not there. A gate on
+an API's `fetch` requests holds them while the page's images under the same
+path load, and `goto`, which waits for the page's `load`, returns:
+
+```haskell
+gate <- holdWith page (routeFilter "**/api/**") {resourceTypes = ["fetch"]}
+_ <- routeWith page (routeFilter "**/api/**") {methods = ["POST"]} (\_ -> pure (fulfill 503 Nothing ""))
+```
+
 Each request's handler runs on a thread of its own, so a handler may block:
 wait for the test to let it go, or for a moment. A handler that throws aborts
 its request; what it threw is written to stderr and kept, and an `inPage`

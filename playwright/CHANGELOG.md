@@ -107,3 +107,11 @@ fail with every repair listed (`describeRepair`).
 route taken away while the page's own requests were starting once left one
 of them unanswered, so a gate that has done its work is released and left
 (`adoptWith` does that).
+
+What porting a server's smoke test (a login, its API, a Content Security
+Policy, an editor in an iframe) needed, each with a test of its own:
+
+- `routeWith` and `holdWith`, a route and a gate that take a `RouteFilter`:
+  a glob, resource types and methods, decided in the driver, so that a gate
+  on an API's `fetch` requests lets its images, and the page's `load`,
+  through. `route` and `hold` are as they were.

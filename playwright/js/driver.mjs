@@ -34,11 +34,12 @@
 //
 // A route's id is chosen by Haskell, which registers its handler before it
 // calls "route", so that no ask can arrive for a route Haskell does not
-// know. An ask waits here until its answer comes, or until its route goes
-// (unrouted by Haskell, or with its page or context), whichever is first:
-// then the request is let go on as if the route had not been there, and an
-// answer that comes later is ignored. So neither side is ever left waiting
-// for the other.
+// know. A route may carry "resourceTypes" and "methods": a request of
+// another kind is passed on here without asking Haskell. An ask waits here
+// until its answer comes, or until its route goes (unrouted by Haskell, or
+// with its page or context), whichever is first: then the request is let go
+// on as if the route had not been there, and an answer that comes later is
+// ignored. So neither side is ever left waiting for the other.
 //
 // Nothing else writes to stdout: console.log is sent to stderr, which the
 // Haskell side relays. When stdin ends, the browser is closed and node
@@ -344,7 +345,8 @@ const sessionOf = (page) => {
 
 // Routes: the test's handlers for a page's or a context's requests. Each
 // matching request is asked of Haskell, and waits for its answer (see the
-// header). An entry is {page, context, target, pattern, handler, asks}.
+// header). An entry is {id, page, context, target, pattern, resourceTypes,
+// methods, handler, asks, gone}.
 const routes = new Map();
 const asks = new Map();
 let nextAsk = 1;
@@ -360,9 +362,17 @@ const letGo = (ask) => {
   ask.resolve();
 };
 
-const routeHandler = (entry) => (route) =>
-  new Promise((resolve) => {
-    const request = route.request();
+// Whether a route asks about a request: its resource types and methods, when
+// it has them, are decided here, so that a request of another kind costs
+// nothing but a fallback.
+const wanted = (entry, request) =>
+  (entry.resourceTypes == null || entry.resourceTypes.includes(request.resourceType())) &&
+  (entry.methods == null || entry.methods.includes(request.method().toUpperCase()));
+
+const routeHandler = (entry) => (route) => {
+  const request = route.request();
+  if (!wanted(entry, request)) return route.fallback();
+  return new Promise((resolve) => {
     const ask = { id: nextAsk++, entry, route, resolve };
     if (entry.gone) return letGo(ask);
     asks.set(ask.id, ask);
@@ -379,6 +389,7 @@ const routeHandler = (entry) => (route) =>
       },
     });
   });
+};
 
 // Haskell's answer to an ask. One for an ask that has gone (its route was
 // removed, its page closed) is ignored.
@@ -670,7 +681,17 @@ const methods = {
   // Routes (see the header).
   async route(m) {
     const target = m.page != null ? pageOf(m.page) : contextOf(m.context);
-    const entry = { id: m.route, page: m.page ?? null, context: m.context, target, pattern: m.pattern, asks: new Set(), gone: false };
+    const entry = {
+      id: m.route,
+      page: m.page ?? null,
+      context: m.context,
+      target,
+      pattern: m.pattern,
+      resourceTypes: m.resourceTypes ?? null,
+      methods: m.methods?.map((method) => method.toUpperCase()) ?? null,
+      asks: new Set(),
+      gone: false,
+    };
     entry.handler = routeHandler(entry);
     routes.set(entry.id, entry);
     try {

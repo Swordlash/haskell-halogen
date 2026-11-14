@@ -9,6 +9,7 @@ import System.Environment (lookupEnv)
 import Test.Adoption qualified
 import Test.DevTools qualified
 import Test.Driver qualified
+import Test.Exchanges qualified
 import Test.Failures qualified
 import Test.Files qualified
 import Test.Frames qualified
@@ -42,4 +43,5 @@ main = serveDirectory "test/web" $ \base -> do
       Test.Adoption.spec base
       Test.Sockets.spec base
       Test.Serve.spec
+      Test.Exchanges.spec
     Test.Failures.spec base

@@ -38,6 +38,7 @@ module Halogen.Playwright.Internal
 
     -- * Routes
   , addRoute
+  , addRouteWith
   , removeRoute
 
     -- * What pages said, and what contexts asked for
@@ -164,7 +165,8 @@ data Playwright = Playwright
 data RouteEntry = RouteEntry
   { context :: Int
   , pattern :: Text
-  , handler :: Aeson.Object -> IO [Aeson.Pair]
+  , handler :: Int -> Aeson.Object -> IO [Aeson.Pair]
+  -- ^ Given the ask's number and the ask; the answer's fields.
   , inFlight :: IntMap ThreadId
   }
 
@@ -568,8 +570,8 @@ readReplies pw h ready stderrDone = (forever readOne `catchEnd` pure ()) `finall
     relay page kind text =
       when pw.options.relayConsole $
         hPutStrLn stderr (Text.unpack ("[page " <> Text.pack (show page) <> "] [" <> kind <> "] " <> text))
-    onAsk o = for_ (Aeson.parseMaybe (\v -> (,,) <$> v .: "ask" <*> v .: "route" <*> v .: "request") o) $ \(ask, route, request) ->
-      startHandler pw ask route request
+    onAsk o = for_ (Aeson.parseMaybe (\v -> (,) <$> v .: "ask" <*> v .: "route") o) $ \(ask, entry) ->
+      startHandler pw ask entry o
     ended = do
       -- What node said last explains why it went: wait (briefly) for its
       -- stderr to end too.
@@ -644,12 +646,28 @@ call_ pw method params = do
 -- block. The target is @"page" .= handle@ or @"context" .= handle@; the
 -- context is the one whose failures a handler's failure is added to.
 addRoute :: Playwright -> Int -> Aeson.Pair -> Text -> (Aeson.Object -> IO [Aeson.Pair]) -> IO Int
-addRoute pw context target pattern handler = do
-  route <- atomicModifyIORef' pw.nextId (\n -> (n + 1, n))
-  -- Registered first, so that the first ask finds it.
-  atomicModifyIORef' pw.routes (\m -> (IntMap.insert route RouteEntry {context, pattern, handler, inFlight = IntMap.empty} m, ()))
-  (call_ pw "route" ["route" .= route, "context" .= context, target, "pattern" .= pattern] >> pure route)
-    `onException` atomicModifyIORef' pw.routes (\m -> (IntMap.delete route m, ()))
+addRoute pw context target pattern handler = addRouteWith pw context target pattern [] (\_ request -> handler request)
+
+-- | 'addRoute' with more of the route's fields for node (@"resourceTypes"@,
+-- @"methods"@: node asks only about the requests they let through), and a
+-- handler that is also given the ask's number.
+addRouteWith :: Playwright -> Int -> Aeson.Pair -> Text -> [Aeson.Pair] -> (Int -> Aeson.Object -> IO [Aeson.Pair]) -> IO Int
+addRouteWith pw context target pattern fields handler =
+  addHandler pw context pattern handler' $ \route ->
+    call_ pw "route" (["route" .= route, "context" .= context, target, "pattern" .= pattern] <> fields)
+  where
+    handler' ask o = case Aeson.parseMaybe (.: "request") o of
+      Just request -> handler ask request
+      Nothing -> throwIO (PlaywrightError "route" "DecodeError" "an ask with no request")
+
+-- | Register a handler under a fresh id, then tell node about it: first,
+-- so that the first ask finds it.
+addHandler :: Playwright -> Int -> Text -> (Int -> Aeson.Object -> IO [Aeson.Pair]) -> (Int -> IO Value) -> IO Int
+addHandler pw context pattern handler tell = do
+  i <- atomicModifyIORef' pw.nextId (\n -> (n + 1, n))
+  atomicModifyIORef' pw.routes (\m -> (IntMap.insert i RouteEntry {context, pattern, handler, inFlight = IntMap.empty} m, ()))
+  (tell i >> pure i)
+    `onException` atomicModifyIORef' pw.routes (\m -> (IntMap.delete i m, ()))
 
 -- | Take a route away: its handlers under way are stopped, and node lets
 -- the requests they held go on, as if the route had not been there. On a
@@ -667,7 +685,7 @@ removeRoute pw route = do
 -- route before it starts, so that removing the route finds it. A route
 -- that has gone meanwhile lets the request go on.
 startHandler :: Playwright -> Int -> Int -> Aeson.Object -> IO ()
-startHandler pw ask route request = mask_ $ do
+startHandler pw ask route message = mask_ $ do
   registered <- newEmptyMVar
   thread <- forkIOWithUnmask $ \unmask -> do
     found <- readMVar registered
@@ -683,7 +701,7 @@ startHandler pw ask route request = mask_ $ do
     -- The answer is encoded inside the handler's 'try', so that an error
     -- hidden in it (a lazy body) is the handler's failure.
     run unmask entry = do
-      outcome <- try (unmask (entry.handler request >>= \fields -> evaluate (LazyByteString.toStrict (Aeson.encode (Aeson.object (("answer" .= ask) : fields))))))
+      outcome <- try (unmask (entry.handler ask message >>= \fields -> evaluate (LazyByteString.toStrict (Aeson.encode (Aeson.object (("answer" .= ask) : fields))))))
       case outcome of
         Right line -> writeAnswer line
         Left (e :: SomeException)
@@ -691,7 +709,7 @@ startHandler pw ask route request = mask_ $ do
           -- request go.
           | isJust (fromException e :: Maybe SomeAsyncException) -> throwIO e
           | otherwise -> do
-              let address = fromMaybe "?" (Aeson.parseMaybe (.: "url") request)
+              let address = fromMaybe "?" (Aeson.parseMaybe (\o -> o .: "request" >>= (.: "url")) message)
                   what = entry.pattern <> ": " <> address <> ": " <> Text.pack (displayException e)
               hPutStrLn stderr (Text.unpack ("[playwright] a route's handler failed, and its request was aborted: " <> what))
               addFailure pw entry.context (\f -> f {handlers = lastFifty (f.handlers Seq.|> what)})

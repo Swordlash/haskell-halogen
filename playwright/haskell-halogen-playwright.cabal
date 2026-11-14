@@ -86,6 +86,7 @@ test-suite Halogen-playwright-test
     other-modules:    Test.Adoption
                       Test.DevTools
                       Test.Driver
+                      Test.Exchanges
                       Test.Failures
                       Test.Files
                       Test.Frames
@@ -93,6 +94,7 @@ test-suite Halogen-playwright-test
                       Test.Probe
                       Test.Routes
                       Test.Serve
+                      Test.Server
                       Test.Shared
                       Test.Sockets
                       Test.State

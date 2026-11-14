@@ -46,8 +46,10 @@
 -- 'route' hands a page's or a context's requests matching a glob to a
 -- handler of the test's, which answers each ('Fulfill'), fails it
 -- ('Abort') or lets it go on ('Continue'), on a thread of its own, so it
--- may block. 'hold' is such a handler: requests wait until 'release', as
--- a test holds @app.wasm@ to look at the prerendered page first.
+-- may block. 'hold' is such a handler:
+-- requests wait until 'release', as a test holds @app.wasm@ to look at the
+-- prerendered page first. 'routeWith' and 'holdWith' take only some
+-- resource types or methods.
 --
 -- = The rest of the browser
 --
@@ -237,6 +239,9 @@ module Halogen.Playwright
   , Routed
   , Route
   , route
+  , RouteFilter (..)
+  , routeFilter
+  , routeWith
   , unroute
   , RoutedRequest (..)
   , Answer (..)
@@ -244,6 +249,7 @@ module Halogen.Playwright
   , fulfill
   , Gate
   , hold
+  , holdWith
   , release
   , heldCount
   , waitHeld
@@ -1519,10 +1525,40 @@ fulfill status contentType body = Fulfill Response {status, headers = [], conten
 -- When several routes match a request, the one added last is asked first,
 -- and its 'Continue' passes the request to the one before.
 route :: (Routed s, MonadIO m) => s -> Text -> (RoutedRequest -> IO Answer) -> m Route
-route s pattern handler = liftIO $ do
+route s pattern = routeWith s (routeFilter pattern)
+
+-- | Which requests a route ('routeWith') or a gate ('holdWith') takes: those
+-- whose address matches the glob, and, when the lists are not empty, whose
+-- resource type and method are among them. The lists are decided by the
+-- driver before the test is asked, so a request they leave out costs
+-- nothing and is not seen by the handler at all: it goes on as if the
+-- route were not there.
+data RouteFilter = RouteFilter
+  { pattern :: Text
+  -- ^ As 'route' takes it.
+  , resourceTypes :: [Text]
+  -- ^ Playwright's names (@document@, @script@, @fetch@, @xhr@, @image@,
+  -- @stylesheet@, @font@, @media@, @websocket@, @other@, ...); none is
+  -- any.
+  , methods :: [Text]
+  -- ^ @GET@, @POST@, ..., in any case; none is any.
+  }
+  deriving stock (Eq, Show)
+
+-- | Every request whose address matches the glob, of any kind.
+routeFilter :: Text -> RouteFilter
+routeFilter pattern = RouteFilter {pattern, resourceTypes = [], methods = []}
+
+-- | 'route' for the requests a filter takes: an API's @fetch@ requests and
+-- not its images, its @POST@s and not its @GET@s.
+--
+-- > _ <- routeWith page (routeFilter "**/api/**") {methods = ["POST"]} (\_ -> pure (fulfill 503 Nothing ""))
+routeWith :: (Routed s, MonadIO m) => s -> RouteFilter -> (RoutedRequest -> IO Answer) -> m Route
+routeWith s f handler = liftIO $ do
   let (pw, context, target, _) = routedOn s
-  handle <- addRoute pw context target pattern (\request -> answerFields <$> (parseRequest request >>= handler))
-  pure Route {playwright = pw, handle, pattern}
+      fields = ["resourceTypes" .= f.resourceTypes | not (null f.resourceTypes)] <> ["methods" .= f.methods | not (null f.methods)]
+  handle <- addRouteWith pw context target f.pattern fields (\_ request -> answerFields <$> (parseRequest request >>= handler))
+  pure Route {playwright = pw, handle, pattern = f.pattern}
   where
     parseRequest o = case Aeson.Types.parseEither parser o of
       Right r -> pure r
@@ -1584,7 +1620,14 @@ data Gate = Gate
 -- > release gate
 -- > waitStarted page
 hold :: (Routed s, MonadIO m) => s -> Text -> m Gate
-hold s pattern = liftIO $ do
+hold s pattern = holdWith s (routeFilter pattern)
+
+-- | 'hold' for the requests a filter takes: an API's @fetch@ requests,
+-- while the page's images, which its @load@ waits for, go through.
+--
+-- > gate <- holdWith page (routeFilter "**/api/**") {resourceTypes = ["fetch"]}
+holdWith :: (Routed s, MonadIO m) => s -> RouteFilter -> m Gate
+holdWith s f = liftIO $ do
   open <- newTVarIO False
   waiting <- newTVarIO 0
   let (_, _, _, ms) = routedOn s
@@ -1594,7 +1637,7 @@ hold s pattern = liftIO $ do
           (atomically (modifyTVar' waiting (subtract 1)))
           (atomically (readTVar open >>= STM.check))
         pure Continue
-  r <- route s pattern held
+  r <- routeWith s f held
   pure Gate {route = r, open, waiting, timeoutMs = ms}
 
 -- | Let the held requests go on, and every later one pass straight
