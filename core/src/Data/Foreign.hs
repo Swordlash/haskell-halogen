@@ -144,13 +144,24 @@ stringToForeign = toForeign
 
 -- | A property of a JSON object the value holds, as JavaScript's @o[key]@
 -- reads it, with @null@ read as no property, as the JavaScript backend
--- reads it. A value that is not an object has none.
+-- reads it. A JSON array has the properties JavaScript gives one: its
+-- @length@, and its elements by index (@"0"@, @"1"@, written as JavaScript
+-- writes the number). A value that is neither has none.
 readProp :: Text -> (Foreign tag -> Maybe a) -> Foreign tag' -> Maybe a
 readProp key f (JSVal held) = case fromDynamic held of
   Just (Aeson.Object fields) -> case KeyMap.lookup (Key.fromText key) fields of
     Nothing -> Nothing
     Just Aeson.Null -> Nothing
     Just field -> f (toForeign field)
+  Just (Aeson.Array items)
+    | key == "length" -> f (toForeign (Aeson.Number (fromIntegral (length items))))
+    | Just index <- readMaybe (toS key :: [Char]) :: Maybe Int
+    , (show index :: Text) == key
+    , index >= 0 ->
+        case drop index (toList items) of
+          Aeson.Null : _ -> Nothing
+          field : _ -> f (toForeign field)
+          [] -> Nothing
   _ -> Nothing
 
 -- | The text the value holds, or the JSON string; empty for anything else.
@@ -184,6 +195,14 @@ foreignToNumber (JSVal held)
   | Just (Aeson.Number number) <- fromDynamic held = toRealFloat number
   | otherwise = 0
 #endif
+
+-- | The elements of an array, read as JavaScript reads them: its @length@,
+-- then each index below it. Natively the value is a JSON array ('readProp'
+-- reads one); anything that is not an array has none.
+readElements :: Foreign tag -> [Foreign tag']
+readElements array =
+  let count = fromMaybe 0 (readProp "length" (Just . foreignToInt) array)
+   in mapMaybe (\index -> readProp (show index) Just array) [0 .. count - 1 :: Int]
 
 unsafeRefEq :: a -> a -> Bool
 unsafeRefEq p q = isTrue# (reallyUnsafePtrEquality p q)

@@ -106,6 +106,35 @@ keys = Keys . map keyMatch
 keysWith :: [KeyMatch] -> EventMatch
 keysWith = Keys
 
+-- | An event on an element the CSS selector matches, inside the listening
+-- element (the target itself or its nearest ancestor that matches), for
+-- which the inner match holds judged on that element: one handler on a
+-- container for the links in it, each click judged on its link.
+--
+-- > HH.div
+-- >   [HE.preventingDefault (HE.matching (HE.within "a[href]" HE.plainLeftClick) (HE.handler' (EventType "click") followLink))]
+-- >   [rendered]
+--
+-- The handler's function finds the link itself, purely, in the listener
+-- ("Web.DOM.Element"'s 'Web.DOM.Element.closestNow' from the event's
+-- target, then 'Web.DOM.Element.getAttributeNow'); over
+-- haskell-halogen-remote's wire those two read what the page found for the
+-- selector, which the page sends with the event because the match names
+-- it. A selector that does not parse matches nothing. See
+-- 'Halogen.VDom.DOM.HandlerOptions.Within'.
+within :: Text -> EventMatch -> EventMatch
+within = Within
+
+-- | A drag or a paste carrying data of one of these types (@"Files"@,
+-- @"text/plain"@, @"text/uri-list"@): a paste of files is the handler's,
+-- one of text left to the browser.
+--
+-- > HH.div [HE.preventingDefault (HE.matching (HE.carrying ["Files"]) (HE.onPaste pastedFiles))] [editor]
+--
+-- See 'Halogen.VDom.DOM.HandlerOptions.Carrying'.
+carrying :: [Text] -> EventMatch
+carrying = Carrying
+
 onAbort :: forall r i. (HasType "onAbort" Event r) => (Event -> i) -> IProp r i
 onAbort = handler (EventType "abort")
 

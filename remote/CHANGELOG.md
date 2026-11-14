@@ -46,6 +46,22 @@ that declares nothing, the client (`jsbits/remote.js`) prevents the default of e
 listens for, and of a `click` on an `a` element only when the browser would follow that click in
 this tab, and nothing else. A router's link declares the plain left click.
 
+Two matches are objects, `{"within": selector, "match": m}` and `{"carrying": types}` (core's
+`HE.within` and `HE.carrying`). For a listener whose match has a `within`, the client judges each
+event on the element the selector finds around the target, inside the listening element, and
+sends that element under the target's `closest`, by selector, with all its attributes: one click
+handler on a container of rendered Markdown, which reads the link from the event's target with
+`Element.closestNow` and `Element.getAttributeNow`, follows the links it covers over the wire as
+in a page, and the page follows the others and every ctrl-click itself. A drag or a clipboard
+event carries its `dataTransfer` or `clipboardData`: the types it lists, its files' names, types
+and sizes, and at a drop and a paste its text (up to 262144 UTF-16 code units; longer text does
+not cross), so a paste handler declared for files takes a pasted file's name, type and size and
+leaves a paste of text to the page. A file's bytes do not cross. A client older than these
+matches takes them as `"any"`: it sends every event of the listener's type and prevents the
+default of each as declared, and the program makes no action for them, since they carry nothing
+the match finds; `Halogen.Remote.Server` serves the client it was built with, so only a page that
+keeps a copy of its own meets this.
+
 The client's rule for clicks on links changed: it used to prevent every click on an `a` it
 listened for, a ctrl-click or a middle click included, so that nothing opened in a new tab. It now
 prevents only a plain click (the main button, no modifier key, nothing in the page that prevented

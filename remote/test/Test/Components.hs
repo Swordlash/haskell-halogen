@@ -13,6 +13,9 @@ module Test.Components
   , guardedForm
   , pointing
   , linking
+  , delegating
+  , pasting
+  , reading
   , searching
   , failing
   , operating
@@ -34,6 +37,7 @@ import Halogen qualified as H
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
+import Halogen.JSBits.Promise qualified as Promise
 import Halogen.Router qualified as Router
 import Halogen.Router.Duplex (RouteDuplex', int, noArgs, path, root, segment)
 import Halogen.Router.Duplex.Generic qualified as RG
@@ -41,10 +45,15 @@ import Halogen.VDom.DOM.Monad (MonadBrowserDOM)
 import Halogen.VDom.DOM.Monad qualified as DOM
 import Protolude
 import UnliftIO (MonadUnliftIO)
+import Web.Clipboard.ClipboardEvent qualified as CE
 import Web.DOM.Element qualified as Element
 import Web.DOM.Internal.Types (Element)
 import Web.Event.Event (EventType (..))
+import Web.Event.Event qualified as Event
+import Web.File.File qualified as File
+import Web.File.FileList qualified as FileList
 import Web.HTML.Common (AttrName (..))
+import Web.HTML.Event.DataTransfer qualified as DataTransfer
 import Web.HTML.HTMLDialogElement qualified as HTMLDialogElement
 import Web.HTML.HTMLElement qualified as HTMLElement
 import Web.HTML.History qualified as History
@@ -217,6 +226,98 @@ linking =
             [HH.text "follow"]
         , HH.span [HP.id "followed"] [HH.text (show n)]
         ]
+
+newtype Delegated = Delegated Text
+
+-- | A container of links, as a page of rendered Markdown is, with one
+-- click handler for the links in it with the class @article@, declared
+-- ('HE.within' and 'HE.plainLeftClick') with its default prevented: it
+-- shows the address of the link it followed, which it reads in the
+-- listener as an application's handler does, from the event's target
+-- ('Element.closestNow', 'Element.getAttributeNow'). A click on a link the
+-- selector does not cover, or with a modifier key, is the browser's.
+delegating :: forall m. (Monad m) => H.Component H.VoidF () Void m
+delegating =
+  H.component
+    (\() -> pure "")
+    render
+    [H.onAction (\(Delegated href) -> modify (const href))]
+  where
+    render :: Text -> H.ComponentHTML Delegated Empty m
+    render followed =
+      HH.div_
+        [ HH.div
+            [ HP.id "article"
+            , HE.preventingDefault (HE.matching (HE.within "a.article" HE.plainLeftClick) (HE.handler' (EventType "click") (fmap Delegated . clickedLink)))
+            ]
+            [ HH.p_ [HH.a [HP.id "to-article", HP.class_ (HH.ClassName "article"), HP.href "#article-1"] [HH.span [HP.id "article-text"] [HH.text "an article"]]]
+            , HH.p_ [HH.a [HP.id "to-place", HP.href "#place"] [HH.text "a place on the page"]]
+            , HH.p [HP.id "no-link"] [HH.text "no link"]
+            ]
+        , HH.span [HP.id "followed"] [HH.text followed]
+        ]
+    clickedLink event = do
+      guard (not (Event.defaultPreventedNow event))
+      target <- Event.target event >>= Element.fromEventTarget
+      anchor <- Element.closestNow target "a.article"
+      Element.getAttributeNow anchor "href"
+
+newtype Pasted = Pasted Text
+
+-- | A field in a box whose paste handler is for pastes of files
+-- ('HE.carrying'), declared with its default prevented: a paste of text is
+-- the browser's (typed into the field), one of a file the component's,
+-- which shows the files' names, types and sizes.
+pasting :: forall m. (Monad m) => H.Component H.VoidF () Void m
+pasting =
+  H.component
+    (\() -> pure "")
+    render
+    [H.onAction (\(Pasted files) -> modify (const files))]
+  where
+    render :: Text -> H.ComponentHTML Pasted Empty m
+    render pasted =
+      HH.div_
+        [ HH.div
+            [HP.id "paste-box", HE.preventingDefault (HE.matching (HE.carrying ["Files"]) (HE.onPaste (Pasted . described)))]
+            [HH.textarea [HP.id "paste-area"]]
+        , HH.span [HP.id "pasted"] [HH.text pasted]
+        ]
+    described event =
+      T.intercalate ";" [File.name f <> "," <> File.type_ f <> "," <> show (File.size f) | f <- maybe [] (FileList.now . (.files)) (CE.clipboardData event)]
+
+-- | A box that takes every paste and reads it afterwards, in its action,
+-- through the transfer's methods: the text it carries
+-- ('DataTransfer.getData') and its files by position ('FileList.item'),
+-- which it shows; and then the first file's text, which is not there to
+-- read (a file's bytes do not cross a wire), shown after the rest once its
+-- promise has settled.
+reading :: forall m. (MonadIO m) => H.Component H.VoidF () Void m
+reading =
+  H.component
+    (\() -> pure "")
+    render
+    [H.onAction pasted]
+  where
+    render :: Text -> H.ComponentHTML CE.ClipboardEvent Empty m
+    render shown =
+      HH.div_
+        [ HH.div [HP.id "read-box", HE.onPaste identity] [HH.textarea [HP.id "read-area"]]
+        , HH.span [HP.id "read"] [HH.text shown]
+        ]
+    pasted event = case CE.clipboardData event of
+      Nothing -> modify (const "no transfer")
+      Just transfer -> do
+        (carried, file) <- liftIO $ do
+          text <- DataTransfer.getData transfer "text/plain"
+          file <- FileList.item (DataTransfer.files transfer) 0
+          past <- FileList.item (DataTransfer.files transfer) 1
+          pure (T.intercalate "|" [text, maybe "no file" File.name file, maybe "none past it" File.name past], file)
+        modify (const carried)
+        contents <- liftIO $ case file of
+          Nothing -> pure "no file"
+          Just f -> either (const "unreadable") identity <$> (Promise.waitCatch =<< File.text f)
+        modify (const (carried <> "|" <> contents))
 
 data Search = Searched | Swapped
 

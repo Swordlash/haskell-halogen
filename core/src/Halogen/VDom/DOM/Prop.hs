@@ -141,9 +141,15 @@ buildProp emit el = renderProp
                     Nothing -> for_ (f' ev) $ \msg -> do
                       actOn options' ev
                       emit msg
+                    -- The function decides before the listener acts, as
+                    -- it does with no match: one that reads the event in
+                    -- the listener ('Web.Event.Event.defaultPreventedNow')
+                    -- sees it as the page dispatched it, not as this
+                    -- handler's own 'preventDefault' left it.
                     Just match -> when (matchesEvent match ev) $ do
-                      actOn options' ev
-                      traverse_ emit (f' ev)
+                      let message = f' ev
+                      message `seq` actOn options' ev
+                      traverse_ emit message
                 atomicModifyMutVar'_ events (M.insert ty (listener, ref))
                 target <- elementToEventTarget el
                 addEventListener evty listener target

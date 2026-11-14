@@ -11,25 +11,38 @@ module Web.File.FileList
   )
 where
 
-import Data.Foreign (Foreign)
+import Data.Foreign (Foreign, readElements)
 import HPrelude hiding (length)
-import Halogen.JSBits (Inert, JSVal)
+import HPrelude qualified
+import Halogen.JSBits (Inert, JSVal, inBrowser)
 import Halogen.JSBits.Fields (Member (..), inlineJS, jsFieldFunctions, jsFields)
 import Web.File.File (File (..))
 
 -- | A @FileList@: 'Web.HTML.Event.DataTransfer.files',
 -- 'Web.HTML.HTMLInputElement.files'.
+--
+-- Natively a list is what an event made from JSON says of it: an array of
+-- files ("Web.File.File" reads each), and empty for anything else.
 newtype FileList = FileList (Foreign FileList)
   deriving newtype (Inert)
+
+-- Natively, the files of a JSON array.
+nativeFiles :: FileList -> [File]
+nativeFiles (FileList value) = map File (readElements value)
+
+nativeItem :: FileList -> Int -> IO (Maybe File)
+nativeItem files index
+  | index < 0 = pure Nothing
+  | otherwise = pure (head (drop index (nativeFiles files)))
 
 $( jsFields
      ''FileList
      [ -- How many files it holds. Read each time: the list a drop's
        -- 'Web.HTML.Event.DataTransfer.files' gives is live, and an input's
        -- list empties when the input is cleared.
-       Live "length" ''Int
+       Natively [|pure . HPrelude.length . nativeFiles|] (Live "length" ''Int)
      , -- The file at a position, from 0, or 'Nothing' past the end.
-       Method "item" [t|Int -> IO (Maybe File)|]
+       Natively [|nativeItem|] (Method "item" [t|Int -> IO (Maybe File)|])
      ]
  )
 
@@ -53,9 +66,11 @@ $(inlineJS "js_files_at" "$1[$2]" [t|JSVal -> Int -> File|])
 -- browser empties the event's list once it has dispatched the event, while
 -- the files taken from it stay readable. Force it in the listener
 -- (@Just $! …@, or a strict field): forcing the list copies it. Natively
--- empty.
+-- the files of the list's JSON, as an event made from JSON has them.
 now :: FileList -> [File]
-now files =
-  let taken = js_files_now files
-      count = js_files_count taken
-   in map (js_files_at taken) [0 .. count - 1]
+now files
+  | inBrowser =
+      let taken = js_files_now files
+          count = js_files_count taken
+       in map (js_files_at taken) [0 .. count - 1]
+  | otherwise = nativeFiles files

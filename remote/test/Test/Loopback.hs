@@ -34,6 +34,7 @@ $( browserJS
      , ("js_address", "remote_address", Safe, [t|IO JSText|])
      , ("js_drop_fragment", "remote_drop_fragment", Safe, [t|IO ()|])
      , ("js_back", "remote_back", Safe, [t|IO (Promise JSText)|])
+     , ("js_paste", "remote_paste", Safe, [t|JSText -> JSText -> JSText -> IO ()|])
      ]
  )
 
@@ -133,6 +134,33 @@ spec m = do
     -- Following the link would have taken the page, and the test, with it.
     find ui "#link" >>= click
     find ui "#followed" >>= (`shouldHaveText` "2")
+
+  -- In the loopback the program is in the page, and reads the event the
+  -- client described as a plain object: the match, and the handler's own
+  -- reads of the link ('Element.closestNow', 'Element.getAttributeNow'),
+  -- read the link the client found from it.
+  -- What a paste carries reaches the program as a plain object too, and a
+  -- handler calls a transfer's methods on it as on a real one: the client
+  -- gives the object those methods when it parses the event.
+  it "reads a paste's text and files through the transfer's methods, and not a file's bytes" $ runPage $ do
+    traffic <- unsafeIOToPageM (newIORef [])
+    ui <- mount m (host traffic reading) ()
+    _ <- find ui "#read-area"
+    unsafeIOToPageM (js_paste (toJSText "read-area") (toJSText "words") (toJSText "notes.txt"))
+    find ui "#read" >>= (`shouldHaveText` "words|notes.txt|none past it|unreadable")
+
+  it "keeps the page from following a delegated link, which the component reads, and follows no other" $ runPage $ do
+    unsafeIOToPageM js_drop_fragment
+    traffic <- unsafeIOToPageM (newIORef [])
+    ui <- mount m (host traffic delegating) ()
+    find ui "#article-text" >>= click
+    find ui "#followed" >>= (`shouldHaveText` "#article-1")
+    (fromJSText <$> unsafeIOToPageM js_address) >>= (`shouldSatisfy` (not . ("#article-1" `T.isSuffixOf`)))
+    -- A link the selector does not cover is followed by the page.
+    find ui "#to-place" >>= click
+    (fromJSText <$> unsafeIOToPageM js_address) >>= (`shouldSatisfy` ("#place" `T.isSuffixOf`))
+    find ui "#followed" >>= (`shouldHaveText` "#article-1")
+    unsafeIOToPageM js_drop_fragment
 
   it "keeps from being typed only the key a handler declared, which the component hears" $ runPage $ do
     traffic <- unsafeIOToPageM (newIORef [])

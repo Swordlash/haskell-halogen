@@ -24,8 +24,13 @@ $( jsFields
      ''Event
      [ -- The event's type: @"click"@, @"keydown"@.
        Fixed "type" ''Text
-     , -- The node the event was dispatched to.
-       Fixed "target" [t|Maybe EventTarget|]
+     , -- The node the event was dispatched to. Natively it is the event's
+       -- @target@ property, as an event made from JSON (a test's, or one a
+       -- remote client sent) has it: what the client described of the
+       -- element ("Web.DOM.Element" reads it).
+       Natively
+         [|\(Event value) -> EventTarget <$> readProp "target" Just value|]
+         (Fixed "target" [t|Maybe EventTarget|])
      , -- The target whose handler is running. The browser changes it as
        -- the event travels and sets it to null once the dispatch is over,
        -- so read it in the handler itself. Natively it is the event's

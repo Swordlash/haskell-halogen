@@ -18,6 +18,7 @@ import Test.Islands qualified
 import Test.Window qualified
 #endif
 import Test.Counter qualified
+import Test.Delegated qualified
 import Test.Digits qualified
 import Test.Dispatch qualified
 import Test.Drag qualified
@@ -51,6 +52,7 @@ main = runBrowserTests $ parallel $ do
   describe "Dispatch" (Test.Dispatch.spec BrowserDOM)
   describe "Drag" (Test.Drag.spec BrowserDOM)
   describe "Editing" (Test.Editing.spec BrowserDOM)
+  describe "Delegated" (Test.Delegated.spec BrowserDOM)
   describe "Hydration" (Test.Hydrate.spec BrowserDOM)
   describe "IndexedDB" (Test.IndexedDB.spec BrowserDOM)
   describe "Promised" (Test.Promised.spec BrowserDOM)

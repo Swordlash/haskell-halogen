@@ -11,6 +11,7 @@ module Web.Clipboard.ClipboardEvent
   )
 where
 
+import Data.Foreign (readProp)
 import HPrelude
 import Halogen.JSBits (Inert)
 import Halogen.JSBits.Fields (Member (..), jsCast, jsFieldFunctions, jsFields)
@@ -29,7 +30,12 @@ $( jsFields
      [ -- What is pasted, or what a copy puts on the clipboard: the files of
        -- a paste are its 'Web.HTML.Event.DataTransfer.files'. 'Nothing' for
        -- a clipboard event a page made without one.
-       Fixed "clipboardData" [t|Maybe DataTransfer|]
+       --
+       -- Natively, the event's JSON's @clipboardData@ ("Web.HTML.Event.DataTransfer"
+       -- reads it).
+       Natively
+         [|\(ClipboardEvent (Event value)) -> DataTransfer <$> readProp "clipboardData" Just value|]
+         (Fixed "clipboardData" [t|Maybe DataTransfer|])
      ]
  )
 

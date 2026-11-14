@@ -96,6 +96,7 @@ test-suite hspec-halogen-test
                       Example.Busy
                       Example.Clock
                       Example.Counter
+                      Example.Delegated
                       Example.Digits
                       Example.Dispatch
                       Example.Drag
@@ -112,6 +113,7 @@ test-suite hspec-halogen-test
                       Test.Async
                       Test.Busy
                       Test.Counter
+                      Test.Delegated
                       Test.Digits
                       Test.Dispatch
                       Test.Drag
@@ -159,6 +161,7 @@ test-suite hspec-halogen-test
     -- suite's own (test/jsbits), declared with browserJS as a package's is.
     if arch(javascript)
         js-sources: test/jsbits/busy.js
+                    test/jsbits/delegated.js
                     test/jsbits/dispatch.js
                     test/jsbits/inpage.js
                     test/jsbits/islands.js

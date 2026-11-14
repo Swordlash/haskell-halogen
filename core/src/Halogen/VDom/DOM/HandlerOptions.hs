@@ -25,17 +25,21 @@ module Halogen.VDom.DOM.HandlerOptions
   )
 where
 
-import Data.Foreign (foreignToBool, foreignToInt, foreignToString, readProp)
+import Data.Foreign (foreignToBool, foreignToInt, foreignToString, readElements, readProp)
 import Data.Text qualified as T
 import HPrelude
-import Halogen.JSBits (Safety (..), browserJS, inBrowser)
+import Halogen.JSBits (JSText, JSVal, Safety (..), browserJS, inBrowser, isNull, jsNull, toJSText)
 import Web.Event.Internal.Types (Event (..))
 import Web.UIEvent.KeyboardEvent (KeyboardEvent (..))
 import Web.UIEvent.KeyboardEvent qualified as KE
 
 $( browserJS
      ["jsbits/events.js"]
-     [("js_plain_left_click", "halogen_plain_left_click", Unsafe, [t|Event -> Bool|])]
+     [ ("js_current_target", "halogen_current_target", Unsafe, [t|Event -> JSVal|])
+     , ("js_plain_left_click_on", "halogen_plain_left_click_on", Unsafe, [t|Event -> JSVal -> Bool|])
+     , ("js_within", "halogen_within", Unsafe, [t|Event -> JSVal -> JSText -> JSVal|])
+     , ("js_carrying", "halogen_carrying", Unsafe, [t|Event -> JSText -> Bool|])
+     ]
  )
 
 -- | What a handler does to its event in the listener itself, before its
@@ -81,6 +85,34 @@ data EventMatch
     PlainLeftClick
   | -- | A keyboard event whose key is one of these.
     Keys [KeyMatch]
+  | -- | The event's target is, or is inside, an element the CSS selector
+    -- matches, which is itself the listening element or inside it; and the
+    -- inner match holds, judged with that element in the place of the
+    -- listening one. One handler on a container hears the clicks on the
+    -- links inside it, and judges each on its link:
+    --
+    -- > Within "a[href]" PlainLeftClick
+    --
+    -- is a plain click on a link inside, one that opens in its own tab and
+    -- is no download ('isPlainLeftClick' of the link, not of the
+    -- container). The element is the nearest one around the target that the
+    -- selector matches (@target.closest(selector)@, the target's parent
+    -- element for a target that is not an element); one outside the
+    -- listening element does not count, even when it is the only one. A
+    -- selector that does not parse matches nothing.
+    --
+    -- A 'Within' inside another looks for its element inside the outer
+    -- one's: @Within ".article" (Within "a[href]" PlainLeftClick)@ is a
+    -- plain click on a link inside an article inside the listening element,
+    -- the link judged.
+    Within Text EventMatch
+  | -- | A drag or a paste that carries data of one of these types: its
+    -- @dataTransfer@ (a drag event's) or @clipboardData@ (a clipboard
+    -- event's) lists it among its @types@, as @"Files"@ for files,
+    -- @"text/plain"@, @"text/uri-list"@, @"text/html"@. An event that
+    -- carries neither matches none. A file's own media type is not one of
+    -- the types: a drop of an image carries @"Files"@.
+    Carrying [Text]
   deriving stock (Eq, Show)
 
 -- | A key, as the event's @key@ names it (@"\/"@, @"ArrowLeft"@,
@@ -103,11 +135,27 @@ keyMatch key = KeyMatch {key, ctrlKey = Nothing, shiftKey = Nothing, altKey = No
 
 -- | Whether an event matches, read as it is now: in the listener, while the
 -- event is being dispatched. Natively it is read from the event's JSON, as
--- an event a remote client sends or a test makes carries it.
+-- an event a remote client sends or a test makes carries it: a 'Within'
+-- finds its element under the event's @target@'s @closest@, by its
+-- selector (@{"target": {"closest": {"a[href]": {...}}}}@), and takes the
+-- sender's word that it is where the match says; a 'Carrying' reads the
+-- @types@ of the event's @dataTransfer@ or @clipboardData@.
+-- "Halogen.Remote.Protocol" spells what a client sends.
 matchesEvent :: EventMatch -> Event -> Bool
-matchesEvent match event = case match of
+matchesEvent match event = matchesOn (listening event) match event
+
+-- The element whose listener is asking: the event's current target.
+listening :: Event -> JSVal
+listening event@(Event value)
+  | inBrowser = js_current_target event
+  | otherwise = fromMaybe jsNull (readProp "currentTarget" Just value)
+
+-- Whether the event matches, judged against an element: the listening one,
+-- or the one a 'Within' found.
+matchesOn :: JSVal -> EventMatch -> Event -> Bool
+matchesOn element match event = case match of
   AnyEvent -> True
-  PlainLeftClick -> isPlainLeftClick event
+  PlainLeftClick -> plainLeftClickOn element event
   Keys wanted ->
     let keyboard = KeyboardEvent event
         pressed = KE.key keyboard
@@ -120,11 +168,34 @@ matchesEvent match event = case match of
             && held k.altKey KE.altKey
             && held k.metaKey KE.metaKey
      in any matches wanted
+  Within selector inner -> case within element selector event of
+    Just found -> matchesOn found inner event
+    Nothing -> False
+  Carrying types -> any (carrying event) types
+
+-- The element around the event's target that a selector matches, inside
+-- the element given. Natively it is the one the event's JSON says the
+-- client found for the selector.
+within :: JSVal -> Text -> Event -> Maybe JSVal
+within element selector event@(Event value)
+  | inBrowser =
+      let found = js_within event element (toJSText selector)
+       in if isNull found then Nothing else Just found
+  | otherwise = readProp "target" (readProp "closest" (readProp selector Just)) value
+
+-- Whether the event's transfer lists a type.
+carrying :: Event -> Text -> Bool
+carrying event@(Event value) wanted
+  | inBrowser = js_carrying event (toJSText wanted)
+  | otherwise = case readProp "dataTransfer" Just value <|> readProp "clipboardData" Just value of
+      Just transfer -> wanted `elem` maybe [] (map foreignToString . readElements) (readProp "types" Just transfer)
+      Nothing -> False
 
 -- | A click with the main button and no modifier key, that nothing has
 -- prevented already, on a link that opens in its own tab and is not a
 -- download: the one a page follows itself. The link is the event's current
--- target, the element whose listener is asking.
+-- target, the element whose listener is asking (under a 'Within', the
+-- element it found).
 --
 -- Natively it is read from the event's JSON, as an event a remote client
 -- sends or a test makes carries it: @button@ must be there and be 0, and
@@ -136,12 +207,15 @@ matchesEvent match event = case match of
 -- that says nothing of its link is taken to be on a link that opens in its
 -- own tab.
 isPlainLeftClick :: Event -> Bool
-isPlainLeftClick event
-  | inBrowser = js_plain_left_click event
-  | otherwise = nativePlainLeftClick event
+isPlainLeftClick event = plainLeftClickOn (listening event) event
 
-nativePlainLeftClick :: Event -> Bool
-nativePlainLeftClick (Event value) =
+plainLeftClickOn :: JSVal -> Event -> Bool
+plainLeftClickOn anchor event
+  | inBrowser = js_plain_left_click_on event anchor
+  | otherwise = nativePlainLeftClick anchor event
+
+nativePlainLeftClick :: JSVal -> Event -> Bool
+nativePlainLeftClick anchor (Event value) =
   readProp "button" (Just . foreignToInt) value
     == Just 0
     && not (any flag ["ctrlKey", "metaKey", "shiftKey", "altKey", "defaultPrevented"])
@@ -149,8 +223,7 @@ nativePlainLeftClick (Event value) =
     && not download
   where
     flag name = readProp name (Just . foreignToBool) value == Just True
-    anchor = readProp "currentTarget" Just value
-    elsewhere = case T.toLower <$> (readProp "target" (Just . foreignToString) =<< anchor) of
+    elsewhere = case T.toLower <$> readProp "target" (Just . foreignToString) anchor of
       Just target -> not (T.null target) && target /= "_self"
       Nothing -> False
-    download = (readProp "download" (Just . foreignToBool) =<< anchor) == Just True
+    download = readProp "download" (Just . foreignToBool) anchor == Just True

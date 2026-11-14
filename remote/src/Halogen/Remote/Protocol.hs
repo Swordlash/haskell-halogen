@@ -43,10 +43,25 @@
 -- > {"preventDefault": true, "stopPropagation": false, "match": m}
 --
 -- where @m@ is @null@ (no match declared), @"any"@, @"plain-left-click"@,
--- or a list of keys, each @{"key": "/"}@ with @ctrlKey@, @shiftKey@,
--- @altKey@ and @metaKey@ when it says whether they are held. A listener
--- whose options declare nothing (no match, neither flag) is one that never
--- had any.
+-- a list of keys, each @{"key": "/"}@ with @ctrlKey@, @shiftKey@,
+-- @altKey@ and @metaKey@ when it says whether they are held, or one of
+--
+-- > {"within": "a[href]", "match": m}    the target in an element the selector matches, inside the listening one; m judged on that element
+-- > {"carrying": ["Files"]}               a drag or a paste whose transfer lists one of the types
+--
+-- ('Halogen.VDom.DOM.HandlerOptions.Within',
+-- 'Halogen.VDom.DOM.HandlerOptions.Carrying'). A listener whose options
+-- declare nothing (no match, neither flag) is one that never had any.
+--
+-- A client takes a match it does not know as @"any"@, so a client older
+-- than these two (one that knows only strings and lists) sends every event
+-- of the listener's type, and prevents the default of each and stops it as
+-- the options say: every click in a container whose handler declares
+-- @within@ and 'Halogen.HTML.Events.preventingDefault'. The program still
+-- asks its handler only about the events that match, which such a client's
+-- events never do (they carry no @closest@ and no transfer), so it makes no
+-- action for them. "Halogen.Remote.Server" serves the client it was built
+-- with, so this happens only to a page that keeps a copy of its own.
 --
 -- The client acts on them while the page dispatches the event, which the
 -- program cannot: for a listener with a match, an event that does not match
@@ -157,6 +172,38 @@
 -- an @area@) its @target@ when it names one and @download: true@ when it
 -- has the attribute: what "Halogen.Router"'s @isPlainLeftClick@ reads.
 --
+-- For a listener whose match has a @within@, the @target@ also has
+-- @closest@: for each selector of the match, the element the client found
+-- for it, described as above and with @attributes@, every attribute it has
+-- by name, as written (an element has few):
+--
+-- > "target": {"tagName": "SPAN",
+-- >            "closest": {"a[href]": {"tagName": "A", "id": "fnref-1",
+-- >                                    "attributes": {"href": "/p/1", "id": "fnref-1", "class": "footnote-ref"}}}}
+--
+-- Natively that is what "Web.DOM.Element"'s @closestNow@ (for the selector)
+-- and @getAttributeNow@ read, and what the match itself reads, so a
+-- handler that reads the link from the event's target in its listener
+-- reads it across the wire as in a page. No other element carries
+-- @closest@ or @attributes@: an @input@ event per keystroke does not grow.
+--
+-- A drag event (@dragstart@ to @drop@) has @dataTransfer@ and a clipboard
+-- event (@copy@, @cut@, @paste@) @clipboardData@, when the page's event has
+-- one:
+--
+-- > "clipboardData": {"types": ["Files"],
+-- >                   "files": [{"name": "a.png", "type": "image/png", "size": 1024}],
+-- >                   "data": {"text/plain": "..."}}
+--
+-- @types@ as the browser lists them, @files@ each file's name, media type
+-- and size (Chromium lists a drag's files only at its @drop@), and, at a
+-- @drop@ and a @paste@ only, @data@ with the transfer's @text/plain@, when
+-- it has some and it is at most 262144 UTF-16 code units long; longer
+-- text is left out, and reads natively as none. That is what
+-- "Web.HTML.Event.DataTransfer" reads natively (@types@, the files' names,
+-- types and sizes, @getData@). A file's bytes do not cross: natively
+-- reading them fails ("Web.File.File").
+--
 -- = The probe
 --
 -- A test that drives the page from outside (@haskell-halogen-playwright@)
@@ -257,6 +304,7 @@ where
 import Control.Monad.Fail (fail)
 import Data.Aeson (FromJSON (..), ToJSON (..), Value (..), (.:), (.:?), (.=))
 import Data.Aeson qualified as Aeson
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Text (encodeToLazyText)
 import Data.Aeson.Types (Parser, parseMaybe)
 import Data.Map.Strict qualified as Map
@@ -529,6 +577,8 @@ encodeOptions options =
       AnyEvent -> String "any"
       PlainLeftClick -> String "plain-left-click"
       Keys ks -> Array (Vector.fromList (map keyOf ks))
+      Within selector inner -> Aeson.object ["within" .= selector, "match" .= match inner]
+      Carrying types -> Aeson.object ["carrying" .= types]
     keyOf k =
       Aeson.object $
         ("key" .= k.key)
@@ -548,7 +598,10 @@ decodeOptions = Aeson.withObject "HandlerOptions" $ \o ->
       String "any" -> pure AnyEvent
       String "plain-left-click" -> pure PlainLeftClick
       Array ks -> Keys <$> traverse keyOf (Vector.toList ks)
-      _ -> fail "a match is \"any\", \"plain-left-click\" or a list of keys"
+      Object o
+        | Just selector <- KeyMap.lookup "within" o -> Within <$> parseJSON selector <*> (match =<< o .: "match")
+        | Just types <- KeyMap.lookup "carrying" o -> Carrying <$> parseJSON types
+      _ -> fail "a match is \"any\", \"plain-left-click\", a list of keys, {\"within\": selector, \"match\": m} or {\"carrying\": types}"
     keyOf = Aeson.withObject "KeyMatch" $ \k ->
       KeyMatch <$> k .: "key" <*> k .:? "ctrlKey" <*> k .:? "shiftKey" <*> k .:? "altKey" <*> k .:? "metaKey"
 

@@ -55,3 +55,12 @@ function remote_back() {
     history.back();
   });
 }
+
+// A paste the page dispatches on an element, carrying text and a file: a
+// real ClipboardEvent with a DataTransfer of its own.
+function remote_paste(id, text, fileName) {
+  var transfer = new DataTransfer();
+  transfer.setData("text/plain", text);
+  transfer.items.add(new File(["abc"], fileName, { type: "text/plain" }));
+  document.getElementById(id).dispatchEvent(new ClipboardEvent("paste", { clipboardData: transfer, bubbles: true, cancelable: true }));
+}

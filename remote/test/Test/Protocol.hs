@@ -34,6 +34,9 @@ every =
   , ListenerOptions 2 "click" 7 handlerOptions {preventDefault = True, matching = Just PlainLeftClick}
   , ListenerOptions 2 "keydown" 8 handlerOptions {stopPropagation = True, matching = Just (Keys [keyMatch "/", (keyMatch "s") {ctrlKey = Just True, altKey = Just False}])}
   , ListenerOptions 2 "input" 9 handlerOptions {matching = Just AnyEvent}
+  , ListenerOptions 2 "click" 11 handlerOptions {preventDefault = True, matching = Just (Within "a[href]" PlainLeftClick)}
+  , ListenerOptions 2 "click" 12 handlerOptions {matching = Just (Within "article" (Within "a.note" AnyEvent))}
+  , ListenerOptions 2 "paste" 13 handlerOptions {preventDefault = True, matching = Just (Carrying ["Files", "text/uri-list"])}
   , ListenerOptions 2 "submit" 10 handlerOptions
   , Call 2 "focus" []
   , Call 2 "focus" [object ["preventScroll" .= True]]
@@ -100,6 +103,19 @@ spec = describe "the protocol" $ do
         )
     Aeson.toJSON (ListenerOptions 2 "click" 7 handlerOptions)
       `shouldBe` Aeson.toJSON (["options", Aeson.Number 2, "click", Aeson.Number 7, object ["preventDefault" .= False, "stopPropagation" .= False, "match" .= Aeson.Null]] :: [Aeson.Value])
+
+  it "writes the matches that are objects as the client reads them, and reads them back" $ do
+    let optionsOf m = Aeson.toJSON (ListenerOptions 2 "click" 7 handlerOptions {matching = Just m})
+        written match = Aeson.toJSON (["options", Aeson.Number 2, "click", Aeson.Number 7, object ["preventDefault" .= False, "stopPropagation" .= False, "match" .= match]] :: [Aeson.Value])
+    optionsOf (Within "a[href]" PlainLeftClick) `shouldBe` written (object ["within" .= ("a[href]" :: Text), "match" .= ("plain-left-click" :: Text)])
+    optionsOf (Within "article" (Within "a" (Keys [keyMatch "Enter"])))
+      `shouldBe` written (object ["within" .= ("article" :: Text), "match" .= object ["within" .= ("a" :: Text), "match" .= [object ["key" .= ("Enter" :: Text)]]]])
+    optionsOf (Carrying ["Files"]) `shouldBe` written (object ["carrying" .= ["Files" :: Text]])
+    -- An object that is neither is no match the program knows.
+    Aeson.decode "[\"options\", 2, \"click\", 7, {\"preventDefault\": false, \"stopPropagation\": false, \"match\": {\"near\": \"a\"}}]"
+      `shouldBe` (Nothing :: Maybe Op)
+    Aeson.decode "[\"options\", 2, \"click\", 7, {\"preventDefault\": false, \"stopPropagation\": false, \"match\": {\"within\": \"a\"}}]"
+      `shouldBe` (Nothing :: Maybe Op)
 
   it "reads back a batch and an event message" $ do
     let batch = Batch {sequence = 3, ops = every}
