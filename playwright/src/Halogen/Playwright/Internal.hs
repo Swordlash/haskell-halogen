@@ -36,8 +36,10 @@ module Halogen.Playwright.Internal
   , Context (..)
   , Page (..)
 
-    -- * Routes
+    -- * Routes, and functions exposed to pages
   , addRoute
+  , addRouteWith
+  , addExposed
   , removeRoute
 
     -- * What pages said, and what contexts asked for
@@ -49,15 +51,20 @@ module Halogen.Playwright.Internal
   , waitForLog
   , Request (..)
   , contextRequests
+  , Exchange (..)
+  , contextExchanges
+  , waitForExchangeLog
   , FailedRequest (..)
   , failedRequests
   , routeFailures
+  , exposedFailures
 
     -- * The driver's source
   , driverScript
   )
 where
 
+import Control.Applicative ((<|>))
 import Control.Concurrent (ThreadId, forkIO, forkIOWithUnmask, killThread, threadDelay)
 import Control.Concurrent.MVar
 import Control.Concurrent.STM (TVar, atomically, check, modifyTVar', newTVarIO, orElse, readTVar, readTVarIO, registerDelay)
@@ -67,7 +74,9 @@ import Data.Aeson (FromJSON, Value (..), (.:), (.:?), (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types qualified as Aeson
+import Data.ByteString (ByteString)
 import Data.ByteString qualified as ByteString
+import Data.ByteString.Base64 qualified as Base64
 import Data.ByteString.Char8 qualified as Char8
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Foldable (for_)
@@ -151,6 +160,9 @@ data Playwright = Playwright
   -- ^ Changed whenever a page's log is, for a wait on what a page says.
   , requestLogs :: IORef (IntMap (Seq Request))
   -- ^ Each context's requests, oldest first.
+  , exchangeLogs :: IORef (IntMap (Seq Exchange))
+  -- ^ Each context's exchanges, in the order they ended, when the context
+  -- records them.
   , failures :: IORef (IntMap ContextFailures)
   -- ^ Each context's failed requests and failed route handlers.
   , routes :: IORef (IntMap RouteEntry)
@@ -160,18 +172,31 @@ data Playwright = Playwright
   -- ^ The last lines node wrote to stderr, for the message when it dies.
   }
 
--- | A route's handler and the threads answering its asks now, by ask.
+-- | A route's handler, or a function exposed to pages, and the threads
+-- answering its asks now, by ask.
 data RouteEntry = RouteEntry
   { context :: Int
+  , kind :: HandlerKind
   , pattern :: Text
-  , handler :: Aeson.Object -> IO [Aeson.Pair]
+  -- ^ A route's glob, or the exposed function's name.
+  , handler :: Int -> Aeson.Object -> IO [Aeson.Pair]
+  -- ^ Given the ask's number and the ask; the answer's fields.
   , inFlight :: IntMap ThreadId
   }
+
+-- | What an ask is answered for: what a failure of its handler means.
+data HandlerKind
+  = -- | A route's: the request is aborted.
+    RouteHandler
+  | -- | A function a page called: its promise is rejected.
+    ExposedHandler
+  deriving stock (Eq)
 
 -- | What went wrong in a context that a failure should mention.
 data ContextFailures = ContextFailures
   { requests :: Seq FailedRequest
   , handlers :: Seq Text
+  , exposed :: Seq Text
   }
 
 -- | A browser context: pages that share cookies and storage, and nothing
@@ -245,10 +270,12 @@ data PageLog = PageLog
   , dialogs :: Seq Dialog
   , webSocketFrames :: Seq WebSocketFrame
   -- ^ Every frame of every WebSocket the page opened, both ways.
+  , cdpEvents :: Seq (Text, Value)
+  -- ^ The DevTools events listened to, each its name and its parameters.
   }
 
 emptyLog :: PageLog
-emptyLog = PageLog Seq.empty Seq.empty Seq.empty Seq.empty
+emptyLog = PageLog Seq.empty Seq.empty Seq.empty Seq.empty Seq.empty
 
 -- | What a page has said so far.
 pageLog :: Playwright -> Int -> IO PageLog
@@ -259,13 +286,18 @@ pageLog pw page = fromMaybe emptyLog . IntMap.lookup page <$> readIORef pw.logs
 -- again each time the driver's reader adds to any page's, and never on a
 -- clock.
 waitForLog :: Playwright -> Int -> Int -> (PageLog -> Maybe a) -> IO (Maybe a)
-waitForLog pw page ms reading = do
+waitForLog pw page ms reading = waitForReading pw ms (reading <$> pageLog pw page)
+
+-- | Read again each time the driver's reader adds to a log, until the
+-- reading gives something or the milliseconds have passed.
+waitForReading :: Playwright -> Int -> IO (Maybe a) -> IO (Maybe a)
+waitForReading pw ms reading = do
   late <- registerDelay (ms * 1000)
   let loop = do
         -- Read before the log, so that an entry added after the log was
         -- read changes what was seen, and is read on the next round.
         seen <- readTVarIO pw.logged
-        found <- reading <$> pageLog pw page
+        found <- reading
         case found of
           Just a -> pure (Just a)
           Nothing -> do
@@ -290,6 +322,40 @@ data Request = Request
 contextRequests :: Playwright -> Int -> IO (Seq Request)
 contextRequests pw context = fromMaybe Seq.empty . IntMap.lookup context <$> readIORef pw.requestLogs
 
+-- | A request of a context that records its exchanges, once it has ended:
+-- what was asked, with every header the browser sent (cookies included)
+-- and the body, and what came back.
+data Exchange = Exchange
+  { url :: Text
+  , method :: Text
+  , resourceType :: Text
+  , requestHeaders :: [(Text, Text)]
+  -- ^ Every header the request was sent with, as the browser sent it
+  -- (@cookie@ among them), each name in lower case.
+  , postData :: Maybe ByteString
+  , status :: Maybe Int
+  -- ^ The response's status; 'Nothing' when there was no response (the
+  -- request failed: 'failure').
+  , responseHeaders :: [(Text, Text)]
+  -- ^ Each name in lower case, a header that came more than once (a
+  -- @set-cookie@) once for each time.
+  , responseBody :: Maybe ByteString
+  -- ^ The response's body, as the page read it (decoded); 'Nothing' when
+  -- it was larger than the context's limit, when there was none to read (a
+  -- redirect's), or no response.
+  , failure :: Maybe Text
+  -- ^ Why the request failed, Chromium's error text, when it did.
+  }
+  deriving stock (Eq, Show)
+
+-- | A context's exchanges so far, in the order they ended.
+contextExchanges :: Playwright -> Int -> IO (Seq Exchange)
+contextExchanges pw context = fromMaybe Seq.empty . IntMap.lookup context <$> readIORef pw.exchangeLogs
+
+-- | 'waitForLog' for a context's exchanges.
+waitForExchangeLog :: Playwright -> Int -> Int -> (Seq Exchange -> Maybe a) -> IO (Maybe a)
+waitForExchangeLog pw context ms reading = waitForReading pw ms (reading <$> contextExchanges pw context)
+
 -- | A request of a context's that failed: refused, cut off, or aborted by a
 -- route (Chromium's error text, such as @net::ERR_CONNECTION_REFUSED@).
 data FailedRequest = FailedRequest
@@ -308,10 +374,15 @@ failedRequests pw context = maybe Seq.empty (.requests) . IntMap.lookup context 
 routeFailures :: Playwright -> Int -> IO (Seq Text)
 routeFailures pw context = maybe Seq.empty (.handlers) . IntMap.lookup context <$> readIORef pw.failures
 
+-- | How the functions exposed to a context's pages failed, the last fifty,
+-- oldest first: each the function's name and the exception.
+exposedFailures :: Playwright -> Int -> IO (Seq Text)
+exposedFailures pw context = maybe Seq.empty (.exposed) . IntMap.lookup context <$> readIORef pw.failures
+
 -- | Add to a context's failures, keeping the last fifty of each kind.
 addFailure :: Playwright -> Int -> (ContextFailures -> ContextFailures) -> IO ()
 addFailure pw context f =
-  atomicModifyIORef' pw.failures (\m -> (IntMap.alter (Just . f . fromMaybe (ContextFailures Seq.empty Seq.empty)) context m, ()))
+  atomicModifyIORef' pw.failures (\m -> (IntMap.alter (Just . f . fromMaybe (ContextFailures Seq.empty Seq.empty Seq.empty)) context m, ()))
 
 lastFifty :: Seq a -> Seq a
 lastFifty xs = Seq.drop (Seq.length xs - 50) xs
@@ -375,11 +446,12 @@ withPlaywright options body =
       logs <- newIORef IntMap.empty
       logged <- newTVarIO 0
       requestLogs <- newIORef IntMap.empty
+      exchangeLogs <- newIORef IntMap.empty
       failures <- newIORef IntMap.empty
       routes <- newIORef IntMap.empty
       errorLines <- newIORef Seq.empty
       ready <- newEmptyMVar
-      let pw = Playwright {options, input, process, writing, pending, nextId, gone, logs, logged, requestLogs, failures, routes, errorLines}
+      let pw = Playwright {options, input, process, writing, pending, nextId, gone, logs, logged, requestLogs, exchangeLogs, failures, routes, errorLines}
       stderrDone <- newEmptyMVar
       _ <- forkIO (relayErrors pw (Process.getStderr process) `finally` putMVar stderrDone ())
       _ <- forkIO (readReplies pw (Process.getStdout process) ready stderrDone)
@@ -552,6 +624,13 @@ readReplies pw h ready stderrDone = (forever readOne `catchEnd` pure ()) `finall
         modifyLog page (\l -> l {dialogs = l.dialogs Seq.|> Dialog {kind, message}})
       "request" -> for_ (Aeson.parseMaybe (\v -> (,,,) <$> v .: "context" <*> v .: "url" <*> v .: "method" <*> v .: "resourceType") o) $ \(context, url, method, resourceType) ->
         atomicModifyIORef' pw.requestLogs (\m -> (IntMap.alter (Just . (Seq.|> Request {url, method, resourceType}) . fromMaybe Seq.empty) context m, ()))
+      "exchange" -> case Aeson.parseEither exchangeParser o of
+        Right (context, exchange) -> do
+          atomicModifyIORef' pw.exchangeLogs (\m -> (IntMap.alter (Just . (Seq.|> exchange) . fromMaybe Seq.empty) context m, ()))
+          atomically (modifyTVar' pw.logged (+ 1))
+        Left e -> hPutStrLn stderr ("[playwright] an exchange that cannot be read: " <> e)
+      "cdp" -> for_ (Aeson.parseMaybe (\v -> (,,) <$> v .: "page" <*> v .: "name" <*> v .: "params") o) $ \(page, name, params) ->
+        modifyLog page (\l -> l {cdpEvents = l.cdpEvents Seq.|> (name, params)})
       "requestfailed" -> for_ (Aeson.parseMaybe (\v -> (,,,) <$> v .: "context" <*> v .: "url" <*> v .: "method" <*> v .: "failure") o) $ \(context, url, method, failure) ->
         addFailure pw context (\f -> f {requests = lastFifty (f.requests Seq.|> FailedRequest {url, method, failure})})
       "unrouted" -> for_ (Aeson.parseMaybe (.: "routes") o) $ \ids -> do
@@ -568,8 +647,10 @@ readReplies pw h ready stderrDone = (forever readOne `catchEnd` pure ()) `finall
     relay page kind text =
       when pw.options.relayConsole $
         hPutStrLn stderr (Text.unpack ("[page " <> Text.pack (show page) <> "] [" <> kind <> "] " <> text))
-    onAsk o = for_ (Aeson.parseMaybe (\v -> (,,) <$> v .: "ask" <*> v .: "route" <*> v .: "request") o) $ \(ask, route, request) ->
-      startHandler pw ask route request
+    -- A route's ask names its route, an exposed function's its function:
+    -- both are handlers of the same map.
+    onAsk o = for_ (Aeson.parseMaybe (\v -> (,) <$> v .: "ask" <*> (v .: "route" <|> v .: "exposed")) o) $ \(ask, entry) ->
+      startHandler pw ask entry o
     ended = do
       -- What node said last explains why it went: wait (briefly) for its
       -- stderr to end too.
@@ -590,6 +671,26 @@ readReplies pw h ready stderrDone = (forever readOne `catchEnd` pure ()) `finall
       t1 <- forkIO (readMVar m >> void (tryPutMVar result ()))
       t2 <- forkIO (threadDelay 1_000_000 >> void (tryPutMVar result ()))
       takeMVar result `finally` (killThread t1 >> killThread t2)
+
+-- | An exchange event: its context, and the exchange.
+exchangeParser :: Aeson.Object -> Aeson.Parser (Int, Exchange)
+exchangeParser v = do
+  context <- v .: "context"
+  url <- v .: "url"
+  method <- v .: "method"
+  resourceType <- v .: "resourceType"
+  requestHeaders <- v .: "requestHeaders" >>= traverse pair
+  postData <- v .:? "postData" >>= traverse bytes
+  status <- v .:? "status"
+  responseHeaders <- v .: "responseHeaders" >>= traverse pair
+  responseBody <- v .:? "responseBody" >>= traverse bytes
+  failure <- v .:? "failure"
+  pure (context, Exchange {url, method, resourceType, requestHeaders, postData, status, responseHeaders, responseBody, failure})
+  where
+    pair = \case
+      [name, value] -> pure (name, value)
+      other -> fail ("a header is a name and a value: " <> show other)
+    bytes t = either (fail . ("base64: " <>)) pure (Base64.decode (Text.encodeUtf8 t))
 
 userErrorText :: Text -> IOError
 userErrorText = userError . Text.unpack
@@ -644,12 +745,44 @@ call_ pw method params = do
 -- block. The target is @"page" .= handle@ or @"context" .= handle@; the
 -- context is the one whose failures a handler's failure is added to.
 addRoute :: Playwright -> Int -> Aeson.Pair -> Text -> (Aeson.Object -> IO [Aeson.Pair]) -> IO Int
-addRoute pw context target pattern handler = do
-  route <- atomicModifyIORef' pw.nextId (\n -> (n + 1, n))
-  -- Registered first, so that the first ask finds it.
-  atomicModifyIORef' pw.routes (\m -> (IntMap.insert route RouteEntry {context, pattern, handler, inFlight = IntMap.empty} m, ()))
-  (call_ pw "route" ["route" .= route, "context" .= context, target, "pattern" .= pattern] >> pure route)
-    `onException` atomicModifyIORef' pw.routes (\m -> (IntMap.delete route m, ()))
+addRoute pw context target pattern handler = addRouteWith pw context target pattern [] (\_ request -> handler request)
+
+-- | 'addRoute' with more of the route's fields for node (@"resourceTypes"@,
+-- @"methods"@: node asks only about the requests they let through), and a
+-- handler that is also given the ask's number, for a call about the request
+-- while it waits (@"fetchRouted"@).
+addRouteWith :: Playwright -> Int -> Aeson.Pair -> Text -> [Aeson.Pair] -> (Int -> Aeson.Object -> IO [Aeson.Pair]) -> IO Int
+addRouteWith pw context target pattern fields handler =
+  addHandler pw context RouteHandler pattern handler' $ \route ->
+    call_ pw "route" (["route" .= route, "context" .= context, target, "pattern" .= pattern] <> fields)
+  where
+    handler' ask o = case Aeson.parseMaybe (.: "request") o of
+      Just request -> handler ask request
+      Nothing -> throwIO (PlaywrightError "route" "DecodeError" "an ask with no request")
+
+-- | Register a function and ask node to expose it to a page's or a
+-- context's pages under a name. The handler is given the argument each call
+-- of the page's passed, and returns the result, which the page's promise
+-- resolves with; it runs on a thread of its own for each call. What it
+-- throws rejects the page's promise, and is added to the context's
+-- failures.
+addExposed :: Playwright -> Int -> Aeson.Pair -> Text -> (Value -> IO Value) -> IO ()
+addExposed pw context target name handler =
+  void . addHandler pw context ExposedHandler name handler' $ \exposed ->
+    call_ pw "expose" ["exposed" .= exposed, "context" .= context, target, "name" .= name]
+  where
+    handler' _ o = do
+      result <- handler (fromMaybe Null (KeyMap.lookup "argument" o))
+      pure ["result" .= result]
+
+-- | Register a handler under a fresh id, then tell node about it: first,
+-- so that the first ask finds it.
+addHandler :: Playwright -> Int -> HandlerKind -> Text -> (Int -> Aeson.Object -> IO [Aeson.Pair]) -> (Int -> IO Value) -> IO Int
+addHandler pw context kind pattern handler tell = do
+  i <- atomicModifyIORef' pw.nextId (\n -> (n + 1, n))
+  atomicModifyIORef' pw.routes (\m -> (IntMap.insert i RouteEntry {context, kind, pattern, handler, inFlight = IntMap.empty} m, ()))
+  (tell i >> pure i)
+    `onException` atomicModifyIORef' pw.routes (\m -> (IntMap.delete i m, ()))
 
 -- | Take a route away: its handlers under way are stopped, and node lets
 -- the requests they held go on, as if the route had not been there. On a
@@ -665,9 +798,10 @@ removeRoute pw route = do
 
 -- | Answer an ask from a thread of its own, which is registered with its
 -- route before it starts, so that removing the route finds it. A route
--- that has gone meanwhile lets the request go on.
+-- that has gone meanwhile lets the request go on (node has let it go
+-- already, and ignores the answer; so for a function).
 startHandler :: Playwright -> Int -> Int -> Aeson.Object -> IO ()
-startHandler pw ask route request = mask_ $ do
+startHandler pw ask route message = mask_ $ do
   registered <- newEmptyMVar
   thread <- forkIOWithUnmask $ \unmask -> do
     found <- readMVar registered
@@ -683,15 +817,20 @@ startHandler pw ask route request = mask_ $ do
     -- The answer is encoded inside the handler's 'try', so that an error
     -- hidden in it (a lazy body) is the handler's failure.
     run unmask entry = do
-      outcome <- try (unmask (entry.handler request >>= \fields -> evaluate (LazyByteString.toStrict (Aeson.encode (Aeson.object (("answer" .= ask) : fields))))))
+      outcome <- try (unmask (entry.handler ask message >>= \fields -> evaluate (LazyByteString.toStrict (Aeson.encode (Aeson.object (("answer" .= ask) : fields))))))
       case outcome of
         Right line -> writeAnswer line
         Left (e :: SomeException)
           -- Stopped: its route went, or the driver did; node has let the
           -- request go.
           | isJust (fromException e :: Maybe SomeAsyncException) -> throwIO e
+          | entry.kind == ExposedHandler -> do
+              let what = entry.pattern <> ": " <> Text.pack (displayException e)
+              hPutStrLn stderr (Text.unpack ("[playwright] an exposed function failed, and the page's call was rejected: " <> what))
+              addFailure pw entry.context (\f -> f {exposed = lastFifty (f.exposed Seq.|> what)})
+              answer ["error" .= Text.pack (displayException e)]
           | otherwise -> do
-              let address = fromMaybe "?" (Aeson.parseMaybe (.: "url") request)
+              let address = fromMaybe "?" (Aeson.parseMaybe (\o -> o .: "request" >>= (.: "url")) message)
                   what = entry.pattern <> ": " <> address <> ": " <> Text.pack (displayException e)
               hPutStrLn stderr (Text.unpack ("[playwright] a route's handler failed, and its request was aborted: " <> what))
               addFailure pw entry.context (\f -> f {handlers = lastFifty (f.handlers Seq.|> what)})

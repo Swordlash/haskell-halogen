@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="script-src 'self'">
+  <title>Under a policy</title>
+</head>
+<body>
+  <!-- csp.html, its policy in a meta element rather than a header. -->
+  <p id="state">idle</p>
+  <button id="slow">slow</button>
+  <button id="later">soon</button>
+  <button id="wait">wait</button>
+  <a id="away" href="second.html">away</a>
+  <p id="shown" hidden>shown</p>
+  <script>window.inline = true;</script>
+  <script src="csp.js"></script>
+</body>
+</html>

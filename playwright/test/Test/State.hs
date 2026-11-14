@@ -69,7 +69,7 @@ spec base = describe "a context's state" $ do
     goto page (at "state.html")
     printed <- pdf page
     Char8.take 5 printed `shouldBe` "%PDF-"
-    pages printed `shouldBe` 3
+    pdfPages printed `shouldBe` 3
 
   -- smoke-test.mjs: Copy puts a page's source on the clipboard, read back
   -- with the permissions granted.
@@ -117,7 +117,7 @@ spec base = describe "a context's state" $ do
       map (.kind) <$> dialogs page `shouldReturn` ["confirm", "beforeunload"]
   where
     -- The page objects in a PDF, as the smoke test counts them.
-    pages bytes = length (filter isPage (Char8.tails bytes))
+    pdfPages bytes = length (filter isPage (Char8.tails bytes))
     isPage rest =
       "/Type" `Char8.isPrefixOf` rest
         && let after = Char8.dropWhile (== ' ') (Char8.drop 5 rest)

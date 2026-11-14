@@ -54,7 +54,7 @@ import Data.List (intercalate)
 import Data.Text qualified as Text
 import GHC.Stack (HasCallStack, callStack, getCallStack)
 import Halogen.Playwright
-import Halogen.Playwright.Internal (FailedRequest (..), Page (..), Playwright (..), failedRequests, routeFailures)
+import Halogen.Playwright.Internal (FailedRequest (..), Page (..), Playwright (..), exposedFailures, failedRequests, routeFailures)
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath ((</>))
 import System.IO.Unsafe (unsafePerformIO)
@@ -150,6 +150,7 @@ pageState page = do
   consoleErrors <- filter (\m -> m.kind == "error") <$> consoleMessages page
   errors <- pageErrors page
   handlers <- toList <$> routeFailures page.playwright page.context
+  exposed <- toList <$> exposedFailures page.playwright page.context
   failed <- toList <$> failedRequests page.playwright page.context
   shot <- saveScreenshot page
   pure . intercalate "\n" $
@@ -157,6 +158,7 @@ pageState page = do
       <> section "Its console errors:" (map (located address) consoleErrors)
       <> section "Its uncaught errors:" errors
       <> section "Route handlers that failed:" handlers
+      <> section "Exposed functions that failed:" exposed
       <> section "Requests that failed:" (map (\r -> r.method <> " " <> r.url <> ": " <> r.failure) failed)
       <> maybe [] (\s -> ["Its screenshot: " <> s]) shot
   where

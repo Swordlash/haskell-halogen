@@ -107,3 +107,54 @@ fail with every repair listed (`describeRepair`).
 route taken away while the page's own requests were starting once left one
 of them unanswered, so a gate that has done its work is released and left
 (`adoptWith` does that).
+
+What porting a server's smoke test (a login, its API, a Content Security
+Policy, an editor in an iframe) needed, each with a test of its own:
+
+- A route's handler can send its request on and look at the response:
+  `fetchResponse` gives the server's `Response` (status, headers, the body as
+  the page reads it) to change or to answer with, and `passThrough` is the
+  handler that only looks. `RoutedRequest` has two more fields, `allHeaders`
+  (every header the browser sends, cookies included) and `asked` (the
+  request as the driver holds it, which `fetchResponse` needs): code that
+  builds a `RoutedRequest` itself gives them, code that reads its fields is
+  unchanged.
+- A context's exchanges, opt-in: `ContextOptions`' `recordExchanges = Just
+  limit` keeps each request once it has ended with every header it was sent
+  with, its body, and the response's status, headers and body (up to `limit`
+  bytes), or why it failed; `exchanges` and `waitForExchange` read them.
+  `requests` is as it was. `defaultContextOptions` records nothing, so a
+  context made from it is unchanged; code that writes a `ContextOptions` out
+  in full gives the field.
+- `routeWith` and `holdWith`, a route and a gate that take a `RouteFilter`:
+  a glob, resource types and methods, decided in the driver, so that a gate
+  on an API's `fetch` requests lets its images, and the page's `load`,
+  through. `route` and `hold` are as they were.
+- The Chrome DevTools Protocol's events: `listenCDP` keeps an event of the
+  page's session from then on, `cdpEvents` reads them and `waitForCDP` waits
+  for one, as the console is kept and waited on.
+- `waitForFunction` works on a page whose Content Security Policy refuses
+  `eval`: it polls in the page at its animation frames as before, but the
+  expression is compiled through the DevTools protocol rather than with
+  `eval` in the page, which such a policy refuses (Playwright's own call
+  failed with an `EvalError` once the expression was not true at once).
+  `waitForFunctionWith` worked there only because Playwright evaluates a
+  function's source once, inside the DevTools call; it now polls the same
+  way. A navigation under either wait starts it again in the new document.
+  Every other wait, and the probe, already worked there; the suite now says
+  so.
+- `goBack` and `goForward` return for every kind of history entry: a state the
+  page pushed and a fragment (the same document), and a frame's own
+  navigation, where they used to wait for a `load` of the page's that never
+  came and time out; another document is waited for as before. With no entry
+  to go to they fail with a `PlaywrightError` named `NoHistoryEntry`, where
+  they did nothing.
+- `exposeFunction`: a function of the test's that a page (or every page of a
+  context) calls as `window[name]`, JSON both ways, each call on a thread of
+  its own; what it throws rejects the page's promise and is listed in an
+  `inPage` failure ("Exposed functions that failed").
+- Popups: `waitForPopup` runs an action and gives the page it opened, loaded
+  and settled, and `pages` lists a context's pages. A popup gets the probe,
+  the context's init scripts and the options' throttle as every page does.
+  An action whose page closes as it is handled (a sign-in window's button)
+  no longer fails.

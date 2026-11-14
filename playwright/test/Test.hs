@@ -9,11 +9,16 @@ import System.Environment (lookupEnv)
 import Test.Adoption qualified
 import Test.DevTools qualified
 import Test.Driver qualified
+import Test.Exchanges qualified
+import Test.Exposed qualified
 import Test.Failures qualified
 import Test.Files qualified
 import Test.Frames qualified
+import Test.History qualified
 import Test.Hspec (aroundAll, hspec)
 import Test.Input qualified
+import Test.Policy qualified
+import Test.Popups qualified
 import Test.Probe qualified
 import Test.Routes qualified
 import Test.Serve qualified
@@ -42,4 +47,9 @@ main = serveDirectory "test/web" $ \base -> do
       Test.Adoption.spec base
       Test.Sockets.spec base
       Test.Serve.spec
+      Test.Exchanges.spec
+      Test.History.spec base
+      Test.Policy.spec
+      Test.Exposed.spec base
+      Test.Popups.spec base
     Test.Failures.spec base

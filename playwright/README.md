@@ -74,7 +74,7 @@ for any reason.
 | `HALOGEN_PLAYWRIGHT_NODE` | the `node` to run |
 | `HALOGEN_PLAYWRIGHT_ARTIFACTS` | where a failing test's screenshot is saved |
 | `HALOGEN_PLAYWRIGHT_CONSOLE` | print what pages write to their console, and what they throw, as it arrives |
-| `HALOGEN_PLAYWRIGHT_THROTTLE` | slow every page's processor down by this factor (`4`: four times as slow) |
+| `HALOGEN_PLAYWRIGHT_THROTTLE` | slow every page's processor down by this factor (`4`: four times as slow), popups too |
 
 A run with `HALOGEN_PLAYWRIGHT_THROTTLE=6` is a run of the same tests on a slow
 machine: a test that only passed because the program was quick enough
@@ -122,6 +122,15 @@ the message an action caused cannot be missed. A `ConsoleMessage` has the
 address it was written at (`url`, a frame's for a message one of the page's
 frames wrote) and its `line`, so a test can leave out what an interactive
 frame's sandbox refuses: `not (maybe False ("?interactive" `Text.isInfixOf`) m.url)`.
+
+Every wait works on a page sent with a Content Security Policy that refuses
+`eval` (`script-src 'self'`, no `'unsafe-eval'`), as a real server's pages
+are. Playwright's own `waitForFunction` compiles its expression in the page
+with `eval`, which such a policy refuses (an uncaught `EvalError`, and a wait
+that never ends); this package's compiles the expression together with the loop
+that polls it, through the DevTools protocol, which the page's policy does not
+govern. The probe is an init script, which the policy does not govern either,
+and `evaluate` and its kin go through the protocol too.
 
 `waitForWebSocket page test` is the same for the frames of the page's
 WebSockets, which are kept as they cross, both ways (`webSocketFrames page`):
@@ -279,7 +288,7 @@ waitStarted page
 repairsSinceMarked page >>= shouldHaveNoRepairs
 ```
 
-## Contexts: init scripts and requests
+## Contexts: init scripts, requests and pages
 
 `addInitScript context js` runs a script of the test's own in every page of
 the context before the page's own scripts, after the probe: to stand in for
@@ -289,6 +298,45 @@ asked the network for so far (address, method, resource type), kept as they
 are made: a worker's requests are its context's, not always its page's, which
 is why it is asked of the context. `workers page` is how many dedicated Web
 Workers the page has alive.
+
+A context opened with `recordExchanges = Just limit` also keeps each request,
+once it has ended, with what was sent and what came back: `exchanges context`.
+An `Exchange` has the request's address, method and resource type, every header
+it was sent with (`cookie` among them, which a page's script never sees), its
+body, and the response's status, headers (a `set-cookie` that came twice is
+there twice) and body, kept when it is at most `limit` bytes; or why it failed.
+It is opt-in because it costs the driver two more questions to the browser per
+request and the memory of what it keeps. `waitForExchange context test` is the
+first that satisfies a test, from the context's start, waiting for one if there
+is none yet: an exchange is kept a moment after the page has its response, once
+its body has been read, so the one an action caused is waited for, not read.
+
+```haskell
+withContext pw defaultContextOptions {recordExchanges = Just 65536} $ \ctx -> do
+  ...
+  click (byRoleNamed page "button" "Save")
+  saved <- waitForExchange ctx (\e -> e.method == "POST" && "/api/save" `Text.isSuffixOf` e.url)
+  saved.status `shouldBe` Just 200
+  lookup "cookie" saved.requestHeaders `shouldBe` Just ("session=" <> token)
+  (decodeStrict =<< saved.responseBody) `shouldBe` Just (object ["saved" .= True])
+```
+
+`pages context` lists the context's pages, those its pages opened among them.
+`waitForPopup page action` runs an action that opens a page (`window.open`, a
+link to a new tab, a sign-in window) and gives the page it opened, once it has
+loaded and settled. The wait is armed before the action, so the popup cannot be
+missed. A popup is a page of the context like any other: it has the probe and
+the context's init scripts, routes and exposed functions, the options'
+throttle, a console of its own, and it closes with the context. A page that
+closes itself as a click is handled (a sign-in window that posts back to its
+opener) is no error for the click.
+
+```haskell
+(_, signIn) <- waitForPopup page (click (byRoleNamed page "button" "Sign in"))
+fill (byLabel signIn "Name") "ada"
+click (byRoleNamed signIn "button" "Sign in")   -- the window closes
+locator page "#user" `shouldHaveText` "ada"
+```
 
 ## Requests answered by the test
 
@@ -312,8 +360,38 @@ unroute unreachable
 `Continue` lets the request go on (to the route added before, or the
 network), `Fulfill response` answers it, `Abort code` fails it with
 Playwright's error code. The handler is given the address, the method, the
-resource type, the headers and the body, so watching what was asked while
-letting it through is a handler that records and continues.
+resource type, the headers (`allHeaders` has every one the browser sends,
+cookies included) and the body, so watching what was asked while letting it
+through is a handler that records and continues.
+
+To see what the server answered, a handler sends the request on and is given
+the response, `fetchResponse request`: its status, its headers and its body (as
+the page would read it, decoded, so without the headers that described the
+bytes on the wire), to look at or to change before it answers `Fulfill` with
+it. `passThrough` is the handler that only looks:
+
+```haskell
+-- The server's settings, with the dark theme on.
+_ <- route page "**/api/settings" $ \request -> do
+  r <- fetchResponse request
+  pure (Fulfill r {body = "{\"theme\": \"dark\"}"})
+
+-- Every answer of the API's, kept, and given to the page as it came.
+_ <- route page "**/api/**" $ passThrough $ \request response ->
+  atomicModifyIORef' answers (\as -> (as <> [(request.url, response.status, response.body)], ()))
+```
+
+`routeWith` and `holdWith` take a `RouteFilter`: a glob, and, when they are not
+empty, the resource types (`fetch`, `image`, `document`, ...) and the methods
+it takes. The driver decides them before the test is asked, so a request they
+leave out costs nothing and goes on as if the route were not there. A gate on
+an API's `fetch` requests holds them while the page's images under the same
+path load, and `goto`, which waits for the page's `load`, returns:
+
+```haskell
+gate <- holdWith page (routeFilter "**/api/**") {resourceTypes = ["fetch"]}
+_ <- routeWith page (routeFilter "**/api/**") {methods = ["POST"]} (\_ -> pure (fulfill 503 Nothing ""))
+```
 
 Each request's handler runs on a thread of its own, so a handler may block:
 wait for the test to let it go, or for a moment. A handler that throws aborts
@@ -349,6 +427,24 @@ On the wire this is the protocol's third kind of message: node asks
 `js/driver.mjs`. The thread that reads node's output never runs a handler and
 never writes.
 
+## Functions the page calls
+
+`exposeFunction page name f` (or on a context, for all its pages) gives the page
+`window[name]`, a function of the test's: the page calls it with one argument and
+gets a promise of the result, both JSON, as a page calls a native app's bridge or
+reports to a test harness. It is an ask too (`{"ask": 13, "exposed": 5,
+"argument": ...}`), so each call runs on a thread of its own and may block while
+others are answered. What the function throws (an argument that does not decode
+too) rejects the page's promise with its message, is written to stderr and kept,
+and an `inPage` failure lists it under "Exposed functions that failed". It is
+there for every document the page loads after, until the page or the context
+closes.
+
+```haskell
+exposeFunction page "reportScore" $ \(score :: Int) -> writeIORef best score
+-- in the page: await window.reportScore(42)
+```
+
 ## Files
 
 `download page action` runs an action that downloads a file (a click on an
@@ -382,6 +478,13 @@ Playwright does, unless this says accept, which a `beforeunload` asking
 whether to leave needs) and kept, `dialogs page`.
 
 ## Navigating, and pictures
+
+`goBack page` and `goForward page` go one entry through the page's history and
+return for every kind of entry, then settle: another document (once it has
+loaded, as `goto`), a state the page pushed or a fragment (the same document,
+which has had its `popstate` or `hashchange`), or a frame's own navigation
+(Back undoes it in the frame alone, and the page does not load). No entry to go
+to is a `PlaywrightError` named `NoHistoryEntry`.
 
 `gotoStatus page address` is `goto` and the status of the response the
 navigation ended with: `Just 404` for a server's not-found page, `Just 401`
@@ -426,8 +529,19 @@ first use, one per page) and decodes its result, for what Playwright has no call
 for: a virtual authenticator for passkeys, Chromium's installability check, an
 element's event listeners. `throttleCPU page rate` slows the page's processor
 down, as the `throttle` option does for every page. Like `evaluate`, `cdp`
-does not settle. No events: none of the scripts this was written from listens
-to one.
+does not settle.
+
+Its events are kept as the console is: `listenCDP page event` keeps every
+occurrence from then on (on the same session, so the domain is enabled with a
+`cdp` call), `cdpEvents page event` is their parameters so far, and
+`waitForCDP page event test` the first that satisfies a test, waiting for one if
+there is none yet.
+
+```haskell
+listenCDP page "Network.webSocketFrameReceived"
+_ :: Value <- cdp page "Network.enable" ()
+frame <- waitForCDP page "Network.webSocketFrameReceived" (const True)
+```
 
 ```haskell
 _ :: Value <- cdp page "WebAuthn.enable" ()
@@ -496,10 +610,10 @@ hspec's: hspec's own `focus` would otherwise meet the page's.
 ## Not here
 
 Written against the smoke tests it is to run, it leaves out what they do not
-use, and some of what they do: traces, video and other browsers;
-`exposeFunction` (a page calling the test; it would be one more kind of ask,
-answered with JSON); popups; a wait for a response (see the pauses above);
-and the mouse's buttons pressed and released apart.
+use, and some of what they do: traces, video and other browsers; a wait for a
+response of the page's own (see the pauses above; `waitForExchange` is one
+after the fact); taking an exposed function away; and the mouse's buttons
+pressed and released apart.
 
 ## Its own tests
 

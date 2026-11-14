@@ -46,8 +46,12 @@
 -- 'route' hands a page's or a context's requests matching a glob to a
 -- handler of the test's, which answers each ('Fulfill'), fails it
 -- ('Abort') or lets it go on ('Continue'), on a thread of its own, so it
--- may block. 'hold' is such a handler: requests wait until 'release', as
--- a test holds @app.wasm@ to look at the prerendered page first.
+-- may block; or sends it on to the server and looks at the response
+-- first ('fetchResponse', 'passThrough'). 'hold' is such a handler:
+-- requests wait until 'release', as a test holds @app.wasm@ to look at the
+-- prerendered page first. 'routeWith' and 'holdWith' take only some
+-- resource types or methods. 'exposeFunction' goes the other way: the
+-- page calls a function of the test's.
 --
 -- = The rest of the browser
 --
@@ -63,7 +67,11 @@
 -- 'browserProcesses' is the browser's processes and their memory.
 -- 'webSocketFrames' and 'waitForWebSocket' are what crossed the page's
 -- WebSockets; 'gotoStatus' is a navigation's status; 'screenshotWith'
--- takes the window alone.
+-- takes the window alone. 'listenCDP' keeps a DevTools event, for
+-- 'cdpEvents' and 'waitForCDP'. A context whose options say
+-- 'recordExchanges' keeps each request with its headers and body and its
+-- response ('exchanges', 'waitForExchange'). 'waitForPopup' is the page
+-- an action opened, and 'pages' a context's pages.
 --
 -- Functions are in 'MonadIO', and every failure is a 'PlaywrightError'
 -- (the driver's; a timeout's message is Playwright's, which names the
@@ -98,6 +106,8 @@ module Halogen.Playwright
   , closePage
   , withPage
   , pageContext
+  , pages
+  , waitForPopup
   , withTimeout
 
     -- * Going places
@@ -237,18 +247,31 @@ module Halogen.Playwright
   , Routed
   , Route
   , route
+  , RouteFilter (..)
+  , routeFilter
+  , routeWith
   , unroute
   , RoutedRequest (..)
+  , Asked
   , Answer (..)
   , Response (..)
   , fulfill
+  , fetchResponse
+  , passThrough
   , Gate
   , hold
+  , holdWith
   , release
   , heldCount
   , waitHeld
   , rearm
   , closeGate
+
+    -- * Functions the page calls
+
+    -- | A function of the test's that a page's JavaScript calls, as
+    -- @await window.name(argument)@.
+  , exposeFunction
 
     -- * Downloads
   , Download (..)
@@ -276,6 +299,9 @@ module Halogen.Playwright
   , dialogs
   , Request (..)
   , requests
+  , Exchange (..)
+  , exchanges
+  , waitForExchange
   , workers
   , BrowserProcess (..)
   , browserProcesses
@@ -283,6 +309,9 @@ module Halogen.Playwright
     -- * The Chrome DevTools Protocol
   , cdp
   , throttleCPU
+  , listenCDP
+  , cdpEvents
+  , waitForCDP
 
     -- * Pictures and print
   , screenshot
@@ -311,6 +340,7 @@ import Data.ByteString.Base64 qualified as Base64
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Foldable (find, toList)
 import Data.Maybe (fromMaybe, isJust)
+import Data.Sequence qualified as Seq
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
@@ -399,13 +429,19 @@ data ContextOptions = ContextOptions
   -- @beforeunload@ asking whether to leave) is accepted rather than
   -- dismissed. Either way it is answered at once, so a page never waits on
   -- one, and kept ('dialogs').
+  , recordExchanges :: Maybe Int
+  -- ^ Whether the context's requests are kept with what was sent and what
+  -- came back ('exchanges'), and the largest response body kept, in bytes:
+  -- @Just 65536@ keeps every exchange, and the bodies of up to 64 KiB.
+  -- Each costs the driver two more questions to the browser and the memory
+  -- of what it keeps, which is why it is off ('Nothing') unless asked.
   }
   deriving stock (Eq, Show)
 
 -- | No base address, Playwright's viewport and colour scheme, JavaScript
 -- on, online, service workers allowed, no permissions, a desktop's
 -- browser, motion not reduced, dialogs dismissed (as Playwright dismisses
--- them).
+-- them), exchanges not recorded.
 defaultContextOptions :: ContextOptions
 defaultContextOptions =
   ContextOptions
@@ -420,6 +456,7 @@ defaultContextOptions =
     , hasTouch = False
     , reducedMotion = False
     , acceptDialogs = False
+    , recordExchanges = Nothing
     }
 
 newContext :: (MonadIO m) => Playwright -> ContextOptions -> m Context
@@ -442,6 +479,7 @@ newContext pw o =
               , "hasTouch" .= o.hasTouch
               , "reducedMotion" .= o.reducedMotion
               , "acceptDialogs" .= o.acceptDialogs
+              , "recordExchanges" .= o.recordExchanges
               ]
         ]
 
@@ -477,10 +515,74 @@ addInitScript c script = liftIO (call c.playwright "addInitScript" ["context" .=
 requests :: (MonadIO m) => Context -> m [Request]
 requests c = liftIO (toList <$> contextRequests c.playwright c.handle)
 
+-- | The context's exchanges so far, in the order they ended, when its
+-- options record them ('recordExchanges'; none otherwise): each request
+-- with every header it was sent with (its cookies too, which 'requests'
+-- and a page's own view of the request leave out) and its body, and the
+-- response's status, headers and body. An exchange is kept once its
+-- response's body has been read, a moment after the page has the
+-- response: to look for one an action caused, 'waitForExchange'.
+--
+-- > saved <- waitForExchange ctx (\e -> e.method == "POST" && "/api/save" `Text.isSuffixOf` e.url)
+-- > saved.status `shouldBe` Just 200
+exchanges :: (MonadIO m) => Context -> m [Exchange]
+exchanges c = liftIO (toList <$> contextExchanges c.playwright c.handle)
+
+-- | The first of the context's exchanges, from its start, that satisfies
+-- the test, waiting for one if there is none yet, up to the options'
+-- timeout: as 'waitForConsole', one that ended before the call counts. On
+-- timeout the error lists the last exchanges kept (and says when the
+-- context records none).
+waitForExchange :: (MonadIO m) => Context -> (Exchange -> Bool) -> m Exchange
+waitForExchange c test = liftIO $ do
+  let ms = c.playwright.options.timeout
+  found <- waitForExchangeLog c.playwright c.handle ms (find test)
+  case found of
+    Just e -> pure e
+    Nothing -> do
+      seen <- toList <$> contextExchanges c.playwright c.handle
+      let shown = [e.method <> " " <> e.url <> maybe "" ((" " <>) . Text.pack . show) e.status | e <- drop (length seen - 10) seen]
+      throwIO $
+        PlaywrightError
+          "waitForExchange"
+          "TimeoutError"
+          ( "no exchange of the context's satisfied the test within "
+              <> Text.pack (show ms)
+              <> "ms; "
+              <> (if null seen then "none was kept (does the context's recordExchanges say to keep them?)" else "the last: " <> Text.intercalate "; " shown)
+          )
+
 newPage :: (MonadIO m) => Context -> m Page
 newPage c = liftIO $ do
   handle <- call c.playwright "newPage" ["context" .= c.handle]
   pure Page {playwright = c.playwright, handle, context = c.handle, callTimeout = Nothing}
+
+-- | The context's pages now, oldest first: those the test opened and those
+-- its pages opened ('waitForPopup'), until they close.
+pages :: (MonadIO m) => Context -> m [Page]
+pages c = liftIO $ do
+  handles <- call c.playwright "pages" ["context" .= c.handle]
+  pure [Page {playwright = c.playwright, handle, context = c.handle, callTimeout = Nothing} | handle <- handles]
+
+-- | Run an action that makes the page open another (@window.open@, a link
+-- with @target=_blank@, a sign-in window), and the page it opened, once it
+-- has loaded (its @load@) and settled, as after 'goto'. The wait is armed
+-- before the action, so that the popup cannot be missed; none within the
+-- page's timeout is a @TimeoutError@. The popup is a page of the same
+-- context, like any other: it has the probe and the context's init scripts,
+-- its routes and exposed functions, the options' throttle, its own console;
+-- it closes with the context, and takes the opener's timeout.
+--
+-- > (_, signIn) <- waitForPopup page (click (byRoleNamed page "button" "Sign in"))
+-- > fill (byLabel signIn "Name") "ada"
+waitForPopup :: (MonadIO m) => Page -> IO a -> m (a, Page)
+waitForPopup p action = liftIO $ do
+  armed :: Int <- onPage p "expectPopup" []
+  a <- action `onException` ignoringFailure (onPage p "forgetPopup" ["popup" .= armed] :: IO Value)
+  handle <- onPage p "awaitPopup" ["popup" .= armed]
+  pure (a, Page {playwright = p.playwright, handle, context = p.context, callTimeout = p.callTimeout})
+  where
+    ignoringFailure io = () <$ (try io :: IO (Either PlaywrightError Value))
 
 -- | The context a page is in: for what is the context's, which a test
 -- holding only the page (as 'Halogen.Playwright.Hspec.inPage' gives it)
@@ -543,9 +645,18 @@ visit p address = goto p address >> waitStarted p
 reload :: (MonadIO m) => Page -> m ()
 reload p = onPage p "reload" []
 
+-- | Go back one entry in the page's history, as the browser's Back
+-- button does, wait for what that entry was, and 'settle'. Every kind of
+-- entry returns: another document (its @load@ waited for, as 'goto'
+-- waits), a state the page pushed or a fragment (the same document, which
+-- has had its @popstate@ or @hashchange@ by the time the program is
+-- asked), and a frame's own navigation (that frame's @load@; the page does
+-- not load). No entry to go back to is a 'PlaywrightError' named
+-- @NoHistoryEntry@: a test that goes back expects to go somewhere.
 goBack :: (MonadIO m) => Page -> m ()
 goBack p = onPage p "goBack" []
 
+-- | 'goBack''s other way: forward one entry.
 goForward :: (MonadIO m) => Page -> m ()
 goForward p = onPage p "goForward" []
 
@@ -1147,7 +1258,14 @@ waitFor l s = on l "waitFor" ["state" .= stateName]
 -- | Poll a JavaScript expression in the page, at its animation frames,
 -- until it is truthy, up to the timeout. For what the page does by itself
 -- and not through its program, so that 'settle' does not wait for it: the
--- page's own frames, say.
+-- page's own frames, say. A navigation under the wait starts it again in
+-- the new document; what the expression throws is the call's error.
+--
+-- It works under a Content Security Policy that refuses @eval@ (no
+-- @'unsafe-eval'@), unlike Playwright's own @waitForFunction@, which
+-- compiles the expression in the page with @eval@: the expression is
+-- compiled with the loop that polls it, by the DevTools protocol, which
+-- the page's policy does not govern. So do the other waits of this module.
 --
 -- > waitForFunction page "document.querySelectorAll('li').length > 3"
 waitForFunction :: (MonadIO m) => Page -> Text -> m ()
@@ -1468,9 +1586,31 @@ data RoutedRequest = RoutedRequest
   -- ^ Playwright's name for what it is for: @document@, @script@,
   -- @fetch@, @image@, ...
   , headers :: [(Text, Text)]
+  -- ^ Playwright's @headers()@, documented to leave out @cookie@ and the
+  -- other headers the browser adds for its security (Chromium gives them
+  -- for a routed request all the same): 'allHeaders' has them all.
+  , allHeaders :: [(Text, Text)]
+  -- ^ Every header the browser sends it with, @cookie@ among them, each
+  -- name in lower case.
   , postData :: Maybe ByteString
+  , asked :: Asked
+  -- ^ The request as the driver holds it, for 'fetchResponse'.
   }
   deriving stock (Eq, Show)
+
+-- | A routed request as the driver holds it while its handler runs: what
+-- 'fetchResponse' sends on. Two are equal when they are the same ask.
+data Asked = Asked
+  { playwright :: Playwright
+  , number :: Int
+  , timeoutMs :: Int
+  }
+
+instance Eq Asked where
+  a == b = a.number == b.number
+
+instance Show Asked where
+  show a = "Asked " <> show a.number
 
 -- | What becomes of a routed request.
 data Answer
@@ -1502,6 +1642,52 @@ data Response = Response
 fulfill :: Int -> Maybe Text -> ByteString -> Answer
 fulfill status contentType body = Fulfill Response {status, headers = [], contentType, body}
 
+-- | Inside a route's handler: send the request on to the server, as it is,
+-- and the response, for the handler to look at, or to change, before it
+-- answers with it ('Fulfill'). The response's body is the one the page
+-- would read (decoded), so its headers leave out those that described the
+-- bytes on the wire (@content-length@, @content-encoding@,
+-- @transfer-encoding@); its media type is among its headers (the
+-- 'contentType' field is 'Nothing'), each name in lower case. A redirect is
+-- not followed: it is the response (its status 302, say, and its
+-- @location@), and the page follows it itself when the handler fulfils with
+-- it, so the page ends at the address it was sent to. The handler's
+-- route's timeout bounds it; a request whose route has gone meanwhile is a
+-- 'PlaywrightError'.
+--
+-- > _ <- route page "**/api/settings" $ \request -> do
+-- >   r <- fetchResponse request
+-- >   pure (Fulfill r {body = "{\"theme\": \"dark\"}"})
+fetchResponse :: (MonadIO m) => RoutedRequest -> m Response
+fetchResponse request = liftIO $ do
+  let a = request.asked
+  fetched <- call a.playwright "fetchRouted" ["ask" .= a.number, "timeout" .= a.timeoutMs]
+  case Aeson.Types.parseEither parser fetched of
+    Right r -> pure r
+    Left e -> throwIO (PlaywrightError "fetchResponse" "DecodeError" (Text.pack e))
+  where
+    parser = withObject "response" $ \o -> do
+      status <- o .: "status"
+      headers <- o .: "headers" >>= traverse headerPair
+      body <- o .: "body" >>= either (fail . ("body: " <>)) pure . Base64.decode . Text.encodeUtf8
+      pure Response {status, headers, contentType = Nothing, body}
+    headerPair = \case
+      [name, value] -> pure (name, value)
+      other -> fail ("a header is a name and a value: " <> show (other :: [Text]))
+
+-- | A route's handler that only looks: each request goes to the server
+-- ('fetchResponse'), the function is given it and its response, and the
+-- page gets the response as it came.
+--
+-- > seen <- newIORef []
+-- > _ <- route page "**/api/**" $ passThrough $ \request response ->
+-- >   atomicModifyIORef' seen (\rs -> (rs <> [(request.url, response.status)], ()))
+passThrough :: (RoutedRequest -> Response -> IO ()) -> RoutedRequest -> IO Answer
+passThrough look request = do
+  response <- fetchResponse request
+  look request response
+  pure (Fulfill response)
+
 -- | Hand a page's or a context's requests whose address matches a glob
 -- (Playwright's: @**@ any characters, @*@ any but @/@, @{a,b}@ either; a
 -- whole address, so @"**/app.wasm"@ or @"https://upload.wikimedia.org/**"@)
@@ -1519,34 +1705,79 @@ fulfill status contentType body = Fulfill Response {status, headers = [], conten
 -- When several routes match a request, the one added last is asked first,
 -- and its 'Continue' passes the request to the one before.
 route :: (Routed s, MonadIO m) => s -> Text -> (RoutedRequest -> IO Answer) -> m Route
-route s pattern handler = liftIO $ do
-  let (pw, context, target, _) = routedOn s
-  handle <- addRoute pw context target pattern (\request -> answerFields <$> (parseRequest request >>= handler))
-  pure Route {playwright = pw, handle, pattern}
+route s pattern = routeWith s (routeFilter pattern)
+
+-- | Which requests a route ('routeWith') or a gate ('holdWith') takes: those
+-- whose address matches the glob, and, when the lists are not empty, whose
+-- resource type and method are among them. The lists are decided by the
+-- driver before the test is asked, so a request they leave out costs
+-- nothing and is not seen by the handler at all: it goes on as if the
+-- route were not there.
+data RouteFilter = RouteFilter
+  { pattern :: Text
+  -- ^ As 'route' takes it.
+  , resourceTypes :: [Text]
+  -- ^ Playwright's names (@document@, @script@, @fetch@, @xhr@, @image@,
+  -- @stylesheet@, @font@, @media@, @websocket@, @other@, ...); none is
+  -- any.
+  , methods :: [Text]
+  -- ^ @GET@, @POST@, ..., in any case; none is any.
+  }
+  deriving stock (Eq, Show)
+
+-- | Every request whose address matches the glob, of any kind.
+routeFilter :: Text -> RouteFilter
+routeFilter pattern = RouteFilter {pattern, resourceTypes = [], methods = []}
+
+-- | 'route' for the requests a filter takes: an API's @fetch@ requests and
+-- not its images, its @POST@s and not its @GET@s.
+--
+-- > _ <- routeWith page (routeFilter "**/api/**") {methods = ["POST"]} (\_ -> pure (fulfill 503 Nothing ""))
+routeWith :: (Routed s, MonadIO m) => s -> RouteFilter -> (RoutedRequest -> IO Answer) -> m Route
+routeWith s f handler = liftIO $ do
+  let (pw, context, target, ms) = routedOn s
+      fields = ["resourceTypes" .= f.resourceTypes | not (null f.resourceTypes)] <> ["methods" .= f.methods | not (null f.methods)]
+  handle <- addRouteWith pw context target f.pattern fields (\ask request -> answerFields <$> (parseRequest (Asked pw ask ms) request >>= handler))
+  pure Route {playwright = pw, handle, pattern = f.pattern}
   where
-    parseRequest o = case Aeson.Types.parseEither parser o of
+    parseRequest asked o = case Aeson.Types.parseEither (parser asked) o of
       Right r -> pure r
       Left e -> throwIO (PlaywrightError "route" "DecodeError" (Text.pack e))
-    parser o = do
+    parser asked o = do
       headerMap <- o .: "headers"
+      allMap <- fromMaybe headerMap <$> o .:? "allHeaders"
       encoded <- o .:? "postData"
       postData <- traverse (either (fail . ("postData: " <>)) pure . Base64.decode . Text.encodeUtf8) encoded
       RoutedRequest
         <$> o .: "url"
         <*> o .: "method"
         <*> o .: "resourceType"
-        <*> pure [(Key.toText k, v) | (k, v) <- KeyMap.toList headerMap]
+        <*> pure (pairs headerMap)
+        <*> pure [(Text.toLower k, v) | (k, v) <- pairs allMap]
         <*> pure postData
+        <*> pure asked
+    pairs headerMap = [(Key.toText k, v) | (k, v) <- KeyMap.toList (headerMap :: KeyMap.KeyMap Text)]
     answerFields = \case
       Continue -> ["action" .= ("continue" :: Text)]
       Abort code -> ["action" .= ("abort" :: Text), "error" .= code]
       Fulfill r ->
         [ "action" .= ("fulfill" :: Text)
         , "status" .= r.status
-        , "headers" .= object [Key.fromText k .= v | (k, v) <- r.headers]
+        , "headers" .= headerObject r.headers
         , "contentType" .= r.contentType
         , "body" .= base64 r.body
         ]
+
+-- | Headers as Playwright takes them, an object: a name given more than
+-- once is one entry, its values joined as Playwright joins them (a
+-- @set-cookie@'s by a new line, which Playwright sends as that many
+-- headers; another's by a comma).
+headerObject :: [(Text, Text)] -> Value
+headerObject hs = object [Key.fromText name .= joined name [v | (k, v) <- hs, Text.toLower k == name] | name <- names]
+  where
+    names = nubOrdered (map (Text.toLower . fst) hs)
+    joined name = Text.intercalate (if name == "set-cookie" then "\n" else ", ")
+    nubOrdered = foldr (\n acc -> n : filter (/= n) acc) []
 
 -- | Take a route away. Its handlers under way are killed and their
 -- requests go on, as if the route had not been there, and later requests
@@ -1584,7 +1815,14 @@ data Gate = Gate
 -- > release gate
 -- > waitStarted page
 hold :: (Routed s, MonadIO m) => s -> Text -> m Gate
-hold s pattern = liftIO $ do
+hold s pattern = holdWith s (routeFilter pattern)
+
+-- | 'hold' for the requests a filter takes: an API's @fetch@ requests,
+-- while the page's images, which its @load@ waits for, go through.
+--
+-- > gate <- holdWith page (routeFilter "**/api/**") {resourceTypes = ["fetch"]}
+holdWith :: (Routed s, MonadIO m) => s -> RouteFilter -> m Gate
+holdWith s f = liftIO $ do
   open <- newTVarIO False
   waiting <- newTVarIO 0
   let (_, _, _, ms) = routedOn s
@@ -1594,7 +1832,7 @@ hold s pattern = liftIO $ do
           (atomically (modifyTVar' waiting (subtract 1)))
           (atomically (readTVar open >>= STM.check))
         pure Continue
-  r <- route s pattern held
+  r <- routeWith s f held
   pure Gate {route = r, open, waiting, timeoutMs = ms}
 
 -- | Let the held requests go on, and every later one pass straight
@@ -1631,6 +1869,30 @@ waitHeld g = liftIO $ do
   if held
     then pure ()
     else throwIO (PlaywrightError "waitHeld" "TimeoutError" ("no request matching " <> g.route.pattern <> " was held within " <> Text.pack (show g.timeoutMs) <> "ms"))
+
+----------------------------------------------------------------------
+-- Functions the page calls
+
+-- | Give a page (or every page of a context) a function of the test's, as
+-- @window[name]@: the page calls it with one argument and gets a promise
+-- of the result, both JSON (@await window.signIn({user: "ada"})@; no
+-- argument is @null@, and several go as an array or an object). As a
+-- route's handler, each call runs on a thread of its own, so the function
+-- may block, and the page's promise waits for it. What it throws (a
+-- decoding failure of the argument too) rejects the page's promise with
+-- its message; it is written to stderr and kept with the context, and
+-- "Halogen.Playwright.Hspec" adds it to a test's failure. It applies to the
+-- page as it is and to every document loaded after; the function is there
+-- until its page or context closes (there is no taking it away), and a
+-- call under way then is rejected.
+--
+-- > exposeFunction page "reportScore" $ \(score :: Int) -> writeIORef best score
+exposeFunction :: (Routed s, FromJSON a, ToJSON b, MonadIO m) => s -> Text -> (a -> IO b) -> m ()
+exposeFunction s name f = liftIO $ do
+  let (pw, context, target, _) = routedOn s
+  addExposed pw context target name $ \argument -> case Aeson.fromJSON argument of
+    Aeson.Success a -> toJSON <$> f a
+    Aeson.Error e -> throwIO (PlaywrightError "exposeFunction" "DecodeError" ("the argument of " <> name <> ": " <> Text.pack e))
 
 ----------------------------------------------------------------------
 -- Downloads
@@ -1790,6 +2052,50 @@ cdp p method params = onPage p "cdp" ["cdpMethod" .= method, "params" .= paramsO
       Aeson.Array a | null a -> object []
       Aeson.Null -> object []
       other -> other
+
+-- | Keep, from now on, every occurrence of a DevTools event on the page's
+-- session (the one 'cdp' calls on), with its parameters, for 'cdpEvents'
+-- and 'waitForCDP': the way the page's console is kept. Most events come
+-- only once their domain is enabled, by a call on the same session:
+--
+-- > listenCDP page "Network.webSocketFrameReceived"
+-- > _ :: Value <- cdp page "Network.enable" ()
+--
+-- Listening twice to an event is listening once.
+listenCDP :: (MonadIO m) => Page -> Text -> m ()
+listenCDP p event = onPage p "listenCDP" ["cdpEvent" .= event]
+
+-- | The parameters of every occurrence of the event kept so far ('listenCDP'),
+-- oldest first.
+cdpEvents :: (MonadIO m) => Page -> Text -> m [Value]
+cdpEvents p event = liftIO $ do
+  kept <- toList . (.cdpEvents) <$> pageLog p.playwright p.handle
+  pure [params | (name, params) <- kept, name == event]
+
+-- | The parameters of the first occurrence of the event, since 'listenCDP',
+-- that satisfy the test, waiting for one if there is none yet, up to the
+-- page's timeout: as 'waitForConsole', one that came before the call
+-- counts.
+--
+-- > sent <- waitForCDP page "Network.requestWillBeSent" (\v -> address `Text.isInfixOf` Text.pack (show v))
+waitForCDP :: (MonadIO m) => Page -> Text -> (Value -> Bool) -> m Value
+waitForCDP p event test = liftIO $ do
+  found <- waitForLog p.playwright p.handle (timeoutOf p) (find test . fmap snd . Seq.filter ((== event) . fst) . (.cdpEvents))
+  case found of
+    Just v -> pure v
+    Nothing -> do
+      seen <- length . Seq.filter ((== event) . fst) . (.cdpEvents) <$> pageLog p.playwright p.handle
+      throwIO $
+        PlaywrightError
+          "waitForCDP"
+          "TimeoutError"
+          ( "no "
+              <> event
+              <> " satisfied the test within "
+              <> Text.pack (show (timeoutOf p))
+              <> "ms; "
+              <> (if seen == 0 then "none came (is it listened to, with listenCDP, and its domain enabled?)" else Text.pack (show seen) <> " came")
+          )
 
 -- | Slow the page's processor down by a factor (1 is full speed again), as
 -- Chromium's DevTools do. 'throttle' in the options does this to every

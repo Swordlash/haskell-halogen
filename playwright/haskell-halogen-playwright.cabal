@@ -86,13 +86,19 @@ test-suite Halogen-playwright-test
     other-modules:    Test.Adoption
                       Test.DevTools
                       Test.Driver
+                      Test.Exchanges
+                      Test.Exposed
                       Test.Failures
                       Test.Files
                       Test.Frames
+                      Test.History
                       Test.Input
+                      Test.Policy
+                      Test.Popups
                       Test.Probe
                       Test.Routes
                       Test.Serve
+                      Test.Server
                       Test.Shared
                       Test.Sockets
                       Test.State

@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Calling the test</title></head>
+<body>
+  <!-- A page whose button asks a function of the test's, and shows what
+       came back or why it failed. -->
+  <button id="ask" onclick="ask()">ask</button>
+  <p id="answer"></p>
+  <script>
+    async function ask() {
+      const answer = document.getElementById("answer");
+      try {
+        answer.textContent = String(await window.double(21));
+      } catch (error) {
+        answer.textContent = "failed: " + error.message;
+      }
+    }
+  </script>
+</body>
+</html>

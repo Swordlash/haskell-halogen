@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>An API</title></head>
+<body>
+  <!-- A page that loads an image of the API's and asks the API for data
+       as it loads: a hold of the API's fetch requests must hold the one
+       and let the other through, or the page's load never comes. -->
+  <img id="pic" src="api/pic.png" alt="">
+  <p id="data">waiting</p>
+  <script>
+    fetch("api/data", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => { document.getElementById("data").textContent = d.data; },
+            () => { document.getElementById("data").textContent = "failed"; });
+  </script>
+</body>
+</html>

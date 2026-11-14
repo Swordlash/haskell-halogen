@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Under a policy</title></head>
+<body>
+  <!-- Served with Content-Security-Policy: script-src 'self' (the
+       server's ?csp): only csp.js runs. The inline script is refused,
+       which tells a test the policy is in force. -->
+  <p id="state">idle</p>
+  <button id="slow">slow</button>
+  <button id="later">soon</button>
+  <button id="wait">wait</button>
+  <a id="away" href="second.html">away</a>
+  <p id="shown" hidden>shown</p>
+  <script>window.inline = true;</script>
+  <script src="csp.js"></script>
+</body>
+</html>

@@ -19,26 +19,45 @@
 //   {"event": "closed", "page": 2}
 //   {"event": "request", "context": 1, "url": "...", "method": "GET", "resourceType": "script"}
 //   {"event": "requestfailed", "context": 1, "url": "...", "method": "GET", "failure": "net::ERR_FAILED"}
-//   {"event": "unrouted", "routes": [3, 4]}  these routes went with their page
-//                                            or context; no ask of theirs is
-//                                            waiting for an answer any more
+//   {"event": "exchange", "context": 1, "url": "...", "method": "POST", "resourceType": "fetch",
+//    "requestHeaders": [["cookie", "..."], ...], "postData": "<base64>" | null,
+//    "status": 200 | null, "responseHeaders": [[name, value], ...],
+//    "responseBody": "<base64>" | null, "failure": "net::..." | null}
+//                                            a request of a context that records
+//                                            its exchanges, once it has ended
+//   {"event": "cdp", "page": 2, "name": "Network.requestWillBeSent", "params": {...}}
+//                                            a DevTools event the test listens to
+//   {"event": "unrouted", "routes": [3, 4]}  these routes (or exposed functions)
+//                                            went with their page or context; no
+//                                            ask of theirs is waiting for an
+//                                            answer any more
 // node to Haskell, a question, which Haskell answers once:
 //   {"ask": 12, "route": 3, "request": {"url": "...", "method": "GET", "resourceType": "fetch",
-//                                       "headers": {...}, "postData": "<base64>" | null}}
+//                                       "headers": {...}, "allHeaders": {...}, "postData": "<base64>" | null}}
+//   {"ask": 13, "exposed": 5, "argument": <JSON>}   the page called a function the test exposed
 // Haskell to node, its answer:
 //   {"answer": 12, "action": "continue"}
 //   {"answer": 12, "action": "fulfill", "status": 200, "headers": {...}, "contentType": "..." | null, "body": "<base64>"}
 //   {"answer": 12, "action": "abort", "error": "connectionrefused"}
+//   {"answer": 13, "result": <JSON>}                 the page's promise resolved with it
+//   {"answer": 13, "error": "..."}                   the page's promise rejected with it
+// While a route's ask waits for its answer, Haskell may call "fetchRouted"
+// with the ask's number: the request is sent to the server, and the reply is
+// the response (status, headers, body), which the handler then looks at or
+// changes before it answers "fulfill" with it.
 // Messages are told apart by their keys: "id" (a call, or its reply),
 // "event", "ask" and "answer". Bytes cross as base64.
 //
-// A route's id is chosen by Haskell, which registers its handler before it
-// calls "route", so that no ask can arrive for a route Haskell does not
-// know. An ask waits here until its answer comes, or until its route goes
-// (unrouted by Haskell, or with its page or context), whichever is first:
-// then the request is let go on as if the route had not been there, and an
-// answer that comes later is ignored. So neither side is ever left waiting
-// for the other.
+// A route's id (and an exposed function's) is chosen by Haskell, which
+// registers its handler before it calls "route" ("expose"), so that no ask
+// can arrive for a route Haskell does not know. A route may carry
+// "resourceTypes" and "methods": a request of another kind is passed on here
+// without asking Haskell. An ask waits here until its answer comes, or until
+// its route goes (unrouted by Haskell, or with its page or context),
+// whichever is first: then the request is let go on as if the route had not
+// been there (an exposed function's call is rejected), and an answer that
+// comes later is ignored. So neither side is ever left waiting for the
+// other.
 //
 // Nothing else writes to stdout: console.log is sent to stderr, which the
 // Haskell side relays. When stdin ends, the browser is closed and node
@@ -118,8 +137,51 @@ try {
 const contexts = new Map();
 const pages = new Map();
 let nextHandle = 1;
-// The downloads being waited for, by the number expectDownload gave.
+// The downloads being waited for, by the number expectDownload gave; the
+// popups, by the number expectPopup gave.
 const downloads = new Map();
+const popups = new Map();
+// The DevTools events listened to, by page.
+const listening = new WeakMap();
+
+// A context's exchanges, recorded when the context's options ask for it:
+// each request once it has ended (finished, or failed), with every header
+// it was sent with (cookies included, which requests leave out), its body,
+// and the response: status, headers, and its body when it is at most the
+// limit's bytes (none for a redirect). Reading the request's actual headers
+// and the response's body is a round trip to the browser each, which is why
+// a context only does this when asked.
+const recordExchanges = (context, id, limit) => {
+  const record = async (request, failure) => {
+    const exchange = {
+      event: "exchange",
+      context: id,
+      url: request.url(),
+      method: request.method(),
+      resourceType: request.resourceType(),
+      requestHeaders: headerList(await request.headersArray().catch(() => [])),
+      postData: request.postDataBuffer()?.toString("base64") ?? null,
+      status: null,
+      responseHeaders: [],
+      responseBody: null,
+      failure,
+    };
+    if (failure === null) {
+      const response = await request.response().catch(() => null);
+      if (response) {
+        exchange.status = response.status();
+        exchange.responseHeaders = headerList(await response.headersArray().catch(() => []));
+        const body = await response.body().catch(() => null);
+        if (body !== null && body.length <= limit) exchange.responseBody = body.toString("base64");
+      }
+    }
+    send(exchange);
+  };
+  const recording = (request, failure) =>
+    record(request, failure).catch((error) => process.stderr.write(`haskell-halogen-playwright: recording ${request.url()}: ${error?.message ?? error}\n`));
+  context.on("requestfinished", (request) => recording(request, null));
+  context.on("requestfailed", (request) => recording(request, request.failure()?.errorText ?? ""));
+};
 
 const contextOf = (id) => {
   const context = contexts.get(id);
@@ -132,8 +194,34 @@ const pageOf = (id) => {
   return page;
 };
 
+// Every page of every context, the ones the test opens and the ones a page
+// opens (popups), gets a handle, is watched (its console, its errors), and
+// is slowed down by the options' throttle, as soon as it is seen: the
+// context's "page" event, or newPage's result, whichever comes first. A
+// page's entry is {id, ready}: ready is the throttle applied.
+const known = new WeakMap();
+const register = (page) => {
+  let entry = known.get(page);
+  if (entry) return entry;
+  const id = nextHandle++;
+  pages.set(id, page);
+  if (page.context().halogenScriptless) scriptless.add(page);
+  watch(id, page);
+  // The options' processor throttle, before the page loads anything (for a
+  // popup, as soon as it is seen).
+  const ready = options.throttle
+    ? sessionOf(page).then((session) => session.send("Emulation.setCPUThrottlingRate", { rate: options.throttle }))
+    : Promise.resolve();
+  ready.catch(() => {});
+  entry = { id, ready };
+  known.set(page, entry);
+  return entry;
+};
+
 // Every page of every context gets the probe before any of its scripts
-// runs, so that a Halogen program in it answers (Halogen.Activity).
+// runs, so that a Halogen program in it answers (Halogen.Activity). An init
+// script is the DevTools protocol's (Page.addScriptToEvaluateOnNewDocument),
+// which a page's Content Security Policy does not govern.
 const probeScript = () => {
   if (globalThis.__halogenProbe === undefined) globalThis.__halogenProbe = {};
 };
@@ -230,7 +318,9 @@ const settle = async (page, { quiet = false, timeout: ms = timeout } = {}) => {
       silent(page, ms),
     );
   } catch (error) {
-    if (navigatedAway(error)) return null;
+    // The document went, or the page itself did: a sign-in window that
+    // closes itself as the click that signs in is handled.
+    if (navigatedAway(error) || page.isClosed()) return null;
     throw error;
   }
   if (outcome.timedOut) {
@@ -289,6 +379,85 @@ const activity = async (page, ms = timeout) => {
   }
 };
 
+// A predicate polled in the page at its animation frames until it is
+// truthy, up to the call's timeout. Playwright's own waitForFunction
+// compiles the predicate in the page with eval, which a Content Security
+// Policy without 'unsafe-eval' refuses (an uncaught EvalError, and a wait
+// that never ends); here the loop and the predicate are one function
+// compiled in node and sent as Playwright sends any function, through the
+// DevTools protocol, which the page's policy does not govern. A navigation
+// under the wait starts it again in the new document, as Playwright's does;
+// what the predicate throws is the call's error.
+const pollInPage = async (page, source, argument, ms, what) => {
+  const deadline = Date.now() + ms;
+  const poll = functionOf(
+    `async ({ argument, deadline }) => {
+      const predicate = (${source}
+);
+      const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+      for (;;) {
+        // An asynchronous predicate is waited for, as Playwright's wait
+        // does: a promise is truthy whatever it will say. What it says
+        // after the deadline comes too late to count.
+        const held = await predicate(argument);
+        if (Date.now() > deadline) return false;
+        if (held) return true;
+        await frame();
+      }
+    }`,
+  );
+  for (;;) {
+    let done;
+    try {
+      done = await answeredWithin(Math.max(0, deadline - Date.now()) + 1000, page.evaluate(poll, { argument, deadline }), silent(page, ms));
+    } catch (error) {
+      if (!navigatedAway(error)) throw error;
+      done = false;
+    }
+    if (done) return null;
+    if (Date.now() > deadline) throw timeoutError(`${what} was not truthy in ${page.url()} within ${ms}ms`);
+  }
+};
+
+// Going back or forward in the page's history, by one entry: the page's
+// own, or one of a frame's navigations, which Back undoes in that frame
+// alone. Playwright's goBack waits for the main frame to navigate, and so
+// never returns when the entry is a frame's; here the history is the
+// DevTools protocol's (the joint history, frames' entries included, as
+// Playwright's own goBack reads it), and the call waits for whichever frame
+// navigates: for its load, when it loads a document, or for nothing more
+// when the traversal stays in its document (pushState, a fragment), where
+// the page has had its popstate or hashchange by then. Then it settles.
+// No entry to go to is an error (NoHistoryEntry), not a call that does
+// nothing: a test that goes back expects to go somewhere.
+const traverse = (delta) => async (m) => {
+  const page = pageOf(m.page);
+  const ms = within(m);
+  const session = await sessionOf(page);
+  const { currentIndex, entries } = await session.send("Page.getNavigationHistory");
+  const entry = entries[currentIndex + delta];
+  const way = delta < 0 ? "back" : "forward";
+  if (!entry) {
+    throw Object.assign(new Error(`there is no entry to go ${way} to in the history of ${page.url()}`), { name: "NoHistoryEntry" });
+  }
+  let listener;
+  // Armed before the traversal, so that its navigation cannot be missed.
+  // The load state is asked as the navigation is reported, when Playwright
+  // has forgotten the old document's load and not yet seen the new one's.
+  const navigated = new Promise((resolve) => {
+    listener = (frame) => resolve(frame.waitForLoadState("load", { timeout: ms }));
+    page.on("framenavigated", listener);
+  });
+  try {
+    await session.send("Page.navigateToHistoryEntry", { entryId: entry.id });
+    await answeredWithin(ms, navigated, () => `going ${way} in ${page.url()}: no frame navigated within ${ms}ms`);
+  } finally {
+    page.off("framenavigated", listener);
+  }
+  await settle(page, { timeout: ms });
+  return null;
+};
+
 const watch = (id, page) => {
   // With where it was written: the frame's document or script, which tells a
   // frame's message from the page's. Playwright gives an empty address when
@@ -344,25 +513,44 @@ const sessionOf = (page) => {
 
 // Routes: the test's handlers for a page's or a context's requests. Each
 // matching request is asked of Haskell, and waits for its answer (see the
-// header). An entry is {page, context, target, pattern, handler, asks}.
+// header). An entry is {id, kind, page, context, target, pattern,
+// resourceTypes, methods, handler, asks, gone}. The functions a test exposes
+// to its pages are entries of the same map, of the kind "exposed", so that
+// they go with their page or context as routes do.
 const routes = new Map();
 const asks = new Map();
 let nextAsk = 1;
 
 // An ask that will get no answer from Haskell: the request goes on as if
 // the route had not been there (to the next route that matches, or the
-// network). On a page or context that has closed this fails, which is
-// nothing to wait for.
+// network); an exposed function's call is rejected. On a page or context
+// that has closed this fails, which is nothing to wait for.
 const letGo = (ask) => {
   asks.delete(ask.id);
   ask.entry.asks.delete(ask.id);
+  if (ask.entry.kind === "exposed") {
+    ask.reject(new Error(`the test's function ${ask.entry.pattern} is gone`));
+    return;
+  }
   ask.route.fallback().catch(() => {});
   ask.resolve();
 };
 
-const routeHandler = (entry) => (route) =>
-  new Promise((resolve) => {
-    const request = route.request();
+// Whether a route asks about a request: its resource types and methods, when
+// it has them, are decided here, so that a request of another kind costs
+// nothing but a fallback.
+const wanted = (entry, request) =>
+  (entry.resourceTypes == null || entry.resourceTypes.includes(request.resourceType())) &&
+  (entry.methods == null || entry.methods.includes(request.method().toUpperCase()));
+
+const routeHandler = (entry) => async (route) => {
+  const request = route.request();
+  if (!wanted(entry, request)) return route.fallback();
+  // Every header the browser sends, cookies included: Playwright documents
+  // headers() as leaving those out (Chromium gives them for a routed request
+  // all the same). For a routed request they are known at once.
+  const allHeaders = await request.allHeaders().catch(() => request.headers());
+  return new Promise((resolve) => {
     const ask = { id: nextAsk++, entry, route, resolve };
     if (entry.gone) return letGo(ask);
     asks.set(ask.id, ask);
@@ -375,10 +563,27 @@ const routeHandler = (entry) => (route) =>
         method: request.method(),
         resourceType: request.resourceType(),
         headers: request.headers(),
+        allHeaders,
         postData: request.postDataBuffer()?.toString("base64") ?? null,
       },
     });
   });
+};
+
+// A function the page calls, answered by Haskell: each call is an ask, and
+// the page's promise settles with the answer.
+const exposedHandler = (entry) => (_source, argument) =>
+  new Promise((resolve, reject) => {
+    const ask = { id: nextAsk++, entry, resolve, reject };
+    if (entry.gone) return letGo(ask);
+    asks.set(ask.id, ask);
+    entry.asks.add(ask.id);
+    send({ ask: ask.id, exposed: entry.id, argument: argument === undefined ? null : argument });
+  });
+
+// The headers of a response, in order, each name in lower case: a list, as
+// a header may come more than once (set-cookie).
+const headerList = (headers) => headers.map(({ name, value }) => [name.toLowerCase(), value]);
 
 // Haskell's answer to an ask. One for an ask that has gone (its route was
 // removed, its page closed) is ignored.
@@ -387,6 +592,11 @@ const answered = (message) => {
   if (!ask) return;
   asks.delete(ask.id);
   ask.entry.asks.delete(ask.id);
+  if (ask.entry.kind === "exposed") {
+    if (message.error != null) ask.reject(new Error(message.error));
+    else ask.resolve(message.result);
+    return;
+  }
   const { route } = ask;
   let done;
   if (message.action === "fulfill") {
@@ -426,12 +636,33 @@ const dropRoutes = (which) => {
   if (gone.length > 0) send({ event: "unrouted", routes: gone });
 };
 
+// Whether an action failed only because it closed its own page: a sign-in
+// window's button, whose click posts to the opener and closes the window.
+// Playwright performs the click and then waits for what the click set off,
+// and when the page goes under that wait it complains that its target has
+// closed, some of the time (a race between the click's acknowledgement and
+// the page's going). The action was performed, which its log says, so that
+// is no failure. A page that closes before the action is performed (while
+// it waits for a disabled button, say) is one: the log has no such line.
+const performedAsPageClosed = (page, error) => {
+  const message = String(error?.message ?? "");
+  return page.isClosed() && /Target page, context or browser has been closed/.test(message) && /performing \w+ action/.test(message);
+};
+
 // An action on a locator, then settle. The action is given Playwright's
 // options with the call's timeout.
+// The page is taken before the action, which may close it (a sign-in
+// window's button): settling a page that has closed is nothing to do.
 const acting = (act) => async (m) => {
+  const page = pageOf(m.locator.page);
   const target = locate(m.locator);
-  await act(target, m, { timeout: within(m) });
-  await settle(pageOf(m.locator.page), { timeout: within(m) });
+  try {
+    await act(target, m, { timeout: within(m) });
+  } catch (error) {
+    if (!performedAsPageClosed(page, error)) throw error;
+    return null;
+  }
+  await settle(page, { timeout: within(m) });
   return null;
 };
 // An action on a page, then settle.
@@ -471,6 +702,8 @@ const methods = {
     const id = nextHandle++;
     contexts.set(id, context);
     context.on("close", () => dropRoutes((entry) => entry.context === id));
+    // Every page as it appears, a popup too (see register).
+    context.on("page", register);
     // Every request of the context's, as it is made: its pages' and their
     // workers', whose requests are the context's and not always a page's.
     context.on("request", (request) =>
@@ -480,6 +713,7 @@ const methods = {
     context.on("requestfailed", (request) =>
       send({ event: "requestfailed", context: id, url: request.url(), method: request.method(), failure: request.failure()?.errorText ?? "" }),
     );
+    if (o.recordExchanges != null) recordExchanges(context, id, o.recordExchanges);
     return id;
   },
   async addInitScript(m) {
@@ -494,16 +728,16 @@ const methods = {
     return null;
   },
   async newPage(m) {
-    const context = contextOf(m.context);
-    const page = await context.newPage();
-    if (context.halogenScriptless) scriptless.add(page);
-    const id = nextHandle++;
-    pages.set(id, page);
-    watch(id, page);
-    // The options' processor throttle, on every page as it is made, before
-    // it loads anything.
-    if (options.throttle) await (await sessionOf(page)).send("Emulation.setCPUThrottlingRate", { rate: options.throttle });
+    const page = await contextOf(m.context).newPage();
+    const { id, ready } = register(page);
+    await ready;
     return id;
+  },
+  // The context's pages now, those its pages opened included, oldest first.
+  async pages(m) {
+    return contextOf(m.context)
+      .pages()
+      .map((page) => register(page).id);
   },
   async closePage(m) {
     const page = pages.get(m.page);
@@ -531,8 +765,8 @@ const methods = {
     return response ? response.status() : null;
   },
   reload: pageActing((page, _, o) => page.reload({ ...o, waitUntil: "load" }).then(() => null)),
-  goBack: pageActing((page, _, o) => page.goBack({ ...o, waitUntil: "load" }).then(() => null)),
-  goForward: pageActing((page, _, o) => page.goForward({ ...o, waitUntil: "load" }).then(() => null)),
+  goBack: traverse(-1),
+  goForward: traverse(1),
   async url(m) {
     return pageOf(m.page).url();
   },
@@ -626,16 +860,15 @@ const methods = {
     return result === undefined ? null : result;
   },
   // An expression polled in the page, at its animation frames, until it is
-  // truthy.
+  // truthy (pollInPage). As Playwright's, an expression whose value is a
+  // function is called, and that is polled.
   async waitForFunction(m) {
-    await pageOf(m.page).waitForFunction(m.expression, undefined, { timeout: within(m) });
-    return null;
+    const predicate = `() => { const value = (${m.expression}\n); return typeof value === "function" ? value() : value; }`;
+    return await pollInPage(pageOf(m.page), predicate, null, within(m), `the expression ${m.expression}`);
   },
-  // An expression's function, polled as waitForFunction's, with an
-  // argument.
+  // A function polled as waitForFunction's expression, with an argument.
   async waitForFunctionWith(m) {
-    await pageOf(m.page).waitForFunction(functionOf(m.function), m.argument, { timeout: within(m) });
-    return null;
+    return await pollInPage(pageOf(m.page), m.function, m.argument, within(m), `the function ${m.function}`);
   },
   // A function called in the page with the locator's element (waited for)
   // and the argument.
@@ -670,7 +903,18 @@ const methods = {
   // Routes (see the header).
   async route(m) {
     const target = m.page != null ? pageOf(m.page) : contextOf(m.context);
-    const entry = { id: m.route, page: m.page ?? null, context: m.context, target, pattern: m.pattern, asks: new Set(), gone: false };
+    const entry = {
+      id: m.route,
+      kind: "route",
+      page: m.page ?? null,
+      context: m.context,
+      target,
+      pattern: m.pattern,
+      resourceTypes: m.resourceTypes ?? null,
+      methods: m.methods?.map((method) => method.toUpperCase()) ?? null,
+      asks: new Set(),
+      gone: false,
+    };
     entry.handler = routeHandler(entry);
     routes.set(entry.id, entry);
     try {
@@ -694,15 +938,109 @@ const methods = {
     await entry.target.unroute(entry.pattern, entry.handler, { behavior: "ignoreErrors" }).catch(() => {});
     return null;
   },
+  // A routed request sent on to the server, while its ask waits: the
+  // response, for the handler to look at or change before it answers. The
+  // body is the one the page would read, decoded, so the headers that
+  // described the bytes on the wire (their length, their encoding) are left
+  // out: fulfilled with another body, they would be wrong. A redirect is
+  // not followed here: it is the response, which the page follows itself
+  // when the handler fulfils with it, so that its address is the one it
+  // was sent to (Playwright's fetch would follow it, and the page would
+  // show the last response at the first address). The response is
+  // Playwright's to keep until its context closes unless it is disposed
+  // of, so it is, once copied.
+  async fetchRouted(m) {
+    const ask = asks.get(m.ask);
+    if (!ask?.route) {
+      throw Object.assign(new Error(`the request ${m.ask} is no longer the route's to fetch: its route, its page or its context went`), { name: "ClosedError" });
+    }
+    const response = await ask.route.fetch({ timeout: within(m), maxRedirects: 0 });
+    const hop = new Set(["content-length", "content-encoding", "transfer-encoding"]);
+    try {
+      return {
+        status: response.status(),
+        headers: headerList(response.headersArray()).filter(([name]) => !hop.has(name)),
+        body: (await response.body()).toString("base64"),
+      };
+    } finally {
+      await response.dispose().catch(() => {});
+    }
+  },
+
+  // A function of the test's that the context's or a page's pages call as
+  // window[name], each call an ask (see the header).
+  async expose(m) {
+    const target = m.page != null ? pageOf(m.page) : contextOf(m.context);
+    const entry = { id: m.exposed, kind: "exposed", page: m.page ?? null, context: m.context, target, pattern: m.name, asks: new Set(), gone: false };
+    routes.set(entry.id, entry);
+    try {
+      await target.exposeBinding(m.name, exposedHandler(entry));
+    } catch (error) {
+      routes.delete(entry.id);
+      throw error;
+    }
+    return null;
+  },
+
+  // Popups: armed before the action that opens one, as downloads are, and
+  // awaited after it: the page's handle, once it has loaded and settled.
+  async expectPopup(m) {
+    const id = nextHandle++;
+    const waiting = pageOf(m.page).waitForEvent("popup", { timeout: within(m) });
+    // A popup that came is kept until awaitPopup takes it (or forgetPopup,
+    // when the action failed), however long the action goes on after it
+    // opened. A wait that ended with its timeout is kept a minute, for
+    // awaitPopup to say so, and its rejection is nobody's otherwise.
+    waiting.then(
+      () => {},
+      () => setTimeout(() => popups.delete(id), 60000).unref(),
+    );
+    popups.set(id, waiting);
+    return id;
+  },
+  async awaitPopup(m) {
+    const waiting = popups.get(m.popup);
+    popups.delete(m.popup);
+    if (!waiting) throw new Error(`no popup ${m.popup} is expected`);
+    const popup = await waiting;
+    const { id, ready } = register(popup);
+    await ready;
+    await popup.waitForLoadState("load", { timeout: within(m) });
+    await settle(popup, { timeout: within(m) });
+    return id;
+  },
+  async forgetPopup(m) {
+    popups.delete(m.popup);
+    return null;
+  },
+
+  // A DevTools event of the page's session, sent to Haskell each time it
+  // comes, from now on. Listening twice to one event is listening once.
+  async listenCDP(m) {
+    const page = pageOf(m.page);
+    const session = await sessionOf(page);
+    let heard = listening.get(page);
+    if (!heard) listening.set(page, (heard = new Set()));
+    if (!heard.has(m.cdpEvent)) {
+      heard.add(m.cdpEvent);
+      session.on(m.cdpEvent, (params) => send({ event: "cdp", page: m.page, name: m.cdpEvent, params: params ?? null }));
+    }
+    return null;
+  },
 
   // Downloads: armed before the action that causes one, so that it cannot
   // be missed, and awaited after it.
   async expectDownload(m) {
     const id = nextHandle++;
     const waiting = pageOf(m.page).waitForEvent("download", { timeout: within(m) });
-    // A wait nobody comes back for (the action failed) ends with its
-    // timeout; its rejection is nobody's.
-    waiting.catch(() => {}).finally(() => setTimeout(() => downloads.delete(id), 60000).unref());
+    // A download that started is kept until awaitDownload takes it (or
+    // forgetDownload, when the action failed), however long the action
+    // goes on after it. A wait nobody comes back for ends with its timeout
+    // and is kept a minute; its rejection is nobody's.
+    waiting.then(
+      () => {},
+      () => setTimeout(() => downloads.delete(id), 60000).unref(),
+    );
     downloads.set(id, waiting);
     return id;
   },

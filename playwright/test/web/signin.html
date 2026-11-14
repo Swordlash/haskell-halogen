@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Sign in</title></head>
+<body>
+  <!-- A sign-in window: it tells its opener who signed in, and closes. -->
+  <label for="who">Name</label>
+  <input id="who">
+  <button id="go" onclick="opener.postMessage(document.getElementById('who').value, '*'); window.close()">Sign in</button>
+</body>
+</html>
