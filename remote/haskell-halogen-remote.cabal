@@ -107,6 +107,7 @@ test-suite Halogen-remote-test
     other-modules:
       Test.Components
       Test.Operations
+      Test.Page
       Test.Probe
       Test.Protocol
       Test.Recorder
@@ -114,10 +115,12 @@ test-suite Halogen-remote-test
       Test.Session
     build-depends:
         aeson,
+        containers,
         hspec >= 2,
         protolude,
         row-types,
         text,
+        unliftio,
         haskell-halogen-core,
         haskell-halogen-jsbits,
         haskell-halogen-remote,
@@ -152,6 +155,7 @@ test-suite Halogen-remote-live-test
         row-types,
         stm,
         text,
+        unliftio,
         warp,
         haskell-halogen-core,
         haskell-halogen-playwright,

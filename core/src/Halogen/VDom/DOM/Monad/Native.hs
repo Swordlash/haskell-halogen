@@ -207,6 +207,9 @@ handleOf node = withNativeObject object (toForeign node)
         , get = \name -> case node.kind of
             DocumentNode | name == "document" -> Just (handleOf node)
             _ -> Nothing
+        , -- It keeps no address and no other value a browser would have:
+          -- every changing member reads inert.
+          live = \_ -> pure Nothing
         , instanceOf = \klass -> case node.kind of
             ElementNode ns name -> elementInstanceOf ns name klass
             TextNode -> klass `elem` ["EventTarget", "Node", "CharacterData", "Text"]

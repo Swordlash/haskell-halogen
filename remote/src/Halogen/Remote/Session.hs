@@ -33,9 +33,9 @@
 --   performs from an allowlist ("Halogen.Remote.Protocol"), in the batch
 --   being recorded (a render's, after the operations that made the node, or
 --   the next). What only the page can answer cannot cross in time, and a
---   read keeps its inert answer: measuring, @document.activeElement@, a
---   dialog's @open@ (which Escape changes in the page), the clipboard, a
---   canvas, a method with a result. Anything off the allowlist, and a call
+--   read keeps its inert answer, but for the page's address (below):
+--   measuring, @document.activeElement@, a dialog's @open@ (which Escape
+--   changes in the page), the clipboard, a canvas, a method with a result. Anything off the allowlist, and a call
 --   on a node the session has forgotten, does nothing.
 -- * What a handler decides comes too late for the page: the page has
 --   finished with an event before the program hears of it, so
@@ -61,6 +61,22 @@
 --   @value@ only when it differs from what the element holds, so text being
 --   typed is not undone, and every event reports the values of its target's
 --   form controls, which the mirror takes as the element's.
+-- * The page's address and its stores cross, as a mirror the client keeps
+--   up to date: the page says first where it is and what its stores hold of
+--   this library's items, and then where it is whenever it goes back or
+--   forward, and what another tab changed ("Halogen.Remote.Protocol"). The
+--   window's @location@ reads the mirror, its @history@'s @pushState@,
+--   @replaceState@, @back@, @forward@ and @go@ are carried out by the page
+--   (the mirror moving at once for the first two), and the storage methods
+--   of 'Halogen.VDom.DOM.Monad.MonadBrowserDOM' read the mirror and have the
+--   page write: a "Halogen.Router" made in the session's monad routes the
+--   page, and what "Web.Storage.Storage" keeps is the page's own, which
+--   outlives the session. Only the library's items cross (a key under core's
+--   @haskell-halogen:@ prefix); any other key reads as absent. The state a
+--   push is given is not sent (the page's entries get @null@), and a write
+--   the page refuses (its quota, its storage denied) is logged there and not
+--   heard of here. A window's other reads (scroll restoration, its size) and
+--   IndexedDB do not cross.
 -- * The client starts empty: a page is not hydrated from HTML rendered
 --   ahead of the program.
 --
@@ -279,16 +295,26 @@ isMounted session = isJust <$> readIORef session.mounted
 
 -- | A message from the client: an event for one of the component's
 -- listeners, which runs on the caller's thread and hands its action to the
--- component's loop, as a page's callback does; or a question of the
--- probe's, which the sender answers in its turn (see
--- "Halogen.Remote.Protocol"). A message that is neither, or an event that
--- comes for a listener the component has since taken away, is dropped.
+-- component's loop, as a page's callback does; a question of the probe's,
+-- which the sender answers in its turn; or what the session keeps of the
+-- page changing: the page's first message, its address, its stores (see
+-- "Halogen.Remote.Protocol"). A message that is none of these, or an event
+-- that comes for a listener the component has since taken away, is
+-- dropped.
+--
+-- The page's first message ('Halogen.Remote.Protocol.Hello') should be
+-- handed to the session before the component is mounted, as
+-- "Halogen.Remote.Server" does: what the component reads of the page's
+-- address and stores as it starts is what the session knows then.
 receive :: Session -> Text -> IO ()
 receive session text = for_ (decodeFromPage text) $ \case
   PageEvent message -> do
     event <- eventOf message
     Internal.deliver session.recorder message event
   ProbeQuestion question -> asked session question
+  PageHello hello -> Internal.greet session.recorder hello
+  PageLocation href -> Internal.moved session.recorder href
+  PageStorage kind key value -> Internal.storageChanged session.recorder kind key value
 
 -- | Queue a question for the sender, after the batch that will take what is
 -- recorded now, if anything is, and after the batch being sent.

@@ -24,6 +24,10 @@
 -- > ["options", node, type, listener, options] what the listener's handler declared
 -- > ["call", node, method, [arguments]]       call one of the node's methods
 -- > ["set", node, name, value]                 assign one of its properties
+-- > ["history", "push", address]               history.pushState(null, "", address)
+-- > ["history", "replace", address]            history.replaceState(null, "", address)
+-- > ["history", "go", n]                       history.go(n)
+-- > ["storage", store, key, value]             write an item ("local" or "session"; null removes it)
 --
 -- Node 0 is the window (what the component's program knows as both the
 -- window and the document) and node 1 the container the client attached
@@ -85,7 +89,60 @@
 -- link clicked to start a download, with the address the same action gave
 -- it, then hidden; a form submitted with a field that is then taken away).
 --
--- __To the program__, one JSON object per event a listener heard:
+-- @history@ and @storage@ are what the program did to the page's address
+-- and stores ("Halogen.Router"'s @navigate@ and @redirect@, a window's
+-- @history@ through @Web.HTML.History@, "Web.Storage.Storage"): an address
+-- is the one the program wrote (the router writes paths from the root, and
+-- whole addresses before a fragment), or @null@ for the page's own; a key
+-- is the whole key, the prefix included, and the client writes no key
+-- without it (the page's other items are not the program's to write). The
+-- session's mirror of the page
+-- has changed already when the operation is recorded, so what the program
+-- reads next is what it wrote. The page carries them out in order with the
+-- rest of the batch; one the browser refuses (an address of another
+-- origin, a store over its quota or denied the page) is logged there and
+-- does not stop the batch, and the program, whose mirror has moved, does
+-- not hear of it.
+--
+-- __To the program__, first, before anything else, when the client
+-- connects: where the page is, and what its stores hold of this library's
+-- items (those whose keys start with core's
+-- 'Halogen.VDom.DOM.Monad.storagePrefix', @haskell-halogen:@; nothing
+-- else crosses):
+--
+-- > {"hello": {"location": "https://example.com/blog/post/1?q=2#top",
+-- >            "base": "https://example.com/blog/",
+-- >            "storage": {"local": {"haskell-halogen:count": "Mw=="},
+-- >                        "session": {}}}}
+--
+-- @location@ is @location.href@, and @base@ the page's @document.baseURI@
+-- when it has a @\<base href>@ and @null@ when it has none. A store the
+-- page is denied is sent empty. The session mirrors all of it: the
+-- window's @location@ answers from it (@pathname@, @search@, @hash@, @href@,
+-- @origin@), the document's @baseURI@ is @base@ (and empty with none), and
+-- the storage methods of 'Halogen.VDom.DOM.Monad.MonadBrowserDOM' read it.
+-- "Halogen.Remote.Server" waits for this message before it calls anything
+-- for the connection; a session that is given something else first (or,
+-- driven by hand, nothing) is at @\/@ with no base and empty stores.
+-- Its size is that of the library's items in the page's two stores, at
+-- most what a browser lets an origin keep (about 5 MB each), and in
+-- practice a few bytes.
+--
+-- Then, whenever the page goes back or forward through its history (and
+-- when the reader edits its fragment), its address, sent from the client's
+-- own @popstate@ (and @hashchange@) listener, which the client adds to the
+-- window before any of the program's, so that it crosses before the event
+-- a listener of the program's hears:
+--
+-- > {"location": "https://example.com/blog/"}
+--
+-- And when another tab changes an item of this library's in local storage
+-- (the window's @storage@ event), the change: an item's new text, @null@
+-- for one removed, and a @key@ of @null@ for a store emptied:
+--
+-- > {"storage": {"kind": "local", "key": "haskell-halogen:count", "value": "NA=="}}
+--
+-- Each event a listener heard:
 --
 -- > {"listener": 7, "node": 4, "type": "input",
 -- >  "event": {"type": "input", "target": {"value": "hi", ...},
@@ -158,18 +215,29 @@
 -- sent an event since the question: it asks again, until an answer comes
 -- that no event followed. From a batch with a @call@ until the page's next
 -- frame it holds the answers it receives, since some events a call causes
--- are dispatched then (a dialog's @close@).
+-- are dispatched then (a dialog's @close@); and from a batch with a
+-- @history@ @go@ until the page has gone there (its @popstate@), since the
+-- page moves through its history a moment after it is asked.
 --
 -- = Messages a side does not know
 --
 -- Either side ignores a message it does not know (a JSON object with
--- neither @ops@ nor @probe@, for the client; with neither @listener@ nor
--- @probe@, for the program), so that a kind added later does not break an
--- older client or program.
+-- neither @ops@ nor @probe@, for the client; with none of @listener@,
+-- @probe@, @hello@, @location@ and @storage@, for the program), and the
+-- client an operation it does not know, so that a kind added later does
+-- not break an older client or program.
+--
+-- The page's messages other than events and questions keep the order
+-- argument above: they cross the same socket, in order, and the program
+-- handles them as they come, so a question asked after the page went back
+-- is answered after the session knew where it went, and after the
+-- @popstate@ it dispatched was handed to the component.
 module Halogen.Remote.Protocol
   ( NodeId
   , ListenerId
   , Op (..)
+  , HistoryMove (..)
+  , Hello (..)
   , Batch (..)
   , EventMessage (..)
   , FromProgram (..)
@@ -182,6 +250,7 @@ module Halogen.Remote.Protocol
   , decodeFromProgram
   , encodeProbeQuestion
   , decodeFromPage
+  , encodeFromPage
   )
 where
 
@@ -190,12 +259,13 @@ import Data.Aeson (FromJSON (..), ToJSON (..), Value (..), (.:), (.:?), (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Text (encodeToLazyText)
 import Data.Aeson.Types (Parser, parseMaybe)
+import Data.Map.Strict qualified as Map
 import Data.Scientific (floatingOrInteger, fromFloatDigits)
 import Data.Text.Lazy qualified as Lazy
 import Data.Vector qualified as Vector
 import Halogen.Activity (Activity (..))
 import Halogen.VDom.DOM.HandlerOptions (EventMatch (..), HandlerOptions (..), KeyMatch (..))
-import Halogen.VDom.DOM.Monad (PropScalar (..))
+import Halogen.VDom.DOM.Monad (PropScalar (..), StorageKind (..))
 import Protolude
 
 -- | A node, as both sides name it.
@@ -235,6 +305,35 @@ data Op
     Call NodeId Text [Value]
   | -- | The node, the property and its value: the document's title.
     Assign NodeId Text Value
+  | -- | A move in the page's session history.
+    HistoryOp HistoryMove
+  | -- | A store's item written ('Just' its text) or removed ('Nothing'): the
+    -- whole key, as the program wrote it.
+    StorageOp StorageKind Text (Maybe Text)
+  deriving stock (Eq, Show)
+
+-- | What the program did to the page's history: a new entry, the current
+-- one replaced (with the address, or 'Nothing' for the one the page is at),
+-- or a move through the entries, back for a negative number.
+data HistoryMove
+  = Push (Maybe Text)
+  | Replace (Maybe Text)
+  | Go Int
+  deriving stock (Eq, Show)
+
+-- | What the page tells the program first, when it connects: where it is,
+-- and what its stores hold of this library's.
+data Hello = Hello
+  { location :: Text
+  -- ^ The page's whole address, @location.href@.
+  , base :: Maybe Text
+  -- ^ The address of its @\<base href>@ (@document.baseURI@), if it has one.
+  , local :: Map Text Text
+  -- ^ The items of its local storage whose keys start with core's
+  -- 'Halogen.VDom.DOM.Monad.storagePrefix', whole keys as stored.
+  , session :: Map Text Text
+  -- ^ The same of its session storage.
+  }
   deriving stock (Eq, Show)
 
 -- | The operations one message carries, and its place among the session's.
@@ -262,11 +361,20 @@ data FromProgram
     ProbeAnswer Int Activity
   deriving stock (Eq, Show)
 
--- | A message to the program: an event, or a question of the probe's.
+-- | A message to the program: an event, a question of the probe's, or what
+-- the program keeps of the page changing.
 data FromPage
   = PageEvent EventMessage
   | -- | The question's number, which the answer repeats.
     ProbeQuestion Int
+  | -- | What the page says first.
+    PageHello Hello
+  | -- | The page's whole address, now that it has moved through its
+    -- history (back, forward, a fragment).
+    PageLocation Text
+  | -- | Another tab's change to a store: the key and the item's new text
+    -- ('Nothing' for one removed), or no key for a store emptied.
+    PageStorage StorageKind (Maybe Text) (Maybe Text)
   deriving stock (Eq, Show)
 
 encodeBatch :: Batch -> Text
@@ -292,13 +400,52 @@ decodeFromProgram text =
 encodeProbeQuestion :: Int -> Text
 encodeProbeQuestion question = Lazy.toStrict (encodeToLazyText (Aeson.object ["probe" .= question]))
 
--- | What the page sent: 'Nothing' for what is neither an event nor a
--- question (which the program ignores).
+-- | What the page sent: 'Nothing' for what is none of the messages the
+-- module's header lists (which the program ignores).
 decodeFromPage :: Text -> Maybe FromPage
 decodeFromPage text =
-  (PageEvent <$> decodeEventMessage text) <|> (Aeson.decodeStrictText text >>= parseMaybe question)
+  (PageEvent <$> decodeEventMessage text) <|> (Aeson.decodeStrictText text >>= parseMaybe other)
   where
-    question = Aeson.withObject "ProbeQuestion" $ \o -> ProbeQuestion <$> o .: "probe"
+    other = Aeson.withObject "FromPage" $ \o ->
+      (ProbeQuestion <$> o .: "probe")
+        <|> (PageHello <$> (o .: "hello" >>= hello))
+        <|> (PageLocation <$> o .: "location")
+        <|> (o .: "storage" >>= storage)
+    hello = Aeson.withObject "Hello" $ \o -> do
+      stores <- o .:? "storage"
+      let store name = maybe (pure Map.empty) (\s -> fromMaybe Map.empty <$> s .:? name) stores
+      Hello <$> o .: "location" <*> o .:? "base" <*> store "local" <*> store "session"
+    storage = Aeson.withObject "StorageChange" $ \o ->
+      PageStorage <$> (o .: "kind" >>= kind) <*> o .:? "key" <*> o .:? "value"
+
+encodeFromPage :: FromPage -> Text
+encodeFromPage =
+  Lazy.toStrict . encodeToLazyText . \case
+    PageEvent message -> toJSON message
+    ProbeQuestion question -> Aeson.object ["probe" .= question]
+    PageHello h ->
+      Aeson.object
+        [ "hello"
+            .= Aeson.object
+              [ "location" .= h.location
+              , "base" .= h.base
+              , "storage" .= Aeson.object ["local" .= h.local, "session" .= h.session]
+              ]
+        ]
+    PageLocation href -> Aeson.object ["location" .= href]
+    PageStorage k key value -> Aeson.object ["storage" .= Aeson.object ["kind" .= kindName k, "key" .= key, "value" .= value]]
+
+-- | A store as the wire names it.
+kindName :: StorageKind -> Text
+kindName = \case
+  LocalStorage -> "local"
+  SessionStorage -> "session"
+
+kind :: Text -> Parser StorageKind
+kind = \case
+  "local" -> pure LocalStorage
+  "session" -> pure SessionStorage
+  other -> fail ("not a store: " <> toS other)
 
 instance ToJSON Op where
   toJSON = \case
@@ -317,6 +464,10 @@ instance ToJSON Op where
     ListenerOptions n ty l o -> tagged "options" [toJSON n, toJSON ty, toJSON l, encodeOptions o]
     Call n method arguments -> tagged "call" [toJSON n, toJSON method, toJSON arguments]
     Assign n name value -> tagged "set" [toJSON n, toJSON name, value]
+    HistoryOp (Push address) -> tagged "history" [String "push", toJSON address]
+    HistoryOp (Replace address) -> tagged "history" [String "replace", toJSON address]
+    HistoryOp (Go n) -> tagged "history" [String "go", toJSON n]
+    StorageOp k key value -> tagged "storage" [String (kindName k), toJSON key, toJSON value]
     where
       tagged :: Text -> [Value] -> Value
       tagged tag rest = Array (Vector.fromList (String tag : rest))
@@ -352,6 +503,10 @@ instance FromJSON Op where
         ("options", [n, ty, l, o]) -> ListenerOptions <$> parseJSON n <*> parseJSON ty <*> parseJSON l <*> decodeOptions o
         ("call", [n, method, arguments]) -> Call <$> parseJSON n <*> parseJSON method <*> parseJSON arguments
         ("set", [n, name, value]) -> Assign <$> parseJSON n <*> parseJSON name <*> pure value
+        ("history", [String "push", address]) -> HistoryOp . Push <$> parseJSON address
+        ("history", [String "replace", address]) -> HistoryOp . Replace <$> parseJSON address
+        ("history", [String "go", n]) -> HistoryOp . Go <$> parseJSON n
+        ("storage", [String k, key, value]) -> StorageOp <$> kind k <*> parseJSON key <*> parseJSON value
         _ -> fail ("not an operation: " <> toS tag <> " with " <> show (length rest) <> " arguments")
 
       unscalar :: Value -> Parser PropScalar

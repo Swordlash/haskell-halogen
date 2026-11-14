@@ -18,6 +18,9 @@ module Main (main) where
 import Control.Concurrent
   ( forkIO
   , killThread
+  , newEmptyMVar
+  , putMVar
+  , readMVar
   , threadDelay
   )
 import Control.Concurrent.Async (concurrently)
@@ -47,7 +50,7 @@ import Halogen.Playwright.Hspec
 import Halogen.Remote.DOM (RemoteDOM)
 import Halogen.Remote.Server qualified as Server
 import Halogen.Remote.Session qualified as Session
-import Halogen.Remote.Test (Mounted (..), mounting, queryComponent, withTestServer)
+import Halogen.Remote.Test (Mounted (..), mounting, mountingEach, queryComponent, withTestServer)
 import Halogen.Remote.Test qualified as RemoteTest
 import Halogen.Router qualified as Router
 import Halogen.Router.Duplex (RouteDuplex', lmap, noArgs, optional, prefix, root)
@@ -56,7 +59,7 @@ import Network.Socket.ByteString qualified as Socket
 import Network.Wai.Handler.Warp qualified as Warp
 import Prelude
 import System.Timeout (timeout)
-import Test.Components (hearing, operating, titling)
+import Test.Components (Spot (..), hearing, operating, routing, spots, storing, titling)
 import Web.UIEvent.KeyboardEvent.EventTypes qualified as KET
 
 -- | What the sessions' components tell the test.
@@ -97,8 +100,9 @@ data Action = Increment | Typed Text | Follow (Router.Follow Place) | Search
 
 -- | A counter, an input and a router's link, each session numbered: what
 -- its handlers do they also write where the test can see it. The router is
--- the session's, made natively, so it keeps its address in memory: a link
--- it follows changes what the page shows, never the page's address.
+-- the session's, made natively, over the page's address as the page said
+-- it first: a link it follows changes what the page shows and the page's
+-- address, with no page loaded.
 live :: Shared -> H.Component H.VoidF () Void RemoteM
 live shared =
   H.component
@@ -246,9 +250,9 @@ spec shared proxy = playwright $ describe "a component served to Chromium" $ do
     until' "the link followed" ((== before + 1) <$> readTVar shared.follows)
     locator page "#route" `shouldHaveText` "Other"
     evaluate page "window.prevented" `shouldReturn` [False, False, True]
-    -- No page was loaded: the address is the same, and what the test put
-    -- on the window is still there.
-    url page `shouldReturn` address
+    -- No page was loaded, though the address is the route's: what the test
+    -- put on the window is still there.
+    url page `shouldReturn` (address <> "other")
     evaluate page "window.stayed === true" `shouldReturn` True
 
   it "keeps a key a handler declared from being typed, and sends the program no other" $ inPage $ \page -> do
@@ -500,6 +504,178 @@ testing server = playwright $ describe "a component per page, mounted in the tes
     evaluate page "document.title" `shouldReturn` ("First title" :: Text)
     click (locator page "#retitle")
     evaluate page "document.title" `shouldReturn` ("Second title" :: Text)
+
+  -- The page's address and stores, which the session mirrors: a router
+  -- made in the session's monad, as an application's main makes it, and a
+  -- component that keeps counts through Web.Storage.Storage. Each read
+  -- once, after an action that settles through the probe.
+  let routed hashed = mountingEach server $ do
+        base <- Router.pageBase
+        router <- if hashed then Router.newHashRouter Front spots else Router.newRouter base Front spots
+        pure (routing, router)
+      pathname page = evaluate page "location.pathname" :: IO Text
+      -- Back and Forward, through the page's history: the promise resolves
+      -- once the page has dispatched the popstate, after the client's
+      -- listener and the router's (added before the test's), so the
+      -- location and the event have been sent, and the settle after it asks
+      -- the probe behind them on the same socket. Playwright's goBack waits
+      -- for a load, which a traversal within the document does not give.
+      traverse' page how = do
+        True <- evaluate page ("new Promise((done) => { addEventListener('popstate', () => done(true), { once: true }); history." <> how <> "(); })")
+        settle page
+      back page = traverse' page "back"
+      forward page = traverse' page "forward"
+      under address = Text.dropWhile (/= '/') (Text.drop (Text.length "http://") address)
+
+  it "opens a routed component at a deep route, and follows its links with the page's address, back and forward" $ inPage $ \page -> do
+    (address, next) <- routed False
+    visit page (address <> "blog/post/1")
+    _ <- next
+    readOnce page "#spot" `shouldReturn` "Post 1"
+    -- What a page load would lose.
+    True <- evaluate page "(window.stayed = true)"
+    click (locator page "#to-about")
+    readOnce page "#spot" `shouldReturn` "About"
+    pathname page `shouldReturn` (under address <> "about")
+    back page
+    readOnce page "#spot" `shouldReturn` "Post 1"
+    pathname page `shouldReturn` (under address <> "blog/post/1")
+    forward page
+    readOnce page "#spot" `shouldReturn` "About"
+    pathname page `shouldReturn` (under address <> "about")
+    evaluate page "window.stayed === true" `shouldReturn` True
+    evaluate page "history.length" `shouldReturn` (3 :: Int)
+
+  it "settles a click that goes back through the page's history once the page is there" $ inPage $ \page -> do
+    (address, next) <- routed False
+    visit page (address <> "blog/post/1")
+    _ <- next
+    click (locator page "#to-about")
+    readOnce page "#spot" `shouldReturn` "About"
+    -- The component asks the page to go back; the page goes a moment
+    -- later, and the click is settled only once the router has heard.
+    click (locator page "#step-back")
+    readOnce page "#spot" `shouldReturn` "Post 1"
+    pathname page `shouldReturn` (under address <> "blog/post/1")
+
+  it "gives the connections of one address in the order they came, whichever mounts first" $ \pw ->
+    withContext pw defaultContextOptions $ \ctx -> do
+      arrivals <- newIORef (0 :: Int)
+      held <- newEmptyMVar
+      (address, next) <- mountingEach server $ do
+        -- The first connection's program waits; the second's does not.
+        n <- liftIO (atomicModifyIORef' arrivals (\n -> (n + 1, n)))
+        when (n == 0) (liftIO (readMVar held))
+        pure (storing, ())
+      one <- newPage ctx
+      two <- newPage ctx
+      -- The first page connects and waits to be mounted (its goto with
+      -- it: the session answers the page's probe only once its program
+      -- has run); the second is mounted meanwhile.
+      (_, (first', second')) <- concurrently (goto one address) $ do
+        eventually two (readIORef arrivals `shouldReturn` 1)
+        visit two address
+        putMVar held ()
+        (,) <$> next <*> next
+      compare first'.session second'.session `shouldBe` LT
+
+  it "puts the page's base in its head and leaves the page in standards mode, whatever its shell" $ \_ -> do
+    RemoteTest.withBase "/mount/7/" "<!doctype html><html><head><title>t</title></head><body></body></html>"
+      `shouldBe` "<!doctype html><html><head><base href=\"/mount/7/\"><title>t</title></head><body></body></html>"
+    RemoteTest.withBase "/mount/7/" "<!DOCTYPE html>\n<HTML lang=\"en\">\n<HEAD class=\"x\"><title>t</title></HEAD>"
+      `shouldBe` "<!DOCTYPE html>\n<HTML lang=\"en\">\n<HEAD class=\"x\"><base href=\"/mount/7/\"><title>t</title></HEAD>"
+    -- No head written: after the doctype and the html tag, never before.
+    RemoteTest.withBase "/mount/7/" "<!doctype html>\n<html lang=\"en\">\n<title>t</title><header>h</header>"
+      `shouldBe` "<!doctype html>\n<html lang=\"en\"><base href=\"/mount/7/\">\n<title>t</title><header>h</header>"
+    RemoteTest.withBase "/mount/7/" "<!doctype html><title>t</title>" `shouldBe` "<!doctype html><base href=\"/mount/7/\"><title>t</title>"
+    RemoteTest.withBase "/mount/7/" "<p>bare</p>" `shouldBe` "<base href=\"/mount/7/\"><p>bare</p>"
+
+  it "serves a shell that writes no head in standards mode, with the key's address its base" $ inPage $ \page -> do
+    let settings = RemoteTest.defaultTestSettings {RemoteTest.shell = \body -> "<!doctype html>\n<title>No head</title>\n" <> body}
+    RemoteTest.withTestServerWith settings $ \bare -> do
+      (address, _) <- mounting bare view ()
+      visit page address
+      evaluate page "document.compatMode" `shouldReturn` ("CSS1Compat" :: Text)
+      evaluate page "document.baseURI" `shouldReturn` address
+      readOnce page "#label" `shouldReturn` "ready"
+
+  it "replaces the history's entry on a redirect, which Back skips" $ inPage $ \page -> do
+    (address, next) <- routed False
+    visit page (address <> "blog/post/1")
+    _ <- next
+    click (locator page "#to-front")
+    readOnce page "#spot" `shouldReturn` "Front"
+    pathname page `shouldReturn` under address
+    click (locator page "#redirect")
+    readOnce page "#spot" `shouldReturn` "About"
+    pathname page `shouldReturn` (under address <> "about")
+    back page
+    readOnce page "#spot" `shouldReturn` "Post 1"
+    pathname page `shouldReturn` (under address <> "blog/post/1")
+
+  it "shows the route it is at again when the page is reloaded, in a new session" $ inPage $ \page -> do
+    (address, next) <- routed False
+    visit page address
+    first' <- next
+    click (locator page "#to-post")
+    readOnce page "#spot" `shouldReturn` "Post 1"
+    reload page
+    waitStarted page
+    second' <- next
+    second'.session `shouldNotBe` first'.session
+    readOnce page "#spot" `shouldReturn` "Post 1"
+    pathname page `shouldReturn` (under address <> "blog/post/1")
+
+  it "keeps a hash router's route in the page's fragment, back and forward" $ inPage $ \page -> do
+    (address, next) <- routed True
+    visit page (address <> "#/blog/post/1")
+    _ <- next
+    readOnce page "#spot" `shouldReturn` "Post 1"
+    click (locator page "#to-about")
+    readOnce page "#spot" `shouldReturn` "About"
+    evaluate page "location.pathname + location.hash" `shouldReturn` (under address <> "#/about")
+    back page
+    readOnce page "#spot" `shouldReturn` "Post 1"
+    evaluate page "location.hash" `shouldReturn` ("#/blog/post/1" :: Text)
+
+  it "keeps a count in the page's own localStorage, which the next session reads after a reload" $ inPage $ \page -> do
+    (address, next) <- mountingEach server (pure (storing, ()))
+    visit page address
+    first' <- next
+    readOnce page "#count" `shouldReturn` "0"
+    click (locator page "#bump")
+    click (locator page "#bump")
+    readOnce page "#count" `shouldReturn` "2"
+    -- 2, as JSON, in base64, under the library's prefix.
+    evaluate page "localStorage.getItem('haskell-halogen:count')" `shouldReturn` ("Mg==" :: Text)
+    reload page
+    waitStarted page
+    second' <- next
+    second'.session `shouldNotBe` first'.session
+    readOnce page "#count" `shouldReturn` "2"
+    click (locator page "#forget-count")
+    evaluate page "localStorage.getItem('haskell-halogen:count')" `shouldReturn` (Nothing :: Maybe Text)
+
+  it "reads on its first render what the page's localStorage held before it connected" $ inPage $ \page -> do
+    -- 7, as JSON, in base64: put there by the page before any of its
+    -- scripts run.
+    addInitScript (pageContext page) "localStorage.setItem('haskell-halogen:count', 'Nw==')"
+    (address, next) <- mountingEach server (pure (storing, ()))
+    visit page address
+    _ <- next
+    readOnce page "#count" `shouldReturn` "7"
+
+  it "keeps a count in the page's sessionStorage across a reload" $ inPage $ \page -> do
+    (address, next) <- mountingEach server (pure (storing, ()))
+    visit page address
+    _ <- next
+    click (locator page "#visit")
+    readOnce page "#visits" `shouldReturn` "1"
+    evaluate page "sessionStorage.getItem('haskell-halogen:visits')" `shouldReturn` ("MQ==" :: Text)
+    reload page
+    waitStarted page
+    _ <- next
+    readOnce page "#visits" `shouldReturn` "1"
 
   it "shows what a query from the test changed, once settled" $ inPage $ \page -> do
     (address, connected) <- mounting server view ()

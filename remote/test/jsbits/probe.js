@@ -25,3 +25,33 @@ function remote_active_id() {
   const active = document.activeElement;
   return active && typeof active.id === "string" ? active.id : "";
 }
+
+// An item of the page's local storage, empty for none.
+function remote_storage_get(key) {
+  const value = localStorage.getItem(key);
+  return value === null ? "" : value;
+}
+
+function remote_storage_remove(key) {
+  localStorage.removeItem(key);
+}
+
+// The page's pathname, query and fragment.
+function remote_address() {
+  return location.pathname + location.search + location.hash;
+}
+
+// The page's address without its fragment, in place of the current entry:
+// where a hash router starts at its root.
+function remote_drop_fragment() {
+  history.replaceState(null, "", location.pathname + location.search);
+}
+
+// Back, as the browser's button: once the page has dispatched the
+// popstate.
+function remote_back() {
+  return new Promise((done) => {
+    addEventListener("popstate", () => done(""), { once: true });
+    history.back();
+  });
+}

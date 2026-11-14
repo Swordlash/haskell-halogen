@@ -26,11 +26,38 @@
 -- Each 'mounting' registers the component under a key of its own, which is
 -- in the address it gives; the page at that address connects once, without
 -- reconnecting, to the WebSocket with the same key, and the server mounts
--- that component for it and no other. A key is mounted once: a second
--- connection with it (the page reloaded) gets nothing, and its connection
--- is closed with a reason. When the page closes its connection the session
--- is disposed of (the component finalized), and when 'withTestServer'
--- returns every session is.
+-- that component for it and no other. A key 'mounting' registers is
+-- mounted once: a second connection with it (the page reloaded) gets
+-- nothing, and its connection is closed with a reason. When the page
+-- closes its connection the session is disposed of (the component
+-- finalized), and when 'withTestServer' returns every session is.
+--
+-- = Routes and reloads
+--
+-- The address a key is at, @\/mount\/\<key>\/@, is the page's base: the
+-- server answers every address under it with the same page, whose
+-- @\<base href>@ names it, so a page can be opened at a route
+-- (@address <> \"blog\/post\/1\"@) and "Halogen.Router"'s @pageBase@ is
+-- that base. The client says first where its page is and what its stores
+-- hold ("Halogen.Remote.Protocol"), before the component is mounted, so a
+-- router made in the session's monad starts at the page's route, and
+-- storage is the page's own.
+--
+-- 'mountingEach' registers a program, run in each new session's monad
+-- after the page has said where it is, that makes the component and its
+-- input: a router is made there, as an application's @main@ makes it.
+-- Every connection with that key (the page reloaded, a second page opened
+-- at the address) mounts what the program makes then, a new session, and
+-- the action it gives waits for the next of them, in order:
+--
+-- > (address, next) <- mountingEach server $ do
+-- >   base <- Router.pageBase
+-- >   router <- Router.newRouter base Home route
+-- >   pure (app, router)
+-- > visit page (address <> "blog/post/1")
+-- > first <- next
+-- > reload page >> waitStarted page
+-- > second <- next                               -- the reloaded page's
 module Halogen.Remote.Test
   ( -- * The server
     TestServer
@@ -42,9 +69,13 @@ module Halogen.Remote.Test
 
     -- * A component per page
   , mounting
+  , mountingEach
   , Mounted (..)
   , queryComponent
   , TestServerError (..)
+
+    -- * The page
+  , withBase
   )
 where
 
@@ -72,8 +103,13 @@ data TestSettings = TestSettings
   { shell :: Text -> Text
   -- ^ The page at a 'mounting' address, given the HTML that shows the
   -- component (its container and the client's scripts), which goes in the
-  -- body: where a suite adds the application's stylesheets, a @<base>@,
-  -- or scripts of its own. The default is a bare HTML document.
+  -- body: where a suite adds the application's stylesheets or scripts of
+  -- its own. The default is a bare HTML document. The server puts a
+  -- @\<base href>@ naming the key's address first in its head ('withBase':
+  -- after its doctype and @\<html>@ tag, for a shell that writes no
+  -- @\<head>@), so a relative address in it is read against the key's
+  -- address, whatever route the page is at; a @\<base>@ of the shell's own
+  -- comes after it, and does nothing.
   , pages :: [(Text, FilePath, Text)]
   -- ^ Other files to serve, as "Halogen.Remote.Server"'s 'Server.pages':
   -- the path, the file and its media type (the application's CSS, say).
@@ -104,11 +140,18 @@ data TestServer = TestServer
   { address :: Text
   , settings :: TestSettings
   , keys :: IORef Int
-  , waiting :: STM.TVar (Map Text (Session -> IO ()))
-  -- ^ What each key's connection mounts, until one has.
+  , waiting :: STM.TVar (Map Text Registered)
+  -- ^ What each key's connection mounts: for a key of 'mounting''s, until
+  -- one has.
   , sessions :: STM.TVar [Session]
   -- ^ Every session the server has mounted something in, to dispose of at
   -- the end.
+  }
+
+-- | What a key's connections mount, and whether only the first does.
+data Registered = Registered
+  { once :: Bool
+  , mountIt :: Session -> IO ()
   }
 
 -- | The server's address, @http:\/\/127.0.0.1:<port>@, for a page of its
@@ -151,17 +194,18 @@ withTestServerWith settings action = do
       serverSettings = Server.defaultSettings {Server.path = socketPath, Server.pages = settings.pages}
       connect request session = do
         let key = join (lookup "mount" request.query)
-        mountIt <- STM.atomically $ do
+        registered <- STM.atomically $ do
           found <- maybe (pure Nothing) (\k -> Map.lookup k <$> STM.readTVar waiting) key
-          for_ key (STM.modifyTVar' waiting . Map.delete)
-          when (isJust found) $ STM.modifyTVar' sessions (session :)
+          for_ found $ \r -> do
+            when r.once $ for_ key (STM.modifyTVar' waiting . Map.delete)
+            STM.modifyTVar' sessions (session :)
           pure found
-        for_ mountIt ($ session)
+        for_ registered (\r -> r.mountIt session)
       live = Server.applicationWith serverSettings connect
       app request respond = case Wai.pathInfo request of
-        ["mount", key] -> respond (Wai.responseLBS status200 [(hContentType, "text/html; charset=utf-8")] (page key))
+        "mount" : key : _ -> respond (Wai.responseLBS status200 [(hContentType, "text/html; charset=utf-8")] (page key))
         _ -> live request respond
-      page key = LazyByteString.fromStrict (encodeUtf8 (settings.shell (body key)))
+      page key = LazyByteString.fromStrict (encodeUtf8 (withBase ("/mount/" <> key <> "/") (settings.shell (body key))))
       body key =
         Text.unlines
           [ "<div id=\"halogen-remote-test\"></div>"
@@ -180,18 +224,98 @@ withTestServerWith settings action = do
 -- it, and an action that waits for that page to connect (the settings'
 -- 'connectTimeout' at most) and gives the component mounted for it. A
 -- component that fails to mount has the action throw what it threw.
+--
+-- The address ends with a @\/@: it is the page's base, and an address
+-- under it opens the same page at a route ("Routes and reloads", above).
 mounting :: TestServer -> Component q i o RemoteDOM -> i -> IO (Text, IO (Mounted q o))
 mounting server component input = do
-  key <- show <$> atomicModifyIORef' server.keys (\n -> (n + 1, n :: Int))
+  key <- newKey server
   box <- newEmptyMVar
   let mountIt session = do
         outcome <- tryAny (Session.mount session component input)
         _ <- tryPutMVar box (Mounted session <$> outcome)
         either throwIO (const pass) outcome
-  STM.atomically $ STM.modifyTVar' server.waiting (Map.insert key mountIt)
-  let address = server.address <> "/mount/" <> key
+  STM.atomically $ STM.modifyTVar' server.waiting (Map.insert key Registered {once = True, mountIt})
+  let address = addressOf server key
       connected =
         timeout server.settings.connectTimeout (readMVar box) >>= \case
           Nothing -> throwIO (NoConnection address)
           Just outcome -> either throwIO pure outcome
   pure (address, connected)
+
+-- | Register a program for a page that may connect more than once (be
+-- reloaded, or opened again): the address of the page, and an action that
+-- waits for the next connection with it (the settings' 'connectTimeout' at
+-- most) and gives what was mounted for it. Each connection runs the
+-- program in its new session's monad, once the page has said where it is
+-- and what its stores hold, and mounts the component it makes with the
+-- input it makes (a router made there reads the page's address). The
+-- action gives the connections in the order they came, each once: the
+-- first time it is run, the first connection's, and so on. A program or a
+-- component that fails ends that connection's session, and the action
+-- gives it throws what it threw.
+mountingEach :: TestServer -> RemoteDOM (Component q i o RemoteDOM, i) -> IO (Text, IO (Mounted q o))
+mountingEach server program = do
+  key <- newKey server
+  arrived <- STM.newTQueueIO
+  let mountIt session = do
+        -- Its place in the order is taken as it connects, before its
+        -- program runs: a connection whose mount takes longer than a later
+        -- one's is still given first.
+        slot <- STM.newEmptyTMVarIO
+        STM.atomically (STM.writeTQueue arrived slot)
+        outcome <- tryAny $ do
+          (component, input) <- Session.run session program
+          Mounted session <$> Session.mount session component input
+        STM.atomically (STM.putTMVar slot outcome)
+        either throwIO (const pass) outcome
+  STM.atomically $ STM.modifyTVar' server.waiting (Map.insert key Registered {once = False, mountIt})
+  let address = addressOf server key
+      next =
+        -- The first connection not given yet, once it has mounted: the
+        -- queue keeps it until then.
+        timeout server.settings.connectTimeout (STM.atomically (STM.readTQueue arrived >>= STM.takeTMVar)) >>= \case
+          Nothing -> throwIO (NoConnection address)
+          Just outcome -> either throwIO pure outcome
+  pure (address, next)
+
+-- | A page with a @\<base href>@ naming an address, first in its head,
+-- before anything in it that a relative address could name: after the
+-- head's opening tag, however it is written (@\<HEAD class=\"x\">@), or,
+-- for a page that writes none, after its doctype and its @\<html>@ tag,
+-- where the browser makes the head for it. Never before the doctype: a
+-- page with anything before it is laid out in quirks mode.
+withBase :: Text -> Text -> Text
+withBase address html = Text.take at html <> tag <> Text.drop at html
+  where
+    tag = "<base href=\"" <> address <> "\">"
+    -- Lowered letter by letter, so that an index in it is one in the page.
+    lower = Text.map (\c -> if isAscii c then toLower c else c) html
+    at = fromMaybe (afterTag "<html" (afterTag "<!doctype" 0)) headOpening
+    -- Where the head's opening tag ends, if the page writes one.
+    headOpening =
+      head
+        [ Text.length before + 5 + closing rest
+        | (before, found) <- Text.breakOnAll "<head" lower
+        , let rest = Text.drop 5 found
+        , opens rest
+        ]
+    -- Where a tag of this name ends, if one starts at an index (after any
+    -- blank); the index itself otherwise.
+    afterTag name start =
+      let blank = Text.length (Text.takeWhile isSpace (Text.drop start lower))
+          rest = Text.drop (start + blank + Text.length name) lower
+       in if name `Text.isPrefixOf` Text.drop (start + blank) lower && opens rest
+            then start + blank + Text.length name + closing rest
+            else start
+    -- What follows a tag's name: the tag's end or its attributes, not more
+    -- of a longer name (@\<header>@).
+    opens rest = maybe False (\(c, _) -> c == '>' || c == '/' || isSpace c) (Text.uncons rest)
+    closing rest = Text.length (Text.takeWhile (/= '>') rest) + 1
+
+newKey :: TestServer -> IO Text
+newKey server = show <$> atomicModifyIORef' server.keys (\n -> (n + 1, n :: Int))
+
+-- | A key's page, which is its base too.
+addressOf :: TestServer -> Text -> Text
+addressOf server key = server.address <> "/mount/" <> key <> "/"

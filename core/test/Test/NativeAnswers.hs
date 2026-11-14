@@ -33,7 +33,7 @@ import Data.Void (Void)
 import Halogen qualified as H
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Properties qualified as HP
-import Halogen.JSBits (JSVal, NativeObject (..), withNativeObject, jsValText, toJSInt)
+import Halogen.JSBits (JSVal, NativeObject (..), jsNull, jsValText, textValue, toJSInt, withNativeObject)
 import Halogen.VDom.DOM.Monad (MonadBrowserDOM, runMemDOM)
 import Halogen.VDom.DOM.Monad qualified as DOM
 import Halogen.VDom.DOM.Monad.Native qualified as N
@@ -45,6 +45,8 @@ import Web.DOM.Internal.Types (Element (..), HTMLDocument (..), HTMLElement (..)
 import Web.HTML.HTMLDialogElement qualified as HTMLDialogElement
 import Web.HTML.HTMLElement qualified as HTMLElement
 import Web.HTML.HTMLInputElement qualified as HTMLInputElement
+import Web.HTML.Location (Location (..))
+import Web.HTML.Location qualified as Location
 
 -- | What a test's object was asked to do.
 data Asked = Call Text [JSVal] | Set Text JSVal
@@ -60,9 +62,21 @@ recording klass = do
           { call = \name arguments -> note (Call name arguments)
           , set = \name value -> note (Set name value)
           , get = \name -> if name == "document" then Just (toJSInt 8) else Nothing
+          , live = \_ -> pure Nothing
           , instanceOf = (`elem` ["Element", "HTMLElement", klass])
           }
   pure (withNativeObject object (toJSInt 7), asked)
+
+-- | A value that answers nothing but the changing members it keeps.
+keeping :: (Text -> IO (Maybe JSVal)) -> NativeObject JSVal
+keeping kept =
+  NativeObject
+    { call = \_ _ -> pure ()
+    , set = \_ _ -> pure ()
+    , get = const Nothing
+    , live = kept
+    , instanceOf = const False
+    }
 
 names :: [Asked] -> [Text]
 names = map $ \case
@@ -148,6 +162,29 @@ spec = describe "values that answer for themselves, natively" $ do
     element.hasAttribute "open" `shouldReturn` False
     (coerce element :: HTMLDocument).title `shouldReturn` ""
     readIORef asked >>= (`shouldBe` []) . names
+
+  it "asks a value that keeps a changing member for it, and leaves the others inert" $ do
+    let kept = \case
+          "pathname" -> pure (Just (textValue "/blog/post/1"))
+          "hash" -> pure (Just jsNull)
+          "body" -> pure (Just jsNull)
+          "activeElement" -> pure (Just (toJSInt 9))
+          _ -> pure Nothing
+        location = Location (withNativeObject (keeping kept) (toJSInt 3))
+        doc = HTMLDocument (withNativeObject (keeping kept) (toJSInt 4))
+    Location.pathname location `shouldReturn` "/blog/post/1"
+    -- One it does not keep, and a text it gives as null, read empty.
+    Location.search location `shouldReturn` ""
+    Location.hash location `shouldReturn` ""
+    -- A writable member's read is asked too.
+    Location.href location `shouldReturn` ""
+    -- A 'Maybe' of an object: null is 'Nothing', an object 'Just'.
+    isNothing <$> doc.body `shouldReturn` True
+    fmap (foreignToInt . (coerce :: Element -> JSVal)) <$> doc.activeElement `shouldReturn` Just 9
+    -- A number is not asked.
+    (coerce doc :: Window).innerWidth `shouldReturn` 0
+    -- A value that does not answer reads inert.
+    Location.pathname (Location (toJSInt 3)) `shouldReturn` ""
 
   it "notes what a component did to the in-memory DOM: a focus in Initialize, a dialog opened and closed, the title" $ do
     container <- N.newElement Nothing (ElemName "div")

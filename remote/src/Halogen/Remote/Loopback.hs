@@ -10,6 +10,13 @@
 -- tutorial's lesson shows its traffic) and to test a component meant to be
 -- served, in a browser, without a server.
 --
+-- The client tells the session first where the page is and what its
+-- stores hold, as a client over a socket does: storage
+-- ("Web.Storage.Storage") reads the page's own stores through that mirror
+-- and writes them through the client. A router made in the component's
+-- program reads and writes the page's address directly, since the program
+-- is in the page.
+--
 -- Only in a browser: natively 'mountIn' throws 'NotAvailable'.
 module Halogen.Remote.Loopback
   ( Loopback (..)
@@ -34,7 +41,8 @@ import Web.DOM.Internal.Types (HTMLElement (..))
 data Traffic
   = -- | The program's batch of operations, to the page.
     ToPage Text
-  | -- | An event the page heard, to the program.
+  | -- | What the page says to the program: an event it heard, or where it
+    -- is (first, and when it goes back or forward).
     ToProgram Text
   deriving stock (Eq, Show)
 
@@ -97,6 +105,13 @@ mountWatched watch (HTMLElement element) component input = do
       `onException` release
   writeIORef sessionRef (Just session)
   let end = Session.dispose session >> release
+  -- What a client says first, as a client over a socket does when it
+  -- connects: where the page is and what its stores hold, before the
+  -- component is mounted.
+  greeting <- Client.hello `onException` end
+  watch (ToProgram greeting)
+  HS.notify listener (ToProgram greeting)
+  Session.receive session greeting `onException` end
   -- A mount that fails has ended the session already; disposing of it
   -- again does nothing more.
   _ <- Session.mount session component input `onException` end

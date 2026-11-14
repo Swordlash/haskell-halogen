@@ -12,7 +12,7 @@ import Halogen qualified as H
 import Halogen.Activity qualified as Activity
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Properties qualified as HP
-import Halogen.JSBits (JSText, Safety (..), browserJS, fromJSText)
+import Halogen.JSBits (JSText, Safety (..), browserJS, fromJSText, toJSText)
 import Halogen.JSBits.Promise (Promise, wait)
 import Halogen.Remote.DOM (RemoteDOM)
 import Halogen.Remote.Loopback (Loopback (..), Traffic (..))
@@ -29,6 +29,11 @@ $( browserJS
      , ("js_probe_ask", "remote_probe_ask", Safe, [t|IO (Promise JSText)|])
      , ("js_probe_askers", "remote_probe_askers", Safe, [t|IO Int|])
      , ("js_active_id", "remote_active_id", Safe, [t|IO JSText|])
+     , ("js_storage_get", "remote_storage_get", Safe, [t|JSText -> IO JSText|])
+     , ("js_storage_remove", "remote_storage_remove", Safe, [t|JSText -> IO ()|])
+     , ("js_address", "remote_address", Safe, [t|IO JSText|])
+     , ("js_drop_fragment", "remote_drop_fragment", Safe, [t|IO ()|])
+     , ("js_back", "remote_back", Safe, [t|IO (Promise JSText)|])
      ]
  )
 
@@ -208,6 +213,41 @@ spec m = do
     container <- find ui "#remote"
     getAttribute container "data-halogen-remote" >>= (`shouldBe` Nothing)
     getProperty container "childElementCount" >>= (`shouldBe` "0")
+
+  -- The program is in the page: what the component stores is the page's
+  -- own storage, through the session's mirror (which the client's first
+  -- message fills) and the client's writes, and a router reads and writes
+  -- the page's own address.
+  it "keeps what a component stores in the page's own localStorage, which the next mount reads" $ runPage $ do
+    unsafeIOToPageM (js_storage_remove (toJSText "haskell-halogen:count"))
+    traffic <- unsafeIOToPageM (newIORef [])
+    ui <- mount m (host traffic storing) ()
+    find ui "#count" >>= (`shouldHaveText` "0")
+    find ui "#bump" >>= click
+    find ui "#count" >>= (`shouldHaveText` "1")
+    -- 1, as JSON, in base64, written by the client.
+    eventually (fromJSText <$> unsafeIOToPageM (js_storage_get (toJSText "haskell-halogen:count")) >>= (`shouldBe` "MQ=="))
+    _ <- query ui (Dispose ())
+    again <- mount m (host traffic storing) ()
+    -- Read through the session's mirror, which the client's first message
+    -- filled before the component was mounted.
+    find again "#count" >>= (`shouldHaveText` "1")
+    unsafeIOToPageM (js_storage_remove (toJSText "haskell-halogen:count"))
+
+  it "routes the page's own address with a hash router, back included" $ runPage $ do
+    unsafeIOToPageM js_drop_fragment
+    traffic <- unsafeIOToPageM (newIORef [])
+    ui <- mount m (host traffic hashRouting) ()
+    find ui "#spot" >>= (`shouldHaveText` "Front")
+    find ui "#to-post" >>= click
+    find ui "#spot" >>= (`shouldHaveText` "Post 1")
+    (fromJSText <$> unsafeIOToPageM js_address) >>= (`shouldSatisfy` ("#/blog/post/1" `T.isSuffixOf`))
+    find ui "#to-about" >>= click
+    find ui "#spot" >>= (`shouldHaveText` "About")
+    _ <- unsafeIOToPageM (wait =<< js_back)
+    eventually (find ui "#spot" >>= (`shouldHaveText` "Post 1"))
+    _ <- query ui (Dispose ())
+    unsafeIOToPageM js_drop_fragment
 
   it "empties its element when disposed of, and showed the traffic both ways" $ runPage $ do
     traffic <- unsafeIOToPageM (newIORef [])
