@@ -270,6 +270,28 @@ spec = describe "a session" $ do
     [t | SetText _ t <- patch] `shouldBe` ["a.png,image/png,1024.0"]
     Session.dispose session
 
+  it "reads a paste's text and files through the transfer's methods, and not a file's bytes" $ do
+    (session, wire, ops, _) <- mounted reading
+    box <- required "the box" (elementWithId ops "read-box")
+    listener <- required "its listener" (listenerOn ops box "paste")
+    Session.receive session
+      $ eventFor listener box "paste"
+      $ object
+        [ "type" .= ("paste" :: Text)
+        , "clipboardData"
+            .= object
+              [ "types" .= ["text/plain" :: Text, "Files"]
+              , "files" .= [object ["name" .= ("notes.txt" :: Text), "type" .= ("text/plain" :: Text), "size" .= (3 :: Int)]]
+              , "data" .= object ["text/plain" .= ("words" :: Text)]
+              ]
+        ]
+    -- What it shows first. The file's text, which it waits for next, is a
+    -- promise: natively it has settled by now and is shown in the same
+    -- batch, and a suite under Node cannot wait for one on every backend.
+    patch <- nextOps wire
+    take 1 [t | SetText _ t <- patch] `shouldBe` ["words|notes.txt|none past it"]
+    Session.dispose session
+
   it "sends what a listener's handler declared, with the listener and when it changes" $ do
     (session, wire, ops, _) <- mounted searching
     search <- required "the search box" (elementWithId ops "search")

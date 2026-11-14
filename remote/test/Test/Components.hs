@@ -15,6 +15,7 @@ module Test.Components
   , linking
   , delegating
   , pasting
+  , reading
   , searching
   , failing
   , operating
@@ -36,6 +37,7 @@ import Halogen qualified as H
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
+import Halogen.JSBits.Promise qualified as Promise
 import Halogen.Router qualified as Router
 import Halogen.Router.Duplex (RouteDuplex', int, noArgs, path, root, segment)
 import Halogen.Router.Duplex.Generic qualified as RG
@@ -51,6 +53,7 @@ import Web.Event.Event qualified as Event
 import Web.File.File qualified as File
 import Web.File.FileList qualified as FileList
 import Web.HTML.Common (AttrName (..))
+import Web.HTML.Event.DataTransfer qualified as DataTransfer
 import Web.HTML.HTMLDialogElement qualified as HTMLDialogElement
 import Web.HTML.HTMLElement qualified as HTMLElement
 import Web.HTML.History qualified as History
@@ -282,6 +285,39 @@ pasting =
         ]
     described event =
       T.intercalate ";" [File.name f <> "," <> File.type_ f <> "," <> show (File.size f) | f <- maybe [] (FileList.now . (.files)) (CE.clipboardData event)]
+
+-- | A box that takes every paste and reads it afterwards, in its action,
+-- through the transfer's methods: the text it carries
+-- ('DataTransfer.getData') and its files by position ('FileList.item'),
+-- which it shows; and then the first file's text, which is not there to
+-- read (a file's bytes do not cross a wire), shown after the rest once its
+-- promise has settled.
+reading :: forall m. (MonadIO m) => H.Component H.VoidF () Void m
+reading =
+  H.component
+    (\() -> pure "")
+    render
+    [H.onAction pasted]
+  where
+    render :: Text -> H.ComponentHTML CE.ClipboardEvent Empty m
+    render shown =
+      HH.div_
+        [ HH.div [HP.id "read-box", HE.onPaste identity] [HH.textarea [HP.id "read-area"]]
+        , HH.span [HP.id "read"] [HH.text shown]
+        ]
+    pasted event = case CE.clipboardData event of
+      Nothing -> modify (const "no transfer")
+      Just transfer -> do
+        (carried, file) <- liftIO $ do
+          text <- DataTransfer.getData transfer "text/plain"
+          file <- FileList.item (DataTransfer.files transfer) 0
+          past <- FileList.item (DataTransfer.files transfer) 1
+          pure (T.intercalate "|" [text, maybe "no file" File.name file, maybe "none past it" File.name past], file)
+        modify (const carried)
+        contents <- liftIO $ case file of
+          Nothing -> pure "no file"
+          Just f -> either (const "unreadable") identity <$> (Promise.waitCatch =<< File.text f)
+        modify (const (carried <> "|" <> contents))
 
 data Search = Searched | Swapped
 

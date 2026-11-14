@@ -642,7 +642,41 @@ function halogen_remote_parse(text) {
   event.stopPropagation = halogen_remote_ignore;
   event.stopImmediatePropagation = halogen_remote_ignore;
   event.defaultPrevented = event.defaultPrevented === true;
+  halogen_remote_revive_transfer(event.dataTransfer);
+  halogen_remote_revive_transfer(event.clipboardData);
   return event;
+}
+
+// A described transfer (halogen_remote_transfer) with the methods a handler
+// calls on a real one, so that the same handler reads it where the program
+// runs in the page (the loopback) as it does natively: getData for the
+// formats it has, empty for any other ("text" and "url" are the browsers'
+// old names for text/plain and text/uri-list); its files' item; and a
+// file's text and bytes, whose promises are rejected, since a file's bytes
+// do not cross.
+function halogen_remote_revive_transfer(transfer) {
+  if (transfer === null || typeof transfer !== "object") return;
+  var data = transfer.data !== null && typeof transfer.data === "object" ? transfer.data : {};
+  transfer.getData = function (format) {
+    var name = String(format).toLowerCase();
+    if (name === "text") name = "text/plain";
+    else if (name === "url") name = "text/uri-list";
+    return Object.prototype.hasOwnProperty.call(data, name) && typeof data[name] === "string" ? data[name] : "";
+  };
+  var files = Array.isArray(transfer.files) ? transfer.files : [];
+  transfer.files = files;
+  files.item = function (index) {
+    return index >= 0 && index < files.length ? files[index] : null;
+  };
+  var unread = function () {
+    return Promise.reject(new DOMException("a file's bytes do not cross the wire", "NotReadableError"));
+  };
+  for (var i = 0; i < files.length; i++) {
+    if (files[i] !== null && typeof files[i] === "object") {
+      files[i].text = unread;
+      files[i].bytes = unread;
+    }
+  }
 }
 
 function halogen_remote_ignore() {}
