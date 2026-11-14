@@ -321,11 +321,14 @@ function halogen_remote_history(client, how, argument) {
   client.location = halogen_remote_href();
 }
 
-// An item of a store written (a string) or removed (null). A store the page
-// refuses (its quota, its storage denied) logs it; the program, which has
-// written its mirror, does not know.
+// An item of a store written (a string) or removed (null): one of the
+// library's, under its prefix, and no other item of the page's (the wire is
+// not a way to write the page's stores at large). A store the page refuses
+// (its quota, its storage denied) logs it; the program, which has written
+// its mirror, does not know.
 function halogen_remote_storage(kind, key, value) {
-  if (typeof key !== "string" || (kind !== "local" && kind !== "session")) return;
+  if (typeof key !== "string" || key.indexOf(halogen_remote_storage_prefix) !== 0) return;
+  if (kind !== "local" && kind !== "session") return;
   try {
     var store = halogen_remote_store(kind);
     if (!store) throw new Error("the page has no " + kind + " storage");

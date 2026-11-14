@@ -94,7 +94,9 @@
 -- @history@ through @Web.HTML.History@, "Web.Storage.Storage"): an address
 -- is the one the program wrote (the router writes paths from the root, and
 -- whole addresses before a fragment), or @null@ for the page's own; a key
--- is the whole key, the prefix included. The session's mirror of the page
+-- is the whole key, the prefix included, and the client writes no key
+-- without it (the page's other items are not the program's to write). The
+-- session's mirror of the page
 -- has changed already when the operation is recorded, so what the program
 -- reads next is what it wrote. The page carries them out in order with the
 -- rest of the batch; one the browser refuses (an address of another
