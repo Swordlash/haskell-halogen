@@ -138,6 +138,7 @@ import Data.Sequence qualified as Seq
 import Data.Text qualified as T
 import Data.Unique (Unique, newUnique)
 import GHC.Clock (getMonotonicTime)
+import Halogen.Activity qualified as Activity
 import Halogen.Component (Component)
 import Halogen.IO.Driver (HalogenSocket (..))
 import Halogen.Subscription qualified as HS
@@ -269,6 +270,10 @@ instance Fail.MonadFail (PageM s) where
 data PageEnv = PageEnv
   { container :: DOM.Element
   , teardowns :: IORef [IO ()]
+  , retried :: IORef (Maybe SomeException)
+  -- ^ How the attempt of an 'eventually' under way last failed, until one
+  -- succeeds: what an 'eventually' around it says when its own deadline
+  -- cuts that one short (see 'eventuallyWithin').
   }
 
 -- | Run a test in a page of its own, and tear down everything mounted on it
@@ -305,7 +310,7 @@ runPage (PageM test) = do
         atomicWriteIORef pageHolder (Just me)
         runReaderT test env `catch` \failure -> throwIO =<< withEvents timeline failure
   where
-    open = PageEnv <$> (maybe Page.createContainer Page.createRootIn =<< readIORef pagesIn) <*> newIORef []
+    open = PageEnv <$> (maybe Page.createContainer Page.createRootIn =<< readIORef pagesIn) <*> newIORef [] <*> newIORef Nothing
     close env = do
       atomicWriteIORef pageHolder Nothing
       pending <- atomicModifyIORef' env.teardowns ([],)
@@ -341,11 +346,13 @@ withTimeline body = do
         (Seq.drop (Seq.length kept + 1 - timelineLength) (kept Seq.|> event), ())
   bracket (Trace.subscribe keep) identity $ \_ -> body Timeline {started, events}
 
--- | The failure, with what the trees did before it.
+-- | The failure, with what the trees did before it and what the program is
+-- doing now, read while the test's trees are still mounted.
 withEvents :: Timeline -> HUnitFailure -> IO HUnitFailure
 withEvents timeline (HUnitFailure location reason) = do
   kept <- toList <$> readIORef timeline.events
-  pure $ HUnitFailure location $ case timelineText timeline.started kept of
+  now <- Activity.activity
+  pure $ HUnitFailure location $ case (<> "\n" <> activityText now) <$> timelineText timeline.started kept of
     Nothing -> reason
     Just section -> case reason of
       Reason message -> Reason (message <> "\n\n" <> section)
@@ -354,6 +361,24 @@ withEvents timeline (HUnitFailure location reason) = do
       ExpectedButGot preface expected actual ->
         ExpectedButGot (Just (maybe "" (<> "\n\n") preface <> section)) expected actual
 
+-- | What the program was doing when a test failed ("Halogen.Activity"), the
+-- last line of a failure's section: a tree that is running or has work
+-- queued long after the events above is one whose loop is held, and its
+-- fibers waiting are the 'liftIO's the test did not wait for.
+--
+-- > The program then: 1 tree, 0 running or with work queued, 1 fiber waiting in liftIO.
+activityText :: Activity.Activity -> [Char]
+activityText now =
+  "The program then: "
+    <> counted now.trees "tree"
+    <> ", "
+    <> show now.running
+    <> " running or with work queued, "
+    <> counted now.waiting "fiber"
+    <> " waiting in liftIO."
+  where
+    counted n what = show n <> " " <> what <> (if n == 1 then "" else "s")
+
 -- | The section a failure gets, one line per event, oldest first, with its
 -- time since the test started; 'Nothing' for no events.
 --
@@ -361,6 +386,7 @@ withEvents timeline (HUnitFailure location reason) = do
 -- >    12.3 ms  Counter#3  action
 -- >    12.9 ms  Counter#3  state changed
 -- >    13.0 ms  Counter#3  rendered in 0.4 ms
+-- > The program then: 1 tree, 0 running or with work queued, 0 fibers waiting in liftIO.
 timelineText :: Double -> [Trace.Event] -> Maybe [Char]
 timelineText _ [] = Nothing
 timelineText started events =
@@ -683,6 +709,12 @@ eventually = eventuallyWithin 2000
 -- however slow it is or whatever it waits for (a 'find' inside, a render
 -- that never comes). It then fails as the last finished attempt did, or, if
 -- none finished, says so. A timeout of zero or less makes one attempt.
+--
+-- An attempt that is itself retrying (an expectation such as
+-- 'shouldHaveText' is an 'eventually' of its own, with the same two
+-- seconds) is cut short by this deadline a moment before its own: then this
+-- fails as that one's last attempt did, which is what was wrong all along,
+-- rather than saying that no attempt of its own finished.
 eventuallyWithin :: Int -> PageM s a -> PageM s a
 eventuallyWithin timeoutMs (PageM action)
   | timeoutMs <= 0 = PageM action
@@ -690,13 +722,23 @@ eventuallyWithin timeoutMs (PageM action)
       lastFailure <- newIORef Nothing
       let go =
             tryJust notAsync (runReaderT action env) >>= \case
-              Right a -> pure a
-              Left e -> atomicWriteIORef lastFailure (Just e) >> threadDelay (pollMs * 1000) >> go
+              -- An attempt that succeeded leaves nothing for one around it
+              -- to report: what comes after it is another matter.
+              Right a -> a <$ atomicWriteIORef env.retried Nothing
+              Left e -> do
+                atomicWriteIORef lastFailure (Just e)
+                atomicWriteIORef env.retried (Just e)
+                threadDelay (pollMs * 1000)
+                go
+      atomicWriteIORef env.retried Nothing
       withinMs timeoutMs go >>= \case
         Just a -> pure a
         Nothing ->
-          readIORef lastFailure
-            >>= maybe (assertFailure ("no attempt finished within " <> show timeoutMs <> " ms")) throwIO
+          readIORef lastFailure >>= \case
+            Just e -> throwIO e
+            Nothing ->
+              readIORef env.retried
+                >>= maybe (assertFailure ("no attempt finished within " <> show timeoutMs <> " ms")) throwIO
   where
     pollMs = 20
     notAsync e = case fromException e of

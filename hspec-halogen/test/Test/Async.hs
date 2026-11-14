@@ -1,10 +1,13 @@
 module Test.Async (spec) where
 
+import Data.IORef (newIORef, readIORef)
+import Data.Text qualified as T
 import Example.Clock qualified as Clock
 import Example.Loader qualified as Loader
-import Data.IORef (newIORef, readIORef)
 import GHC.Clock (getMonotonicTime)
 import Protolude hiding (find)
+import Test.HUnit.Lang (FailureReason (..), HUnitFailure (..))
+import Test.Hspec qualified as Hspec
 import Test.Hspec.Halogen
 
 spec :: forall m -> (MonadBrowserTest m) => Spec
@@ -36,8 +39,10 @@ spec m = do
   -- waiting 'find' inside, nor an attempt that never ends stretch it.
   it "gives up at its deadline when every attempt is slow" $ do
     started <- getMonotonicTime
-    outcome <- try @SomeException $ runPage $
-      eventuallyWithin 300 (unsafeIOToPageM (threadDelay 200000) >> panic "not yet")
+    outcome <-
+      try @SomeException
+        $ runPage
+        $ eventuallyWithin 300 (unsafeIOToPageM (threadDelay 200000) >> panic "not yet")
     took <- subtract started <$> getMonotonicTime
     unless (isLeft outcome && took < 1.5) $
       panic ("expected a failure within 1.5 s, got " <> either (const "a failure") (const "a success") outcome <> " after " <> show took <> " s")
@@ -53,11 +58,43 @@ spec m = do
 
   it "cuts short an attempt that never ends" $ do
     started <- getMonotonicTime
-    outcome <- try @SomeException $ runPage $
-      eventuallyWithin 300 (unsafeIOToPageM (threadDelay 1000000000))
+    outcome <-
+      try @SomeException
+        $ runPage
+        $ eventuallyWithin 300 (unsafeIOToPageM (threadDelay 1000000000))
     took <- subtract started <$> getMonotonicTime
     unless (isLeft outcome && took < 1.5) $
       panic ("expected a failure within 1.5 s, got " <> either (const "a failure") (const "a success") outcome <> " after " <> show took <> " s")
 
-  it "makes one attempt when the timeout is zero" $ runPage $
-    eventuallyWithin 0 (pure ()) `shouldReturn` ()
+  -- An expectation retries by itself, for as long as an 'eventually' around
+  -- it: the outer deadline comes first, with no attempt of its own over,
+  -- and what it says is how the expectation inside last failed.
+  it "fails as the expectation inside it last did, when its deadline cuts that one short" $ do
+    outcome <- try $ runPage $ do
+      ui <- mount m Loader.component (Loader.Input {delayMs = 0, result = "42"})
+      status <- find ui ".status"
+      status `shouldHaveText` "Loaded 42"
+      eventuallyWithin 300 (status `shouldHaveText` "Loaded 43")
+    case outcome of
+      Left (HUnitFailure _ (Reason message)) ->
+        take 1 (T.lines (toS message)) `Hspec.shouldBe` ["expected text \"Loaded 43\", found \"Loaded 42\""]
+      Left other -> Hspec.expectationFailure ("another failure: " <> show other)
+      Right () -> Hspec.expectationFailure "the test passed"
+
+  -- What an attempt that succeeded saw on its way is not what failed.
+  it "says that no attempt finished when what follows an expectation that held never ends" $ do
+    outcome <- try $ runPage $ do
+      ui <- mount m Loader.component (Loader.Input {delayMs = 100, result = "42"})
+      status <- find ui ".status"
+      eventuallyWithin 600 $ do
+        status `shouldHaveText` "Loaded 42"
+        unsafeIOToPageM (threadDelay 1000000000)
+    case outcome of
+      Left (HUnitFailure _ (Reason message)) ->
+        take 1 (T.lines (toS message)) `Hspec.shouldBe` ["no attempt finished within 600 ms"]
+      Left other -> Hspec.expectationFailure ("another failure: " <> show other)
+      Right () -> Hspec.expectationFailure "the test passed"
+
+  it "makes one attempt when the timeout is zero"
+    $ runPage
+    $ eventuallyWithin 0 (pure ()) `shouldReturn` ()

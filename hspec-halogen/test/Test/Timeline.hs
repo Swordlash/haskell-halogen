@@ -13,7 +13,7 @@ import Test.Hspec.Halogen
 
 spec :: forall m -> (MonadBrowserTest m) => Spec
 spec m =
-  it "shows what the tree did when an expectation fails" $ do
+  it "shows what the tree did, and what the program is doing, when an expectation fails" $ do
     -- A page of its own, which fails on purpose: what it throws is what
     -- hspec would have printed.
     outcome <- try $ runPage $ do
@@ -33,5 +33,8 @@ spec m =
         -- the change it made.
         let indexOf what = findIndex (\l -> "Counter#" `T.isInfixOf` l && what `T.isInfixOf` l) shown
         (indexOf "  action" < indexOf "state changed") `Hspec.shouldBe` True
+        -- And last, what the program was doing when the test failed: its
+        -- one tree, with nothing running, queued or waited for.
+        lastMay shown `Hspec.shouldBe` Just "The program then: 1 tree, 0 running or with work queued, 0 fibers waiting in liftIO."
       Left other -> Hspec.expectationFailure ("another failure: " <> show other)
       Right () -> Hspec.expectationFailure "the test passed"
