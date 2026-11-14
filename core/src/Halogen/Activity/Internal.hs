@@ -6,16 +6,20 @@
 module Halogen.Activity.Internal
   ( Activity (..)
   , activity
-  , treeActivity
+  , treeReading
   , idle
   , quiet
   , register
   , deregister
+  , waitReading
+  , waitsUnderWay
+  , ActivityEnded (..)
   )
 where
 
 import Data.IntMap.Strict qualified as IntMap
 import HPrelude
+import Halogen.Activity.Signal (changed, changedSince, currentVersion, waitsUnderWay, watching)
 import Halogen.IO.Driver.Runtime (Loop, loopActivity)
 import Halogen.JSBits (Callback, JSVal, Safety (..), browserJS, inBrowser, mkCallback)
 import System.IO.Unsafe (unsafePerformIO)
@@ -44,11 +48,15 @@ data Activity = Activity
   }
   deriving stock (Eq, Show)
 
--- | No tree is running or has work queued. Fibers may still be waiting.
+-- | No tree is running or has work queued. Fibers may still be waiting, and
+-- one whose wait has just ended may not have its next step queued yet: for
+-- "done all it can while @n@ answers are held", ask for
+-- @running == 0 && waiting == n@ instead.
 idle :: Activity -> Bool
 idle a = a.running == 0
 
--- | 'idle', and no fiber waiting either.
+-- | 'idle', and no fiber waiting either: everything the program waited for
+-- has come back and been handled.
 quiet :: Activity -> Bool
 quiet a = idle a && a.waiting == 0
 
@@ -77,16 +85,52 @@ activity = do
       , waiting = sum (map snd readings)
       }
 
--- | Read one tree's loop, by the number 'register' gave it: one tree from
--- its registration until it is deregistered, nothing before or after. The
--- same contract as 'activity', for that tree alone.
-treeActivity :: Int -> IO Activity
-treeActivity n =
-  IntMap.lookup n . snd <$> readIORef trees >>= \case
-    Nothing -> pure Activity {trees = 0, running = 0, waiting = 0}
-    Just loop -> do
-      (busy, waits) <- loopActivity loop
-      pure Activity {trees = 1, running = if busy then 1 else 0, waiting = waits}
+-- | One tree's reading, as its socket gives it, by the number 'register'
+-- gave it and its loop: one tree from its registration until it is
+-- deregistered (disposed of), with what its loop is doing, under the same
+-- contract as 'activity'. Once it is deregistered, no tree, and what of its
+-- loop is still at work: the fibers of its finalizers, and the forks they
+-- started, which go on after the dispose returns when they wait. With it,
+-- whether the reading can change no more: the tree is gone and its loop has
+-- nothing running, queued or waiting (but for a pause, which is counted
+-- nowhere).
+treeReading :: Int -> Loop -> IO (Activity, Bool)
+treeReading n loop = do
+  registered <- IntMap.member n . snd <$> readIORef trees
+  (busy, waits) <- loopActivity loop
+  let reading = Activity {trees = if registered then 1 else 0, running = if busy then 1 else 0, waiting = waits}
+  pure (reading, not registered && not busy && waits == 0)
+
+-- | Return once a reading satisfies the predicate, woken by every change of
+-- what the trees' readings are made of (see "Halogen.Activity.Signal" for
+-- why none is missed) and by every change of @extra@, a value read in 'STM'
+-- of whatever else the caller folds into its reading (a remote session's
+-- unsent operations). Read before the reading, it is the other half of the
+-- same argument: a change of it made after it was read wakes the wait.
+--
+-- The reading says, besides, whether it can change no more (a disposed tree
+-- with nothing left of it at work): a predicate it does not satisfy then
+-- throws 'ActivityEnded' rather than wait for ever.
+waitReading :: (Eq s) => STM s -> IO (Activity, Bool) -> (Activity -> Bool) -> IO ()
+waitReading extra reading done = watching go
+  where
+    go = do
+      v <- currentVersion
+      before <- atomically extra
+      (a, final) <- reading
+      unless (done a) $ do
+        when final $ throwIO (ActivityEnded a)
+        atomically (changedSince v `orElse` (extra >>= check . (/= before)))
+        go
+
+-- | A wait on one tree's reading (a socket's, a remote session's) whose
+-- tree has been disposed of and has nothing left at work, with the reading
+-- it ended with, which the predicate did not accept: nothing would ever wake
+-- the wait again.
+newtype ActivityEnded = ActivityEnded Activity
+  deriving stock (Show)
+
+instance Exception ActivityEnded
 
 -- | Count a tree, and give the page's probe its function if the page has
 -- one and this program has not done so yet. The driver calls it inside the
@@ -95,13 +139,14 @@ treeActivity n =
 register :: Loop -> IO Int
 register loop = do
   n <- atomicModifyIORef' trees $ \(next, loops) -> ((next + 1, IntMap.insert next loop loops), next)
+  changed
   -- A page whose probe is not what core expects must not stop a mount.
   when inBrowser $ void (try offerProbe :: IO (Either SomeException ()))
   pure n
 
 -- | Stop counting a tree. Doing it twice does nothing.
 deregister :: Int -> IO ()
-deregister n = atomicModifyIORef' trees (\(next, loops) -> ((next, IntMap.delete n loops), ()))
+deregister n = atomicModifyIORef' trees (\(next, loops) -> ((next, IntMap.delete n loops), ())) >> changed
 
 -- | One read of a global per mount until the page turns out to want an
 -- answer; then a callback, made once, for as long as the program runs.

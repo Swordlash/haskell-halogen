@@ -29,8 +29,50 @@
 -- around a request) is 'waiting', not 'running'; and a timer behind an
 -- emitter, an emitter that has not fired yet, or an event the browser has
 -- not dispatched yet is neither, since nothing of it is on a loop until it
--- arrives. What a finalizer forks after its tree is disposed of is not
--- counted either.
+-- arrives. A tree that has been disposed of is not in 'activity', so what
+-- its finalizers still do once they wait (a @liftIO@ in a @Finalize@, and
+-- what they fork) is not either: its socket's reading counts that (below).
+--
+-- = Waiting for a reading
+--
+-- 'waitActivity' returns once the reading satisfies a predicate. It is woken
+-- by every change of what the reading is made of (a loop taken or given up,
+-- work queued, a fiber starting or ending a wait, a tree mounted or disposed
+-- of), never by a clock, and has no deadline of its own: wrap it in
+-- 'System.Timeout.timeout'. Which predicate:
+--
+-- * after an action was delivered from outside the program (an event, a
+--   query, an emitter's notification), 'idle' ('waitIdle'): the program has
+--   done all it can do at once, and its renders are done. A fiber may be
+--   waiting in a 'liftIO' meanwhile, and one whose wait has just ended may
+--   not have been queued yet: 'idle' says nothing of what comes after a wait;
+--
+-- * once everything the program waits for has come back, 'quiet'
+--   ('waitQuiet');
+--
+-- * when the test itself holds some of what the program waits for (a
+--   backend whose answers the test lets go one at a time), "the program has
+--   done all it can while the test still holds @n@ answers":
+--   @'waitActivity' (\a -> a.running == 0 && a.waiting == n)@. After the
+--   test lets one of @n + 1@ go, the fiber it held is counted as waiting
+--   until its next step is queued on the loop, so this returns only after
+--   that step has run and the program is idle again (where 'waitIdle' could
+--   return before it was queued).
+--
+-- One tree's reading, and a wait on it, are its socket's:
+-- 'Halogen.IO.Driver.HalogenSocket''s @activity@ and @waitActivity@, so that
+-- a test can wait for its tree while others run beside it in the process.
+-- Once the tree is disposed of, that reading is no tree, and what of it is
+-- still at work (its finalizers that wait, and their forks): a wait for
+-- 'quiet' on it returns once all of that is over, and a wait whose predicate
+-- the last reading of a disposed tree does not satisfy throws
+-- 'ActivityEnded' rather than wait for ever.
+--
+-- A wait sleeps in 'STM', so in a browser (either backend) it lets the page
+-- run while it waits, as "Halogen.JSBits.Promise"'s waits do; it must not be
+-- called from a component's own synchronous code, which holds the loop the
+-- wait is waiting for. With nobody waiting, a change costs one read of a
+-- reference more.
 --
 -- = Pauses
 --
@@ -87,26 +129,42 @@ module Halogen.Activity
   , activity
   , idle
   , quiet
+
+    -- * Waiting
+  , waitActivity
   , waitIdle
   , waitQuiet
+  , ActivityEnded (..)
+  , waitsUnderWay
+
+    -- * A reading of one's own
+  , waitReading
   )
 where
 
 import HPrelude
 import Halogen.Activity.Internal
 
--- | Return once 'activity' is 'idle', asking a millisecond apart. For a
--- test in the same process as the trees (a server's): after an action has
--- been delivered, it returns once the tree has handled it.
+-- | Return once 'activity' satisfies the predicate: at once if it does now,
+-- otherwise after the change that makes it, woken by every change of the
+-- trees' loops and of the registry of trees, never by a clock. No deadline:
+-- a predicate that never holds waits for ever (wrap it in
+-- 'System.Timeout.timeout'). See "Waiting for a reading" above for which
+-- predicate to wait for.
+waitActivity :: (Activity -> Bool) -> IO ()
+waitActivity = waitReading (pure ()) ((,False) <$> activity)
+
+-- | @'waitActivity' 'idle'@: no tree is running work or has work queued.
+-- After an action has been delivered, the program has done what it does at
+-- once, renders included. A fiber may still wait in a 'liftIO', or have
+-- just come back from one without its next step queued yet; to wait for
+-- that step while the test still holds other answers, wait for a count of
+-- 'waiting' instead ("Waiting for a reading", above).
 waitIdle :: IO ()
-waitIdle = pollUntil idle
+waitIdle = waitActivity idle
 
--- | Return once 'activity' is 'quiet': idle, and what every fiber waited
--- for has come back.
+-- | @'waitActivity' 'quiet'@: idle, and what every fiber waited for has come
+-- back. It does not return while a fiber waits for something the test
+-- holds.
 waitQuiet :: IO ()
-waitQuiet = pollUntil quiet
-
-pollUntil :: (Activity -> Bool) -> IO ()
-pollUntil done = do
-  a <- activity
-  unless (done a) $ threadDelay 1000 >> pollUntil done
+waitQuiet = waitActivity quiet

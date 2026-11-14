@@ -44,11 +44,31 @@ data HalogenSocket query output m = HalogenSocket
   -- for itself.
   , messages :: HS.Emitter m output
   , dispose :: m ()
+  -- ^ Finalize the tree and take it off the page. When it returns, every
+  -- component's @Finalize@ has run its synchronous part (whichever thread
+  -- runs the tree's loop, and however many callers dispose of it at once);
+  -- what a finalizer waits for in a 'liftIO', and what follows that wait,
+  -- goes on afterwards, and 'waitActivity' with
+  -- 'Halogen.Activity.quiet' waits for it. Disposing of a tree twice does
+  -- nothing more.
   , activity :: m Activity.Activity
   -- ^ What this tree alone is doing, as "Halogen.Activity" reads every
-  -- tree: one tree until it is disposed of and none after, running or not,
-  -- and its fibers waiting in a 'liftIO'. For a program that runs several
-  -- trees and has to know about one (a server with a tree per connection).
+  -- tree: one tree until it is disposed of, running or not, and its fibers
+  -- waiting in a 'liftIO'. For a program that runs several trees and has to
+  -- know about one (a server with a tree per connection, a test beside
+  -- others). Once the tree is disposed of, no tree, and what of it is still
+  -- at work: its finalizers' fibers that wait, and what follows their
+  -- waits, until they end ("Halogen.Activity"'s 'Halogen.Activity.activity'
+  -- does not count those).
+  , waitActivity :: (Activity.Activity -> Bool) -> m ()
+  -- ^ Return once 'activity' satisfies the predicate, woken by every change
+  -- of what readings are made of, never by a clock, as
+  -- 'Halogen.Activity.waitActivity' (whose haddock says which predicate to
+  -- wait for). No deadline of its own. On a tree that has been disposed of
+  -- and has nothing left at work, a predicate that its last reading does
+  -- not satisfy throws 'Halogen.Activity.ActivityEnded' instead of waiting
+  -- for ever; after 'dispose', @waitActivity quiet@ returns once every
+  -- finalizer has ended.
   }
 
 data RenderSpec (m :: Type -> Type) (r :: Type -> Type -> Row Type -> Type -> Type) = RenderSpec
@@ -162,7 +182,8 @@ mount toTheEnd spec@RenderSpec {dispose} c i = withRunInIO $ \runInIO -> do
       { query = liftIO . askRoot tree root
       , messages = sio.emitter
       , dispose = liftIO (disposeRoot tree disposed registration root)
-      , activity = liftIO (Activity.treeActivity registration)
+      , activity = liftIO (fst <$> Activity.treeReading registration loop)
+      , waitActivity = liftIO . Activity.waitReading (pure ()) (Activity.treeReading registration loop)
       }
   where
     askRoot :: forall a. Tree m r -> DriverStateRef m r f o -> f a -> IO (Maybe a)

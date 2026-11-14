@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+`Halogen.Activity.waitActivity` returns once the program's reading satisfies a
+predicate, woken by every change of what the reading is made of (a tree's
+loop taken or given up, work queued, a fiber starting or ending a wait in a
+`liftIO`, a tree mounted or disposed of) rather than asking every
+millisecond; it has no deadline of its own, so a test wraps it in `timeout`.
+`waitIdle` and `waitQuiet` are now `waitActivity idle` and `waitActivity
+quiet`, with the same meaning and no polling. For a test that holds some of
+what the program waits for (a backend whose answers it lets go one at a
+time), "the program has done all it can while I still hold `n` answers" is
+`waitActivity (\a -> a.running == 0 && a.waiting == n)`: after one answer is
+let go, its fiber stays counted as waiting until its next step is queued, so
+this returns only after that step has run, where `waitIdle` could return
+before it was queued. A wait sleeps in STM, so in a browser it lets the page
+run; with nobody waiting, a change costs one read of a reference more.
+`waitReading` is the same wait for a reading that folds in state of its own
+(haskell-halogen-remote's session uses it), and `waitsUnderWay` says how many
+waits are under way.
+
+`HalogenSocket` has a new field, `waitActivity`, the same wait on that tree's
+own reading (its `activity` field, which was there already), so a test can
+wait for its tree while others run beside it in the process. Code that builds
+a `HalogenSocket` itself adds the field. A disposed tree's reading has
+changed: it was nothing at all, and is now no tree, with what of the tree is
+still at work, its finalizers' fibers waiting in a `liftIO` and what follows
+those waits, until they end. So after `dispose`, `socket.waitActivity quiet`
+returns once every finalizer has ended. `dispose` itself is unchanged: it
+returns once every finalizer has run its synchronous part (which tests now
+state, for two callers at once too), and does not wait for what a finalizer
+waits for, so a finalizer that never ends does not hold up an unmount. A wait
+on a disposed tree that has nothing left at work, whose predicate its last
+reading does not satisfy, throws `ActivityEnded` instead of waiting for ever.
+The process's `activity` does not count a disposed tree's finalizers, as
+before.
+
 A handler can declare two more kinds of match. `HE.within "a[href]"
 HE.plainLeftClick` is for one handler on a container that hears the clicks
 on the links inside it, as a page of rendered Markdown has: the event's

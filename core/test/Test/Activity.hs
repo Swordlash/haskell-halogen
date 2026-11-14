@@ -6,10 +6,10 @@
 -- program.
 module Test.Activity (spec) where
 
-import Control.Concurrent (forkIO, threadDelay)
+import Control.Concurrent (forkIO, killThread, threadDelay)
 import Control.Concurrent.MVar
 import Control.Exception (ErrorCall (..), SomeException, bracket, throwIO, try)
-import Control.Monad (forever, void)
+import Control.Monad (forM_, forever, replicateM, replicateM_, void, when)
 import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (traverse_)
 import Data.IORef
@@ -93,6 +93,34 @@ dispose AD.HalogenSocket {AD.dispose = d} = d
 -- | The socket's reading of its own tree.
 treeActivity :: AD.HalogenSocket q o IO -> IO Activity
 treeActivity AD.HalogenSocket {AD.activity = a} = a
+
+-- | The socket's wait on its own tree.
+waitTree :: AD.HalogenSocket q o IO -> (Activity -> Bool) -> IO ()
+waitTree AD.HalogenSocket {AD.waitActivity = w} = w
+
+-- | A component that runs this program in its @Finalize@.
+finalizing :: H.HalogenM () () Empty Void IO () -> H.Component H.VoidF () Void IO
+finalizing program =
+  H.component
+    (\() -> pure ())
+    (\() -> HH.text "" :: H.ComponentHTML () Empty IO)
+    [H.onFinalize program]
+
+mountFinalizing :: H.HalogenM () () Empty Void IO () -> IO (AD.HalogenSocket H.VoidF Void IO)
+mountFinalizing program = do
+  failing <- newIORef False
+  AD.runUI (nowhere failing) (finalizing program) ()
+
+-- | That the waits under way are back to what they were, however the last
+-- one ended: a wait leaves nothing behind that every later change of a
+-- loop would pay for.
+noWaitsLeft :: Int -> IO ()
+noWaitsLeft before = do
+  -- A waiter that was killed uncounts itself as its thread unwinds.
+  let settled n = do
+        now <- Activity.waitsUnderWay
+        if now == before || n == (0 :: Int) then pure now else threadDelay 1_000 >> settled (n - 1)
+  settled 1_000 >>= assertEqual "the waits under way" before
 
 within :: String -> IO a -> IO a
 within what io = timeout 5_000_000 io >>= maybe (throwIO (ErrorCall ("timed out: " <> what))) pure
@@ -286,7 +314,11 @@ spec = describe "Halogen.Activity" $ do
       ui <- mountProgram (H.delay 60 >> mark woke)
       treeActivity ui >>= assertEqual "asleep" Activity {trees = 1, running = 0, waiting = 0}
       dispose ui
-      treeActivity ui >>= assertEqual "gone" Activity {trees = 0, running = 0, waiting = 0}
+      -- No tree at once; the pause's worker, killed with its fiber, may
+      -- still be on its way out, which the reading counts until it is.
+      treeActivity ui >>= assertEqual "gone" 0 . (.trees)
+      within "what is left of it to end" (waitTree ui Activity.quiet)
+      treeActivity ui >>= assertEqual "gone, nothing left" Activity {trees = 0, running = 0, waiting = 0}
       dispose ui
       treeActivity ui >>= assertEqual "gone, disposed of twice" Activity {trees = 0, running = 0, waiting = 0}
 
@@ -368,3 +400,168 @@ spec = describe "Halogen.Activity" $ do
         stopped <- readIORef ticks
         threadDelay 100_000
         readIORef ticks >>= assertEqual "no tick after the tree went" stopped
+
+  describe "waiting for a reading" $ do
+    it "returns at once when the reading satisfies the predicate, and leaves no wait behind" $ do
+      before <- Activity.waitsUnderWay
+      within "an idle program" (Activity.waitActivity Activity.idle)
+      within "a predicate that holds" (Activity.waitActivity (const True))
+      noWaitsLeft before
+
+    it "returns once the step after a released wait has run, while another wait is still held" $ do
+      -- The user's case: two answers held, one let go; the wait for one
+      -- still held returns only once the program has gone on from the one
+      -- let go. Many times, since what it must not miss is a race.
+      forM_ [1 :: Int .. 200] $ \_ -> do
+        firstGate <- newEmptyMVar
+        secondGate <- newEmptyMVar
+        firstDone <- newEmptyMVar
+        let program = do
+              void (H.fork (liftIO (takeMVar firstGate) >> mark firstDone))
+              void (H.fork (liftIO (takeMVar secondGate)))
+        withProgram program $ \ui -> do
+          before <- Activity.activity
+          within "both waits" (waitTree ui (\a -> a.running == 0 && a.waiting == 2))
+          putMVar firstGate ()
+          within "one left" (waitTree ui (\a -> a.running == 0 && a.waiting == 1))
+          tryReadMVar firstDone >>= assertEqual "the released step ran" (Just ())
+          -- The process's wait, with the same meaning.
+          within "the process, one left" (Activity.waitActivity (\a -> a.running == 0 && a.waiting == before.waiting - 1))
+          putMVar secondGate ()
+          within "quiet" (waitTree ui Activity.quiet)
+
+    it "misses no change between its reading and its sleep: a wait raced against the change, many times" $ do
+      forM_ [1 :: Int .. 500] $ \_ -> do
+        gate <- newEmptyMVar
+        withProgram (liftIO (takeMVar gate)) $ \ui -> do
+          -- Released from another thread as the wait starts.
+          _ <- forkIO (putMVar gate ())
+          within "quiet" (waitTree ui Activity.quiet)
+          within "the process, quiet" Activity.waitQuiet
+
+    it "wakes two waiters with different predicates, each when its own holds" $ do
+      first <- newEmptyMVar
+      second <- newEmptyMVar
+      firstBack <- newEmptyMVar
+      secondBack <- newEmptyMVar
+      before <- Activity.waitsUnderWay
+      let program = do
+            void (H.fork (liftIO (takeMVar first)))
+            void (H.fork (liftIO (takeMVar second)))
+      withProgram program $ \ui -> do
+        within "both waits" (waitTree ui (\a -> a.waiting == 2))
+        _ <- forkIO (waitTree ui (\a -> a.running == 0 && a.waiting == 1) >> putMVar firstBack ())
+        _ <- forkIO (waitTree ui Activity.quiet >> putMVar secondBack ())
+        threadDelay 20_000
+        tryReadMVar firstBack >>= assertEqual "the first, before its change" Nothing
+        tryReadMVar secondBack >>= assertEqual "the second, before its change" Nothing
+        putMVar first ()
+        within "the first waiter" (takeMVar firstBack)
+        tryReadMVar secondBack >>= assertEqual "the second, still waiting" Nothing
+        putMVar second ()
+        within "the second waiter" (takeMVar secondBack)
+      noWaitsLeft before
+
+    it "has no deadline: a predicate that never holds waits until it is stopped, and leaves nothing behind" $ do
+      before <- Activity.waitsUnderWay
+      timeout 100_000 (Activity.waitActivity (const False)) >>= assertEqual "still waiting" Nothing
+      noWaitsLeft before
+
+    it "leaves nothing behind when the waiting thread is killed" $ do
+      before <- Activity.waitsUnderWay
+      gate <- newEmptyMVar
+      withProgram (liftIO (takeMVar gate)) $ \ui -> do
+        waiters <- replicateM 3 (forkIO (waitTree ui Activity.quiet))
+        let counted n = do
+              now <- Activity.waitsUnderWay
+              when (now < before + 3 && n > (0 :: Int)) $ threadDelay 1_000 >> counted (n - 1)
+        counted 1_000
+        Activity.waitsUnderWay >>= assertEqual "three waits" (before + 3)
+        traverse_ killThread waiters
+        noWaitsLeft before
+        putMVar gate ()
+
+    it "waits for one tree alone: a quiet tree beside a busy one" $ do
+      gate <- newEmptyMVar
+      busy <- mountProgram (liftIO (takeMVar gate))
+      calm <- mountProgram (pure ())
+      within "the quiet tree" (waitTree calm Activity.quiet)
+      quietEarly <- timeout 50_000 Activity.waitQuiet
+      assertEqual "the process is not quiet" Nothing quietEarly
+      putMVar gate ()
+      within "the busy tree, once released" (waitTree busy Activity.quiet)
+      dispose busy
+      dispose calm
+
+  describe "a disposed tree" $ do
+    it "has run every finalizer's synchronous part when dispose returns, many times" $ do
+      forM_ [1 :: Int .. 300] $ \_ -> do
+        released <- newIORef False
+        ui <- mountFinalizing (H.liftEffect (writeIORef released True))
+        dispose ui
+        readIORef released >>= assertEqual "released when dispose returns" True
+
+    it "has every caller of dispose return only once the finalizer's synchronous part has run" $ do
+      -- Two disposals at once, the first held inside the finalizer: the
+      -- second returns only after it, not because it found the tree taken.
+      replicateM_ 50 $ do
+        inside <- newEmptyMVar
+        letGo <- newEmptyMVar
+        released <- newIORef False
+        let program = H.liftEffect (putMVar inside () >> takeMVar letGo >> writeIORef released True)
+        ui <- mountFinalizing program
+        firstDone <- newEmptyMVar
+        secondDone <- newEmptyMVar
+        _ <- forkIO (dispose ui >> putMVar firstDone ())
+        within "the finalizer" (takeMVar inside)
+        _ <- forkIO (dispose ui >> readIORef released >>= putMVar secondDone)
+        threadDelay 2_000
+        tryReadMVar secondDone >>= assertEqual "the second disposal, while the finalizer runs" Nothing
+        putMVar letGo ()
+        within "the first disposal" (takeMVar firstDone)
+        within "the second disposal" (takeMVar secondDone) >>= assertEqual "released when the second returned" True
+
+    it "counts a finalizer that waits on its socket, not in the process, and the socket's quiet waits for it" $ do
+      gate <- newEmptyMVar
+      released <- newIORef False
+      before <- Activity.activity
+      ui <- mountFinalizing (liftIO (takeMVar gate) >> H.liftEffect (writeIORef released True))
+      dispose ui
+      readIORef released >>= assertEqual "not yet released" False
+      treeActivity ui >>= assertEqual "the socket counts the finalizer's wait" Activity {trees = 0, running = 0, waiting = 1}
+      Activity.activity >>= assertEqual "the process does not" (0, 0, 0) . since before
+      quietEarly <- timeout 50_000 (waitTree ui Activity.quiet)
+      assertEqual "not quiet while the finalizer waits" Nothing quietEarly
+      putMVar gate ()
+      within "the finalizer to end" (waitTree ui Activity.quiet)
+      readIORef released >>= assertEqual "released once the wait returned" True
+
+    it "releases what a finalizer releases after its wait by the time the socket is quiet, many times" $ do
+      forM_ [1 :: Int .. 200] $ \_ -> do
+        released <- newIORef False
+        ui <- mountFinalizing (liftIO (pure ()) >> H.liftEffect (writeIORef released True))
+        dispose ui
+        within "the finalizer to end" (waitTree ui Activity.quiet)
+        readIORef released >>= assertEqual "released" True
+
+    it "returns from dispose while a finalizer never ends, and its socket's wait never returns" $ do
+      ui <- mountFinalizing (liftIO (forever (threadDelay 1_000_000)))
+      within "dispose" (dispose ui)
+      timeout 100_000 (waitTree ui Activity.quiet) >>= assertEqual "still waiting" Nothing
+
+    it "throws, rather than wait for ever, on a predicate its last reading does not satisfy" $ do
+      gate <- newEmptyMVar
+      before <- Activity.waitsUnderWay
+      ui <- mountProgram (liftIO (takeMVar gate))
+      outcome <- newEmptyMVar
+      -- A tree that is never going to wait twice: disposed of meanwhile.
+      _ <- forkIO (try (waitTree ui (\a -> a.waiting == 2)) >>= putMVar outcome)
+      threadDelay 20_000
+      dispose ui
+      within "the wait to end" (takeMVar outcome) >>= \case
+        Left (Activity.ActivityEnded a) -> assertEqual "the last reading" Activity {trees = 0, running = 0, waiting = 0} a
+        Right () -> throwIO (ErrorCall "the wait returned")
+      -- A predicate the last reading satisfies returns.
+      within "quiet" (waitTree ui Activity.quiet)
+      within "no tree" (waitTree ui (\a -> a.trees == 0))
+      noWaitsLeft before
