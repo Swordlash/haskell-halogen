@@ -23,12 +23,16 @@ WebSocket and server-sent events, whose events arrive through `Halogen.Subscript
 `playwright` (`haskell-halogen-playwright`: tests from outside the page, natively: Chromium driven through a
 node child speaking a JSON-lines protocol of our own, every action waiting for the page's program to say it is idle
 through core's activity probe, with hspec integration and a static server for a built directory
-(`Halogen.Playwright.Serve`); requests answered by the test's handlers (routes, a gate that holds `app.wasm`;
-node asks, Haskell answers, each handler on a thread of its own), the check that a prerendered page is adopted with
+(`Halogen.Playwright.Serve`); requests answered by the test's handlers (routes, a gate that holds `app.wasm`,
+either by resource type and method too; node asks, Haskell answers, each handler on a thread of its own, and a
+handler can fetch the server's response and pass it on), a context's exchanges recorded on request (every header
+a request carried, its body, the response), functions of the test a page calls, the pages a page opens, Back and
+Forward that return for an entry within the document or a frame's, waits that poll through the DevTools protocol
+so that a page's Content Security Policy does not stop them, the check that a prerendered page is adopted with
 nothing repaired (`shouldAdoptCleanly`: `app.wasm` held, every node under `#app` marked, the program let go and its
 start waited for, and what it replaced, removed, built or changed listed), downloads and uploads, cookies, offline,
-emulated media and print, phones and taps, frames, and the Chrome DevTools Protocol with a processor throttle
-`HALOGEN_PLAYWRIGHT_THROTTLE` puts on every page; it depends on none of our packages and is native only),
+emulated media and print, phones and taps, frames, and the Chrome DevTools Protocol (calls, and the events a
+test listens to) with a processor throttle `HALOGEN_PLAYWRIGHT_THROTTLE` puts on every page, popups included; it depends on none of our packages and is native only),
 `custom-element` (`haskell-halogen-custom-element`: a component as a custom element, a Web
 Component any page can use, its attributes and properties the component's input, its outputs
 `CustomEvent`s and its queries methods; and `onEvent` for others' custom elements), `devtools`
