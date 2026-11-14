@@ -632,6 +632,19 @@ const dropRoutes = (which) => {
   if (gone.length > 0) send({ event: "unrouted", routes: gone });
 };
 
+// Whether an action failed only because it closed its own page: a sign-in
+// window's button, whose click posts to the opener and closes the window.
+// Playwright performs the click and then waits for what the click set off,
+// and when the page goes under that wait it complains that its target has
+// closed, some of the time (a race between the click's acknowledgement and
+// the page's going). The action was performed, which its log says, so that
+// is no failure. A page that closes before the action is performed (while
+// it waits for a disabled button, say) is one: the log has no such line.
+const performedAsPageClosed = (page, error) => {
+  const message = String(error?.message ?? "");
+  return page.isClosed() && /Target page, context or browser has been closed/.test(message) && /performing \w+ action/.test(message);
+};
+
 // An action on a locator, then settle. The action is given Playwright's
 // options with the call's timeout.
 // The page is taken before the action, which may close it (a sign-in
@@ -639,7 +652,12 @@ const dropRoutes = (which) => {
 const acting = (act) => async (m) => {
   const page = pageOf(m.locator.page);
   const target = locate(m.locator);
-  await act(target, m, { timeout: within(m) });
+  try {
+    await act(target, m, { timeout: within(m) });
+  } catch (error) {
+    if (!performedAsPageClosed(page, error)) throw error;
+    return null;
+  }
   await settle(page, { timeout: within(m) });
   return null;
 };

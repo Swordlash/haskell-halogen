@@ -5,6 +5,7 @@ module Test.Popups (spec) where
 
 import Control.Exception (try)
 import Data.Text (Text)
+import Data.Text qualified as Text
 import Halogen.Playwright
 import Halogen.Playwright.Hspec
 
@@ -53,6 +54,19 @@ spec base = describe "popups" $ do
     click (byRoleNamed signIn "button" "Sign in")
     locator page "#signed" `shouldHaveText` "ada"
     eventually page (length <$> pages ctx `shouldReturn` 1)
+
+  -- The other way round: the window goes before the click could be
+  -- performed (its button is disabled), which is a failure, not a click.
+  it "fails an action its page closed before it could be performed" $ \pw -> withContext pw defaultContextOptions $ \ctx -> do
+    page <- newPage ctx
+    goto page (at "popup.html")
+    ((), signIn) <- waitForPopup page (click (locator page "#signin"))
+    () <- evaluate signIn "(() => { document.getElementById('go').disabled = true; setTimeout(() => window.close(), 200); })()"
+    try (click (byRoleNamed signIn "button" "Sign in")) >>= \case
+      Left (e :: PlaywrightError) -> e.message `shouldSatisfy` Text.isInfixOf "closed"
+      Right () -> expectationFailure "the click returned, though the window closed before it was performed"
+    -- Nobody signed in.
+    locator page "#signed" `shouldHaveText` "no"
 
   it "fails when no page is opened, after the timeout" $ \pw -> withPage pw $ \page -> do
     goto page (at "popup.html")
