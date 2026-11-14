@@ -203,6 +203,8 @@ handleOf node = withNativeObject object (toForeign node)
     object =
       NativeObject
         { call = \name _ -> atomicModifyIORef' node.performed (\done -> (Called name : done, ()))
+        , -- It answers no method with a result either: see 'live'.
+          invoke = \_ _ -> pure Nothing
         , set = \name value -> atomicModifyIORef' node.performed (\done -> (Assigned name (jsValText value) : done, ()))
         , get = \name -> case node.kind of
             DocumentNode | name == "document" -> Just (handleOf node)

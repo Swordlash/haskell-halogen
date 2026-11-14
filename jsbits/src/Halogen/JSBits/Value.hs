@@ -18,6 +18,9 @@ module Halogen.JSBits.Value
   , toJSText
   , fromJSText
   , jsValText
+  , jsValBool
+  , jsValInt
+  , jsValDouble
   , isNull
   , jsNull
   , toJSInt
@@ -35,6 +38,7 @@ module Halogen.JSBits.Value
   , NativeObject (..)
   , withNativeObject
   , nativeCall
+  , nativeInvoke
   , nativeSet
   , nativeGet
   , nativeRead
@@ -89,8 +93,11 @@ withNativeObject :: NativeObject JSVal -> JSVal -> JSVal
 -- | What "Halogen.JSBits.Fields" writes natively for a member: the
 -- object's answer, if the value is one that answers ('withNativeObject'), and
 -- otherwise the inert one (nothing done, 'Nothing', 'False'). In a browser
--- they are never asked, and give the inert answer.
+-- they are never asked, and give the inert answer. 'nativeInvoke' and
+-- 'nativeRead' give 'Nothing' for a value that does not answer, or an
+-- object that declines, and @'Just' 'jsNull'@ for an answer of @null@.
 nativeCall :: JSVal -> Text -> [JSVal] -> IO ()
+nativeInvoke :: JSVal -> Text -> [JSVal] -> IO (Maybe JSVal)
 nativeSet :: JSVal -> Text -> JSVal -> IO ()
 nativeGet :: JSVal -> Text -> Maybe JSVal
 nativeRead :: JSVal -> Text -> IO (Maybe JSVal)
@@ -112,6 +119,14 @@ fromJSText :: JSText -> Text
 -- | A value known to be a string, as text. Natively the 'Text' the value
 -- holds, and empty for a value that holds none.
 jsValText :: JSVal -> Text
+
+-- | A value known to be a boolean or a number, as one, as JavaScript's
+-- @!!@, @|0@ and @+@ make it. Natively the 'Bool', 'Int' or 'Double' the
+-- value holds ('jsValDouble' also takes an 'Int'), and 'False' or 0 for a
+-- value that holds none.
+jsValBool :: JSVal -> Bool
+jsValInt :: JSVal -> Int
+jsValDouble :: JSVal -> Double
 
 -- | Whether the value is @null@. Natively, whether it is 'jsNull' (holds
 -- @()@), which every stub's result is.
@@ -256,6 +271,9 @@ type JSText = JSVal
 toJSText = toJSString . Text.unpack
 fromJSText = Text.pack . fromJSString
 jsValText = fromJSText
+jsValBool = js_val_bool
+jsValInt = js_val_int
+jsValDouble = js_val_double
 isNull = JS.isNull
 jsNull = JS.jsNull
 toJSInt = JS.toJSInt
@@ -282,6 +300,12 @@ foreign import javascript unsafe "((array, buffer, offset) => { buffer.u8.set(ar
 foreign import javascript unsafe "(($1) => { return $1; })" js_to_double :: Double -> JSVal
 
 foreign import javascript unsafe "(($1) => { return $1; })" js_to_bool :: Bool -> JSVal
+
+foreign import javascript unsafe "(($1) => { return !!$1; })" js_val_bool :: JSVal -> Bool
+
+foreign import javascript unsafe "(($1) => { return $1 | 0; })" js_val_int :: JSVal -> Int
+
+foreign import javascript unsafe "(($1) => { return +$1; })" js_val_double :: JSVal -> Double
 
 type Callback = JS.Callback (JSVal -> IO ())
 
@@ -315,6 +339,7 @@ foreign import javascript unsafe "((o) => { const e = o.error; try { return e !=
 
 withNativeObject _ value = value
 nativeCall _ _ _ = pure ()
+nativeInvoke _ _ _ = pure Nothing
 nativeSet _ _ _ = pure ()
 nativeGet _ _ = Nothing
 nativeRead _ _ = pure Nothing
@@ -331,6 +356,9 @@ type JSText = JSVal
 toJSText value = case toJSString (Text.unpack value) of JSString string -> string
 fromJSText = Text.pack . fromJSString . JSString
 jsValText = fromJSText
+jsValBool = js_val_bool
+jsValInt = js_val_int
+jsValDouble = js_val_double
 
 isNull = js_is_null
 jsNull = js_null
@@ -345,6 +373,12 @@ foreign import javascript unsafe "$1" js_to_int :: Int -> JSVal
 foreign import javascript unsafe "$1" js_to_double :: Double -> JSVal
 
 foreign import javascript unsafe "$1" js_to_bool :: Bool -> JSVal
+
+foreign import javascript unsafe "!!$1" js_val_bool :: JSVal -> Bool
+
+foreign import javascript unsafe "$1 | 0" js_val_int :: JSVal -> Int
+
+foreign import javascript unsafe "+$1" js_val_double :: JSVal -> Double
 
 -- A 'ByteString' is in the instance's memory, pinned, so its address is an
 -- offset into @memory.buffer@. The view is made afresh in each call, because
@@ -432,6 +466,7 @@ foreign import javascript unsafe "null" js_null :: JSVal
 
 withNativeObject _ value = value
 nativeCall _ _ _ = pure ()
+nativeInvoke _ _ _ = pure Nothing
 nativeSet _ _ _ = pure ()
 nativeGet _ _ = Nothing
 nativeRead _ _ = pure Nothing
@@ -449,6 +484,9 @@ type JSText = Text
 toJSText = id
 fromJSText = id
 jsValText (JSVal value) = fromMaybe Text.empty (fromDynamic value)
+jsValBool (JSVal value) = fromMaybe False (fromDynamic value)
+jsValInt (JSVal value) = fromMaybe 0 (fromDynamic value)
+jsValDouble (JSVal value) = fromMaybe (maybe 0 fromIntegral (fromDynamic value :: Maybe Int)) (fromDynamic value)
 isNull (JSVal value) = isJust (fromDynamic value :: Maybe ())
 jsNull = JSVal (toDyn ())
 toJSInt = JSVal . toDyn
@@ -465,6 +503,7 @@ invokeCallback (Callback (JSVal held)) argument =
 
 withNativeObject object (JSVal held) = NativeValue held (Just object)
 nativeCall (NativeValue _ object) name arguments = maybe (pure ()) (\o -> o.call name arguments) object
+nativeInvoke (NativeValue _ object) name arguments = maybe (pure Nothing) (\o -> o.invoke name arguments) object
 nativeSet (NativeValue _ object) name value = maybe (pure ()) (\o -> o.set name value) object
 nativeGet (NativeValue _ object) name = object >>= \o -> o.get name
 nativeRead (NativeValue _ object) name = maybe (pure Nothing) (\o -> o.live name) object

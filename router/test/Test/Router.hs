@@ -121,7 +121,7 @@ pageAt start = do
   written <- newIORef []
   Window ambient <- runMemDOM window
   let answering get' read' call' =
-        NativeObject {call = call', set = \_ _ -> pass, get = get', live = read', instanceOf = const False}
+        NativeObject {call = call', invoke = \_ _ -> pure Nothing, set = \_ _ -> pass, get = get', live = read', instanceOf = const False}
       part = \case
         "pathname" -> Just (T.takeWhile (`notElem` ['?', '#']))
         "search" -> Just (T.dropWhile (/= '?') . T.takeWhile (/= '#'))
