@@ -98,6 +98,7 @@ module Halogen.Remote.Session
   , isMounted
   , receive
   , activity
+  , waitActivity
   , dispose
   , ended
   , run
@@ -113,6 +114,7 @@ import Data.Foreign (toForeign)
 import Data.Sequence qualified as Seq
 import Data.Text.Lazy qualified as Lazy
 import Halogen.Activity (Activity (..))
+import Halogen.Activity qualified as Activity
 import Halogen.Component (Component)
 import Halogen.IO.Driver (HalogenSocket (..), RenderSpec (..))
 import Halogen.IO.Driver qualified as Driver
@@ -139,7 +141,11 @@ data Session = Session
   -- ^ Until the component is mounted, nothing but the probe's answers is
   -- sent, so that the first batch holds its first render.
   , mounted :: IORef (Maybe Tree)
-  -- ^ The component's tree, once it has one.
+  -- ^ The component's tree, once it has one, until the session is disposed
+  -- of.
+  , tree :: IORef (Maybe Tree)
+  -- ^ The same, kept after the session is disposed of: its reading then is
+  -- what of the tree is still at work (its finalizers' waits).
   , sender :: IORef (Maybe (Async ()))
   , flushes :: STM.TVar (Int, Int)
   -- ^ How many batches the sender has begun to take, and how many it has
@@ -198,6 +204,7 @@ newSession send = do
   session <-
     Session ident recorder send
       <$> STM.newTVarIO Unmounted
+      <*> newIORef Nothing
       <*> newIORef Nothing
       <*> newIORef Nothing
       <*> STM.newTVarIO (0, 0)
@@ -273,8 +280,16 @@ mount session component input = do
   let recorder = session.recorder
       spec = counted (renderSpec (Internal.documentHandle recorder) (Internal.bodyHandle recorder))
   socket <- run session (Driver.runUI spec component input) `onException` dispose session
-  writeIORef session.mounted (Just Tree {dispose = socket.dispose, activity = socket.activity})
+  let mountedTree = Tree {dispose = socket.dispose, activity = socket.activity}
+  writeIORef session.mounted (Just mountedTree)
+  -- Written with a barrier before the session is read: a 'dispose' that
+  -- closed the session meanwhile either finds the tree, or is seen closed
+  -- here and the tree disposed of again (which does nothing more the second
+  -- time).
+  atomicModifyIORef' session.tree (const (Just mountedTree, ()))
   STM.atomically (STM.writeTVar session.phase Live)
+  open <- STM.readTVarIO recorder.open
+  unless open (dispose session)
   pure socket
   where
     counted :: RenderSpec RemoteDOM r -> RenderSpec RemoteDOM r
@@ -340,27 +355,63 @@ asked session question = STM.atomically $ do
 --
 -- The tree is read first, then the session: work that ends between the
 -- two recorded what it rendered before it ended, so it is seen unsent.
+--
+-- After 'dispose' the tree's reading goes on as its socket's does: no tree,
+-- and what of it is still at work, its finalizers that wait in a @liftIO@
+-- until they end; the session has nothing unsent any more.
 activity :: Session -> IO Activity
 activity session = do
   tree <-
-    readIORef session.mounted >>= \case
+    readIORef session.tree >>= \case
       Nothing -> pure Activity {trees = 0, running = 0, waiting = 0}
       Just t -> run session t.activity
+  pending <- STM.atomically (unsent session)
+  pure tree {running = max tree.running (if pending then 1 else 0)}
+
+-- | Whether the session has anything the client has not been sent, as
+-- 'activity' folds it in.
+unsent :: Session -> STM.STM Bool
+unsent session = do
   let recorder = session.recorder
-  unsent <- STM.atomically $ do
-    open <- STM.readTVar recorder.open
-    now <- STM.readTVar session.phase
-    pending <- STM.readTVar recorder.pending
-    depth <- STM.readTVar recorder.rendering
-    (started, finished) <- STM.readTVar session.flushes
-    pure $
-      open
-        && ( now == Mounting
-               || depth > 0
-               || started /= finished
-               || (now == Live && not (Seq.null pending))
-           )
-  pure tree {running = max tree.running (if unsent then 1 else 0)}
+  open <- STM.readTVar recorder.open
+  now <- STM.readTVar session.phase
+  pending <- STM.readTVar recorder.pending
+  depth <- STM.readTVar recorder.rendering
+  (started, finished) <- STM.readTVar session.flushes
+  pure $
+    open
+      && ( now == Mounting
+             || depth > 0
+             || started /= finished
+             || (now == Live && not (Seq.null pending))
+         )
+
+-- | Return once the session's 'activity' satisfies the predicate. It is
+-- woken as "Halogen.Activity"'s waits are, by every change of the trees'
+-- loops, and by every change of what the session has not sent (a batch
+-- taken or sent, a render begun or ended, an operation recorded), never by
+-- a clock; it has no deadline of its own.
+--
+-- For a test that lets go, from outside the page, something the program
+-- waits for (an answer its own backend held): the page did not start that
+-- work, so a driver's settling after an action of the page's does not wait
+-- for it. Wait here until the session has done what it can and sent it
+-- (@\a -> a.running == 0 && a.waiting == n@, with @n@ the answers still
+-- held), then settle the page (@haskell-halogen-playwright@'s @settle@): its
+-- probe's question is answered after the batches sent before it, so once it
+-- is the page shows them ("Halogen.Remote.Test"'s 'Halogen.Remote.Test.waitSession').
+--
+-- After 'dispose', @waitActivity session quiet@ returns once the
+-- component's finalizers have ended, what they waited for included; a
+-- predicate that the last reading of a disposed session does not satisfy
+-- throws 'Activity.ActivityEnded'.
+waitActivity :: Session -> (Activity -> Bool) -> IO ()
+waitActivity session = Activity.waitReading (unsent session) reading
+  where
+    reading = do
+      a <- activity session
+      open <- STM.readTVarIO session.recorder.open
+      pure (a, not open && a == Activity {trees = 0, running = 0, waiting = 0})
 
 -- | The event a handler reads: in a browser the JavaScript object the
 -- client's JSON spells, natively the JSON itself, which "Data.Foreign"
@@ -374,11 +425,22 @@ eventOf message
 -- disposed of (what that removes is not sent: the client is going too), and
 -- the mirror and the listeners are forgotten. Disposing of a session twice
 -- does nothing more.
+--
+-- When it returns, the component's finalizers have run their synchronous
+-- parts, as the socket's @dispose@ promises, even when another thread is
+-- disposing of the session at the same time (a server whose connection
+-- closed because this disposal closed it): every caller disposes of the
+-- tree, which the tree's loop does once and has every caller wait for.
+-- What a finalizer waits for in a @liftIO@ goes on afterwards: 'waitActivity'
+-- with 'Halogen.Activity.quiet' waits for it.
 dispose :: Session -> IO ()
 dispose session = do
   Internal.close session.recorder
   traverse_ cancel =<< atomicModifyIORef' session.sender (Nothing,)
-  atomicModifyIORef' session.mounted (Nothing,) >>= traverse_ (void . tryAny . run session . (.dispose))
+  -- Not taken out of the session before it is disposed of: a second caller
+  -- that found it gone would return while the first still finalizes.
+  readIORef session.tree >>= traverse_ (void . tryAny . run session . (.dispose))
+  writeIORef session.mounted Nothing
   Internal.close session.recorder
 
 -- | Return once the session has been disposed of: what a server waits for

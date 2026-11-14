@@ -3,15 +3,18 @@
 -- session counts as unsent.
 module Test.Probe (spec) where
 
+import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Row (Empty)
 import Halogen qualified as H
 import Halogen.Activity (Activity (..))
+import Halogen.Activity qualified as Activity
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
 import Halogen.Remote.Protocol (Batch (..), FromProgram (..), Op (..), decodeFromProgram, encodeProbeQuestion)
 import Halogen.Remote.Session qualified as Session
 import Protolude
+import System.Timeout (timeout)
 import Test.Components
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldNotBe, shouldReturn, shouldSatisfy)
 import Test.Session (clickOn, elementWithId, listenerOn)
@@ -71,6 +74,37 @@ waiting release =
   where
     render :: Bool -> H.ComponentHTML Wait Empty m
     render done = HH.button [HP.id "wait", HE.onClick (const Wait)] [HH.text (if done then "done" else "waiting")]
+
+-- | Two fibers of its @Initialize@ waiting in 'liftIO', each until the test
+-- lets it go; the count of those let go is shown.
+twoWaits :: forall m. (MonadIO m) => MVar () -> MVar () -> H.Component H.VoidF () Void m
+twoWaits gateA gateB =
+  H.component
+    (\() -> pure (0 :: Int))
+    render
+    [H.onInitialize (for_ [gateA, gateB] (\gate -> void (H.fork (liftIO (takeMVar gate) >> modify (+ 1)))))]
+  where
+    render :: Int -> H.ComponentHTML () Empty m
+    render n = HH.span [HP.id "count"] [HH.text (show n)]
+
+-- | A component whose @Finalize@ runs this synchronously.
+finalizing :: forall m. (MonadIO m) => IO () -> H.Component H.VoidF () Void m
+finalizing effect = finalizingWith (H.liftEffect (liftIO effect))
+
+-- | A component whose @Finalize@ waits in 'liftIO' for the first, then runs
+-- the second synchronously.
+finalizingAfter :: forall m. (MonadIO m) => IO () -> IO () -> H.Component H.VoidF () Void m
+finalizingAfter held effect = finalizingWith (liftIO held >> H.liftEffect (liftIO effect))
+
+finalizingWith :: forall m. (Monad m) => H.HalogenM () () Empty Void m () -> H.Component H.VoidF () Void m
+finalizingWith program =
+  H.component
+    (\() -> pure ())
+    (\() -> HH.text "" :: H.ComponentHTML () Empty m)
+    [H.onFinalize program]
+
+within :: Text -> IO a -> IO a
+within what io = timeout 5_000_000 io >>= maybe (panic ("timed out: " <> what)) pure
 
 spec :: Spec
 spec = do
@@ -196,6 +230,90 @@ spec = do
       Session.activity session `shouldReturn` nothing
       question session 1
       stays wire 1
+
+  describe "waiting for a session's reading" $ do
+    it "wakes when a batch is sent, not only when the tree changes" $ do
+      (wire, send) <- newWire True
+      session <- Session.newSession send
+      _ <- Session.mount session counter ()
+      [ProgramBatch opening] <- carried wire 1
+      button <- maybe (panic "no button") pure (elementWithId opening.ops "increment")
+      listener <- maybe (panic "no listener") pure (listenerOn opening.ops button "click")
+      -- The click's batch held at the gate: the tree is idle, the session
+      -- is not, and only the batch going out changes that.
+      _ <- takeMVar wire.gate
+      Session.receive session (clickOn listener button)
+      returned <- newEmptyMVar
+      _ <- forkIO (Session.waitActivity session Activity.idle >> putMVar returned ())
+      threadDelay 50_000
+      tryReadMVar returned `shouldReturn` Nothing
+      putMVar wire.gate ()
+      within "the wait" (takeMVar returned)
+      messages <- readMVar wire.sent
+      [t | ProgramBatch b <- messages, SetText _ t <- b.ops] `shouldBe` ["1"]
+      Session.dispose session
+
+    it "returns once the step after an answer let go is sent, while another is held" $
+      for_ [1 :: Int .. 50] $ \_ -> do
+        (wire, send) <- newWire True
+        gateA <- newEmptyMVar
+        gateB <- newEmptyMVar
+        session <- Session.newSession send
+        _ <- Session.mount session (twoWaits gateA gateB) ()
+        _ <- carried wire 1
+        within "both waits" (Session.waitActivity session (\a -> a.running == 0 && a.waiting == 2))
+        putMVar gateA ()
+        within "one left" (Session.waitActivity session (\a -> a.running == 0 && a.waiting == 1))
+        -- Read once: the batch is out already.
+        messages <- readMVar wire.sent
+        [t | ProgramBatch b <- messages, SetText _ t <- b.ops] `shouldBe` ["1"]
+        putMVar gateB ()
+        within "quiet" (Session.waitActivity session Activity.quiet)
+        Session.dispose session
+
+  describe "a session disposed of" $ do
+    it "has every caller of dispose return only once the finalizer's synchronous part has run" $
+      for_ [1 :: Int .. 50] $ \_ -> do
+        (_, send) <- newWire True
+        inside <- newEmptyMVar
+        letGo <- newEmptyMVar
+        released <- newIORef False
+        session <- Session.newSession send
+        _ <- Session.mount session (finalizing (putMVar inside () >> takeMVar letGo >> writeIORef released True)) ()
+        firstDone <- newEmptyMVar
+        secondDone <- newEmptyMVar
+        _ <- forkIO (Session.dispose session >> putMVar firstDone ())
+        within "the finalizer" (takeMVar inside)
+        -- A second disposal at the same moment, as a server's when the
+        -- connection the first closed ends: it must not return because it
+        -- found the tree being taken by the first.
+        _ <- forkIO (Session.dispose session >> readIORef released >>= putMVar secondDone)
+        threadDelay 2_000
+        tryReadMVar secondDone `shouldReturn` Nothing
+        putMVar letGo ()
+        within "the first disposal" (takeMVar firstDone)
+        within "the second disposal" (takeMVar secondDone) `shouldReturn` True
+        Session.isMounted session `shouldReturn` False
+
+    it "waits, once disposed of, for a finalizer's wait, and then reads nothing" $ do
+      (_, send) <- newWire True
+      gate <- newEmptyMVar
+      released <- newIORef False
+      session <- Session.newSession send
+      _ <- Session.mount session (finalizingAfter (takeMVar gate) (writeIORef released True)) ()
+      Session.dispose session
+      readIORef released `shouldReturn` False
+      Session.activity session `shouldReturn` Activity {trees = 0, running = 0, waiting = 1}
+      timeout 50_000 (Session.waitActivity session Activity.quiet) `shouldReturn` Nothing
+      putMVar gate ()
+      within "the finalizer" (Session.waitActivity session Activity.quiet)
+      readIORef released `shouldReturn` True
+      Session.activity session `shouldReturn` nothing
+      -- Nothing can change any more: a predicate the reading does not
+      -- satisfy throws rather than wait.
+      try (Session.waitActivity session (\a -> a.trees == 1)) >>= \case
+        Left (Activity.ActivityEnded a) -> a `shouldBe` nothing
+        Right () -> expectationFailure "the wait returned"
 
   describe "a session's identity" $ do
     it "is a number unique in the process, which equality, order and show go by" $ do

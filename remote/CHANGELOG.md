@@ -27,6 +27,17 @@ a session per connection, with the client at the socket's path and `.js` and the
 given beside it; `application` is the same as a WAI application. A program that throws ends its
 own session, and a connection that closes disposes of its session.
 
+`Session.waitActivity` waits until the session's reading satisfies a predicate, woken by every
+change of its tree and of what it has not sent (a batch taken or sent, a render, an operation
+recorded), never on a timer; `Halogen.Remote.Test.waitSession` is the same for a mounted
+component, for work the test sets off outside the page (an answer it held, let go), followed by
+the driver's `settle`. After `dispose` the session's reading is no tree and what of it is still at
+work, its finalizers' waits, so `waitActivity session quiet` returns once they have ended.
+`dispose` returns once the component's finalizers have run their synchronous parts for every
+caller: a second disposal at the same moment (the server's, as the connection the first closed
+ends) returned at once before, while the first was still finalizing, so what a finalizer released
+could still be held when it returned.
+
 `Halogen.Remote.Loopback.mountIn` runs the same pipeline inside one page, with every message
 emitted on `traffic` both ways, and `mountWatched` hands every message, the first render's
 included, to a watcher given before anything crosses; natively they throw `NotAvailable`. A

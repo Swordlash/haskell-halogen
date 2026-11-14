@@ -329,6 +329,26 @@ instead of giving the page the answer, so the action settles once that is handle
 `waitQuiet` also waits for the fibers waiting in a `liftIO`; a pause in `H.delay` is not
 waited for, as in a page.
 
+**Work the page did not start.** What the test sets off itself (an answer its own backend held
+and now lets go, a query, an emitter it notifies) does not go through the page, so no action of
+the driver's settles after it. `waitSession mounted p` waits until the session's reading (its
+tree's, with what it has not sent counted as running) satisfies `p`, woken by every change of
+either rather than on a timer; the driver's `settle page` then waits for the page, whose probe is
+answered after every batch sent before the question, so one read sees the result:
+
+```haskell
+release heldAnswer
+waitSession mounted (\a -> a.running == 0 && a.waiting == stillHeld)
+settle page
+textContent (locator page "#count") `shouldReturn` "3"
+```
+
+**When a disposed session is over.** `Session.dispose` returns once the component's finalizers
+have run their synchronous parts, also when the server disposes of the session at the same
+moment (its connection, which the disposal closed, ending). What a finalizer waits for in a
+`liftIO` goes on afterwards; `waitSession mounted quiet` (or `Session.waitActivity`) returns once
+that is over too.
+
 **Routes and reloads.** Every address under the one `mounting` gives (which ends with a `/`) is
 the same page, with a `<base href>` naming that address, so a page can be opened at a route and
 `Router.pageBase` is that base. `mountingEach server program` registers a program, run in each new

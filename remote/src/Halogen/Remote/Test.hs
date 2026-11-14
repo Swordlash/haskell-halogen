@@ -58,6 +58,25 @@
 -- > first <- next
 -- > reload page >> waitStarted page
 -- > second <- next                               -- the reloaded page's
+--
+-- = Work the page did not start
+--
+-- A driver's action settles after what the page's event set off. What the
+-- test sets off itself, outside the page, does not go through the page: an
+-- answer its own backend held and now lets go, a query, an emitter it
+-- notifies. For those, 'waitSession' waits until the session has done what
+-- it can and sent it, and the driver's @settle@ then until the page shows
+-- it (the probe's question is answered after every batch sent before it):
+--
+-- > release heldAnswer
+-- > waitSession mounted (\a -> a.running == 0 && a.waiting == stillHeld)
+-- > settle page
+-- > textContent (locator page "#count") `shouldReturn` "3"
+--
+-- After 'Session.dispose', @waitSession mounted quiet@ returns once the
+-- component's finalizers have ended, what they waited for in a @liftIO@
+-- included ('Session.dispose' itself returns once they have run their
+-- synchronous parts).
 module Halogen.Remote.Test
   ( -- * The server
     TestServer
@@ -72,6 +91,7 @@ module Halogen.Remote.Test
   , mountingEach
   , Mounted (..)
   , queryComponent
+  , waitSession
   , TestServerError (..)
 
     -- * The page
@@ -84,6 +104,7 @@ import Data.ByteString.Lazy qualified as LazyByteString
 import Data.List (lookup)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as Text
+import Halogen.Activity (Activity)
 import Halogen.Component (Component)
 import Halogen.IO.Driver (HalogenSocket (..))
 import Halogen.Remote.DOM (RemoteDOM)
@@ -179,6 +200,14 @@ data Mounted q o = Mounted
 queryComponent :: Mounted q o -> q a -> IO (Maybe a)
 queryComponent mounted q = case mounted.socket of
   HalogenSocket {query = send} -> Session.run mounted.session (send q)
+
+-- | Return once the session's reading satisfies the predicate: its tree's,
+-- with what it has not sent the page yet counted as running
+-- ('Session.waitActivity'). Woken by every change of either, never by a
+-- clock; no deadline of its own. Then the driver's @settle@ makes the page
+-- show what was sent ("Work the page did not start", above).
+waitSession :: Mounted q o -> (Activity -> Bool) -> IO ()
+waitSession mounted = Session.waitActivity mounted.session
 
 -- | A server on a free port of the loopback interface, for the duration of
 -- the action, with 'defaultTestSettings'.
