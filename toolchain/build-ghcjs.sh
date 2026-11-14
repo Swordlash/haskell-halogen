@@ -25,11 +25,15 @@ rm -f "$build_dir/cache/compiler"
 
 # The test wrapper is named here although nothing is tested: it is part of
 # what cabal takes a package's configuration to be, and
-# toolchain/test-ghcjs.sh names it. With it only there, every package was
-# configured again for the tests, and the JavaScript backend compiles a
-# module with a splice again whenever it is asked ("always recompiles modules
-# using Template Haskell"), so the tests built the whole of core a second
-# time: minutes, and a second climb to the top of the machine's memory.
+# toolchain/test-ghcjs.sh names it. With it only there, the two scripts took
+# turns configuring every package: the build found the tests' configuration
+# (in a fresh tree, or in the one CI restores, which the tests wrote last)
+# and the tests found the build's. A package configured again is built
+# again, and the JavaScript backend compiles a module with a splice again
+# whenever it is asked ("always recompiles modules using Template Haskell"),
+# so every run compiled the whole of core twice whatever had changed, each
+# time to the top of a 16 GB machine's memory. With one configuration a
+# package is built when it or what it depends on has changed.
 set -- \
   --project-file=cabal-ghcjs.project \
   --builddir="$build_dir" \
