@@ -29,17 +29,28 @@ $( browserJS
      , ("js_restore_frames", "halogen_frames_restore", Safe, [t|IO ()|])
      , ("js_hide", "halogen_frames_hide", Safe, [t|IO ()|])
      , ("js_unhide", "halogen_frames_unhide", Safe, [t|IO ()|])
+     , ("js_wrap_back", "halogen_frames_wrap_back", Safe, [t|IO ()|])
+     , ("js_unwrap_back", "halogen_frames_unwrap_back", Safe, [t|IO ()|])
+     , ("js_back_calls", "halogen_frames_back_calls", Safe, [t|IO Int|])
      ]
  )
 
--- | Runs of a case.
-runs :: Int
-runs = 40
+-- | Runs of a case: 40 without the runner, where a settle that waits only
+-- for a task misses the late event in most runs (38 of 40 closes, about 20
+-- of 40 Backs); 20 under it, where Playwright's own waits around an action
+-- happen to cover the event even then, so that these guard against a
+-- regression at half the cost (each action is a round trip to Playwright).
+data Mode = Runner | InPage
+
+runsIn :: Mode -> Int
+runsIn = \case
+  Runner -> 20
+  InPage -> 40
 
 -- | Run a case's runs, each given its number from 1 and saying whether it
 -- read what it should have, and fail with how many did not.
-noneMissed :: (HasCallStack) => (Int -> PageM s Bool) -> PageM s ()
-noneMissed run = do
+noneMissed :: (HasCallStack) => Int -> (Int -> PageM s Bool) -> PageM s ()
+noneMissed runs run = do
   missed <- foldM (\m i -> (\ok -> if ok then m else m + 1) <$> run i) (0 :: Int) [1 .. runs]
   when (missed > 0) $ expectationFailure ("read the old state in " <> show missed <> " of " <> show runs <> " runs")
 
@@ -54,12 +65,12 @@ late :: forall m -> (MonadBrowserDOM m, MonadBrowserTest m, MonadUUID m) => Page
 late m = mount m (Late.component :: H.Component H.VoidF () Void m) ()
 
 -- | What holds under the runner and without it.
-cases :: forall m -> (MonadBrowserDOM m, MonadBrowserTest m, MonadUUID m) => Spec
-cases m = do
+cases :: forall m -> (MonadBrowserDOM m, MonadBrowserTest m, MonadUUID m) => Mode -> Spec
+cases m mode = do
   it "settles a click whose handler closes a dialog after its close" $ runPage $ do
     ui <- late m
     [open, dismiss, closes] <- traverse (find ui) [".open", ".dismiss", ".closes"]
-    noneMissed $ \i -> do
+    noneMissed (runsIn mode) $ \i -> do
       click open
       click dismiss
       (== show i) <$> textContent closes
@@ -68,7 +79,7 @@ cases m = do
     ui <- late m
     [push, back, entry] <- traverse (find ui) [".push", ".back", ".entry"]
     start <- textContent entry
-    noneMissed $ \_ -> do
+    noneMissed (runsIn mode) $ \_ -> do
       click push
       click back
       (== start) <$> textContent entry
@@ -79,7 +90,7 @@ cases m = do
     ui <- late m
     [push, backTwice, entry] <- traverse (find ui) [".push", ".back-twice", ".entry"]
     start <- textContent entry
-    noneMissed $ \_ -> do
+    noneMissed (runsIn mode) $ \_ -> do
       click push
       click push
       click backTwice
@@ -87,17 +98,34 @@ cases m = do
 
 spec :: forall m -> (MonadBrowserDOM m, MonadBrowserTest m, MonadUUID m) => Spec
 spec m = do
-  cases m
+  cases m Runner
 
   -- Escape closes a modal dialog only when it is a user's (trusted), so
   -- this one needs the runner.
   it "settles Escape on a modal dialog after its close" $ runPage $ do
     ui <- late m
     [open, closes] <- traverse (find ui) [".open", ".closes"]
-    noneMissed $ \i -> do
+    noneMissed (runsIn Runner) $ \i -> do
       click open
       press "Escape"
       (== show i) <$> textContent closes
+
+  -- A page driven by haskell-halogen-playwright too has the driver's wrap
+  -- of History's methods as well as the harness's: each calls the one it
+  -- replaced, so both see every move. (The driver's comes first, from an
+  -- init script; here the other one is put over the harness's.)
+  after_ js_unwrap_back $
+    it "keeps waiting for a Back under another harness's wrap of History, which still sees it" $
+      runPage $ do
+        unsafeIOToPageM js_wrap_back
+        ui <- late m
+        [push, back, entry] <- traverse (find ui) [".push", ".back", ".entry"]
+        start <- textContent entry
+        replicateM_ 10 $ do
+          click push
+          click back
+          textContent entry `shouldReturn` start
+        unsafeIOToPageM js_back_calls `shouldReturn` 10
 
   -- Forward from the last entry goes nowhere, and no popstate comes: it is
   -- not waited for (half a second, were it counted).
@@ -148,4 +176,4 @@ spec m = do
 
 -- | The cases without the runner, with synthetic events.
 inPageSpec :: forall m -> (MonadBrowserDOM m, MonadBrowserTest m, MonadUUID m) => Spec
-inPageSpec m = cases m
+inPageSpec m = cases m InPage
