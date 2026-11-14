@@ -1,8 +1,8 @@
 -- | Which page and which document asked for each request (test/web/
 -- documents.html): its own requests, its frame's, its worker's, its
 -- navigation's own, one it made before the page went elsewhere, and a
--- beacon it sends as it goes, which the browser reports once the next
--- document's navigation is under way; two pages of one context told apart;
+-- beacon it sends as it goes, which the browser reports late or not at
+-- all; two pages of one context told apart;
 -- and 'requestsOf', a page's current documents' requests, without going to
 -- @about:blank@ first.
 module Test.Documents (spec) where
@@ -62,27 +62,30 @@ spec base = describe "the document that asked" $ do
     map (.url) now `shouldBe` [at "second.html"]
     for_ now $ \r -> r.document `shouldBe` Just second.id
 
-  -- The beacon is sent as the page goes, and the browser reports it after
-  -- the next document's navigation has started (Playwright's report of it
-  -- comes once the frame's next document is known, some of the time):
-  -- each is the document's that sent it, never the next one's, once the
-  -- driver has matched it with the browser's report of it, which is waited
-  -- for in the request log itself. Its exchange is not waited for: the
-  -- response to a request that outlives its document is not always
-  -- reported (it was, on one machine, and never on another's three runs).
-  it "keeps a request reported after the page went elsewhere with the document that made it" $ \pw ->
+  -- A beacon the document sends as it goes. Whether the browser reports it
+  -- at all depends on how it changes documents: when the navigation gives
+  -- the frame a new host (Chromium's RenderDocument, on for some machines
+  -- and not for others), the old document's last requests are sent and
+  -- never reported, to Playwright or to the protocol, and there is nothing
+  -- to attribute; otherwise the report comes once the next document's
+  -- navigation is under way. So: the page's current document asked only
+  -- for itself either way, and a beacon that is reported is the document's
+  -- that sent it, once the driver has matched it with the browser's report
+  -- (waited for in the log; its exchange may never end).
+  it "never gives the next document what the one before asked for as it went" $ \pw ->
     withContext pw defaultContextOptions $ \ctx -> do
       page <- newPage ctx
       forM_ [1 :: Int .. 10] $ \i -> do
-        goto page (at "documents.html?run=" <> Text.pack (show i))
+        let run = "run=" <> Text.pack (show i)
+        goto page (at "documents.html?" <> run)
         sender <- currentDocument page
-        goto page (at "second.html?run=" <> Text.pack (show i))
+        goto page (at "second.html?" <> run)
         next <- currentDocument page
         eventually page $ do
-          beacons <- endingIn "plain.html?beacon" <$> requests ctx
-          map (\r -> (r.document, r.documentUrl)) (drop (i - 1) beacons) `shouldBe` [(Just sender.id, Just sender.url)]
+          beacons <- endingIn ("plain.html?beacon&" <> run) <$> requests ctx
+          map (\r -> (r.document, r.documentUrl)) beacons `shouldBe` map (const (Just sender.id, Just sender.url)) beacons
         nows <- requestsOf page
-        map (.document) nows `shouldBe` [Just next.id]
+        map (\r -> (r.url, r.document)) nows `shouldBe` [(at "second.html?" <> run, Just next.id)]
 
   it "tells two pages of one context apart" $ \pw -> withContext pw defaultContextOptions $ \ctx -> do
     one <- newPage ctx

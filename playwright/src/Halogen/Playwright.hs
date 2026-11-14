@@ -375,7 +375,12 @@ import Text.Read (readMaybe)
 -- * @HALOGEN_PLAYWRIGHT_CONSOLE@ (set, not empty): print what pages write to
 --   their console as it arrives ('relayConsole');
 -- * @HALOGEN_PLAYWRIGHT_THROTTLE@: slow every page's processor down by this
---   factor ('throttle'), to find on purpose the races a slow machine would.
+--   factor ('throttle'), to find on purpose the races a slow machine would;
+-- * @HALOGEN_PLAYWRIGHT_ARGS@: more arguments for Chromium, separated by
+--   blanks ('browserArgs'), to run the same tests as another machine's
+--   browser would: Chromium turns some of its behaviour on by machine, such
+--   as @--enable-features=RenderDocument:level\/all-frames@, under which a
+--   navigation gives the frame a new host.
 optionsFromEnvironment :: IO Options
 optionsFromEnvironment = do
   headed <- maybe False (not . null) <$> lookupEnv "HALOGEN_PLAYWRIGHT_HEADED"
@@ -385,6 +390,7 @@ optionsFromEnvironment = do
   artifactsDir <- lookupEnv "HALOGEN_PLAYWRIGHT_ARTIFACTS"
   relay <- maybe False (not . null) <$> lookupEnv "HALOGEN_PLAYWRIGHT_CONSOLE"
   rate <- (>>= readMaybe) <$> lookupEnv "HALOGEN_PLAYWRIGHT_THROTTLE"
+  more <- maybe [] (Text.words . Text.pack) <$> lookupEnv "HALOGEN_PLAYWRIGHT_ARGS"
   pure
     defaultOptions
       { headless = not headed
@@ -394,6 +400,7 @@ optionsFromEnvironment = do
       , artifacts = nonEmpty artifactsDir
       , relayConsole = relay
       , throttle = rate
+      , browserArgs = defaultOptions.browserArgs <> more
       }
   where
     nonEmpty = \case

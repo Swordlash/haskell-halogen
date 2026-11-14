@@ -75,12 +75,21 @@ for any reason.
 | `HALOGEN_PLAYWRIGHT_ARTIFACTS` | where a failing test's screenshot is saved |
 | `HALOGEN_PLAYWRIGHT_CONSOLE` | print what pages write to their console, and what they throw, as it arrives |
 | `HALOGEN_PLAYWRIGHT_THROTTLE` | slow every page's processor down by this factor (`4`: four times as slow), popups too |
+| `HALOGEN_PLAYWRIGHT_ARGS` | more arguments for Chromium, separated by blanks |
 
 A run with `HALOGEN_PLAYWRIGHT_THROTTLE=6` is a run of the same tests on a slow
 machine: a test that only passed because the program was quick enough
 fails there, so races are found on purpose rather than in CI. `Options` also
 has `browserArgs`, Chromium's command-line switches (a
 `--host-resolver-rules` that sends a made-up host name to the loopback, say).
+
+Chromium turns some of its behaviour on by machine, so a test can pass on one
+and fail on another with the same browser. One that has mattered here: whether
+a navigation gives the frame a new host (its `RenderDocument` feature), under
+which the last requests of the document that goes (a beacon sent in `pagehide`)
+are sent and reported to nobody. `HALOGEN_PLAYWRIGHT_ARGS` runs the tests the
+other way: `--enable-features=RenderDocument:level/all-frames`, or
+`--disable-features=RenderDocument`.
 
 ## The waits
 
@@ -352,7 +361,10 @@ page's session does not report keeps the document its frame had when the
 driver heard of it: a dedicated worker's requests (right unless the worker
 asked just before its document went), and a frame's in another process (a
 cross-site `iframe`). A service worker's requests have no page and no
-document.
+document. And what a document asks for as it goes (a beacon sent in
+`pagehide`) may be in no log at all: when a navigation gives the frame a new
+host, which Chromium does on some machines and not on others, the browser
+sends such a request and reports it to nobody.
 
 A context opened with `recordExchanges = Just limit` also keeps each request,
 once it has ended, with what was sent and what came back: `exchanges context`.
