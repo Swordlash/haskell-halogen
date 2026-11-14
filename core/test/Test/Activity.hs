@@ -6,7 +6,7 @@
 -- program.
 module Test.Activity (spec) where
 
-import Control.Concurrent (forkIO, killThread, threadDelay)
+import Control.Concurrent (forkIO, killThread, threadDelay, yield)
 import Control.Concurrent.MVar
 import Control.Exception (ErrorCall (..), SomeException, bracket, throwIO, try)
 import Control.Monad (forM_, forever, replicateM, replicateM_, void, when)
@@ -314,11 +314,16 @@ spec = describe "Halogen.Activity" $ do
       ui <- mountProgram (H.delay 60 >> mark woke)
       treeActivity ui >>= assertEqual "asleep" Activity {trees = 1, running = 0, waiting = 0}
       dispose ui
-      -- No tree at once; the pause's worker, killed with its fiber, may
-      -- still be on its way out, which the reading counts until it is.
-      treeActivity ui >>= assertEqual "gone" 0 . (.trees)
+      -- Nothing at once, and nothing later: the pause's worker, killed
+      -- with its fiber, queues no continuation for a fiber that is over,
+      -- so the tree does not read as running again as the worker leaves.
+      -- Each read gives the other threads a turn, so one of them comes
+      -- between the worker's end and whatever it would have started.
+      treeActivity ui >>= assertEqual "gone" Activity {trees = 0, running = 0, waiting = 0}
       within "what is left of it to end" (waitTree ui Activity.quiet)
-      treeActivity ui >>= assertEqual "gone, nothing left" Activity {trees = 0, running = 0, waiting = 0}
+      replicateM_ 200 $ do
+        treeActivity ui >>= assertEqual "gone, nothing left" Activity {trees = 0, running = 0, waiting = 0}
+        yield
       dispose ui
       treeActivity ui >>= assertEqual "gone, disposed of twice" Activity {trees = 0, running = 0, waiting = 0}
 

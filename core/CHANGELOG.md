@@ -34,7 +34,11 @@ waits for, so a finalizer that never ends does not hold up an unmount. A wait
 on a disposed tree that has nothing left at work, whose predicate its last
 reading does not satisfy, throws `ActivityEnded` instead of waiting for ever.
 The process's `activity` does not count a disposed tree's finalizers, as
-before.
+before. A fiber cancelled while it waits or pauses (its component gone, an
+`H.kill`) no longer has its worker queue an empty step as it ends, which made
+a tree read as running for a moment after it had read as quiet: a tree
+disposed of while its fibers only pause is quiet when `dispose` returns, and
+stays so.
 
 A handler can declare two more kinds of match. `HE.within "a[href]"
 HE.plainLeftClick` is for one handler on a container that hears the clicks

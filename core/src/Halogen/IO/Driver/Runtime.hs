@@ -605,7 +605,9 @@ await = awaitWith True
 -- differs. While it sleeps the fiber is neither waiting nor queued, so a
 -- reading of the loop may find it quiet; once the action is done its
 -- continuation is queued (the loop is then running) before the worker
--- ends, as for 'await'.
+-- ends, as for 'await'. A fiber cancelled meanwhile has no continuation,
+-- and its worker queues none: a tree disposed of while its fibers pause
+-- stays quiet as their workers leave.
 awaitUncounted :: IO a -> Turn a
 awaitUncounted = awaitWith False
 
@@ -633,9 +635,18 @@ awaitWith counted io = Turn $ \fb ek k -> mask_ $ do
           -- started masked, so nothing stops it between here and the end.
           ( do
               result <- try (unmask io)
-              post fb.loop $ step fb $ do
-                writeIORef fb.worker Nothing
-                either ek k result
+              -- A fiber that is over (cancelled, and this worker killed
+              -- with it) has nothing to go on with, and 'step' would run
+              -- nothing for it: no continuation is queued, so that the loop
+              -- is not taken for nothing. Otherwise a tree disposed of
+              -- while a fiber of it paused would read as quiet and then,
+              -- as the pause's killed worker left, as running again.
+              over <- readIORef fb.over
+              unless over $
+                post fb.loop $
+                  step fb $ do
+                    writeIORef fb.worker Nothing
+                    either ek k result
             )
             `finally` workerDone fb.loop (if counted then 1 else 0) me
       )
