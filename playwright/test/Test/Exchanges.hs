@@ -46,6 +46,18 @@ spec = describe "what crossed the network" $ do
     -- What described the bytes on the wire is left out: the body changed.
     lookup "content-length" r.headers `shouldBe` Nothing
 
+  -- A sign-in that answers with a redirect: the handler sees the redirect
+  -- itself, and the page goes where it leads.
+  it "hands a handler a redirect as it came, which the page then follows" $ \pw -> withServer $ \base -> withPage pw $ \page -> do
+    seen <- newIORef []
+    _ <- route page "**/api/moved" $ passThrough $ \_ response ->
+      atomicModifyIORef' seen (\rs -> (rs <> [(response.status, lookup "location" response.headers)], ()))
+    goto page (base <> "api/moved")
+    readIORef seen `shouldReturn` [(302, Just "/second.html")]
+    url page `shouldReturn` (base <> "second.html")
+    textContent (locator page "h1") `shouldReturn` "Second"
+    evaluate page "document.cookie" `shouldReturn` ("moved=1" :: Text)
+
   it "looks at a request and its response and lets the page have them as they came" $ \pw -> withServer $ \base -> withPage pw $ \page -> do
     goto page (base <> "basics.html")
     seen <- newIORef []

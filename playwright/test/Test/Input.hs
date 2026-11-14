@@ -84,6 +84,8 @@ spec base = describe "input, geometry and waits" $ do
     -- resolves to.
     _ <- timesOut (waitForFunctionWith (withTimeout 300 page) "async () => false" ())
     _ <- timesOut (waitForFunction (withTimeout 300 page) "Promise.resolve(0)")
+    -- What it resolves to after the wait's time is up comes too late.
+    _ <- timesOut (waitForFunctionWith (withTimeout 300 page) "() => new Promise((resolve) => setTimeout(() => resolve(true), 700))" ())
     click (locator page "#start")
     waitForFunctionWith page "async (expected) => document.getElementById('status').textContent === expected" ("done" :: Text)
     try (waitForFunctionWith page "async () => { throw new Error('the predicate broke'); }" ()) >>= \case

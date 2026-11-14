@@ -397,9 +397,11 @@ const pollInPage = async (page, source, argument, ms, what) => {
       const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
       for (;;) {
         // An asynchronous predicate is waited for, as Playwright's wait
-        // does: a promise is truthy whatever it will say.
-        if (await predicate(argument)) return true;
+        // does: a promise is truthy whatever it will say. What it says
+        // after the deadline comes too late to count.
+        const held = await predicate(argument);
         if (Date.now() > deadline) return false;
+        if (held) return true;
         await frame();
       }
     }`,
@@ -940,19 +942,29 @@ const methods = {
   // response, for the handler to look at or change before it answers. The
   // body is the one the page would read, decoded, so the headers that
   // described the bytes on the wire (their length, their encoding) are left
-  // out: fulfilled with another body, they would be wrong.
+  // out: fulfilled with another body, they would be wrong. A redirect is
+  // not followed here: it is the response, which the page follows itself
+  // when the handler fulfils with it, so that its address is the one it
+  // was sent to (Playwright's fetch would follow it, and the page would
+  // show the last response at the first address). The response is
+  // Playwright's to keep until its context closes unless it is disposed
+  // of, so it is, once copied.
   async fetchRouted(m) {
     const ask = asks.get(m.ask);
     if (!ask?.route) {
       throw Object.assign(new Error(`the request ${m.ask} is no longer the route's to fetch: its route, its page or its context went`), { name: "ClosedError" });
     }
-    const response = await ask.route.fetch({ timeout: within(m) });
+    const response = await ask.route.fetch({ timeout: within(m), maxRedirects: 0 });
     const hop = new Set(["content-length", "content-encoding", "transfer-encoding"]);
-    return {
-      status: response.status(),
-      headers: headerList(response.headersArray()).filter(([name]) => !hop.has(name)),
-      body: (await response.body()).toString("base64"),
-    };
+    try {
+      return {
+        status: response.status(),
+        headers: headerList(response.headersArray()).filter(([name]) => !hop.has(name)),
+        body: (await response.body()).toString("base64"),
+      };
+    } finally {
+      await response.dispose().catch(() => {});
+    }
   },
 
   // A function of the test's that the context's or a page's pages call as

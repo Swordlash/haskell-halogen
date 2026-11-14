@@ -24,6 +24,7 @@ import Network.Wai.Handler.Warp qualified as Warp
 -- * @api/data@: a little JSON;
 -- * @api/big@: 1000 bytes of text;
 -- * @api/pic.png@: a 32 by 32 PNG;
+-- * @api/moved@: a redirect to @second.html@, setting a cookie (@moved=1@);
 -- * any file of @test/web@, and with @?csp@ in its address, sent with
 --   @Content-Security-Policy: script-src 'self'@: the page's own scripts
 --   and no others, no inline script, no @eval@.
@@ -50,6 +51,7 @@ withServer body =
             )
       ["api", "data"] -> respond (Wai.responseLBS HTTP.status200 [("content-type", "application/json")] "{\"data\":\"from the server\"}")
       ["api", "big"] -> respond (Wai.responseLBS HTTP.status200 [("content-type", "text/plain")] (LazyByteString.replicate 1000 120))
+      ["api", "moved"] -> respond (Wai.responseLBS HTTP.status302 [("location", "/second.html"), ("set-cookie", "moved=1; Path=/")] "")
       ["api", "pic.png"] -> respond (Wai.responseLBS HTTP.status200 [("content-type", "image/png")] (LazyByteString.fromStrict standInImage))
       _
         | any ((== "csp") . fst) (Wai.queryString request) ->

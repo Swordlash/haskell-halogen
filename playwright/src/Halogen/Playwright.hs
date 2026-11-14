@@ -1648,7 +1648,10 @@ fulfill status contentType body = Fulfill Response {status, headers = [], conten
 -- would read (decoded), so its headers leave out those that described the
 -- bytes on the wire (@content-length@, @content-encoding@,
 -- @transfer-encoding@); its media type is among its headers (the
--- 'contentType' field is 'Nothing'), each name in lower case. The handler's
+-- 'contentType' field is 'Nothing'), each name in lower case. A redirect is
+-- not followed: it is the response (its status 302, say, and its
+-- @location@), and the page follows it itself when the handler fulfils with
+-- it, so the page ends at the address it was sent to. The handler's
 -- route's timeout bounds it; a request whose route has gone meanwhile is a
 -- 'PlaywrightError'.
 --
