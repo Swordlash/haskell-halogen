@@ -124,6 +124,41 @@ spec = (if inBrowser then xdescribe else describe) "what a component does to the
         , Remove 1 made
         ]
 
+  it "keeps what the batch said of a node that goes before a call on another node" $ do
+    -- A field added to a form and taken away again around a click on the
+    -- form's button, which stays: the click must find the field.
+    recorder <- Internal.newRecorder
+    let HTMLElement bodyValue = Internal.bodyHandle recorder
+        body = Node bodyValue
+    (button, buttonNode) <- runRemoteDOM recorder $ do
+      button <- createElement Nothing (ElemName "button") (Internal.documentHandle recorder)
+      node <- elementToNode button
+      appendChild node body
+      pure (button, node)
+    opening <- Internal.takeBatch recorder
+    stays <- required "the button" (head [n | Create n _ "button" <- fold opening])
+    runRemoteDOM recorder $ do
+      field <- createElement Nothing (ElemName "input") (Internal.documentHandle recorder)
+      node <- elementToNode field
+      appendChild node body
+      setAttribute Nothing (AttrName "name") "token" field
+      liftIO (for_ (HTMLElement.fromElement button) HTMLElement.click)
+      setAttribute Nothing (AttrName "class") "done" field
+      removeChild node body
+    batch <- Internal.takeBatch recorder
+    goes <- required "the field" (head [n | Create n _ "input" <- fold batch])
+    batch
+      `shouldBe` Just
+        [ Create goes Nothing "input"
+        , Insert 1 1 goes
+        , SetAttribute goes Nothing "name" "token"
+        , Call stays "click" []
+        , Remove 1 goes
+        ]
+    -- The button is still the page's.
+    runRemoteDOM recorder (removeChild buttonNode body)
+    Internal.takeBatch recorder `shouldReturn` Just [Remove 1 stays]
+
   it "sets the document's title, from Initialize and from a click" $ do
     (session, wire, ops, _) <- mounted titling
     [o | o@Assign {} <- ops] `shouldBe` [Assign 0 "title" (String "First title")]

@@ -79,12 +79,11 @@
 -- component does when its parent replaces the element around it, and a
 -- batch never ends in the middle of a render. A batch says nothing about
 -- what happens inside a node it leaves gone (its children taken out of it,
--- its listeners stopped): the client forgets all of it anyway. A @call@ on
--- such a node is the exception: it is sent, in its place before the
--- @remove@, since what a method does need not stay inside the node (a link
--- clicked to start a download, then hidden), and with it everything the
--- batch says before it, so that the node is as the program had it when it
--- called.
+-- its listeners stopped): the client forgets all of it anyway. That is so
+-- only after the batch's last @call@: everything before a @call@ is sent,
+-- so that the client carries it out on the page as the program had it (a
+-- link clicked to start a download, with the address the same action gave
+-- it, then hidden; a form submitted with a field that is then taken away).
 --
 -- __To the program__, one JSON object per event a listener heard:
 --

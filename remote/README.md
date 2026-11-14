@@ -97,10 +97,10 @@ been taken from wherever it was. A node taken out and not put back by the end of
 gone, on both sides: after the batch's last operation, each node a `remove` took out that still
 has no parent is forgotten with its subtree and their listeners, and is never named again. A
 batch leaves out what would happen inside such a node (its children taken out of it, its
-listeners stopped), which the client forgets with it; a `call` the program made on it before it
-went stays, before its `remove`, since a method can do something outside the node (a link clicked
-to start a download, then hidden), and so does everything the batch says before that call (the
-link's `href`, set by the same action).
+listeners stopped), which the client forgets with it, but only after the batch's last `call`:
+everything before a `call` is sent, so that the method is carried out on the page as the program
+had it (a link clicked to start a download and then hidden, with the `href` the same action gave
+it; a form submitted with a field that is then taken away).
 
 `options` follows the `listen` of a handler that declares anything, in the same batch, and comes
 again whenever a render changes what it declares: `{"preventDefault": true, "stopPropagation":
