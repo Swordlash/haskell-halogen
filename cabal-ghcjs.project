@@ -14,5 +14,17 @@ index-state: 2026-09-27T00:00:00Z
 package *
   ghc-options: -O2 -fexpose-all-unfoldings -fspecialise-aggressively -ddisable-js-c-sources
 
+-- The compiler's own garbage collector, for core alone: compacting rather
+-- than copying. Measured on a CI runner (16 GB): while it compiles core,
+-- most of whose hundred and twenty modules have a splice (the Web types'
+-- fields), the compiler's process grows module by module, to 13.7 GB by the
+-- ninetieth, with 1.2 GB of the machine left; now and then a build did not
+-- fit, and the job stopped answering. A copying collection needs room for a
+-- second copy of what is live while it runs, and a compacting one collects
+-- in place, at the price of slower collections: this is to see how much of
+-- those gigabytes is that second copy.
+package haskell-halogen-core
+  ghc-options: +RTS -c -RTS
+
 with-compiler: javascript-unknown-ghcjs-ghc-9.12.2
 with-hc-pkg: javascript-unknown-ghcjs-ghc-pkg-9.12.2
