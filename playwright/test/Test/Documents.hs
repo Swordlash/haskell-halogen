@@ -65,21 +65,22 @@ spec base = describe "the document that asked" $ do
   -- The beacon is sent as the page goes, and the browser reports it after
   -- the next document's navigation has started (Playwright's report of it
   -- comes once the frame's next document is known, some of the time):
-  -- each is the document's that sent it, never the next one's. Read once
-  -- its exchange has ended, so that the driver has matched it with the
-  -- browser's report of it.
+  -- each is the document's that sent it, never the next one's, once the
+  -- driver has matched it with the browser's report of it, which is waited
+  -- for in the request log itself. Its exchange is not waited for: the
+  -- response to a request that outlives its document is not always
+  -- reported (it was, on one machine, and never on another's three runs).
   it "keeps a request reported after the page went elsewhere with the document that made it" $ \pw ->
-    withContext pw defaultContextOptions {recordExchanges = Just 0} $ \ctx -> do
+    withContext pw defaultContextOptions $ \ctx -> do
       page <- newPage ctx
       forM_ [1 :: Int .. 10] $ \i -> do
         goto page (at "documents.html?run=" <> Text.pack (show i))
         sender <- currentDocument page
         goto page (at "second.html?run=" <> Text.pack (show i))
         next <- currentDocument page
-        exchange <- waitForExchange ctx (\e -> "plain.html?beacon" `Text.isSuffixOf` e.url && e.document == Just sender.id)
-        exchange.documentUrl `shouldBe` Just sender.url
-        beacons <- filter (\r -> "plain.html?beacon" `Text.isSuffixOf` r.url) <$> requests ctx
-        map (.document) (drop (i - 1) beacons) `shouldBe` [Just sender.id]
+        eventually page $ do
+          beacons <- endingIn "plain.html?beacon" <$> requests ctx
+          map (\r -> (r.document, r.documentUrl)) (drop (i - 1) beacons) `shouldBe` [(Just sender.id, Just sender.url)]
         nows <- requestsOf page
         map (.document) nows `shouldBe` [Just next.id]
 
