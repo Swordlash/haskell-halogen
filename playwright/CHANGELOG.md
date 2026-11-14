@@ -167,7 +167,8 @@ What the wiki's smoke tests found next, each with a test of its own:
   with the next frame, so a program idle when the action returned had not
   yet heard it, and a test read the dialog still open. It also waits for a
   move through the history the page asked for (`history.back()`, `forward()`,
-  `go(n)`, which the driver's init script notes) until the page has its
+  `go(n)`, which the driver's init script notes by wrapping those three
+  methods of `History.prototype` in every page) until the page has its
   `popstate`. The frame costs an action about a dozen milliseconds; a hidden
   page, or one that draws no frames, is not held up.
 - `waitForEvent`, with `EventTarget` (`OnWindow`, `OnDocument`, `OnElement`):

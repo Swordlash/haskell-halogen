@@ -99,7 +99,11 @@ has `browserArgs`, Chromium's command-line switches (a
   Halogen program it waits for the task, the move and the frame. A hidden
   page draws no frames and is not waited for; a page whose frame does not
   come within 100 ms is not waited for again until it draws one. The frame
-  costs an action about a dozen milliseconds. JavaScript the test runs in the
+  costs an action about a dozen milliseconds. To know of a move through the
+  history as the page asks for it, the driver's init script wraps
+  `History.prototype.back`, `forward` and `go` in every page: they call the
+  page's own and keep their names and lengths, and their `toString()` is no
+  longer native code's. JavaScript the test runs in the
   page (`evaluate`, `evaluateWith`, `evaluateOn`, `evaluateAll`) and `cdp` are
   not actions and do not settle: after one that dispatches an event to the
   program (a `blur`, a `mouseup`, a link clicked from script), call `settle`.
