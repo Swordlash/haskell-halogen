@@ -109,6 +109,7 @@ module Halogen.Hooks
 
     -- ** Pauses
   , delay
+  , delayCounted
 
     -- ** Refs
   , getRef

@@ -40,6 +40,7 @@ module Halogen.Hooks.Internal.HookM
 
     -- * Pauses
   , delay
+  , delayCounted
 
     -- * Refs
   , getRef
@@ -75,6 +76,7 @@ data HookF scope slots output m a where
   Lift :: m x -> (x -> a) -> HookF scope slots output m a
   LiftEffect :: m x -> (x -> a) -> HookF scope slots output m a
   Delay :: NominalDiffTime -> a -> HookF scope slots output m a
+  DelayCounted :: NominalDiffTime -> a -> HookF scope slots output m a
   State :: StateId scope s -> (s -> (x, s)) -> (x -> a) -> HookF scope slots output m a
   Raise :: output -> a -> HookF scope slots output m a
   ChildQuery :: CQ.ChildQuery slots a -> HookF scope slots output m a
@@ -89,6 +91,7 @@ instance Functor (HookF scope slots output m) where
     Lift mx k -> Lift mx (f . k)
     LiftEffect mx k -> LiftEffect mx (f . k)
     Delay d a -> Delay d (f a)
+    DelayCounted d a -> DelayCounted d (f a)
     State sid g k -> State sid g (f . k)
     Raise o a -> Raise o (f a)
     ChildQuery cq -> ChildQuery (map f cq)
@@ -118,13 +121,21 @@ liftEffect mx = HookM $ liftF $ LiftEffect mx identity
 
 -- | Pause the handler for this long (in seconds), not counted as waiting by
 -- "Halogen.Activity": 'Halogen.Query.HalogenM.delay', which says when to
--- use it and when @liftIO (threadDelay n)@. In short: a pause before work
--- a test should wait for (a debounce before a request) is @liftIO@; one
--- that only hides a notice or ticks a clock is 'delay'. Like any of the
+-- use it and when 'delayCounted'. In short: a pause before work a test
+-- should wait for (a debounce before a request) is 'delayCounted'; one that
+-- only hides a notice or ticks a clock is 'delay'. Like any of the
 -- handler's waits, it ends with a fork that is killed or a component that
--- goes away.
+-- goes away, and in a tree mounted under a test's clock
+-- ("Halogen.Activity.Control") it sleeps on that clock.
 delay :: NominalDiffTime -> HookM scope slots output m ()
 delay d = HookM $ liftF $ Delay d ()
+
+-- | Pause the handler for this long (in seconds), counted as waiting:
+-- 'Halogen.Query.HalogenM.delayCounted', the pause before work a test waits
+-- for. On the real clock it is @liftIO (threadDelay n)@; under a test's
+-- clock the test moves it on.
+delayCounted :: NominalDiffTime -> HookM scope slots output m ()
+delayCounted d = HookM $ liftF $ DelayCounted d ()
 
 -- | 'liftEffect' for plain 'IO' (the hooks' own bookkeeping).
 effectIO :: (MonadIO m) => IO x -> HookM scope slots output m x

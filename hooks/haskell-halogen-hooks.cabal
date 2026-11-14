@@ -88,7 +88,6 @@ library
       Halogen.Hooks.Extra.Hooks.UseThrottle
 
     other-modules:
-      Halogen.Hooks.Extra.Internal.Delay
       Halogen.Hooks.Internal.Cells
       Halogen.Hooks.Internal.Eval
       Halogen.Hooks.Internal.Hook
