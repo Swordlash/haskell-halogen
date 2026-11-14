@@ -21,6 +21,7 @@ module Test.Components
   , Spot (..)
   , spots
   , routing
+  , hashRouting
   , storing
   )
 where
@@ -39,6 +40,7 @@ import Halogen.Router.Duplex.Generic qualified as RG
 import Halogen.VDom.DOM.Monad (MonadBrowserDOM)
 import Halogen.VDom.DOM.Monad qualified as DOM
 import Protolude
+import UnliftIO (MonadUnliftIO)
 import Web.DOM.Element qualified as Element
 import Web.DOM.Internal.Types (Element)
 import Web.Event.Event (EventType (..))
@@ -425,13 +427,24 @@ data Moving = Moved Spot | Went (Router.Follow Spot) | RedirectAbout
 -- that redirects to the page about the site (the history's entry
 -- replaced): what a routed page of an application is, given its router.
 routing :: forall q m. (MonadIO m) => H.Component q (Router.Router Spot) Void m
-routing =
+routing = routed pure (const pass)
+
+-- | 'routing', with a hash router of its own, made as it starts and stopped
+-- as it goes: for a page whose address only its fragment should change.
+hashRouting :: forall q m. (MonadUnliftIO m, MonadBrowserDOM m) => H.Component q () Void m
+hashRouting = routed (\() -> Router.newHashRouter Front spots) Router.stop
+
+routed :: forall q i m. (MonadIO m) => (i -> m (Router.Router Spot)) -> (Router.Router Spot -> IO ()) -> H.Component q i Void m
+routed made stopped =
   H.component
-    (\router -> (router,) <$> Router.current router)
+    (\i -> made i >>= \router -> (router,) <$> Router.current router)
     render
     [ H.onInitialize $ do
         (router, _) <- get
         void (H.subscribe (Moved <$> Router.changes router))
+    , H.onFinalize $ do
+        (router, _) <- get
+        liftIO (stopped router)
     , H.onAction $ \case
         Moved spot -> modify (\(router, _) -> (router, spot))
         Went f -> do
