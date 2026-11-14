@@ -5,13 +5,14 @@
 #
 #   sh toolchain/with-memory-watch.sh <minutes> <command> [args...]
 #
-# For CI's JavaScript build, which twice stopped at DOM.HTML.Indexed (a
+# For CI's JavaScript job, whose build twice stopped at DOM.HTML.Indexed (a
 # module whose one splice the JavaScript backend runs in node) with
-# "terminated" printed twice and nothing after it, and held its runner until
-# it was cancelled, leaving no log to say why. A build that is still going
-# after the limit is killed with everything it started, so that the step
-# fails while the runner can still upload its log, and what is printed here
-# says whether memory ran out and whose.
+# "terminated" printed twice and nothing after it, and whose test step has
+# overrun the same way, each time holding its runner until it was cancelled
+# and leaving no log to say why. A command that is still going after the limit
+# is killed with everything it started, so that the step fails while the
+# runner can still upload its log, and what is printed here says whether
+# memory ran out and whose.
 #
 # MEMORY_WATCH_INTERVAL is the seconds between two lines (60).
 set -u

@@ -315,11 +315,15 @@ jobs:
         fi
         ghcup set ghc "$GHC_VERSION"
 
+    # Under the same watch as the build: this step compiles the test suites,
+    # some with splices of their own, before it runs them, and on the very
+    # change that put the watch on the build it was still going after more
+    # than twenty minutes, against the eight it takes.
     - name: Test
       env:
         HSPEC_HALOGEN_JOBS: '2'
         HSPEC_HALOGEN_WORKERS: '2'
-      run: npm run test-ghcjs
+      run: sh toolchain/with-memory-watch.sh 45 npm run test-ghcjs
 
   # The wasm build is two jobs that run side by side: test-wasm, the test
   # suites, and learn-wasm, the tutorial and every other example as the
