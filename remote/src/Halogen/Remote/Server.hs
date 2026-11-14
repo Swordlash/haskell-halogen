@@ -36,6 +36,19 @@
 -- forwards them; see "Halogen.Remote.Protocol"): a page served this way can
 -- be driven by @haskell-halogen-playwright@ as a page with the program in it
 -- can.
+--
+-- __The page's address and stores.__ Before it calls anything for a
+-- connection, the server waits for the client's first message, which says
+-- where the page is (its address and its @\<base href>@) and what its
+-- stores hold of this library's items, and hands it to the session. So a
+-- router made in the session's monad ("Halogen.Router"'s @newRouter@, after
+-- @pageBase@) starts at the page's route, and storage
+-- ("Web.Storage.Storage") reads and writes the page's own @localStorage@
+-- and @sessionStorage@: what a component stores outlives the connection, a
+-- reload and the session. The client this server serves sends that message
+-- as soon as it connects; a client that sends something else first gets a
+-- session at @\/@ with empty stores, and one that sends nothing (a client
+-- older than this message) is waited for.
 module Halogen.Remote.Server
   ( Settings (..)
   , defaultSettings
@@ -143,6 +156,12 @@ applicationWith settings connect = websocketsOr WS.defaultConnectionOptions sock
         connected connection = do
           session <- Session.newSession (WS.sendTextData connection)
           let program = do
+                -- The page's first message says where it is and what its
+                -- stores hold, which the function and the component it
+                -- mounts read as they start. A client that says something
+                -- else first has it handled as any message: the session
+                -- keeps its defaults.
+                WS.receiveData connection >>= Session.receive session
                 connect requested session
                 mounted <- Session.isMounted session
                 if mounted

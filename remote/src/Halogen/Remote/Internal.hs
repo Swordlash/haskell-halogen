@@ -75,6 +75,12 @@ module Halogen.Remote.Internal
   , liveNodes
   , liveListeners
 
+    -- * The page's address and stores
+  , greet
+  , moved
+  , storageChanged
+  , pageAddress
+
     -- * Ids
   , documentId
   , bodyId
@@ -97,8 +103,8 @@ import Data.Map.Strict qualified as Map
 import Data.Scientific (floatingOrInteger)
 import Data.Sequence qualified as Seq
 import Data.Text qualified as Text
-import Halogen.JSBits (JSVal, NativeObject (..), toJSInt, withNativeObject)
-import Halogen.Remote.Protocol (EventMessage (..), ListenerId, NodeId, Op (..))
+import Halogen.JSBits (JSVal, NativeObject (..), isNull, jsValText, textValue, toJSInt, withNativeObject)
+import Halogen.Remote.Protocol (EventMessage (..), Hello (..), HistoryMove (..), ListenerId, NodeId, Op (..))
 import Halogen.VDom.DOM.HandlerOptions (HandlerOptions)
 import Halogen.VDom.DOM.Monad
   ( DomNodeKind (..)
@@ -106,7 +112,7 @@ import Halogen.VDom.DOM.Monad
   , MonadBrowserDOM (..)
   , MonadDOM (..)
   , PropScalar (..)
-  , StorageKind
+  , StorageKind (..)
   , propScalar
   )
 import Halogen.VDom.Types (ElemName (..), Namespace (..), elementInstanceOf)
@@ -239,7 +245,12 @@ bodyId = 1
 -- window and the container it attached to, and nothing pending.
 newRecorder :: IO Recorder
 newRecorder = do
-  sink <- Sink <$> newIORef IntMap.empty <*> STM.newTVarIO Seq.empty <*> STM.newTVarIO True
+  sink <-
+    Sink
+      <$> newIORef IntMap.empty
+      <*> STM.newTVarIO Seq.empty
+      <*> STM.newTVarIO True
+      <*> (Address <$> newIORef "" <*> newIORef "/" <*> newIORef Nothing)
   root <- blank sink documentId DocumentNode
   body <- blank sink bodyId (ElementNode Nothing (ElemName "body"))
   writeIORef root.kids [body]
@@ -266,6 +277,19 @@ data Sink = Sink
   { nodes :: IORef (IntMap RemoteNode)
   , pending :: STM.TVar (Seq Op)
   , open :: STM.TVar Bool
+  , address :: Address
+  }
+
+-- | Where the page is, as it last said and as the program has moved it
+-- since: what the window's @location@ answers, and its @document@'s
+-- @baseURI@.
+data Address = Address
+  { origin :: IORef Text
+  -- ^ The scheme, host and port, empty until the page says.
+  , local :: IORef Text
+  -- ^ @pathname + search + hash@, @\"\/\"@ until the page says.
+  , base :: IORef (Maybe Text)
+  -- ^ The address of the page's @\<base href>@, if it has one.
   }
 
 blank :: Sink -> NodeId -> Kind -> IO RemoteNode
@@ -291,8 +315,11 @@ blank sink ident kind =
 -- A checked cast asks what the node is ('elementInstanceOf'), so
 -- 'Halogen.Query.getHTMLElementRef' and a dialog's @fromElement@ find it;
 -- the document is the window too, as node 0 is both, and is its own
--- @document@. Reads are not answered: the page has the values, across the
--- wire, and a read cannot wait for them.
+-- @document@, and has the page's @location@ and @history@
+-- ('locationObject', 'historyObject'). Reads are not answered, but for
+-- what the session mirrors of the page (its address, and the document's
+-- @baseURI@ when the page has a @\<base href>@): the page has the values,
+-- across the wire, and a read cannot wait for them.
 operations :: Sink -> NodeId -> Kind -> JSVal -> NativeObject JSVal
 operations sink ident kind self =
   NativeObject
@@ -303,14 +330,144 @@ operations sink ident kind self =
         DocumentNode | name == "title" -> recordFrom sink ident (Assign ident name (Aeson.String (foreignToString value)))
         _ -> pass
     , get = \name -> case kind of
-        DocumentNode | name == "document" -> Just self
+        DocumentNode
+          | name == "document" -> Just self
+          | name == "location" -> Just (withNativeObject (locationObject sink.address) (toJSInt ident))
+          | name == "history" -> Just (withNativeObject (historyObject sink) (toJSInt ident))
         _ -> Nothing
-    , live = \_ -> pure Nothing
+    , live = \name -> case kind of
+        DocumentNode | name == "baseURI" -> fmap textValue <$> readIORef sink.address.base
+        _ -> pure Nothing
     , instanceOf = \klass -> case kind of
         ElementNode ns name -> elementInstanceOf ns name klass
         TextNode -> klass `elem` ["EventTarget", "Node", "CharacterData", "Text"]
         DocumentNode -> klass `elem` ["EventTarget", "Node", "Document", "HTMLDocument", "Window"]
     }
+
+-- | The window's @location@: the mirror of the page's address, read. An
+-- assignment (a load of another page) does nothing.
+locationObject :: Address -> NativeObject JSVal
+locationObject address =
+  NativeObject
+    { call = \_ _ -> pass
+    , set = \_ _ -> pass
+    , get = const Nothing
+    , live = \name -> do
+        origin <- readIORef address.origin
+        here <- readIORef address.local
+        let (path, search, fragment) = parts here
+        pure . fmap textValue $ case name of
+          "href" -> Just (origin <> here)
+          "origin" -> Just origin
+          "pathname" -> Just path
+          "search" -> Just search
+          "hash" -> Just fragment
+          _ -> Nothing
+    , instanceOf = (== "Location")
+    }
+
+-- | The window's @history@: a push or a replacement moves the mirror of the
+-- page's address at once and is recorded for the page, as is a move through
+-- the entries, which the page reports back when it has gone there
+-- ('moved'). The state a push is given is not sent: the page's entries get
+-- @null@, as the router gives them.
+historyObject :: Sink -> NativeObject JSVal
+historyObject sink =
+  NativeObject
+    { call = \method arguments -> case (method, arguments) of
+        ("pushState", [_, _, target]) -> write Push target
+        ("replaceState", [_, _, target]) -> write Replace target
+        ("back", []) -> recordAny sink (HistoryOp (Go (-1)))
+        ("forward", []) -> recordAny sink (HistoryOp (Go 1))
+        ("go", [n]) -> recordAny sink (HistoryOp (Go (foreignToInt n)))
+        _ -> pass
+    , set = \_ _ -> pass
+    , get = const Nothing
+    , live = \_ -> pure Nothing
+    , instanceOf = (== "History")
+    }
+  where
+    write how given = do
+      let target = if isNull given then Nothing else Just (jsValText given)
+      for_ target $ \t -> do
+        base <- readIORef sink.address.base
+        origin <- readIORef sink.address.origin
+        here <- readIORef sink.address.local
+        let (origin', here') = resolve base origin here t
+        writeIORef sink.address.origin origin'
+        writeIORef sink.address.local here'
+      recordAny sink (HistoryOp (how target))
+
+-- | An address's @pathname@, @search@ and @hash@.
+parts :: Text -> (Text, Text, Text)
+parts here = (path, search, fragment)
+  where
+    (beforeHash, fragment) = Text.breakOn "#" here
+    (path, search) = Text.breakOn "?" beforeHash
+
+-- | A whole address as its origin and the rest; an address with no scheme
+-- has no origin.
+splitHref :: Text -> (Text, Text)
+splitHref href = case Text.breakOn "://" href of
+  (_, "") -> ("", orRoot href)
+  (scheme, rest) ->
+    let (host, here) = Text.break (`elem` ['/', '?', '#']) (Text.drop 3 rest)
+     in (scheme <> "://" <> host, orRoot here)
+  where
+    orRoot t = if "/" `Text.isPrefixOf` t then t else "/" <> t
+
+-- | Where an address a program pushes takes the page, from where it is: as
+-- the browser resolves it against the page's base (its @\<base href>@ or
+-- its own address), short of normalising dot segments. The router writes
+-- paths from the root, and fragments after them.
+resolve :: Maybe Text -> Text -> Text -> Text -> (Text, Text)
+resolve base origin here target
+  | absolute = splitHref target
+  | "//" `Text.isPrefixOf` target = splitHref (Text.takeWhile (/= ':') origin <> ":" <> target)
+  | "/" `Text.isPrefixOf` target = (origin, target)
+  | "?" `Text.isPrefixOf` target = (origin, basePath <> target)
+  | "#" `Text.isPrefixOf` target = (origin, basePath <> baseQuery <> target)
+  | Text.null target = (origin, basePath <> baseQuery)
+  | otherwise = (origin, Text.dropWhileEnd (/= '/') basePath <> target)
+  where
+    (basePath, baseQuery, _) = parts (maybe here (snd . splitHref) base)
+    -- A scheme: what comes before the first colon, letters and digits and
+    -- @+-.@, before any slash.
+    absolute = case Text.breakOn ":" target of
+      (scheme, rest) -> not (Text.null rest) && not (Text.null scheme) && Text.all (\c -> isAlphaNum c || c `elem` ['+', '-', '.']) scheme
+
+-- | Record an operation about the page, not about a node, unless the
+-- recorder is closed.
+recordAny :: Sink -> Op -> IO ()
+recordAny sink op = STM.atomically $ do
+  open <- STM.readTVar sink.open
+  when open $ STM.modifyTVar' sink.pending (Seq.|> op)
+
+-- | What the page said first: its address, its base and this library's
+-- items of its stores, which the mirror takes in place of what it had.
+greet :: Recorder -> Hello -> IO ()
+greet recorder hello = do
+  moved recorder hello.location
+  writeIORef recorder.sink.address.base hello.base
+  writeIORef recorder.storage (Map.fromList [(LocalStorage, hello.local), (SessionStorage, hello.session)])
+
+-- | The page's whole address, now that it has moved through its history.
+moved :: Recorder -> Text -> IO ()
+moved recorder href = do
+  let (origin, here) = splitHref href
+  writeIORef recorder.sink.address.origin origin
+  writeIORef recorder.sink.address.local here
+
+-- | Another tab's change to a store: an item written or removed, or the
+-- store emptied (no key).
+storageChanged :: Recorder -> StorageKind -> Maybe Text -> Maybe Text -> IO ()
+storageChanged recorder kind key value = atomicModifyIORef' recorder.storage $ \m -> (,()) $ case key of
+  Nothing -> Map.insert kind Map.empty m
+  Just k -> Map.alter (Just . maybe identity (Map.insert k) value . Map.delete k . fromMaybe Map.empty) kind m
+
+-- | Where the mirror has the page: its whole address.
+pageAddress :: Recorder -> IO Text
+pageAddress recorder = (<>) <$> readIORef recorder.sink.address.origin <*> readIORef recorder.sink.address.local
 
 -- | The methods the client performs, each with the arguments it takes,
 -- read from what the program passed: the arguments to send, or 'Nothing'
@@ -680,7 +837,8 @@ instance MonadAttributes RemoteDOM where
 
 -- | The session's document stands for the window too, as the in-memory
 -- DOM's does: a listener on the window is a listener on node 0, which the
--- client has as its window.
+-- client has as its window. Its @location@ and @history@ are the page's
+-- (see 'locationObject' and 'historyObject'), and its stores the page's.
 instance MonadBrowserDOM RemoteDOM where
   insertBefore inserted sibling parent =
     withNode (nodeValue inserted) $ \child -> withNode (nodeValue sibling) $ \ref -> withNode (nodeValue parent) $ \p -> do
@@ -710,15 +868,22 @@ instance MonadBrowserDOM RemoteDOM where
 
   readyState _ = pure Complete
 
+  -- The page's stores, as the mirror has them: what the page said it held
+  -- of this library's when it connected, what other tabs changed since,
+  -- and what the program wrote, which is sent for the page to write too.
+  -- A write the page refuses (its quota, its storage denied) is logged
+  -- there, and the program cannot know.
   readStorageItem kind key = do
     recorder <- recorderHere
     Map.lookup key . Map.findWithDefault Map.empty kind <$> readIORef recorder.storage
   writeStorageItem kind key text = do
     recorder <- recorderHere
     atomicModifyIORef' recorder.storage (\m -> (Map.insertWith Map.union kind (Map.singleton key text) m, ()))
+    record (StorageOp kind key (Just text))
   removeStorageItem kind key = do
     recorder <- recorderHere
     atomicModifyIORef' recorder.storage (\m -> (Map.adjust (Map.delete key) kind m, ()))
+    record (StorageOp kind key Nothing)
   storageItemKeys kind = do
     recorder <- recorderHere
     Map.keys . Map.findWithDefault Map.empty kind <$> readIORef recorder.storage

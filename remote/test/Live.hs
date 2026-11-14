@@ -97,8 +97,9 @@ data Action = Increment | Typed Text | Follow (Router.Follow Place) | Search
 
 -- | A counter, an input and a router's link, each session numbered: what
 -- its handlers do they also write where the test can see it. The router is
--- the session's, made natively, so it keeps its address in memory: a link
--- it follows changes what the page shows, never the page's address.
+-- the session's, made natively, over the page's address as the page said
+-- it first: a link it follows changes what the page shows and the page's
+-- address, with no page loaded.
 live :: Shared -> H.Component H.VoidF () Void RemoteM
 live shared =
   H.component
@@ -246,9 +247,9 @@ spec shared proxy = playwright $ describe "a component served to Chromium" $ do
     until' "the link followed" ((== before + 1) <$> readTVar shared.follows)
     locator page "#route" `shouldHaveText` "Other"
     evaluate page "window.prevented" `shouldReturn` [False, False, True]
-    -- No page was loaded: the address is the same, and what the test put
-    -- on the window is still there.
-    url page `shouldReturn` address
+    -- No page was loaded, though the address is the route's: what the test
+    -- put on the window is still there.
+    url page `shouldReturn` (address <> "other")
     evaluate page "window.stayed === true" `shouldReturn` True
 
   it "keeps a key a handler declared from being typed, and sends the program no other" $ inPage $ \page -> do

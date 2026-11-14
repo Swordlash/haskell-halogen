@@ -21,14 +21,16 @@ import Halogen.HTML qualified as HH
 import Halogen.HTML.Events qualified as HE
 import Data.List (lookup)
 import Halogen.Activity (Activity (..))
-import Halogen.Remote.Protocol (Batch (..), FromProgram (..), Op (..), decodeFromProgram, encodeProbeQuestion)
+import Data.Map.Strict qualified as Map
+import Halogen.Remote.Protocol (Batch (..), FromPage (..), FromProgram (..), Hello (..), Op (..), decodeFromProgram, encodeFromPage, encodeProbeQuestion)
+import Halogen.Router qualified as Router
 import Halogen.Remote.Session qualified as Session
-import Test.Components (counter, echo)
+import Test.Components (Spot (..), counter, echo, spots)
 import Halogen.Remote.Server qualified as Server
 import Network.Wai.Handler.Warp qualified as Warp
 import Network.WebSockets qualified as WS
 import Protolude
-import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldSatisfy)
+import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldReturn, shouldSatisfy)
 import Test.Session (clickOn, elementWithId, listenerOn)
 import Data.Row (Empty)
 import Halogen.HTML.Properties qualified as HP
@@ -46,6 +48,14 @@ watched finalized =
     render :: Int -> H.ComponentHTML () Empty m
     render n = HH.button [HP.id "increment", HE.onClick (const ())] [HH.text (show n)]
 
+-- | A client of the server's at a path, which says first where its page is,
+-- as the real client does when it connects: at the root, with empty
+-- stores.
+talking :: Int -> [Char] -> (WS.Connection -> IO a) -> IO a
+talking port path body = WS.runClient "127.0.0.1" port path $ \connection -> do
+  WS.sendTextData connection (encodeFromPage (PageHello (Hello "http://127.0.0.1/" Nothing Map.empty Map.empty)))
+  body connection
+
 receiveBatch :: WS.Connection -> IO Batch
 receiveBatch connection =
   timeout 5000000 (WS.receiveData connection) >>= \case
@@ -58,7 +68,7 @@ spec = describe "the server" $ do
     finalized <- newEmptyMVar
     let app = Server.application Server.defaultSettings (watched finalized) ()
     Warp.testWithApplication (pure app) $ \port ->
-      WS.runClient "127.0.0.1" port "/live" $ \connection -> do
+      talking port "/live" $ \connection -> do
         opening <- receiveBatch connection
         opening.sequence `shouldBe` 1
         head opening.ops `shouldBe` Just Clear
@@ -85,7 +95,7 @@ spec = describe "the server" $ do
             _ -> pass
         app = Server.applicationWith Server.defaultSettings connect
     Warp.testWithApplication (pure app) $ \port -> do
-      let firstOps path = WS.runClient "127.0.0.1" port path $ \connection -> do
+      let firstOps path = talking port path $ \connection -> do
             opening <- receiveBatch connection
             WS.sendClose connection ("bye" :: Text)
             pure opening.ops
@@ -96,7 +106,7 @@ spec = describe "the server" $ do
       elementWithId echoed "field" `shouldSatisfy` isJust
       readMVar seen >>= (`shouldBe` [("/live", [("which", Just "counter")]), ("/live", [("which", Just "echo"), ("x", Nothing)])])
       -- A connection the function mounts nothing for is closed, with why.
-      closed <- WS.runClient "127.0.0.1" port "/live?which=nothing" $ \connection ->
+      closed <- talking port "/live?which=nothing" $ \connection ->
         timeout 5000000 (try (WS.receiveDataMessage connection))
       case closed of
         Just (Left (WS.CloseRequest _ reason)) -> reason `shouldBe` "nothing was mounted for this connection"
@@ -108,13 +118,13 @@ spec = describe "the server" $ do
           _ -> void (Session.mount session counter ())
         app = Server.applicationWith Server.defaultSettings connect
     Warp.testWithApplication (pure app) $ \port -> do
-      closed <- WS.runClient "127.0.0.1" port "/live?which=broken" $ \connection ->
+      closed <- talking port "/live?which=broken" $ \connection ->
         timeout 5000000 (try (WS.receiveDataMessage connection))
       case closed of
         Just (Left (WS.CloseRequest _ reason)) -> reason `shouldBe` "the session ended"
         other -> expectationFailure ("not closed with a reason: " <> show (fmap (fmap (const ())) other))
       -- The server goes on: the next connection gets its component.
-      WS.runClient "127.0.0.1" port "/live" $ \connection -> do
+      talking port "/live" $ \connection -> do
         opening <- receiveBatch connection
         elementWithId opening.ops "increment" `shouldSatisfy` isJust
         WS.sendClose connection ("bye" :: Text)
@@ -122,7 +132,7 @@ spec = describe "the server" $ do
   it "answers the probe's questions over the socket, after the batches" $ do
     let app = Server.application Server.defaultSettings counter ()
     Warp.testWithApplication (pure app) $ \port ->
-      WS.runClient "127.0.0.1" port "/live" $ \connection -> do
+      talking port "/live" $ \connection -> do
         opening <- receiveBatch connection
         button <- maybe (panic "no button") pure (elementWithId opening.ops "increment")
         listener <- maybe (panic "no listener") pure (listenerOn opening.ops button "click")
@@ -133,6 +143,35 @@ spec = describe "the server" $ do
         answer <- timeout 5000000 (WS.receiveData connection)
         (answer >>= decodeFromProgram) `shouldBe` Just (ProbeAnswer 1 Activity {trees = 1, running = 0, waiting = 0})
         WS.sendClose connection ("bye" :: Text)
+
+  it "hands the page's first message to the session before it calls the function, and takes anything else first as any message" $ do
+    seen <- newMVar []
+    let connect _ session = do
+          place <- Session.run session $ do
+            base <- Router.pageBase
+            router <- Router.newRouter base Front spots
+            spot <- Router.current router
+            Router.stop router
+            pure (base, spot)
+          modifyMVar_ seen (pure . (<> [place]))
+          void (Session.mount session counter ())
+        app = Server.applicationWith Server.defaultSettings connect
+        at = Hello "http://127.0.0.1/site/blog/post/3" (Just "http://127.0.0.1/site/") Map.empty Map.empty
+    Warp.testWithApplication (pure app) $ \port -> do
+      WS.runClient "127.0.0.1" port "/live" $ \connection -> do
+        WS.sendTextData connection (encodeFromPage (PageHello at))
+        _ <- receiveBatch connection
+        WS.sendClose connection ("bye" :: Text)
+      -- A client that asks the probe first: answered (what the reading is
+      -- depends on whether the mount has begun when it is sent), and given
+      -- a session at the root.
+      WS.runClient "127.0.0.1" port "/live" $ \connection -> do
+        WS.sendTextData connection (encodeProbeQuestion 1)
+        answer <- timeout 5000000 (WS.receiveData connection)
+        [n | Just (ProbeAnswer n _) <- [answer >>= decodeFromProgram]] `shouldBe` [1]
+        _ <- receiveBatch connection
+        WS.sendClose connection ("bye" :: Text)
+      readMVar seen `shouldReturn` [("/site/", Post 3), ("/", Front)]
 
   it "has the client to serve" $ do
     Server.clientScript `shouldSatisfy` (not . null . Text.breakOnAll "function halogen_remote_connect" . decodeUtf8)

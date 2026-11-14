@@ -4,10 +4,11 @@ module Test.Protocol (spec) where
 import Data.Aeson (object, (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Text (encodeToLazyText)
+import Data.Map.Strict qualified as Map
 import Data.Text.Lazy qualified as Lazy
 import Halogen.Remote.Protocol
 import Halogen.VDom.DOM.HandlerOptions (EventMatch (..), HandlerOptions (..), KeyMatch (..), handlerOptions, keyMatch)
-import Halogen.VDom.DOM.Monad (PropScalar (..))
+import Halogen.VDom.DOM.Monad (PropScalar (..), StorageKind (..))
 import Protolude
 import Test.Hspec (Spec, describe, it, shouldBe)
 
@@ -38,6 +39,11 @@ every =
   , Call 2 "focus" [object ["preventScroll" .= True]]
   , Call 5 "close" [Aeson.String "done"]
   , Assign 0 "title" (Aeson.String "Notes")
+  , HistoryOp (Push (Just "/blog/post/1"))
+  , HistoryOp (Replace Nothing)
+  , HistoryOp (Go (-1))
+  , StorageOp LocalStorage "haskell-halogen:count" (Just "NA==")
+  , StorageOp SessionStorage "haskell-halogen:count" Nothing
   ]
 
 spec :: Spec
@@ -52,6 +58,30 @@ spec = describe "the protocol" $ do
     Aeson.toJSON (Call 2 "scrollIntoView" [object ["block" .= ("center" :: Text)]])
       `shouldBe` Aeson.toJSON (["call", Aeson.Number 2, "scrollIntoView", Aeson.toJSON [object ["block" .= ("center" :: Text)]]] :: [Aeson.Value])
     Aeson.toJSON (Assign 0 "title" "Notes") `shouldBe` Aeson.toJSON (["set", Aeson.Number 0, "title", "Notes"] :: [Aeson.Value])
+    Aeson.toJSON (HistoryOp (Push (Just "/a"))) `shouldBe` Aeson.toJSON (["history", "push", "/a"] :: [Aeson.Value])
+    Aeson.toJSON (HistoryOp (Replace Nothing)) `shouldBe` Aeson.toJSON (["history", "replace", Aeson.Null] :: [Aeson.Value])
+    Aeson.toJSON (HistoryOp (Go (-1))) `shouldBe` Aeson.toJSON (["history", "go", Aeson.Number (-1)] :: [Aeson.Value])
+    Aeson.toJSON (StorageOp LocalStorage "k" Nothing) `shouldBe` Aeson.toJSON (["storage", "local", "k", Aeson.Null] :: [Aeson.Value])
+
+  it "reads what the page says of itself as the client writes it, and ignores what it does not know" $ do
+    let hello =
+          Hello
+            { location = "http://example.test/blog/?q=1#top"
+            , base = Nothing
+            , local = Map.fromList [("haskell-halogen:count", "NA==")]
+            , session = Map.empty
+            }
+    decodeFromPage
+      "{\"hello\":{\"location\":\"http://example.test/blog/?q=1#top\",\"base\":null,\"storage\":{\"local\":{\"haskell-halogen:count\":\"NA==\"},\"session\":{}}}}"
+      `shouldBe` Just (PageHello hello)
+    decodeFromPage (encodeFromPage (PageHello hello)) `shouldBe` Just (PageHello hello)
+    decodeFromPage "{\"location\":\"http://example.test/about\"}" `shouldBe` Just (PageLocation "http://example.test/about")
+    decodeFromPage "{\"storage\":{\"kind\":\"session\",\"key\":\"haskell-halogen:a\",\"value\":\"Mg==\"}}"
+      `shouldBe` Just (PageStorage SessionStorage (Just "haskell-halogen:a") (Just "Mg=="))
+    decodeFromPage "{\"storage\":{\"kind\":\"local\",\"key\":null,\"value\":null}}" `shouldBe` Just (PageStorage LocalStorage Nothing Nothing)
+    for_ [PageLocation "/x", PageStorage LocalStorage (Just "k") Nothing, ProbeQuestion 3] $ \m ->
+      decodeFromPage (encodeFromPage m) `shouldBe` Just m
+    decodeFromPage "{\"greeting\":1}" `shouldBe` Nothing
 
   it "writes a listener's options as the client reads them" $ do
     Aeson.toJSON (ListenerOptions 2 "keydown" 8 handlerOptions {preventDefault = True, matching = Just (Keys [(keyMatch "s") {ctrlKey = Just True}])})

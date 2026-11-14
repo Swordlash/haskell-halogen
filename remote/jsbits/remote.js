@@ -7,10 +7,12 @@
 // would be needed for.
 //
 // The program sends batches of operations, which the client applies to real
-// nodes it keeps by number; the client sends back, for each event a listener
-// of the program's hears (and its handler's declared match, if it has one,
-// lets through), what handlers read of it. Halogen.Remote.Protocol
-// describes both. Node 0 is the window and node 1 the container the client
+// nodes it keeps by number (and to the page's history and stores); the
+// client sends first where the page is and what its stores hold, then, for
+// each event a listener of the program's hears (and its handler's declared
+// match, if it has one, lets through), what handlers read of it, and where
+// the page is when it goes back or forward. Halogen.Remote.Protocol
+// describes all of it. Node 0 is the window and node 1 the container the client
 // was attached to; every other node is made by an operation.
 //
 // A node taken out and not put back by the end of the batch is gone, on both
@@ -38,10 +40,103 @@ function halogen_remote_attach(container, send) {
     // How many of the program's calls it has carried out
     // (halogen_remote_connect's probe waits for a frame after one).
     calls: 0,
+    // The client's own listeners on the window, [type, handler] pairs.
+    own: [],
+    // The address the program was last told of, or moved the page to.
+    location: halogen_remote_href(),
   };
   halogen_remote_forget_all(client);
+  halogen_remote_watch_page(client);
   container.setAttribute("data-halogen-remote", "attached");
   return client;
+}
+
+// What the client sends first, before anything else (Halogen.Remote.Protocol):
+// where the page is (its whole address, and its <base href>'s address when
+// it has one), and the items of its two stores that are the library's,
+// whose keys start with haskell-halogen-core's storagePrefix.
+function halogen_remote_hello() {
+  var hasBase = typeof document !== "undefined" && document.querySelector("base[href]") !== null;
+  return {
+    hello: {
+      location: halogen_remote_href(),
+      base: hasBase ? document.baseURI : null,
+      storage: { local: halogen_remote_items("local"), session: halogen_remote_items("session") },
+    },
+  };
+}
+
+function halogen_remote_hello_text() {
+  return JSON.stringify(halogen_remote_hello());
+}
+
+function halogen_remote_href() {
+  return typeof location === "undefined" ? "/" : location.href;
+}
+
+// The prefix haskell-halogen-core keeps a program's items under
+// (Halogen.VDom.DOM.Monad.Class.storagePrefix): only these are the
+// program's, and only these cross the wire.
+var halogen_remote_storage_prefix = "haskell-halogen:";
+
+// A store, or null where the page is denied it (a strict private window,
+// storage turned off), which then reads as empty, as in the browser backend.
+function halogen_remote_store(kind) {
+  try {
+    return kind === "local" ? globalThis.localStorage : globalThis.sessionStorage;
+  } catch (e) {
+    return null;
+  }
+}
+
+function halogen_remote_items(kind) {
+  var items = {};
+  try {
+    var store = halogen_remote_store(kind);
+    if (!store) return items;
+    for (var i = 0; i < store.length; i++) {
+      var key = store.key(i);
+      if (key !== null && key.indexOf(halogen_remote_storage_prefix) === 0) items[key] = store.getItem(key);
+    }
+  } catch (e) {
+    return {};
+  }
+  return items;
+}
+
+// The client's own listeners on the window, added as it attaches, so before
+// any of the program's: when the page goes back or forward (a popstate, or
+// a fragment the reader edits, which comes with one), the program is told
+// where the page is now before the event reaches a listener of its own; and
+// when another tab changes an item of the library's in local storage, the
+// program is told the change.
+function halogen_remote_watch_page(client) {
+  if (typeof window === "undefined" || typeof window.addEventListener !== "function") return;
+  function moved() {
+    var href = halogen_remote_href();
+    if (href === client.location) return;
+    client.location = href;
+    client.send(JSON.stringify({ location: href }));
+  }
+  function stored(event) {
+    var key = event.key;
+    if (key !== null && key.indexOf(halogen_remote_storage_prefix) !== 0) return;
+    var kind = event.storageArea === halogen_remote_store("local") ? "local" : event.storageArea === halogen_remote_store("session") ? "session" : null;
+    if (kind === null) return;
+    client.send(JSON.stringify({ storage: { kind: kind, key: key, value: key === null ? null : event.newValue } }));
+  }
+  client.own = [
+    ["popstate", moved],
+    ["hashchange", moved],
+    ["storage", stored],
+  ];
+  for (var i = 0; i < client.own.length; i++) window.addEventListener(client.own[i][0], client.own[i][1]);
+}
+
+function halogen_remote_unwatch_page(client) {
+  if (typeof window === "undefined" || typeof window.removeEventListener !== "function") return;
+  for (var i = 0; i < client.own.length; i++) window.removeEventListener(client.own[i][0], client.own[i][1]);
+  client.own = [];
 }
 
 function halogen_remote_forget_all(client) {
@@ -175,6 +270,12 @@ function halogen_remote_op(client, op) {
       // knows as its document too), and nothing else.
       if (op[1] === 0 && op[2] === "title" && typeof op[3] === "string" && typeof document !== "undefined") document.title = op[3];
       break;
+    case "history":
+      halogen_remote_history(client, op[1], op[2]);
+      break;
+    case "storage":
+      halogen_remote_storage(op[1], op[2], op[3]);
+      break;
     default:
       break;
   }
@@ -198,6 +299,40 @@ function halogen_remote_call(node, method, args) {
     node[method].apply(node, Array.isArray(args) ? args : []);
   } catch (e) {
     if (typeof console !== "undefined") console.warn("halogen-remote: " + method + " failed:", e);
+  }
+}
+
+// A move in the page's history: a push or a replacement of the current
+// entry, with the address the program wrote (null for the page's own), or
+// a move through the entries. The browser throws for an address of another
+// origin; that is logged, and the page stays where it was, while the
+// program's mirror has moved (the router writes only paths).
+function halogen_remote_history(client, how, argument) {
+  if (typeof history === "undefined") return;
+  try {
+    var address = typeof argument === "string" ? argument : undefined;
+    if (how === "push") history.pushState(null, "", address);
+    else if (how === "replace") history.replaceState(null, "", address);
+    else if (how === "go" && typeof argument === "number") history.go(argument);
+  } catch (e) {
+    if (typeof console !== "undefined") console.warn("halogen-remote: history " + how + " failed:", e);
+  }
+  // A push or a replacement fires no popstate: the program knows already.
+  client.location = halogen_remote_href();
+}
+
+// An item of a store written (a string) or removed (null). A store the page
+// refuses (its quota, its storage denied) logs it; the program, which has
+// written its mirror, does not know.
+function halogen_remote_storage(kind, key, value) {
+  if (typeof key !== "string" || (kind !== "local" && kind !== "session")) return;
+  try {
+    var store = halogen_remote_store(kind);
+    if (!store) throw new Error("the page has no " + kind + " storage");
+    if (typeof value === "string") store.setItem(key, value);
+    else store.removeItem(key);
+  } catch (e) {
+    if (typeof console !== "undefined") console.warn("halogen-remote: storage " + kind + " " + key + " failed:", e);
   }
 }
 
@@ -377,6 +512,7 @@ function halogen_remote_element(element) {
 
 // Stop listening, empty the container, and forget every node.
 function halogen_remote_detach(client) {
+  halogen_remote_unwatch_page(client);
   halogen_remote_forget_all(client);
   while (client.container.firstChild) client.container.removeChild(client.container.firstChild);
   client.container.removeAttribute("data-halogen-remote");
@@ -522,6 +658,10 @@ function halogen_remote_connect(address, container, options) {
     container.setAttribute("data-halogen-remote", "disconnected");
     socket.onopen = function () {
       state.attempts = 0;
+      // Before anything else: where the page is and what its stores hold,
+      // which the session needs before it mounts the component.
+      client.location = halogen_remote_href();
+      socket.send(halogen_remote_hello_text());
       container.setAttribute("data-halogen-remote", "connected");
     };
     socket.onmessage = function (message) {
@@ -548,6 +688,7 @@ function halogen_remote_connect(address, container, options) {
       }
     };
     socket.onclose = function () {
+      halogen_remote_unwatch_page(client);
       halogen_remote_unlisten_all(client);
       container.setAttribute("data-halogen-remote", "disconnected");
       if (state.socket === socket) forgetQuestions();

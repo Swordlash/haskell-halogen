@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedLabels #-}
+
 -- | Components the suites send over a wire: ordinary components,
 -- polymorphic in their monad, that know nothing of it.
 module Test.Components
@@ -16,17 +18,24 @@ module Test.Components
   , operating
   , hearing
   , titling
+  , Spot (..)
+  , spots
+  , routing
+  , storing
   )
 where
 
 import Control.Monad.UUID (MonadUUID)
-import Data.Row (Empty, type (.==))
+import Data.Row (Empty, (.+), type (.==))
+import Data.Row qualified as Row
 import Data.Text qualified as T
 import Halogen qualified as H
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
 import Halogen.Router qualified as Router
+import Halogen.Router.Duplex (RouteDuplex', int, noArgs, path, root, segment)
+import Halogen.Router.Duplex.Generic qualified as RG
 import Halogen.VDom.DOM.Monad (MonadBrowserDOM)
 import Halogen.VDom.DOM.Monad qualified as DOM
 import Protolude
@@ -36,6 +45,7 @@ import Web.Event.Event (EventType (..))
 import Web.HTML.Common (AttrName (..))
 import Web.HTML.HTMLDialogElement qualified as HTMLDialogElement
 import Web.HTML.HTMLElement qualified as HTMLElement
+import Web.Storage.Storage qualified as Storage
 import Web.UIEvent.KeyboardEvent.EventTypes qualified as KET
 import Web.UIEvent.MouseEvent qualified as ME
 
@@ -396,3 +406,85 @@ titling =
         w <- H.liftEffect DOM.window
         H.liftEffect (liftIO (w.document.title_set t))
     ]
+
+-- | Three places of a site: its front page, a post, and a page about it.
+data Spot = Front | Post Int | About
+  deriving stock (Eq, Show, Generic)
+
+spots :: RouteDuplex' Spot
+spots =
+  root
+    $ RG.sum
+    $ #Front Row..== noArgs
+      .+ #Post Row..== path "blog" (path "post" (int segment))
+      .+ #About Row..== path "about" noArgs
+
+data Moving = Moved Spot | Went (Router.Follow Spot) | RedirectAbout
+
+-- | Where the router says the page is, links to each place, and a button
+-- that redirects to the page about the site (the history's entry
+-- replaced): what a routed page of an application is, given its router.
+routing :: forall q m. (MonadIO m) => H.Component q (Router.Router Spot) Void m
+routing =
+  H.component
+    (\router -> (router,) <$> Router.current router)
+    render
+    [ H.onInitialize $ do
+        (router, _) <- get
+        void (H.subscribe (Moved <$> Router.changes router))
+    , H.onAction $ \case
+        Moved spot -> modify (\(router, _) -> (router, spot))
+        Went f -> do
+          (router, _) <- get
+          Router.follow router f
+        RedirectAbout -> do
+          (router, _) <- get
+          Router.redirect router About
+    ]
+  where
+    render :: (Router.Router Spot, Spot) -> H.ComponentHTML Moving Empty m
+    render (router, spot) =
+      HH.div_
+        [ HH.h1 [HP.id "spot"] [HH.text (show spot)]
+        , Router.link router Went Front [HP.id "to-front"] [HH.text "Front"]
+        , Router.link router Went (Post 1) [HP.id "to-post"] [HH.text "The first post"]
+        , Router.link router Went About [HP.id "to-about"] [HH.text "About"]
+        , HH.button [HP.id "redirect", HE.onClick (const RedirectAbout)] [HH.text "Redirect"]
+        ]
+
+data Stored = Stored {count :: Int, visits :: Int}
+
+data Storing = Bump | Visit | ForgetCount
+
+-- | A count kept in local storage and one kept in session storage, through
+-- "Web.Storage.Storage", read as it starts and written on each click.
+storing :: forall q m. (MonadBrowserDOM m) => H.Component q () Void m
+storing =
+  H.component
+    (\() -> Stored <$> stored Storage.LocalStorage "count" <*> stored Storage.SessionStorage "visits")
+    render
+    [ H.onAction $ \case
+        Bump -> do
+          modify (\s -> s {count = s.count + 1})
+          s <- get
+          H.liftEffect (Storage.setItem Storage.LocalStorage "count" s.count)
+        Visit -> do
+          modify (\s -> s {visits = s.visits + 1})
+          s <- get
+          H.liftEffect (Storage.setItem Storage.SessionStorage "visits" s.visits)
+        ForgetCount -> do
+          modify (\s -> s {count = 0})
+          H.liftEffect (Storage.removeItem Storage.LocalStorage "count")
+    ]
+  where
+    stored :: Storage.StorageKind -> Text -> m Int
+    stored kind key = fromMaybe 0 . (>>= rightToMaybe) <$> Storage.getItem kind key
+    render :: Stored -> H.ComponentHTML Storing Empty m
+    render s =
+      HH.div_
+        [ HH.span [HP.id "count"] [HH.text (show s.count)]
+        , HH.span [HP.id "visits"] [HH.text (show s.visits)]
+        , HH.button [HP.id "bump", HE.onClick (const Bump)] [HH.text "Bump"]
+        , HH.button [HP.id "visit", HE.onClick (const Visit)] [HH.text "Visit"]
+        , HH.button [HP.id "forget-count", HE.onClick (const ForgetCount)] [HH.text "Forget"]
+        ]
