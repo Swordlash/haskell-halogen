@@ -233,6 +233,7 @@ library
     other-modules:
       HPrelude
       Halogen.Activity.Internal
+      Halogen.Activity.Signal
       Halogen.IO.Driver.Mount
       Halogen.Trace.Internal
     

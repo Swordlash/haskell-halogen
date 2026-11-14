@@ -348,9 +348,18 @@ worker only after its continuation is queued, so it is never seen neither waitin
 `globalThis.__halogenProbe = {}` before the program starts gets `__halogenProbe.activity()`, a promise of the
 reading summed over every program in the page (`core/jsbits/activity.js`); `haskell-halogen-playwright` sets it with
 an init script and waits on it after every action. One tree's reading alone is its socket's `activity`
-(`Activity.Internal.treeActivity`): `remote`'s session answers the probe with it, forwarded by `remote.js` (which adds
+(`Activity.Internal.treeReading`): `remote`'s session answers the probe with it, forwarded by `remote.js` (which adds
 its asker to the same list), counting what it has not sent yet as running and answering in order with its batches
-(`Halogen.Remote.Protocol`'s header has the argument).
+(`Halogen.Remote.Protocol`'s header has the argument). Once a tree is disposed of (its finalizers' synchronous parts
+run before `dispose` returns, for every caller) the process's reading drops it, and its socket's reads no tree and
+what of it is still at work: its finalizers waiting in a `liftIO`, until they end.
+
+A wait (`waitActivity` and the `waitIdle`/`waitQuiet` on it, a socket's `waitActivity`, remote's
+`Session.waitActivity`) is woken by change, not a clock: every step of a loop that can change a reading, and the
+registry's, calls `Activity.Signal.changed`, which bumps a version in a `TVar` only while a wait is under way (a read
+of an `IORef` otherwise); a waiter counts itself, reads the version, then the reading, and sleeps in STM until the
+version moves (`Halogen.Activity.Signal`'s header has the no-lost-wake-up argument). A wait on a disposed tree with
+nothing left at work, whose predicate cannot hold any more, throws `ActivityEnded`.
 
 A pause is the exception, on purpose. `H.delay` (`Hooks.delay`), which takes a `NominalDiffTime` in seconds, is the
 same suspension with a worker killed with its fiber, made by `Runtime.awaitUncounted`, which does not count it: while

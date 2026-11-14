@@ -81,6 +81,7 @@ import Data.Sequence qualified as Seq
 import Data.Set (Set)
 import Data.Set qualified as Set
 import GHC.Conc (ThreadStatus (..), threadStatus)
+import Halogen.Activity.Signal (changed)
 import Halogen.JSBits (inSyncCallback)
 import Prelude
 import UnliftIO (AsyncCancelled (..))
@@ -244,6 +245,11 @@ enterWith callback loop@(Loop ref) work0 = do
         | not s.running -> (s {running = True, runner = Just me}, Claimed)
         | maybe False (sameThread me) s.runner || (callback && s.effects > 0 && under) -> (s, Nested)
         | otherwise -> (s {queue = s.queue |> work}, Behind)
+    -- What "Halogen.Activity" reads has changed, unless the work is nested
+    -- in work that runs already.
+    case entry of
+      Nested -> pure ()
+      _ -> changed
     case entry of
       Claimed -> False <$ runLoop loop restore work
       Nested -> False <$ restore work
@@ -320,6 +326,11 @@ sameThread a b = compare a b == EQ
 -- 'await'), so it is counted on one side or both, never neither. The one
 -- exception is deliberate: a fiber in a pause ('awaitUncounted') is on
 -- neither side while it sleeps, and on the queue's once it wakes.
+--
+-- Every step that can change this answer (taking the loop, queuing work,
+-- giving the loop up, counting or uncounting a waiting fiber) is followed by
+-- "Halogen.Activity.Signal"'s 'changed', which wakes the waits of
+-- "Halogen.Activity" and, with nobody waiting, is one read of a reference.
 loopActivity :: Loop -> IO (Bool, Int)
 loopActivity (Loop ref) = do
   s <- readIORef ref
@@ -342,6 +353,7 @@ post loop@(Loop ref) work = mask_ $ do
     if s.running
       then (s {queue = s.queue |> work}, False)
       else (handing s, True)
+  changed
   when mine $ handOver loop work
 
 -- | Start a thread to run the loop, which this thread has taken, beginning
@@ -367,7 +379,7 @@ handOver loop@(Loop ref) work = do
   n <- (.handOvers) <$> readIORef ref
   t <-
     forkIOWithUnmask (\unmask -> adopt >> runLoop loop unmask work)
-      `onException` atomicModifyIORef' ref (\s -> (s {running = False, runner = Nothing, queue = work <| s.queue}, ()))
+      `onException` (atomicModifyIORef' ref (\s -> (s {running = False, runner = Nothing, queue = work <| s.queue}, ())) >> changed)
   atomicModifyIORef' ref $ \s ->
     if s.handOvers == n && isNothing s.runner then (s {runner = Just t}, ()) else (s, ())
   where
@@ -383,9 +395,16 @@ handing s = s {running = True, runner = Nothing, handOvers = s.handOvers + 1}
 -- | The next piece of work, or, with none, give the loop up (in the same
 -- step, so that work queued just then is not stranded).
 next :: Loop -> IO (Maybe (IO ()))
-next (Loop ref) = atomicModifyIORef' ref $ \s -> case viewl s.queue of
-  EmptyL -> (s {running = False, runner = Nothing}, Nothing)
-  w :< rest -> (s {queue = rest}, Just w)
+next (Loop ref) = do
+  work <- atomicModifyIORef' ref $ \s -> case viewl s.queue of
+    EmptyL -> (s {running = False, runner = Nothing}, Nothing)
+    w :< rest -> (s {queue = rest}, Just w)
+  -- Only giving the loop up changes what "Halogen.Activity" reads: taking
+  -- the next piece of work leaves it running.
+  case work of
+    Nothing -> changed
+    Just _ -> pure ()
+  pure work
 
 -- | Run the loop, masked, each piece of work under @restore@.
 runLoop :: Loop -> (forall a. IO a -> IO a) -> IO () -> IO ()
@@ -586,7 +605,9 @@ await = awaitWith True
 -- differs. While it sleeps the fiber is neither waiting nor queued, so a
 -- reading of the loop may find it quiet; once the action is done its
 -- continuation is queued (the loop is then running) before the worker
--- ends, as for 'await'.
+-- ends, as for 'await'. A fiber cancelled meanwhile has no continuation,
+-- and its worker queues none: a tree disposed of while its fibers pause
+-- stays quiet as their workers leave.
 awaitUncounted :: IO a -> Turn a
 awaitUncounted = awaitWith False
 
@@ -614,9 +635,18 @@ awaitWith counted io = Turn $ \fb ek k -> mask_ $ do
           -- started masked, so nothing stops it between here and the end.
           ( do
               result <- try (unmask io)
-              post fb.loop $ step fb $ do
-                writeIORef fb.worker Nothing
-                either ek k result
+              -- A fiber that is over (cancelled, and this worker killed
+              -- with it) has nothing to go on with, and 'step' would run
+              -- nothing for it: no continuation is queued, so that the loop
+              -- is not taken for nothing. Otherwise a tree disposed of
+              -- while a fiber of it paused would read as quiet and then,
+              -- as the pause's killed worker left, as running again.
+              over <- readIORef fb.over
+              unless over $
+                post fb.loop $
+                  step fb $ do
+                    writeIORef fb.worker Nothing
+                    either ek k result
             )
             `finally` workerDone fb.loop (if counted then 1 else 0) me
       )
@@ -631,13 +661,13 @@ noteWorker (Loop ref) f t = atomicModifyIORef' ref (\s -> (s {workers = f t s.wo
 
 -- | Count a fiber as waiting for a worker, or take it out of the count.
 countAwaiting :: Loop -> Int -> IO ()
-countAwaiting (Loop ref) n = atomicModifyIORef' ref (\s -> (s {awaiting = s.awaiting + n}, ()))
+countAwaiting (Loop ref) n = atomicModifyIORef' ref (\s -> (s {awaiting = s.awaiting + n}, ())) >> changed
 
 -- | A worker's end, in one step: no longer a worker, its fiber no longer
 -- waiting (by as much as it was counted: 1, or 0 for a pause).
 workerDone :: Loop -> Int -> ThreadId -> IO ()
 workerDone (Loop ref) counted t =
-  atomicModifyIORef' ref (\s -> (s {workers = Set.delete t s.workers, awaiting = s.awaiting - counted}, ()))
+  atomicModifyIORef' ref (\s -> (s {workers = Set.delete t s.workers, awaiting = s.awaiting - counted}, ())) >> changed
 
 -- | A suspension until something calls back (on the loop), which may be at
 -- once.

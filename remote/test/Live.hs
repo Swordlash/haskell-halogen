@@ -16,11 +16,13 @@
 module Main (main) where
 
 import Control.Concurrent
-  ( forkIO
+  ( MVar
+  , forkIO
   , killThread
   , newEmptyMVar
   , putMVar
   , readMVar
+  , takeMVar
   , threadDelay
   )
 import Control.Concurrent.Async (concurrently)
@@ -372,6 +374,32 @@ view =
         , HH.span [HP.id "bumps"] [HH.text (Text.pack (show s.bumps))]
         , HH.span [HP.id "notice"] [HH.text (if s.notice then "Saved" else "")]
         ]
+
+-- | A count that goes up as each of its gates is let go: each gate is a
+-- fiber of its @Initialize@ waiting in a 'liftIO', as a program waits for
+-- answers a test's backend holds.
+gated :: forall m. (MonadIO m) => [MVar ()] -> H.Component H.VoidF () Void m
+gated gates =
+  H.component
+    (\() -> pure (0 :: Int))
+    render
+    [H.onInitialize (mapM_ (\gate -> void (H.fork (liftIO (takeMVar gate) >> modify (+ 1)))) gates)]
+  where
+    render :: Int -> H.ComponentHTML () Empty m
+    render n = HH.span [HP.id "gated"] [HH.text (Text.pack (show n))]
+
+-- | A component whose finalizer releases what it holds: at once (in its
+-- synchronous part), or after a wait in 'liftIO'.
+releasing :: forall m. (MonadIO m) => TVar Bool -> TVar Bool -> H.Component H.VoidF () Void m
+releasing atOnce afterWait =
+  H.component
+    (\() -> pure ())
+    (\() -> HH.span [HP.id "holding"] [HH.text "holding"])
+    [ H.onFinalize $ do
+        H.liftEffect (liftIO (atomically (writeTVar atOnce True)))
+        liftIO (threadDelay 20_000)
+        H.liftEffect (liftIO (atomically (writeTVar afterWait True)))
+    ]
 
 -- | How long an action took, in seconds.
 timed :: IO a -> IO (a, Double)
@@ -755,6 +783,43 @@ testing server = playwright $ describe "a component per page, mounted in the tes
       -- Prevented: nothing was typed.
       inputValue (locator page "#paste-area") `shouldReturn` "words"
       eventually page $ pastesSent `shouldReturn` 1
+
+  it "shows the work an answer the test lets go caused, once the session has done it and the page is settled" $ inPage $ \page -> do
+    gates <- mapM (const newEmptyMVar) [1 :: Int .. 10]
+    (address, connected) <- mounting server (gated gates) ()
+    visit page address
+    mounted <- connected
+    RemoteTest.waitSession mounted (\a -> a.running == 0 && a.waiting == 10)
+    -- Each gate let go from the test, not the page: the session's wait,
+    -- then the page's settle, then one read.
+    mapM_
+      ( \(n, gate) -> do
+          putMVar gate ()
+          RemoteTest.waitSession mounted (\a -> a.running == 0 && a.waiting == 10 - n)
+          settle page
+          readOnce page "#gated" `shouldReturn` Text.pack (show n)
+      )
+      (zip [1 :: Int ..] gates)
+
+  it "has a finalizer's synchronous part run when Session.dispose returns, and the rest once the session is quiet" $ \pw ->
+    withContext pw defaultContextOptions $ \ctx ->
+      -- Many times: the server disposes of the session too, as the
+      -- connection the first disposal closed ends, at the same moment.
+      mapM_
+        ( \_ -> do
+            page <- newPage ctx
+            atOnce <- newTVarIO False
+            afterWait <- newTVarIO False
+            (address, connected) <- mounting server (releasing atOnce afterWait) ()
+            visit page address
+            mounted <- connected
+            Session.dispose mounted.session
+            readTVarIO atOnce `shouldReturn` True
+            RemoteTest.waitSession mounted Activity.quiet
+            readTVarIO afterWait `shouldReturn` True
+            closePage page
+        )
+        [1 :: Int .. 20]
 
   it "shows what a query from the test changed, once settled" $ inPage $ \page -> do
     (address, connected) <- mounting server view ()
