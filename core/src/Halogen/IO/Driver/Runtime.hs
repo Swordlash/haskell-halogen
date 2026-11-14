@@ -50,6 +50,7 @@ module Halogen.IO.Driver.Runtime
   , cancelFiber
   , fiberOver
   , onFiberOver
+  , watchFiber
   , fiberClosingOk
 
     -- * Programs
@@ -76,7 +77,7 @@ import Data.Foldable (for_, traverse_)
 import Data.IORef
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
-import Data.Maybe (isNothing)
+import Data.Maybe (isJust, isNothing)
 import Data.Sequence (Seq, ViewL (..), viewl, (<|), (|>))
 import Data.Sequence qualified as Seq
 import Data.Set (Set)
@@ -452,7 +453,8 @@ data Fiber = Fiber
   -- ^ It may run while its component is being finalized: a finalizer, or
   -- a fork a finalizer started.
   , ended :: Outcome () -> IO ()
-  , watchers :: IORef [Outcome () -> IO ()]
+  , watchers :: IORef (Int, IntMap (Outcome () -> IO ()))
+  -- ^ Who hears the fiber end, by the order they asked, and the next number.
   }
 
 -- | A fiber, not yet started. The callback hears how it ended, once, on the
@@ -463,7 +465,7 @@ newFiber loop permitted closingOk ended = do
   worker <- newIORef Nothing
   branches <- newIORef IntMap.empty
   nextBranch <- newIORef 0
-  watchers <- newIORef []
+  watchers <- newIORef (0, IntMap.empty)
   pure Fiber {loop, over, worker, branches, nextBranch, permitted, closingOk, ended, watchers}
 
 fiberClosingOk :: Fiber -> Bool
@@ -472,12 +474,22 @@ fiberClosingOk fb = fb.closingOk
 fiberOver :: Fiber -> IO Bool
 fiberOver fb = readIORef fb.over
 
--- | Hear how a fiber ends (at once, if it has).
+-- | Hear how a fiber ends, unless it has: whether it will be heard.
 onFiberOver :: Fiber -> (Outcome () -> IO ()) -> IO Bool
-onFiberOver fb k = do
+onFiberOver fb k = isJust <$> watchFiber fb k
+
+-- | 'onFiberOver', with a way to stop listening: 'Nothing' for a fiber that
+-- is over already. For a listener that is done before the fiber is (a pause
+-- on a test's clock that woke), so that a fiber that lives long does not
+-- keep one for every time it was listened to. From any thread.
+watchFiber :: Fiber -> (Outcome () -> IO ()) -> IO (Maybe (IO ()))
+watchFiber fb k = do
   isOver <- readIORef fb.over
-  unless isOver $ modifyIORef' fb.watchers (k :)
-  pure (not isOver)
+  if isOver
+    then pure Nothing
+    else do
+      n <- atomicModifyIORef' fb.watchers (\(count, ws) -> ((count + 1, IntMap.insert count k ws), count))
+      pure (Just (atomicModifyIORef' fb.watchers (\(count, ws) -> ((count, IntMap.delete n ws), ()))))
 
 -- | End a fiber, once: the worker it waits on, if any, is killed, and its
 -- branches are cancelled.
@@ -487,9 +499,9 @@ end fb outcome = do
   unless wasOver $ do
     traverse_ kill =<< atomicModifyIORef' fb.worker (Nothing,)
     traverse_ cancelFiber =<< atomicModifyIORef' fb.branches (IntMap.empty,)
-    ws <- atomicModifyIORef' fb.watchers ([],)
+    ws <- atomicModifyIORef' fb.watchers (\(count, heard) -> ((count, IntMap.empty), IntMap.elems heard))
     fb.ended outcome
-    traverse_ ($ outcome) (reverse ws)
+    traverse_ ($ outcome) ws
   where
     -- From another thread: 'throwTo' waits while its target masks, and the
     -- loop has better things to do.

@@ -5,14 +5,15 @@
 -- is of the test's own trees, so this spec runs anywhere in the suite.
 module Test.Control (spec) where
 
-import Control.Concurrent (forkIO, threadDelay)
+import Control.Concurrent (forkIO, killThread, threadDelay, yield)
 import Control.Concurrent.MVar
 import Control.Exception (ErrorCall (..), SomeException, bracket, throwIO)
-import Control.Monad (forever, void)
+import Control.Monad (forever, replicateM_, void)
 import Control.Monad.Catch (try)
 import Control.Monad.IO.Class (liftIO)
+import Control.Monad.IO.Unlift (withRunInIO)
 import Control.Monad.State.Class (get, modify, put)
-import Data.Foldable (traverse_)
+import Data.Foldable (for_, traverse_)
 import Data.IORef
 import Data.Kind (Type)
 import Data.List (intercalate)
@@ -270,6 +271,54 @@ spec = describe "Halogen.Activity.Control" $ do
         release w
         readIORef ran >>= assertEqual "the action never ran" []
 
+    it "does not run a wait let go after its component went away, by the test or by the bracket's end" $ do
+      -- The fiber is over the moment the tree is disposed of; its worker,
+      -- which holds the wait, is killed a moment later, from another
+      -- thread. A release in between must run nothing.
+      replicateM_ 200 $ do
+        ran <- newIORef []
+        asks <- HS.create
+        socket <- withHeldWaits $ \waits -> do
+          (socket, _) <- mountRecorded (loader asks.emitter ran)
+          [w] <- pendingOf waits
+          dispose socket
+          pendingOf waits >>= assertEqual "not the program's any more" []
+          release w
+          pure socket
+        waitTree socket Activity.quiet
+        readIORef ran >>= assertEqual "the action never ran, released by the test" []
+      replicateM_ 200 $ do
+        ran <- newIORef []
+        asks <- HS.create
+        socket <- withHeldWaits $ \waits -> do
+          (socket, _) <- mountRecorded (loader asks.emitter ran)
+          [_] <- pendingOf waits
+          socket <$ dispose socket
+        waitTree socket Activity.quiet
+        readIORef ran >>= assertEqual "the action never ran, released by the bracket's end" []
+
+    it "holds the programs a withRunInIO runs, whose caller waits for them" $ do
+      -- The body's worker counts as waiting while it waits for a program of
+      -- its own, which the test holds: 'pending' must not wait for it.
+      ran <- newIORef ([] :: [String])
+      let step w = liftIO (modifyIORef ran (<> [w]))
+      withHeldWaits $ \waits ->
+        withTree (program (withRunInIO (\run -> run (step "a") >> run (step "b")) >> modify (+ 1))) $ \ui renders -> do
+          [body] <- pendingOf waits
+          release body
+          [a] <- pendingOf waits
+          assertWith "a new wait, the first program's" (a /= body)
+          readIORef ran >>= assertEqual "nothing has run" []
+          release a
+          -- Not before the body has gone on to its second program.
+          [b] <- pendingOf waits
+          readIORef ran >>= assertEqual "the first ran" ["a"]
+          release b
+          pendingOf waits >>= assertEqual "nothing held" []
+          readIORef ran >>= assertEqual "both ran" ["a", "b"]
+          lastShown renders >>= assertEqual "the program went on after the body" "1"
+          treeActivity ui >>= assertEqual "quiet" (Activity 1 0 0)
+
     it "holds the trees mounted inside the bracket on its thread, and no other" $ do
       ranOutside <- newIORef []
       ranOther <- newIORef []
@@ -405,6 +454,19 @@ spec = describe "Halogen.Activity.Control" $ do
         waitTree socket Activity.quiet
         advance clock 2
         readIORef woke >>= assertEqual "never woke" False
+
+    it "loses no sleeper when an advance is interrupted" $
+      -- An advance cut short (by a test's timeout, say) between taking a
+      -- sleeper off the clock and waking it would leave it on no clock.
+      for_ [0 .. 299 :: Int] $ \i -> do
+        woke <- newEmptyMVar
+        withTestClock $ \clock ->
+          withTree (program (H.delayCounted 1 >> mark woke)) $ \_ _ -> do
+            t <- forkIO (advance clock 1)
+            replicateM_ (i `mod` 12) yield
+            killThread t
+            advance clock 1
+            within "the sleeper to wake" (takeMVar woke)
 
     it "hands what still sleeps on it to the real clock when the bracket ends" $ do
       woke <- newEmptyMVar

@@ -22,6 +22,7 @@ module Halogen.Activity.Control.Internal
   , releaseAll
   , failWith
   , awaitHeld
+  , unliftedRuns
 
     -- * The test's clock
   , TestClock
@@ -37,14 +38,14 @@ import Control.Concurrent (ThreadId, forkIO, forkIOWithUnmask, killThread, myThr
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Concurrent.STM
 import Control.Exception (Exception, SomeException, bracket, finally, mask, mask_, onException, throwIO, toException, try)
-import Control.Monad (unless, void, when)
+import Control.Monad (filterM, join, unless, void, when, (<=<))
 import Data.Foldable (for_, traverse_)
 import Data.IORef
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Time (NominalDiffTime, nominalDiffTimeToSeconds)
 import Halogen.Activity.Internal (Activity (..), waitReading)
 import Halogen.IO.Driver.Runtime
@@ -171,6 +172,9 @@ data HeldWait = HeldWait
   , decision :: TMVar Decision
   , waits :: HeldWaits
   , tree :: TreeControl
+  , gone :: IO Bool
+  -- ^ Whether the fiber that waits is over (cancelled): its worker is then
+  -- about to be killed, and the wait is no longer the test's to decide.
   }
 
 -- | Equal when they are the same wait.
@@ -217,7 +221,10 @@ withHeldWaits body = do
 pending :: HeldWaits -> IO [HeldWait]
 pending hw = do
   settle True (readTVar hw.trees)
-  IntMap.elems <$> readTVarIO hw.holding
+  -- A fiber cancelled just now (its component gone) is over at once, and
+  -- its worker, which holds the wait, is killed a moment later: its wait is
+  -- not one the program is waiting on any more.
+  filterM (fmap not . (.gone)) . IntMap.elems =<< readTVarIO hw.holding
 
 -- | Let a held wait's action run, on its worker; returns at once. A wait
 -- that is no longer held (released already, or its fiber cancelled) is
@@ -253,16 +260,24 @@ awaitHeld :: Maybe TreeControl -> Tag -> IO a -> Turn a
 awaitHeld control tag io = case control of
   Just tc | Just hw <- tc.heldWaits -> do
     n <- sync (atomically (stateTVar hw.nextNumber (\i -> (i, i + 1))))
-    await (gate tc hw n tag io)
+    fb <- currentFiber
+    await (gate tc hw n tag (fiberOver fb) io)
   _ -> await io
 
 -- | On the worker: hold the wait until it is released (or the fiber is
 -- cancelled, which kills the worker here and takes the wait off the list),
 -- then run the action or throw what the test chose.
-gate :: TreeControl -> HeldWaits -> Int -> Tag -> IO a -> IO a
-gate tc hw n tag io = do
+--
+-- A fiber that is cancelled is over at once, and its worker is killed from
+-- another thread a moment later. A wait released in between (a test that
+-- disposes of its tree and then leaves the bracket, which releases what is
+-- held) must not run its action: what follows a cancelled wait never runs.
+-- So the fiber is asked once the wait is let go, and a worker whose fiber
+-- is over ends here instead.
+gate :: TreeControl -> HeldWaits -> Int -> Tag -> IO Bool -> IO a -> IO a
+gate tc hw n tag gone io = do
   decision <- newEmptyTMVarIO
-  let w = HeldWait {number = n, tag, decision, waits = hw, tree = tc}
+  let w = HeldWait {number = n, tag, decision, waits = hw, tree = tc, gone}
       leave = atomically $ do
         here <- IntMap.member n <$> readTVar hw.holding
         when here $ modifyTVar' hw.holding (IntMap.delete n) >> park tc.parked (-1)
@@ -272,9 +287,47 @@ gate tc hw n tag io = do
       unless shut $ modifyTVar' hw.holding (IntMap.insert n w) >> park tc.parked 1
       pure (not shut)
     if held then restore (atomically (takeTMVar decision)) `onException` leave else pure Go
+  over <- gone
+  when over (throwIO FiberGone)
   case d of
     Go -> io
     Fail e -> throwIO e
+
+-- | What ends a worker whose fiber was cancelled while it was held: nobody
+-- hears it, since a fiber that is over takes no result.
+data FiberGone = FiberGone
+  deriving stock (Show)
+
+instance Exception FiberGone
+
+-- | For the body of a 'Halogen.Query.HalogenM.Unlift' in a controlled tree:
+-- an action to run before each program the body hands to the loop, which
+-- gives the one to run when that program has ended (on the loop, before the
+-- body hears of it; it does nothing a second time).
+--
+-- The body's worker is counted as waiting for as long as the body runs, and
+-- while it waits for a program of its own it can do nothing until that
+-- program ends: it is parked, like a held wait, or 'pending' would wait for
+-- ever for a worker that waits for a wait the test holds. It is parked
+-- while any program it started is under way, and unparked on the loop as
+-- the last one ends, before the body goes on, so that 'pending' does not
+-- return between the program's end and what the body does next. (A body
+-- that runs programs from several threads and does other work on one of
+-- them while another's program is held is taken for parked meanwhile.)
+unliftedRuns :: Maybe TreeControl -> IO (IO (IO ()))
+unliftedRuns = \case
+  Nothing -> pure (pure (pure ()))
+  Just tc -> do
+    under <- newIORef (0 :: Int)
+    pure $ do
+      before <- atomicModifyIORef' under (\n -> (n + 1, n))
+      when (before == 0) (atomically (park tc.parked 1))
+      ended <- newIORef False
+      pure $ do
+        again <- atomicModifyIORef' ended (True,)
+        unless again $ do
+          left <- atomicModifyIORef' under (\n -> (n - 1, n - 1))
+          when (left == 0) (atomically (park tc.parked (-1)))
 
 ----------------------------------------------------------------------
 -- The test's clock
@@ -347,15 +400,22 @@ advance clock d = withMVar clock.advancing $ \() -> do
   settled
   target <- atomically ((+ max 0 d) <$> readTVar clock.time)
   let go = do
-        due <- atomically $ do
-          m <- readTVar clock.sleepers
-          case Map.lookupMin m of
-            Just (k@(at, _), s) | at <= target -> do
-              writeTVar clock.sleepers (Map.delete k m)
-              modifyTVar' clock.time (max at)
-              pure (Just s)
-            _ -> Nothing <$ modifyTVar' clock.time (max target)
-        for_ due $ \s -> s.wake >> settled >> go
+        -- Masked from taking the sleeper off the clock until it is woken
+        -- (neither blocks): an 'advance' interrupted in between, by a
+        -- test's 'timeout' say, would leave a sleeper that is on no clock
+        -- and that nothing wakes. The wait for the trees is not masked.
+        woke <- mask_ $ do
+          due <- atomically $ do
+            m <- readTVar clock.sleepers
+            case Map.lookupMin m of
+              Just (k@(at, _), s) | at <= target -> do
+                writeTVar clock.sleepers (Map.delete k m)
+                modifyTVar' clock.time (max at)
+                pure (Just s)
+              _ -> Nothing <$ modifyTVar' clock.time (max target)
+          for_ due (.wake)
+          pure (isJust due)
+        when woke (settled >> go)
   go
   where
     settled = settle False (readTVar clock.trees)
@@ -381,11 +441,15 @@ onTestClock tc clock counted d = do
   suspend $ \resume -> mask_ $ do
     state <- newIORef OnClock
     thread <- newIORef Nothing
+    -- How to stop hearing the fiber's end, once the pause is over: a fiber
+    -- that pauses for ever (a ticker) would otherwise keep a listener for
+    -- every pause it ever made.
+    unwatch <- newIORef (pure ())
     let move from to = atomicModifyIORef' state (\s -> if s == from then (to, True) else (s, False))
         uncount = when counted (countAwaiting tc.loop (-1))
         unpark = when counted (atomically (park tc.parked (-1)))
         -- Queued, then uncounted: the fiber is counted on one side or both.
-        goOn = post tc.loop (resume (Right ())) >> uncount
+        goOn = post tc.loop (resume (Right ())) >> uncount >> join (readIORef unwatch)
         wake = do
           mine <- move OnClock Over
           when mine (unpark >> goOn)
@@ -413,7 +477,7 @@ onTestClock tc clock counted d = do
           let key = (t + max 0 d, i)
           modifyTVar' clock.sleepers (Map.insert key Sleeper {wake, handOff})
           pure (Just key)
-    void $ onFiberOver fb $ \_ -> do
+    traverse_ (writeIORef unwatch) <=< watchFiber fb $ \_ -> do
       before <- atomicModifyIORef' state (Over,)
       case before of
         OnClock -> do

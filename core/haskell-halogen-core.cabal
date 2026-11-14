@@ -300,6 +300,7 @@ test-suite Halogen-core-test
                       row-types,
                       text,
                       time,
+                      unliftio-core,
                       unordered-containers
     
     other-modules:  Test.Activity

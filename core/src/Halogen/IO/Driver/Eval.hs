@@ -24,7 +24,7 @@ import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict qualified as M
 import Data.NT
 import HPrelude hiding (Concurrently, finally, join, runConcurrently, state, throwIO)
-import Halogen.Activity.Control.Internal (awaitHeld, pause)
+import Halogen.Activity.Control.Internal (awaitHeld, pause, unliftedRuns)
 import Halogen.Component
 import Halogen.IO.Driver.Runtime
 import Halogen.IO.Driver.State
@@ -97,10 +97,14 @@ evalM var (HalogenM hm) = foldF go hm
         ds <- sync (readIORef var)
         -- The body is arbitrary IO, run on a worker; each program it runs
         -- is a fiber of this component, handed to the loop, and waited for.
+        -- In a tree a test controls, the worker is parked while it waits
+        -- for a program of its own ('unliftedRuns').
+        started <- sync (unliftedRuns ds.tree.control)
         awaitHeld ds.tree.control ds.tag $ q $ UnliftIO $ \program -> do
           result <- newEmptyMVar
-          post ds.tree.loop $ launchOwned var False (const pass) (evalM var program) (putMVar result)
-          takeMVar result >>= \case
+          ended <- started
+          post ds.tree.loop $ launchOwned var False (const pass) (evalM var program) (\outcome -> ended >> putMVar result outcome)
+          takeMVar result `onException` ended >>= \case
             Done a -> pure a
             Failed e -> throwIO e
             Cancelled -> throwIO ComponentGone
