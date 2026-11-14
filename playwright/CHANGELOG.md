@@ -170,9 +170,12 @@ What the wiki's smoke tests found next, each with a test of its own:
   `go(n)`, which the driver's init script notes by wrapping those three
   methods of `History.prototype` in every page) until the page has its
   `popstate`. The frame costs an action about a dozen milliseconds; a hidden
-  page, or one that draws no frames, is not held up. An action on an element
-  in a frame now settles the frame's own program as well as the page's:
-  before, only the page's document was asked.
+  page is not held up, and one that draws no frames although it is visible
+  is waited for 20 ms at most once a frame has failed to come in 100 ms,
+  until it draws one again (not waited for at all, the first action after
+  its frames came back read before the frame it should have waited for). An
+  action on an element in a frame now settles the frame's own program as
+  well as the page's: before, only the page's document was asked.
 - `HALOGEN_PLAYWRIGHT_ARGS` gives Chromium more arguments, to run a suite as
   another machine's browser would (Chromium turns some behaviour on by
   machine; the README names the one that has mattered).

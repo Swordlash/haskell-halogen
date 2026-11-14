@@ -109,7 +109,8 @@ other way: `--enable-features=RenderDocument:level/all-frames`, or
   first, which has a program of its own, and then the page's. On a page with no
   Halogen program it waits for the task, the move and the frame. A hidden
   page draws no frames and is not waited for; a page whose frame does not
-  come within 100 ms is not waited for again until it draws one. The frame
+  come within 100 ms is waited for 20 ms at most from then on, until it
+  draws one. The frame
   costs an action about a dozen milliseconds. To know of a move through the
   history as the page asks for it, the driver's init script wraps
   `History.prototype.back`, `forward` and `go` in every page: they call the

@@ -371,17 +371,20 @@ const inPageSettle = async ({ deadline, quiet, pause, frameBound }) => {
           resolve();
         }
       });
-      if (frames.missing) {
-        done = true;
-        return resolve();
-      }
-      setTimeout(() => {
-        if (!done) {
-          done = true;
-          frames.missing = true;
-          resolve();
-        }
-      }, frameBound);
+      // A page whose frame did not come in time is waited for less from
+      // then on, not not at all: its frames may come back (a page throttled
+      // for a while), and until the first of them every action would
+      // otherwise read before the frame it should have waited for.
+      setTimeout(
+        () => {
+          if (!done) {
+            done = true;
+            frames.missing = true;
+            resolve();
+          }
+        },
+        frames.missing ? Math.min(frameBound, 20) : frameBound,
+      );
     });
   const moves = globalThis[Symbol.for("halogen.playwright.traversals")];
   const moving = () => moves?.pending.size > 0;
