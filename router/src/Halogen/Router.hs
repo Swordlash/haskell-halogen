@@ -28,10 +28,19 @@
 -- page lives, unless the router is 'stop'ped, as a program that runs again
 -- on the same page (browser GHCi's @:main@) stops the last run's router.
 --
--- Natively there is no browser: the address is kept in memory, starting at
--- the base, and 'navigate' and 'redirect' change it there. That is enough
--- to render a page for a route ("Halogen.Static") or to test a component
--- that routes.
+-- Natively there is no browser, but there may be a page: the router asks
+-- the window its DOM monad gives ('Halogen.VDom.DOM.Monad.window') for its
+-- @location@ and @history@, through core's @Web.HTML.Location@ and
+-- @Web.HTML.History@. A window that answers for itself
+-- ("Halogen.JSBits.Value"'s @withNativeObject@) gives them: the session of
+-- haskell-halogen-remote, whose page is across a wire, keeps a mirror of the
+-- page's address and has the page push and replace its entries, so a
+-- router made in its monad reads where the page is, writes the page's
+-- address, and hears its back and forward as in a browser. A window that
+-- does not ('Halogen.VDom.DOM.Monad.MemDOM''s) leaves the address in
+-- memory, starting at the base, and 'navigate' and 'redirect' change it
+-- there. That is enough to render a page for a route ("Halogen.Static") or
+-- to test a component that routes.
 module Halogen.Router
   ( Router
   , newRouter
@@ -63,15 +72,20 @@ import Halogen qualified as H
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
-import Halogen.JSBits (JSText, Safety (..), browserJS, fromJSText, inBrowser, toJSText)
+import Halogen.JSBits (JSText, JSVal, Safety (..), browserJS, fromJSText, inBrowser, jsNull, nativeGet, toJSText)
 import Halogen.Query.Event qualified as HQE
 import Halogen.Router.Duplex (RouteDuplex', parse, print)
 import Halogen.Subscription qualified as HS
 import Halogen.VDom.DOM.HandlerOptions qualified as HandlerOptions
-import Halogen.VDom.DOM.Monad (MonadBrowserDOM, window, windowToEventTarget)
-import Protolude hiding (link, print)
+import Halogen.VDom.DOM.Monad (MonadBrowserDOM, document, window, windowToEventTarget)
+import Protolude hiding (Location, link, print)
 import UnliftIO (MonadUnliftIO)
+import Web.DOM.Internal.Types (Window (..))
 import Web.Event.Event (EventType (..), preventDefault)
+import Web.HTML.History (History (..))
+import Web.HTML.History qualified as History
+import Web.HTML.Location (Location (..))
+import Web.HTML.Location qualified as Location
 import Web.UIEvent.MouseEvent (MouseEvent (..), toEvent)
 
 $( browserJS
@@ -90,15 +104,23 @@ data Addressing
   | -- | In the fragment.
     Fragment
 
+-- | Where the address is.
+data Address
+  = -- | The browser's: the router's own bindings.
+    Browser
+  | -- | A page's, natively, through a window that answers for itself: its
+    -- location and its history.
+    Answered Location History
+  | -- | In memory, natively, as a browser's @pathname + search + hash@.
+    Memory (IORef Text)
+
 -- | The routes of a page of type @route@: how they are written in the
 -- address, and the address itself.
 data Router route = Router
   { duplex :: RouteDuplex' route
   , fallback :: route
   , addressing :: Addressing
-  , memory :: IORef Text
-  -- ^ The address natively, as a browser's @pathname + search + hash@; in a
-  -- browser the address is the browser's.
+  , address :: Address
   , page :: Text
   -- ^ The address the page was at when the router was made, without its
   -- fragment: what a hash router's 'href' writes before the @#@.
@@ -136,14 +158,15 @@ newHashRouter = start Fragment "/"
 
 start :: (MonadBrowserDOM m, MonadUnliftIO m) => Addressing -> Text -> route -> RouteDuplex' route -> m (Router route)
 start addressing initial fallback duplex = do
-  memory <- liftIO (newIORef initial)
-  page <- liftIO (fst . T.breakOn "#" <$> readAddress memory)
+  w <- window
+  address <- liftIO (addressOf w initial)
+  page <- liftIO (fst . T.breakOn "#" <$> readAddress address)
   notifier <- liftIO HS.create
-  target <- windowToEventTarget =<< window
+  target <- windowToEventTarget w
   popstates <- HS.lowerEmitter (HQE.eventListener (EventType "popstate") target (const (Just ())))
   -- The listener reads where the page is through a router whose
   -- subscription is not yet known: 'current' reads only the address.
-  let reading = Router {duplex, fallback, addressing, memory, page, notifier, popstate = HS.Subscription pass}
+  let reading = Router {duplex, fallback, addressing, address, page, notifier, popstate = HS.Subscription pass}
   listening <- liftIO $ HS.subscribe popstates $ \() -> current reading >>= HS.notify notifier.listener
   -- Taking the listener off twice would free its callback twice, so only
   -- the first 'stop' does.
@@ -163,13 +186,42 @@ start addressing initial fallback duplex = do
 stop :: (MonadIO m) => Router route -> m ()
 stop router = liftIO (HS.unsubscribe router.popstate)
 
+-- | Where the address is kept, given the window: the browser's in a
+-- browser; natively, the page's if the window answers for its location and
+-- its history, and otherwise memory, starting at the address given.
+addressOf :: Window -> Text -> IO Address
+addressOf (Window w) initial
+  | inBrowser = pure Browser
+  | Just location <- nativeGet held "location"
+  , Just history <- nativeGet held "history" =
+      pure (Answered (Location location) (History history))
+  | otherwise = Memory <$> newIORef initial
+  where
+    held = w :: JSVal
+
 -- | The base path a page's @\<base href>@ names, which is how a page served
 -- under a path of its own can say what it is without the program being
--- built for it; @\"\/\"@ for a page without one, and natively.
-pageBase :: (MonadIO m) => m Text
+-- built for it; @\"\/\"@ for a page without one.
+--
+-- Natively it is the path of the document's @baseURI@, if the window's
+-- document answers for it (a page across a wire, whose session is told the
+-- address of its @\<base href>@ and answers with that when the page has
+-- one), and @\"\/\"@ otherwise.
+pageBase :: (MonadBrowserDOM m, MonadIO m) => m Text
 pageBase
   | inBrowser = liftIO $ normaliseBase . fromJSText <$> js_router_page_base
-  | otherwise = pure "/"
+  | otherwise = do
+      doc <- document =<< window
+      liftIO $ normaliseBase . pathOf <$> doc.baseURI
+
+-- | The path of an address: what comes after its scheme and host (for one
+-- that has them), up to its query or fragment.
+pathOf :: Text -> Text
+pathOf whole = T.takeWhile (`notElem` ['?', '#']) afterHost
+  where
+    afterHost = case T.breakOn "://" whole of
+      (_, "") -> whole
+      (_, rest) -> T.dropWhile (/= '/') (T.drop 3 rest)
 
 normaliseBase :: Text -> Text
 normaliseBase base = case T.dropAround (== '/') base of
@@ -177,13 +229,28 @@ normaliseBase base = case T.dropAround (== '/') base of
   inner -> "/" <> inner <> "/"
 
 -- | The address as the browser has it: @pathname + search + hash@.
-address :: Router route -> IO Text
-address router = readAddress router.memory
+readAddress :: Address -> IO Text
+readAddress = \case
+  Browser -> fromJSText <$> js_router_location
+  Answered location _ -> do
+    path <- Location.pathname location
+    query <- Location.search location
+    fragment <- Location.hash location
+    pure (path <> query <> fragment)
+  Memory memory -> readIORef memory
 
-readAddress :: IORef Text -> IO Text
-readAddress memory
-  | inBrowser = fromJSText <$> js_router_location
-  | otherwise = readIORef memory
+-- | A new entry in the history, or the current one replaced.
+data Write = Push | Replace
+
+writeAddress :: Address -> Write -> Text -> IO ()
+writeAddress address write target = case address of
+  Browser -> case write of
+    Push -> js_router_push_state (toJSText target)
+    Replace -> js_router_replace_state (toJSText target)
+  Answered _ history -> case write of
+    Push -> History.pushState history jsNull "" (Just target)
+    Replace -> History.replaceState history jsNull "" (Just target)
+  Memory memory -> writeIORef memory target
 
 -- | The address a hash router writes for a fragment, on a page at an
 -- address (@pathname + search + hash@): the page's own path and query, then
@@ -210,7 +277,7 @@ routePart addressing whole = case addressing of
 -- | The route the page is at now.
 current :: (MonadIO m) => Router route -> m route
 current router = liftIO $ do
-  whole <- address router
+  whole <- readAddress router.address
   pure $ fromMaybe router.fallback (rightToMaybe . parse router.duplex =<< routePart router.addressing whole)
 
 -- | Every route the page goes to from now on, by 'navigate' or 'redirect'
@@ -236,18 +303,18 @@ absoluteRoute router route = if "/" `T.isPrefixOf` printed then printed else "/"
 -- history, and the route on 'changes'. Going where the page already is
 -- does nothing.
 navigate :: (MonadIO m) => Router route -> route -> m ()
-navigate router = go router js_router_push_state
+navigate router = go router Push
 
 -- | Go to a route in place of where the page is: the history entry is
 -- replaced, so the back button skips the address being left. For an
 -- address that only ever leads elsewhere, such as an old spelling of a
 -- route.
 redirect :: (MonadIO m) => Router route -> route -> m ()
-redirect router = go router js_router_replace_state
+redirect router = go router Replace
 
-go :: (MonadIO m) => Router route -> (JSText -> IO ()) -> route -> m ()
+go :: (MonadIO m) => Router route -> Write -> route -> m ()
 go router write route = liftIO $ do
-  whole <- address router
+  whole <- readAddress router.address
   -- A hash router compares fragments, and writes the path the page is at
   -- now rather than the one 'href' names, so as not to take the page back
   -- to a path something else has left since the router was made.
@@ -264,9 +331,7 @@ go router write route = liftIO $ do
                   at -> at
               )
   unless (there == here) $ do
-    if inBrowser
-      then write (toJSText target)
-      else writeIORef router.memory target
+    writeAddress router.address write target
     HS.notify router.notifier.listener route
 
 -- | A click on a link to a route, to be followed: what 'link' hands its

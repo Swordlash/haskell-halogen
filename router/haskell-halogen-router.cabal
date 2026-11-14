@@ -104,7 +104,11 @@ test-suite Halogen-router-test
     if !arch(wasm32) && !arch(javascript)
       build-depends:  base >= 4.20,
                       aeson,
-                      haskell-halogen-core
+                      haskell-halogen-core,
+                      haskell-halogen-jsbits,
+                      primitive,
+                      transformers,
+                      unliftio
 
     other-modules:  Test.Duplex
                     Test.Generic

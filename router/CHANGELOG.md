@@ -75,3 +75,16 @@
   meanwhile; `href`, a pure value, names the path the page was at when the
   router was made. `fragmentAddress` is how both are written. A hash router
   natively starts at `/`, so its `href`s now start with `/#`.
+* Natively the router asks the window its DOM monad gives for the page's
+  address: when the window answers for its `location` and `history`
+  (haskell-halogen-jsbits' `withNativeObject`), as the window of a session
+  of haskell-halogen-remote does, the router starts at the route of the
+  page's address, `navigate` and `redirect` call the page's `pushState` and
+  `replaceState`, and a `popstate` reads the address the page is at, so a
+  component served over a wire routes as it does in a page. A window that
+  does not answer (the in-memory DOM's) leaves the address in memory, as
+  before. `pageBase` reads the document's `baseURI` natively when it
+  answers, and so now asks for the DOM monad: its type is
+  `(MonadBrowserDOM m, MonadIO m) => m Text`, which a program that calls it
+  in its DOM monad, as the examples do, does not notice; one that called it
+  in plain `IO` calls it in the DOM monad instead.
