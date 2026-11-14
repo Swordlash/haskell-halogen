@@ -116,6 +116,21 @@ spec base = describe "events the browser dispatches late" $ do
         press page "Enter"
         (== "0") <$> textContent (locator page "#state")
 
+  -- A page that drew no frame for a while (here its requestAnimationFrame
+  -- is taken away while a key is pressed, so that a settle finds none) and
+  -- draws them again: the first action after that still waits for its
+  -- frame. Were a page that missed a frame not waited for at all until one
+  -- came, this click would be read before the close it causes.
+  it "waits for the frame again as soon as a page that drew none draws them" $ \pw -> withPage pw $ \page -> do
+    visit page (at "late.html")
+    noneMissedIn 20 $ \i -> do
+      click (locator page "#open")
+      () <- evaluate page "(() => { window.keptFrames = window.requestAnimationFrame; window.requestAnimationFrame = () => 0; })()"
+      press page "a"
+      () <- evaluate page "(() => { window.requestAnimationFrame = window.keptFrames; })()"
+      click (locator page "#dismiss")
+      (== shown i) <$> textContent (locator page "#closes")
+
   describe "waitForEvent" $ do
     it "waits for an element's event that the page's own timer dispatches" $ \pw -> withPage pw $ \page -> do
       visit page (at "late.html")

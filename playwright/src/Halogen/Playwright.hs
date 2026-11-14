@@ -779,7 +779,8 @@ waitStarted p = onPage p "waitStarted" []
 -- Escape or @close()@; @resize@); and asks the program again, starting
 -- over if that event made it busy. Every action ends with it. A hidden
 -- page, which draws no frames, is not waited for, and a page whose frame
--- does not come within 100 ms is not waited for again until it draws one.
+-- does not come within 100 ms is waited for 20 ms at most from then on,
+-- until it draws one.
 -- A navigation that takes the document away under it is not an error.
 -- What the page does later by itself, a timer of its own, is
 -- 'waitForEvent''s.
