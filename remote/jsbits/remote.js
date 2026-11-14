@@ -404,7 +404,11 @@ function halogen_remote_listen(client, id, type, listener) {
       // tab.
       event.preventDefault();
     }
-    client.send(JSON.stringify({ listener: listener, node: id, type: type, event: halogen_remote_event(event, prevented) }));
+    var described = halogen_remote_event(event, prevented);
+    // What the declared match found around the target, for the handler to
+    // read as it would in a page.
+    if (options && options.match !== null && options.match !== undefined) halogen_remote_found(options.match, event, target, described);
+    client.send(JSON.stringify({ listener: listener, node: id, type: type, event: described }));
   };
   target.addEventListener(type, entry.handler);
   client.listeners.set(key, entry);
@@ -425,10 +429,14 @@ function halogen_remote_options(client, id, type, listener, options) {
 
 // Whether an event is one a handler's declared match is for (the module
 // Halogen.VDom.DOM.HandlerOptions of haskell-halogen-core): "any",
-// "plain-left-click" on the listening element, or a list of keys, each with
-// the modifiers it says are held or not. A match this client does not know
-// (from a newer library than the client) is taken as "any", and the program
-// still asks its own handler only about the events that match.
+// "plain-left-click" on the element judged, a list of keys, each with the
+// modifiers it says are held or not, {within: selector, match: m} (an
+// element around the target that the selector matches, inside the element
+// judged, m then judged on it), or {carrying: types} (a drag or a paste
+// whose transfer lists one of the types). The element judged is the
+// listening one, or the one an outer within found. A match this client does
+// not know (from a newer library than the client) is taken as "any", and
+// the program still asks its own handler only about the events that match.
 function halogen_remote_matches(match, event, target) {
   if (match === "any") return true;
   if (match === "plain-left-click") return halogen_remote_plain_left_click(event, target);
@@ -446,7 +454,61 @@ function halogen_remote_matches(match, event, target) {
     }
     return false;
   }
+  if (match !== null && typeof match === "object") {
+    if (typeof match.within === "string") {
+      var found = halogen_remote_within(event, target, match.within);
+      return found !== null && halogen_remote_matches(match.match, event, found);
+    }
+    if (Array.isArray(match.carrying)) {
+      var transfer = halogen_remote_transfer_of(event);
+      if (!transfer || !transfer.types) return false;
+      for (var j = 0; j < transfer.types.length; j++) if (match.carrying.indexOf(transfer.types[j]) >= 0) return true;
+      return false;
+    }
+  }
   return true;
+}
+
+// The element a CSS selector matches that is the event's target or its
+// nearest ancestor, if it is the scope or inside it; null for none, and
+// for a selector that does not parse. A target that is not an element (a
+// text node) starts from its parent element.
+function halogen_remote_within(event, scope, selector) {
+  var target = event.target;
+  if (!target || typeof target.nodeType !== "number") return null;
+  if (target.nodeType !== 1) target = target.parentElement;
+  if (!target) return null;
+  var found;
+  try {
+    found = target.closest(selector);
+  } catch (e) {
+    return null;
+  }
+  if (!found || !scope.contains(found)) return null;
+  return found;
+}
+
+// For a match that matched, what each of its withins found, described
+// with every attribute under the event's target's closest, by selector:
+// what the program's handler reads of the element in the listener
+// (Web.DOM.Element's closestNow and getAttributeNow, natively).
+function halogen_remote_found(match, event, scope, described) {
+  while (match !== null && typeof match === "object" && !Array.isArray(match) && typeof match.within === "string") {
+    var found = halogen_remote_within(event, scope, match.within);
+    if (found === null || !described.target) return;
+    if (!described.target.closest) described.target.closest = {};
+    var element = halogen_remote_element(found);
+    element.attributes = {};
+    for (var i = 0; i < found.attributes.length; i++) element.attributes[found.attributes[i].name] = found.attributes[i].value;
+    described.target.closest[match.within] = element;
+    scope = found;
+    match = match.match;
+  }
+}
+
+// A drag's dataTransfer or a paste's clipboardData.
+function halogen_remote_transfer_of(event) {
+  return event.dataTransfer || event.clipboardData || null;
 }
 
 function halogen_remote_unlisten(client, id, type, listener) {
@@ -501,6 +563,36 @@ function halogen_remote_event(event, prevented) {
   if (prevented) out.defaultPrevented = true;
   out.target = halogen_remote_element(event.target);
   out.currentTarget = halogen_remote_element(event.currentTarget);
+  if (event.dataTransfer) out.dataTransfer = halogen_remote_transfer(event.dataTransfer, event.type === "drop");
+  if (event.clipboardData) out.clipboardData = halogen_remote_transfer(event.clipboardData, event.type === "paste");
+  return out;
+}
+
+// The longest text/plain a drop or a paste sends, in UTF-16 code units;
+// longer text does not cross.
+var halogen_remote_text_limit = 262144;
+
+// What a drag or a paste carries: the types it lists, its files' names,
+// media types and sizes (not their bytes), and, at a drop or a paste
+// (withText), its text/plain. Data the page cannot read during the event
+// (a drag's before its drop) is what the browser gives: no files, no text.
+function halogen_remote_transfer(transfer, withText) {
+  var out = { types: [], files: [] };
+  if (transfer.types) for (var i = 0; i < transfer.types.length; i++) out.types.push(String(transfer.types[i]));
+  if (transfer.files)
+    for (var j = 0; j < transfer.files.length; j++) {
+      var file = transfer.files[j];
+      out.files.push({ name: file.name, type: file.type, size: file.size });
+    }
+  if (withText) {
+    var text = "";
+    try {
+      text = transfer.getData("text/plain");
+    } catch (e) {
+      text = "";
+    }
+    if (typeof text === "string" && text !== "" && text.length <= halogen_remote_text_limit) out.data = { "text/plain": text };
+  }
   return out;
 }
 

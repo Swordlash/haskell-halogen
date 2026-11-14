@@ -134,6 +134,23 @@ spec m = do
     find ui "#link" >>= click
     find ui "#followed" >>= (`shouldHaveText` "2")
 
+  -- In the loopback the program is in the page, and reads the event the
+  -- client described as a plain object: the match, and the handler's own
+  -- reads of the link ('Element.closestNow', 'Element.getAttributeNow'),
+  -- read the link the client found from it.
+  it "keeps the page from following a delegated link, which the component reads, and follows no other" $ runPage $ do
+    unsafeIOToPageM js_drop_fragment
+    traffic <- unsafeIOToPageM (newIORef [])
+    ui <- mount m (host traffic delegating) ()
+    find ui "#article-text" >>= click
+    find ui "#followed" >>= (`shouldHaveText` "#article-1")
+    (fromJSText <$> unsafeIOToPageM js_address) >>= (`shouldSatisfy` (not . ("#article-1" `T.isSuffixOf`)))
+    -- A link the selector does not cover is followed by the page.
+    find ui "#to-place" >>= click
+    (fromJSText <$> unsafeIOToPageM js_address) >>= (`shouldSatisfy` ("#place" `T.isSuffixOf`))
+    find ui "#followed" >>= (`shouldHaveText` "#article-1")
+    unsafeIOToPageM js_drop_fragment
+
   it "keeps from being typed only the key a handler declared, which the component hears" $ runPage $ do
     traffic <- unsafeIOToPageM (newIORef [])
     ui <- mount m (host traffic searching) ()

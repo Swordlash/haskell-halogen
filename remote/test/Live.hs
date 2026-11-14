@@ -59,7 +59,7 @@ import Network.Socket.ByteString qualified as Socket
 import Network.Wai.Handler.Warp qualified as Warp
 import Prelude
 import System.Timeout (timeout)
-import Test.Components (Spot (..), hearing, operating, routing, spots, storing, titling)
+import Test.Components (Spot (..), delegating, hearing, operating, pasting, routing, spots, storing, titling)
 import Web.UIEvent.KeyboardEvent.EventTypes qualified as KET
 
 -- | What the sessions' components tell the test.
@@ -671,6 +671,90 @@ testing server = playwright $ describe "a component per page, mounted in the tes
     waitStarted page
     _ <- next
     readOnce page "#visits" `shouldReturn` "1"
+
+  -- One handler on a container for the links in it, declared for a plain
+  -- click on a link the selector covers: the client judges each click on
+  -- its link, prevents the default of those, and sends the link it found,
+  -- which the handler reads natively as it would in a page.
+  it "follows a delegated link the page does not, and leaves other links and a ctrl-click to the browser" $ inPage $ \page -> do
+    (address, _) <- mounting server delegating ()
+    visit page address
+    -- A listener of the test's on the window, which hears a click after the
+    -- client's: it notes whether the default was prevented by then, for the
+    -- clicks the test makes itself below (which it then prevents, so that
+    -- the page goes nowhere).
+    True <-
+      evaluate page $
+        Text.unlines
+          [ "(() => {"
+          , "  window.prevented = []; window.stayed = true;"
+          , "  window.addEventListener('click', (e) => { if (!e.isTrusted) { window.prevented.push(e.defaultPrevented); e.preventDefault(); } });"
+          , "  return true;"
+          , "})()"
+          ]
+    -- A ctrl-click on a covered link asks for a new tab: the browser's.
+    True <-
+      evaluate page $
+        Text.unlines
+          [ "(() => {"
+          , "  document.querySelector('#article-text').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0, ctrlKey: true }));"
+          , "  return true;"
+          , "})()"
+          ]
+    evaluate page "window.prevented" `shouldReturn` [False]
+    -- A plain click on the text inside a covered link: prevented in the
+    -- page, the page's address as it was, and the link's address read by
+    -- the component.
+    click (locator page "#article-text")
+    readOnce page "#followed" `shouldReturn` "#article-1"
+    evaluate page "location.hash" `shouldReturn` ("" :: Text)
+    -- The ctrl-click before it did not cross the wire: the one click sent
+    -- is the plain one.
+    let clicksSent = length . filter (\f -> f.sent && "\"type\":\"click\"" `Text.isInfixOf` f.payload) <$> webSocketFrames page
+    eventually page $ clicksSent `shouldReturn` 1
+    -- A link the selector does not cover is the browser's to follow: to a
+    -- place on the page, with no page loaded.
+    click (locator page "#to-place")
+    evaluate page "location.hash" `shouldReturn` ("#place" :: Text)
+    evaluate page "window.stayed === true" `shouldReturn` True
+    readOnce page "#followed" `shouldReturn` "#article-1"
+    clicksSent `shouldReturn` 1
+
+  -- A paste handler declared for pastes of files: a paste of text is the
+  -- browser's, typed into the field, and does not cross the wire; one of a
+  -- file is prevented, and the component reads the file's name, type and
+  -- size from what crossed. Real pastes, from the page's clipboard, which
+  -- the context lets the page write.
+  it "leaves a paste of text to the browser, and takes one of a file" $ \pw ->
+    withContext pw defaultContextOptions {permissions = ["clipboard-read", "clipboard-write"]} $ \ctx -> do
+      page <- newPage ctx
+      (address, _) <- mounting server pasting ()
+      visit page address
+      True <- evaluate page "navigator.clipboard.writeText('words').then(() => true)"
+      focus (locator page "#paste-area")
+      press page "Control+V"
+      inputValue (locator page "#paste-area") `shouldReturn` "words"
+      readOnce page "#pasted" `shouldReturn` ""
+      let pastesSent = length . filter (\f -> f.sent && "\"type\":\"paste\"" `Text.isInfixOf` f.payload) <$> webSocketFrames page
+      pastesSent `shouldReturn` 0
+      -- A picture on the clipboard is pasted as a file, image.png.
+      True <-
+        evaluate page $
+          Text.unlines
+            [ "(async () => {"
+            , "  const canvas = document.createElement('canvas'); canvas.width = 2; canvas.height = 2;"
+            , "  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));"
+            , "  window.pictureSize = blob.size;"
+            , "  await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);"
+            , "  return true;"
+            , "})()"
+            ]
+      size <- evaluate page "window.pictureSize" :: IO Int
+      press page "Control+V"
+      readOnce page "#pasted" `shouldReturn` ("image.png,image/png," <> Text.pack (show (fromIntegral size :: Double)))
+      -- Prevented: nothing was typed.
+      inputValue (locator page "#paste-area") `shouldReturn` "words"
+      eventually page $ pastesSent `shouldReturn` 1
 
   it "shows what a query from the test changed, once settled" $ inPage $ \page -> do
     (address, connected) <- mounting server view ()

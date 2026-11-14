@@ -22,7 +22,7 @@ import Halogen qualified as H
 import Halogen.Remote.DOM (RemoteDOM)
 import Halogen.Remote.Protocol (Batch (..), EventMessage (..), ListenerId, NodeId, Op (..))
 import Halogen.Remote.Session qualified as Session
-import Halogen.VDom.DOM.HandlerOptions (EventMatch (..), HandlerOptions (..), keyMatch)
+import Halogen.VDom.DOM.HandlerOptions (EventMatch (..), HandlerOptions (..), handlerOptions, keyMatch)
 import Halogen.VDom.DOM.Monad (PropScalar (..))
 import Protolude
 import Test.Components
@@ -227,6 +227,47 @@ spec = describe "a session" $ do
     silent wire
     Session.receive session (clickWith (onLink ["target" .= ("_self" :: Text)]))
     nextOps wire `shouldReturn` [SetText followed "2"]
+    Session.dispose session
+
+  it "follows a delegated link's click, read from the link the client found, as a handler in a page reads it" $ do
+    (session, wire, ops, _) <- mounted delegating
+    container <- required "the container" (elementWithId ops "article")
+    listener <- required "its listener" (listenerOn ops container "click")
+    [o | o@ListenerOptions {} <- ops]
+      `shouldBe` [ListenerOptions container "click" listener handlerOptions {preventDefault = True, matching = Just (Within "a.article" PlainLeftClick)}]
+    -- What the client sends of a click on the span inside a link the
+    -- selector covers: the link it found, with its attributes.
+    let clickWith fields found =
+          eventFor listener container "click" $
+            object
+              ( ["type" .= ("click" :: Text), "button" .= (0 :: Int)]
+                  <> fields
+                  <> [ "target" .= object (["tagName" .= ("SPAN" :: Text), "id" .= ("article-text" :: Text)] <> ["closest" .= object ["a.article" .= f] | Just f <- [found]])
+                     , "currentTarget" .= object ["tagName" .= ("DIV" :: Text), "id" .= ("article" :: Text)]
+                     ]
+              )
+        article = object ["tagName" .= ("A" :: Text), "id" .= ("to-article" :: Text), "attributes" .= object ["id" .= ("to-article" :: Text), "class" .= ("article" :: Text), "href" .= ("#article-1" :: Text)]]
+    Session.receive session (clickWith [] (Just article))
+    patch <- nextOps wire
+    [t | SetText _ t <- patch] `shouldBe` ["#article-1"]
+    -- A click with nothing found (an old client's, or one sent by hand),
+    -- with a modifier, or prevented already: not the handler's.
+    Session.receive session (clickWith [] (Nothing :: Maybe Value))
+    Session.receive session (clickWith ["ctrlKey" .= True] (Just article))
+    Session.receive session (clickWith ["defaultPrevented" .= True] (Just article))
+    silent wire
+    Session.dispose session
+
+  it "takes a paste of files, read from what the client says it carries, and no paste of text" $ do
+    (session, wire, ops, _) <- mounted pasting
+    box <- required "the box" (elementWithId ops "paste-box")
+    listener <- required "its listener" (listenerOn ops box "paste")
+    let pasteOf carried = eventFor listener box "paste" (object ["type" .= ("paste" :: Text), "clipboardData" .= carried])
+    Session.receive session (pasteOf (object ["types" .= ["text/plain" :: Text], "files" .= ([] :: [Value]), "data" .= object ["text/plain" .= ("words" :: Text)]]))
+    silent wire
+    Session.receive session (pasteOf (object ["types" .= ["Files" :: Text], "files" .= [object ["name" .= ("a.png" :: Text), "type" .= ("image/png" :: Text), "size" .= (1024 :: Int)]]]))
+    patch <- nextOps wire
+    [t | SetText _ t <- patch] `shouldBe` ["a.png,image/png,1024.0"]
     Session.dispose session
 
   it "sends what a listener's handler declared, with the listener and when it changes" $ do

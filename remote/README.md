@@ -408,6 +408,36 @@ The program and the page are apart, and the wire takes time:
   component, a ctrl-click opens a new tab. For a handler that declares nothing the client
   prevents the default of every `submit` it listens for and of a plain `click` on an `a` element
   (one the browser would follow in this tab), and of nothing else.
+
+  One handler on a container for the links in it (a page of rendered Markdown) declares
+  `HE.within`: the click is judged on the link the selector finds around its target, inside the
+  container, and the page sends that link with the event, every attribute included, so the
+  handler reads it as it would in a page, from the event's target:
+
+  ```haskell
+  HH.div
+    [HE.preventingDefault (HE.matching (HE.within "a[href]" HE.plainLeftClick) (HE.handler' (EventType "click") followed))]
+    [rendered]
+    where
+      followed event = do
+        target <- Event.target event >>= Element.fromEventTarget
+        link <- Element.closestNow target "a[href]"
+        Article <$> Element.getAttributeNow link "href"
+  ```
+
+  A plain click on a link inside is prevented and crosses; a click elsewhere, a ctrl-click, a
+  link to another tab or a download is the page's, and does not cross. Natively
+  `Element.closestNow` answers only for a selector the match named (the page has no other to
+  send), and `Element.getAttributeNow` only for the element it found. A paste or a drag declares
+  `HE.carrying`, the types its data must include: a paste handler declared for `["Files"]` takes
+  a paste of files (its default prevented, the files' names, types and sizes read from
+  `ClipboardEvent.clipboardData`) and leaves a paste of text to the page, which types it into the
+  field. A drag's or a paste's event carries its types, its files' names, media types and sizes,
+  and, at a drop or a paste, its text, when it is at most 262144 UTF-16 code units long.
+- **A file's bytes.** A drop or a paste of files sends each file's name, media type and size,
+  not what it holds: natively `File.text` and `File.bytes` fail (`NotInBrowserError`), and a
+  component that needs the bytes needs a channel of its own to upload them. Nor does a drag send
+  its text before its drop, which the page itself cannot read then.
 - **Focus and selection** are the page's, except where the component moves the focus itself
   (above). The client sets an element's `value` only when it
   differs from what the element holds, so text being typed is not undone, and each event reports
@@ -426,7 +456,8 @@ and a scroll each after its click, the title set two ways, nothing recorded for 
 method not on the list,
 a child kept while its parent replaces the element around it, a handler that prevents the default,
 a link followed on a plain click and on no other, a listener's declared options sent with it and
-when they change, an unknown listener, a component that fails to mount, disposal), the recorder on its own (a node
+when they change, a delegated link's click read from the link the client found and no click
+without one, a paste of files taken and one of text not, an unknown listener, a component that fails to mount, disposal), the recorder on its own (a node
 taken out is forgotten when the batch is taken and not before, no batch in the middle of a
 render), the protocol's JSON, the probe's questions and answers (before the mount, after the
 batches that carry what was recorded when it asked, what is unsent counted as running, a fiber
@@ -443,7 +474,9 @@ component, the root without a `hello`).
 `Server.application` behind a proxy the test can cut, and `Halogen.Remote.Test` as a suite would
 use it, reading the page once after each action (visit, a click whose work holds the loop,
 `waitQuiet` for a `liftIO`, a pause not waited for, two pages in parallel with one kept busy, no
-reconnection, a query from the test, and what the component does to the page: the field it focuses
+reconnection, a query from the test, a delegated link followed by the component and not the page
+while another link and a ctrl-click are the page's, a real paste of text typed into the field and
+not sent and one of a picture prevented and read as a file, and what the component does to the page: the field it focuses
 is `document.activeElement`, in `Initialize` and after a click, its dialog opens as a modal and
 closes, an element far down is scrolled into view, a method off the list is not called, and the
 title is what it set), and, through `mountingEach`, a routed component opened at a deep route whose
@@ -454,7 +487,8 @@ first render, and a count in `sessionStorage` across a reload.
 `Halogen-remote-browser-test` runs the loopback in headless Chromium (hspec-halogen) on both
 browser backends: real clicks and typing through the client, a child's element kept across its
 parent's new element, a form whose submission the page does not carry out (with and without
-`HE.preventingDefault`), a link the page does not follow, a key a handler declares kept from
+`HE.preventingDefault`), a link the page does not follow, a delegated link the page does not
+follow and the component reads from the event the client described, a key a handler declares kept from
 being typed, what a component does to the page through the `Web.*` types not carried out (its
 handles are numbers there), a component that fails to mount, disposal, the page's probe, to which the
 loopback's client adds nothing (the program in the page answers for the loopback's tree, once), a
