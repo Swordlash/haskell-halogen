@@ -13,6 +13,7 @@ import Test.Exchanges qualified
 import Test.Failures qualified
 import Test.Files qualified
 import Test.Frames qualified
+import Test.History qualified
 import Test.Hspec (aroundAll, hspec)
 import Test.Input qualified
 import Test.Policy qualified
@@ -45,5 +46,6 @@ main = serveDirectory "test/web" $ \base -> do
       Test.Sockets.spec base
       Test.Serve.spec
       Test.Exchanges.spec
+      Test.History.spec base
       Test.Policy.spec
     Test.Failures.spec base

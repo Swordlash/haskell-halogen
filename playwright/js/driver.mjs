@@ -381,6 +381,45 @@ const pollInPage = async (page, source, argument, ms, what) => {
   }
 };
 
+// Going back or forward in the page's history, by one entry: the page's
+// own, or one of a frame's navigations, which Back undoes in that frame
+// alone. Playwright's goBack waits for the main frame to navigate, and so
+// never returns when the entry is a frame's; here the history is the
+// DevTools protocol's (the joint history, frames' entries included, as
+// Playwright's own goBack reads it), and the call waits for whichever frame
+// navigates: for its load, when it loads a document, or for nothing more
+// when the traversal stays in its document (pushState, a fragment), where
+// the page has had its popstate or hashchange by then. Then it settles.
+// No entry to go to is an error (NoHistoryEntry), not a call that does
+// nothing: a test that goes back expects to go somewhere.
+const traverse = (delta) => async (m) => {
+  const page = pageOf(m.page);
+  const ms = within(m);
+  const session = await sessionOf(page);
+  const { currentIndex, entries } = await session.send("Page.getNavigationHistory");
+  const entry = entries[currentIndex + delta];
+  const way = delta < 0 ? "back" : "forward";
+  if (!entry) {
+    throw Object.assign(new Error(`there is no entry to go ${way} to in the history of ${page.url()}`), { name: "NoHistoryEntry" });
+  }
+  let listener;
+  // Armed before the traversal, so that its navigation cannot be missed.
+  // The load state is asked as the navigation is reported, when Playwright
+  // has forgotten the old document's load and not yet seen the new one's.
+  const navigated = new Promise((resolve) => {
+    listener = (frame) => resolve(frame.waitForLoadState("load", { timeout: ms }));
+    page.on("framenavigated", listener);
+  });
+  try {
+    await session.send("Page.navigateToHistoryEntry", { entryId: entry.id });
+    await answeredWithin(ms, navigated, () => `going ${way} in ${page.url()}: no frame navigated within ${ms}ms`);
+  } finally {
+    page.off("framenavigated", listener);
+  }
+  await settle(page, { timeout: ms });
+  return null;
+};
+
 const watch = (id, page) => {
   // With where it was written: the frame's document or script, which tells a
   // frame's message from the page's. Playwright gives an empty address when
@@ -643,8 +682,8 @@ const methods = {
     return response ? response.status() : null;
   },
   reload: pageActing((page, _, o) => page.reload({ ...o, waitUntil: "load" }).then(() => null)),
-  goBack: pageActing((page, _, o) => page.goBack({ ...o, waitUntil: "load" }).then(() => null)),
-  goForward: pageActing((page, _, o) => page.goForward({ ...o, waitUntil: "load" }).then(() => null)),
+  goBack: traverse(-1),
+  goForward: traverse(1),
   async url(m) {
     return pageOf(m.page).url();
   },

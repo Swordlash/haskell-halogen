@@ -444,6 +444,13 @@ whether to leave needs) and kept, `dialogs page`.
 
 ## Navigating, and pictures
 
+`goBack page` and `goForward page` go one entry through the page's history and
+return for every kind of entry, then settle: another document (once it has
+loaded, as `goto`), a state the page pushed or a fragment (the same document,
+which has had its `popstate` or `hashchange`), or a frame's own navigation
+(Back undoes it in the frame alone, and the page does not load). No entry to go
+to is a `PlaywrightError` named `NoHistoryEntry`.
+
 `gotoStatus page address` is `goto` and the status of the response the
 navigation ended with: `Just 404` for a server's not-found page, `Just 401`
 for a page that is not the visitor's, `Nothing` for a navigation within the

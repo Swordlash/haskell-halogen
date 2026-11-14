@@ -143,3 +143,9 @@ Policy, an editor in an iframe) needed, each with a test of its own:
   way. A navigation under either wait starts it again in the new document.
   Every other wait, and the probe, already worked there; the suite now says
   so.
+- `goBack` and `goForward` return for every kind of history entry: a state the
+  page pushed and a fragment (the same document), and a frame's own
+  navigation, where they used to wait for a `load` of the page's that never
+  came and time out; another document is waited for as before. With no entry
+  to go to they fail with a `PlaywrightError` named `NoHistoryEntry`, where
+  they did nothing.

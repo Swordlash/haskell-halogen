@@ -608,9 +608,18 @@ visit p address = goto p address >> waitStarted p
 reload :: (MonadIO m) => Page -> m ()
 reload p = onPage p "reload" []
 
+-- | Go back one entry in the page's history, as the browser's Back
+-- button does, wait for what that entry was, and 'settle'. Every kind of
+-- entry returns: another document (its @load@ waited for, as 'goto'
+-- waits), a state the page pushed or a fragment (the same document, which
+-- has had its @popstate@ or @hashchange@ by the time the program is
+-- asked), and a frame's own navigation (that frame's @load@; the page does
+-- not load). No entry to go back to is a 'PlaywrightError' named
+-- @NoHistoryEntry@: a test that goes back expects to go somewhere.
 goBack :: (MonadIO m) => Page -> m ()
 goBack p = onPage p "goBack" []
 
+-- | 'goBack''s other way: forward one entry.
 goForward :: (MonadIO m) => Page -> m ()
 goForward p = onPage p "goForward" []
 

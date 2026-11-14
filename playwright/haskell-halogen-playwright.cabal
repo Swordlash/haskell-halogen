@@ -90,6 +90,7 @@ test-suite Halogen-playwright-test
                       Test.Failures
                       Test.Files
                       Test.Frames
+                      Test.History
                       Test.Input
                       Test.Policy
                       Test.Probe

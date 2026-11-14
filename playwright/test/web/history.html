@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>History</title></head>
+<body>
+  <!-- A page that moves within its document, by pushState and by a
+       fragment, and plays a program's side of the probe: it handles a
+       popstate as a program would, busy for a moment before it shows the
+       state it went back to, so that a Back that returned before the
+       program had finished would read the old state. And a frame that
+       navigates by itself, through a link aimed at it. -->
+  <p id="state">0</p>
+  <p id="hash"></p>
+  <p id="pops">0</p>
+  <button id="push1" onclick="push(1)">one</button>
+  <button id="push2" onclick="push(2)">two</button>
+  <a id="part" href="#part">part</a>
+  <a id="frame-link" href="second.html" target="inner">in the frame</a>
+  <iframe name="inner" src="framed.html"></iframe>
+  <script>
+    window.fake = { trees: 1, running: 0, waiting: 0 };
+    if (globalThis.__halogenProbe) {
+      __halogenProbe.activity = async () => ({ trees: fake.trees, running: fake.running, waiting: fake.waiting });
+    }
+    function push(n) {
+      history.pushState({ n }, "", "?state=" + n);
+      document.getElementById("state").textContent = String(n);
+    }
+    addEventListener("popstate", (event) => {
+      fake.running = 1;
+      const pops = document.getElementById("pops");
+      pops.textContent = String(Number(pops.textContent) + 1);
+      setTimeout(() => {
+        document.getElementById("state").textContent = String(event.state?.n ?? 0);
+        fake.running = 0;
+      }, 200);
+    });
+    addEventListener("hashchange", () => {
+      document.getElementById("hash").textContent = location.hash;
+    });
+  </script>
+</body>
+</html>
