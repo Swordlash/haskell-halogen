@@ -1,15 +1,18 @@
 -- | What a component does to the page through the @Web.*@ types, recorded
 -- as operations for the client: a focus, a dialog opened and closed, an
 -- element scrolled into view, the title; and what is not recorded.
+--
+-- Natively only: in a browser (under Node, on both browser backends) a
+-- handle is the engine's value and answers nothing, as in the loopback.
 module Test.Operations (spec) where
 
 import Data.Aeson (Value (..), object, (.=))
-import Data.List (findIndex)
+import Halogen.JSBits (inBrowser)
 import Halogen.Remote.Protocol (NodeId, Op (..))
 import Halogen.Remote.Session qualified as Session
 import Protolude
 import Test.Components
-import Test.Hspec (Spec, describe, it, shouldBe, shouldReturn, shouldSatisfy)
+import Test.Hspec (Spec, describe, it, shouldBe, shouldReturn, shouldSatisfy, xdescribe)
 import Test.Session (clickOn, elementWithId, listenerOn, mounted, nextOps, required, silent)
 
 -- | Click a button the first render made, by its id.
@@ -21,14 +24,18 @@ clicking session ops ident = do
 
 -- | Where the node was made, in the operations.
 madeAt :: [Op] -> NodeId -> Maybe Int
-madeAt ops node = findIndex (\case Create n _ _ -> n == node; _ -> False) ops
+madeAt ops node = indexWhere (\case Create n _ _ -> n == node; _ -> False) ops
+
+-- | Where the first operation that satisfies the test is.
+indexWhere :: (Op -> Bool) -> [Op] -> Maybe Int
+indexWhere test ops = head [i | (i, op) <- zip [0 ..] ops, test op]
 
 spec :: Spec
-spec = describe "what a component does to the page through the Web types" $ do
+spec = (if inBrowser then xdescribe else describe) "what a component does to the page through the Web types" $ do
   it "focuses in Initialize, after the element is made, in the first batch" $ do
     (session, _, ops, _) <- mounted operating
     first' <- required "the first field" (elementWithId ops "first")
-    let focused = findIndex (== Call first' "focus" []) ops
+    let focused = indexWhere (== Call first' "focus" []) ops
     focused `shouldSatisfy` isJust
     (>) <$> focused <*> madeAt ops first' `shouldBe` Just True
     -- Only that one.

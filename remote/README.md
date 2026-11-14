@@ -318,9 +318,9 @@ The program and the page are apart, and the wire takes time:
 
 `Halogen-remote-test` runs natively and, under Node, on both browser backends: a session whose
 wire is a list (the first render, a click's patch and position, an input's value, a child removed,
-a focus in `Initialize` after the element's creation, a focus, a dialog opened and closed and a
-scroll each after its click, the title set two ways, nothing recorded for a node gone or a method
-not on the list,
+natively a focus in `Initialize` after the element's creation, a focus, a dialog opened and closed
+and a scroll each after its click, the title set two ways, nothing recorded for a node gone or a
+method not on the list,
 a child kept while its parent replaces the element around it, a handler that prevents the default,
 a link followed on a plain click and on no other, a listener's declared options sent with it and
 when they change, an unknown listener, a component that fails to mount, disposal), the recorder on its own (a node

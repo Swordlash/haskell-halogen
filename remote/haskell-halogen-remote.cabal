@@ -119,6 +119,7 @@ test-suite Halogen-remote-test
         row-types,
         text,
         haskell-halogen-core,
+        haskell-halogen-jsbits,
         haskell-halogen-remote,
         haskell-halogen-router
 
