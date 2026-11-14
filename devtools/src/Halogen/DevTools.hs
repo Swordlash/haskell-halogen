@@ -120,14 +120,14 @@ openWith settings = do
   hostNode <- elementToNode host
   bodyNode <- elementToNode (coerce body :: Element)
   appendChild hostNode bodyNode
-  H.HalogenSocket {H.query = ask, H.messages, H.dispose} <- runUI (panelWith settings) () (coerce host :: HTMLElement)
+  H.HalogenSocket {H.query = ask, H.messages, H.dispose, H.activity} <- runUI (panelWith settings) () (coerce host :: HTMLElement)
   -- Closing twice is harmless, as the tree's own dispose is: a program may
   -- close the panel itself and have passed its dispose to keepForNextRun.
   closed <- liftIO (newIORef False)
   let close = do
         already <- liftIO (atomicModifyIORef' closed (True,))
         unless already (dispose >> removeChild hostNode bodyNode)
-  pure H.HalogenSocket {H.query = ask, H.messages, H.dispose = close}
+  pure H.HalogenSocket {H.query = ask, H.messages, H.dispose = close, H.activity}
   where
     docked = "position: fixed; right: 0.5rem; bottom: 0.5rem; z-index: 2147483000; width: min(34rem, calc(100vw - 1rem)); max-height: 60vh; overflow: auto; box-shadow: 0 0.25rem 1rem rgb(0 0 0 / 30%);"
 

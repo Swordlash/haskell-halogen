@@ -21,7 +21,7 @@ category:           Web
 tested-with:        GHC == 9.10.3, GHC == 9.12.4, GHC == 9.14.1
 build-type:         Simple
 extra-doc-files:    CHANGELOG.md, README.md
-extra-source-files: jsbits/*.js, test/web/*.html
+extra-source-files: jsbits/*.js, test/jsbits/*.js, test/web/*.html
 
 flag interactive
     description: Build the browser test suite for browser GHCi (toolchain/dev-test.sh)
@@ -83,7 +83,9 @@ library
     -- The server is native: a program in a browser is the client's side of
     -- a wire, not the server's.
     if !arch(wasm32) && !arch(javascript)
-        exposed-modules: Halogen.Remote.Server
+        exposed-modules:
+          Halogen.Remote.Server
+          Halogen.Remote.Test
         build-depends:
             bytestring,
             http-types,
@@ -104,6 +106,7 @@ test-suite Halogen-remote-test
     main-is:          Test.hs
     other-modules:
       Test.Components
+      Test.Probe
       Test.Protocol
       Test.Recorder
       Test.Server
@@ -136,6 +139,7 @@ test-suite Halogen-remote-live-test
     ghc-options:      -threaded
     build-depends:
         base,
+        async,
         bytestring,
         containers,
         mtl,
@@ -164,12 +168,20 @@ test-suite Halogen-remote-browser-test
       Test.Loopback
     build-depends:
         protolude,
+        text,
+        haskell-halogen-jsbits,
         row-types,
         unliftio,
         haskell-halogen-core,
         haskell-halogen-remote,
         haskell-halogen-router,
         hspec-halogen
+
+    -- The suite's own JavaScript (test/jsbits), declared with browserJS as a
+    -- package's is: the JavaScript backend links it by name, so it has to be
+    -- named here; the wasm backend embeds it when the module is compiled.
+    if arch(javascript)
+        js-sources:   test/jsbits/probe.js
 
     if arch(wasm32) && !flag(interactive)
         ghc-options:

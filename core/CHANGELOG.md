@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+`HalogenSocket` has a fourth field, `activity`: what that tree alone is
+doing, as `Halogen.Activity.activity` reads every tree of the process (one
+tree until it is disposed of and none after, whether it is running, and its
+fibers waiting in a `liftIO`). A program that runs several trees, such as a
+server with one per connection, can tell whether one of them is busy. Code
+that builds a `HalogenSocket` itself (a wrapper around another socket's
+`dispose`, say) has to fill the field, usually with the wrapped socket's.
+
 Child components under a memoized node (`HH.memoized`, `HH.lazy`) survive
 the renders that skip it. Before, the first render of the parent that found
 the node's argument equal finalized every child component in it, since a

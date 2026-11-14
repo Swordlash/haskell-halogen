@@ -10,6 +10,8 @@
 -- * "Halogen.Remote.Protocol": what crosses the wire.
 -- * "Halogen.Remote.Server": a component served over WebSockets (native).
 -- * "Halogen.Remote.Loopback": the same pipeline inside one page.
+-- * "Halogen.Remote.Test": a component per page of a test that drives a
+--   browser (native).
 module Halogen.Remote
   ( module Halogen.Remote.DOM
   , module Halogen.Remote.Session

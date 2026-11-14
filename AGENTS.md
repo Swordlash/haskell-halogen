@@ -9,8 +9,11 @@ A port of purescript-halogen to GHC Haskell, as a multi-package cabal project: `
 LiveView, a component whose DOM is on the other side of a wire: `RemoteDOM`, one more backend, keeps a
 mirror of the page and records each change, a session sends them as JSON to a thin client,
 `remote/jsbits/remote.js`, and runs the listener each event from the page names;
-`Halogen.Remote.Server` serves a component over WebSockets natively, `Halogen.Remote.Loopback` runs
-the same pipeline inside one page), `router` (`purescript-routing-duplex` port, with the
+`Halogen.Remote.Server` serves a component over WebSockets natively (`applicationWith`: a function per
+connection mounts what it asked for), `Halogen.Remote.Loopback` runs
+the same pipeline inside one page, and `Halogen.Remote.Test` is a component per page of a native test, mounted
+in the test's process and driven through `haskell-halogen-playwright`, whose probe the session answers over the
+wire), `router` (`purescript-routing-duplex` port, with the
 browser's history), `net` (the browser's networking: `fetch`, a thin binding on
 `Halogen.JSBits.Promise` that aborts its request when the waiting fiber is killed, and
 WebSocket and server-sent events, whose events arrive through `Halogen.Subscription` emitters),
@@ -87,7 +90,8 @@ for the servers for addresses on the host `double` and leaves every other addres
 Chromium from outside the page through `haskell-halogen-playwright` (node, the npm `playwright` and Chromium needed,
 which the native CI matrix installs): the first against pages in `playwright/test/web/` whose plain JavaScript plays
 a program's side of the probe, the second against `Halogen.Remote.Server` with the real `remote.js`, through a TCP
-proxy the test can cut. `Halogen-playwright-example-test` serves a built wasm example
+proxy the test can cut, and against `Halogen.Remote.Test`'s pages, reading each page once after an action (the
+package's acceptance test of answering the probe over the wire). `Halogen-playwright-example-test` serves a built wasm example
 (`dist-newstyle/wasm/public/vanilla` or `HALOGEN_EXAMPLE_DIR`), and is pending without it unless
 `HALOGEN_EXAMPLE_REQUIRED=1` (`npm run test-example`, run by CI's `learn-wasm`); `examples/worker`'s
 `halogen-example-worker-test` is the same for `dist-newstyle/wasm/public/worker` (`npm run test-worker`), and
@@ -329,7 +333,10 @@ work, so it never reads as idle before its first render and `Initialize`. A fibe
 worker only after its continuation is queued, so it is never seen neither waiting nor queued. A page that sets
 `globalThis.__halogenProbe = {}` before the program starts gets `__halogenProbe.activity()`, a promise of the
 reading summed over every program in the page (`core/jsbits/activity.js`); `haskell-halogen-playwright` sets it with
-an init script and waits on it after every action.
+an init script and waits on it after every action. One tree's reading alone is its socket's `activity`
+(`Activity.Internal.treeActivity`): `remote`'s session answers the probe with it, forwarded by `remote.js` (which adds
+its asker to the same list), counting what it has not sent yet as running and answering in order with its batches
+(`Halogen.Remote.Protocol`'s header has the argument).
 
 A pause is the exception, on purpose. `H.delay` (`Hooks.delay`), which takes a `NominalDiffTime` in seconds, is the
 same suspension with a worker killed with its fiber, made by `Runtime.awaitUncounted`, which does not count it: while

@@ -6,16 +6,29 @@
 --
 -- The browser reaches the server through a small TCP proxy the test can
 -- cut, which is how a connection is lost from the server's side.
+--
+-- The second half is the package's way of testing a component, and its
+-- acceptance test: "Halogen.Remote.Test" mounts a component per page in
+-- this process, and the driver settles through the page's probe, which the
+-- session answers over the wire. Those examples read the page once, with
+-- no retry: what they read is there when the action returns, or the probe
+-- lied.
 module Main (main) where
 
-import Control.Concurrent (forkIO, killThread)
+import Control.Concurrent
+  ( forkIO
+  , killThread
+  , threadDelay
+  )
+import Control.Concurrent.Async (concurrently)
 import Control.Concurrent.STM hiding (check)
 import Control.Concurrent.STM qualified as STM
 import Control.Exception (bracket, finally, try)
 import Control.Monad (forever, void, when)
-import Control.Monad.IO.Class (liftIO)
+import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.State.Class (get, modify)
 import Data.ByteString qualified as ByteString
+import Data.Functor (($>))
 import Data.IORef
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -23,6 +36,7 @@ import Data.Row (Empty)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Void (Void)
+import GHC.Clock (getMonotonicTime)
 import Halogen qualified as H
 import Halogen.Activity qualified as Activity
 import Halogen.HTML qualified as HH
@@ -32,6 +46,9 @@ import Halogen.Playwright
 import Halogen.Playwright.Hspec
 import Halogen.Remote.DOM (RemoteDOM)
 import Halogen.Remote.Server qualified as Server
+import Halogen.Remote.Session qualified as Session
+import Halogen.Remote.Test (Mounted (..), mounting, queryComponent, withTestServer)
+import Halogen.Remote.Test qualified as RemoteTest
 import Halogen.Router qualified as Router
 import Halogen.Router.Duplex (RouteDuplex', lmap, noArgs, optional, prefix, root)
 import Network.Socket qualified as Socket
@@ -150,7 +167,7 @@ main = do
   shared <- newShared
   let settings = Server.defaultSettings {Server.pages = [("/", "test/web/live.html", "text/html")]}
   Warp.testWithApplication (pure (Server.application settings (live shared) ())) $ \serverPort ->
-    withProxy serverPort $ \proxy -> hspec (spec shared proxy)
+    withProxy serverPort $ \proxy -> withTestServer $ \server -> hspec (spec shared proxy >> testing server)
 
 spec :: Shared -> Proxy -> Spec
 spec shared proxy = playwright $ describe "a component served to Chromium" $ do
@@ -295,6 +312,151 @@ spec shared proxy = playwright $ describe "a component served to Chromium" $ do
       again `shouldSatisfy` (> session)
     locator page "#count" `shouldHaveText` "0"
     locator page "#app" `shouldHaveAttribute` "data-halogen-remote" $ Just "connected"
+
+----------------------------------------------------------------------
+-- A component per page, through Halogen.Remote.Test.
+
+data ViewState = ViewState
+  { label :: Text
+  , notice :: Bool
+  , bumps :: Int
+  }
+
+data ViewAction = Compute | Fetch | Save | Busy | Bump
+
+data ViewQuery a = SetLabel Text a
+
+-- | A view whose handlers take time in each of the ways a program does:
+-- work on the loop ('H.liftEffect', which holds it), a wait in 'liftIO'
+-- (a request), a pause ('H.delay', a notice that goes away by itself).
+-- Its initial state takes a moment too, and its @Initialize@ changes what
+-- the first render showed.
+view :: forall m. (MonadIO m) => H.Component ViewQuery () Void m
+view =
+  H.component
+    (\() -> liftIO (threadDelay 300_000) $> ViewState {label = "loading", notice = False, bumps = 0})
+    render
+    [ H.onInitialize (modify (\s -> s {label = "ready"}))
+    , H.onAction $ \case
+        Compute -> do
+          H.liftEffect (liftIO (threadDelay 300_000))
+          modify (\s -> s {label = "computed"})
+        Fetch -> do
+          liftIO (threadDelay 700_000)
+          modify (\s -> s {label = "fetched"})
+        Save -> do
+          modify (\s -> s {notice = True})
+          void (H.fork (H.delay 3 >> modify (\s -> s {notice = False})))
+        Busy -> do
+          liftIO (threadDelay 6_000_000)
+          modify (\s -> s {label = "rested"})
+        Bump -> modify (\s -> s {bumps = s.bumps + 1})
+    , H.onQuery $ \case
+        SetLabel t next -> modify (\s -> s {label = t}) $> Just next
+    ]
+  where
+    render :: ViewState -> H.ComponentHTML ViewAction Empty m
+    render s =
+      HH.div_
+        [ HH.span [HP.id "label"] [HH.text s.label]
+        , HH.button [HP.id "compute", HE.onClick (const Compute)] [HH.text "Compute"]
+        , HH.button [HP.id "fetch", HE.onClick (const Fetch)] [HH.text "Fetch"]
+        , HH.button [HP.id "save", HE.onClick (const Save)] [HH.text "Save"]
+        , HH.button [HP.id "busy", HE.onClick (const Busy)] [HH.text "Rest"]
+        , HH.button [HP.id "bump", HE.onClick (const Bump)] [HH.text "Bump"]
+        , HH.span [HP.id "bumps"] [HH.text (Text.pack (show s.bumps))]
+        , HH.span [HP.id "notice"] [HH.text (if s.notice then "Saved" else "")]
+        ]
+
+-- | How long an action took, in seconds.
+timed :: IO a -> IO (a, Double)
+timed action = do
+  start <- getMonotonicTime
+  a <- action
+  end <- getMonotonicTime
+  pure (a, end - start)
+
+testing :: RemoteTest.TestServer -> Spec
+testing server = playwright $ describe "a component per page, mounted in the test's process (Halogen.Remote.Test)" $ do
+  let readOnce page css = textContent (locator page css)
+
+  it "returns from visit once the first render, and what Initialize changed, is on the page" $ inPage $ \page -> do
+    (address, connected) <- mounting server view ()
+    visit page address
+    readOnce page "#label" `shouldReturn` "ready"
+    mounted <- connected
+    Session.activity mounted.session >>= \a -> a.trees `shouldBe` 1
+
+  it "settles a click once the work it caused on the loop is rendered and sent" $ inPage $ \page -> do
+    (address, _) <- mounting server view ()
+    visit page address
+    click (byRoleNamed page "button" "Compute")
+    readOnce page "#label" `shouldReturn` "computed"
+
+  it "waits, in waitQuiet, for a wait in liftIO and what it rendered" $ inPage $ \page -> do
+    (address, _) <- mounting server view ()
+    visit page address
+    click (locator page "#fetch")
+    -- The click settles while the request is still out: idle, not quiet.
+    readOnce page "#label" `shouldReturn` "ready"
+    activity page >>= \a -> fmap (.waiting) a `shouldBe` Just 1
+    waitQuiet page
+    readOnce page "#label" `shouldReturn` "fetched"
+
+  it "does not wait for a pause (H.delay): the notice is read while it shows" $ inPage $ \page -> do
+    (address, _) <- mounting server view ()
+    visit page address
+    click (locator page "#save")
+    readOnce page "#notice" `shouldReturn` "Saved"
+    ((), took) <- timed (waitQuiet page)
+    took `shouldSatisfy` (< 2)
+    readOnce page "#notice" `shouldReturn` "Saved"
+
+  it "settles each page by its own session: a busy one does not hold up another" $ \pw ->
+    withContext pw defaultContextOptions $ \ctx -> do
+      busy <- newPage ctx
+      calm <- newPage ctx
+      (busyAddress, _) <- mounting server view ()
+      (calmAddress, _) <- mounting server view ()
+      _ <- concurrently (visit busy busyAddress) (visit calm calmAddress)
+      -- Six seconds in a liftIO, on the busy page's session.
+      click (locator busy "#busy")
+      ((), took) <- timed $ do
+        click (locator calm "#bump")
+        click (locator calm "#bump")
+        waitQuiet calm
+      readOnce calm "#bumps" `shouldReturn` "2"
+      took `shouldSatisfy` (< 2)
+      -- The process as a whole is not quiet: a probe that answered for
+      -- every tree of it would have kept the calm page waiting for the
+      -- busy one's six seconds.
+      processWide <- Activity.activity
+      processWide.waiting `shouldSatisfy` (>= 1)
+      activity busy >>= \a -> fmap (.waiting) a `shouldBe` Just 1
+      activity calm >>= \a -> fmap (.waiting) a `shouldBe` Just 0
+
+  it "stays disconnected once the server ends the session: no reconnection" $ inPage $ \page -> do
+    (address, connected) <- mounting server view ()
+    visit page address
+    mounted <- connected
+    locator page "#halogen-remote-test" `shouldHaveAttribute` "data-halogen-remote" $ Just "connected"
+    Session.dispose mounted.session
+    locator page "#halogen-remote-test" `shouldHaveAttribute` "data-halogen-remote" $ Just "disconnected"
+    -- Longer than the client's first delay before it would reconnect.
+    threadDelay 1_500_000
+    getAttribute (locator page "#halogen-remote-test") "data-halogen-remote" `shouldReturn` Just "disconnected"
+    -- With no connection, the page's probe says there is nothing.
+    activity page `shouldReturn` Just Activity {trees = 0, running = 0, waiting = 0}
+    -- What it showed stays on the page.
+    readOnce page "#label" `shouldReturn` "ready"
+
+  it "shows what a query from the test changed, once settled" $ inPage $ \page -> do
+    (address, connected) <- mounting server view ()
+    visit page address
+    mounted <- connected
+    queryComponent mounted (H.mkTell (SetLabel "from the test")) `shouldReturn` Just ()
+    settle page
+    readOnce page "#label" `shouldReturn` "from the test"
 
 ----------------------------------------------------------------------
 -- A TCP proxy whose connections the test can cut.

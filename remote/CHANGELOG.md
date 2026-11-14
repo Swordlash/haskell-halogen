@@ -57,3 +57,27 @@ so a router's link clicked in a page served by a native program is followed, whe
 nothing before. Refs are nodes of the mirror, focus and selection stay the page's, and
 nothing is hydrated. `halogen_remote_connect`'s `close()` also stops a reconnection that is
 waiting for its delay.
+
+A test that drives a page through haskell-halogen-playwright can wait on a component served this
+way as on a program in the page. The client gives the page's probe (`__halogenProbe`) an asker
+that forwards its question over the socket, `{"probe": n}`, and the session answers
+`{"probe": n, "trees": …, "running": …, "waiting": …}`, a message that is not a batch, through
+its sender, in order with its batches and only once what was recorded when the question came has
+been sent: idle over a wire means the page shows what the program rendered.
+`Session.activity` is that reading (its own tree's, with anything not yet sent counted as
+running). Both sides ignore a message of a kind they do not know. The loopback's client adds no
+asker, since the program in the page answers for its trees already.
+
+`Server.applicationWith` and `Server.serveWith` call a function for each connection, with what it
+asked for (`Request`: its path, query string and headers) and its new session, which mounts what
+it wants and may keep the session and the socket; `application` and `serve` are the special case.
+A function that mounts nothing has the connection closed with a reason, and one that throws ends
+that session only. A session the program disposes of has its connection closed. Sessions have an
+id unique in the process (`Session.sessionId`), which `Eq`, `Ord` and `Show` go by, and
+`Session.ended` waits for one to be disposed of. `halogen_remote_connect(…, {reconnect: false})`
+connects once and stays disconnected when the connection closes.
+
+`Halogen.Remote.Test` (native) is what a test suite uses to test a component in a real page
+while it runs in the test's own process: `withTestServer`, and per example `mounting`, which gives
+the address of a page that shows that component alone and an action that waits for the page to
+connect and gives the component's session and socket (`Mounted`, with `queryComponent`).
