@@ -341,9 +341,9 @@ titling =
     (\() -> pure ())
     (\() -> HH.button [HP.id "retitle", HE.onClick (const (Retitle "Second title"))] [HH.text "Retitle"] :: H.ComponentHTML Retitle Empty m)
     [ H.onInitialize $ do
-        doc <- lift (DOM.window >>= DOM.document)
+        doc <- H.liftEffect (DOM.window >>= DOM.document)
         H.liftEffect (liftIO (doc.title_set "First title"))
     , H.onAction $ \(Retitle t) -> do
-        w <- lift DOM.window
+        w <- H.liftEffect DOM.window
         H.liftEffect (liftIO (w.document.title_set t))
     ]

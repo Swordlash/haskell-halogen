@@ -21,7 +21,6 @@ spec = xdescribe "values that answer for themselves, natively" $ pure ()
 
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.State.Class (get)
-import Control.Monad.Trans (lift)
 import Control.Monad.UUID (MonadUUID)
 import Data.Coerce (coerce)
 import Data.Foldable (for_, traverse_)
@@ -93,7 +92,7 @@ focusing =
     [ H.onInitialize $ do
         s <- get
         H.getHTMLElementRef s.field >>= traverse_ (H.liftEffect . liftIO . HTMLElement.focus)
-        doc <- lift (DOM.window >>= DOM.document)
+        doc <- H.liftEffect (DOM.window >>= DOM.document)
         H.liftEffect (liftIO (doc.title_set "Focused"))
     , H.onQuery $ \act -> do
         s <- get
