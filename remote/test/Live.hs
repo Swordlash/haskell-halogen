@@ -25,7 +25,7 @@ import Control.Concurrent.STM hiding (check)
 import Control.Concurrent.STM qualified as STM
 import Control.Exception (bracket, finally, try)
 import Control.Monad (forever, void, when)
-import Control.Monad.IO.Class (liftIO)
+import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.State.Class (get, modify)
 import Data.ByteString qualified as ByteString
 import Data.Functor (($>))
@@ -331,7 +331,7 @@ data ViewQuery a = SetLabel Text a
 -- (a request), a pause ('H.delay', a notice that goes away by itself).
 -- Its initial state takes a moment too, and its @Initialize@ changes what
 -- the first render showed.
-view :: H.Component ViewQuery () Void RemoteM
+view :: forall m. (MonadIO m) => H.Component ViewQuery () Void m
 view =
   H.component
     (\() -> liftIO (threadDelay 300_000) $> ViewState {label = "loading", notice = False, bumps = 0})
@@ -355,7 +355,7 @@ view =
         SetLabel t next -> modify (\s -> s {label = t}) $> Just next
     ]
   where
-    render :: ViewState -> H.ComponentHTML ViewAction Empty RemoteM
+    render :: ViewState -> H.ComponentHTML ViewAction Empty m
     render s =
       HH.div_
         [ HH.span [HP.id "label"] [HH.text s.label]
