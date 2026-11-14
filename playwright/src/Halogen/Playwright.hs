@@ -19,16 +19,19 @@
 -- busy. Every action ends with 'settle': a task of the page's at background
 -- priority (a browser event reaches a WebAssembly program as a task of its
 -- own, so its handler may not even have started when Playwright's click
--- returns), then the program's answer, asked until it is idle. So after
--- @click@ the handler has run and the page shows what it rendered: read it
--- at once, with no 'eventually'. What the program waits for in a @liftIO@
--- (a request) is not part of 'settle'; 'waitQuiet' waits for that too, but
--- not for a pause the program wrote with core's @H.delay@ (a notice's
--- timer, a ticker). A timer or an emitter that has not fired is neither,
--- and is what 'eventually' and the retrying @should@ functions are for.
+-- returns), then the program's answer, asked until it is idle, then the
+-- page's next animation frame (with which the browser dispatches some
+-- events, a dialog's @close@ among them) and the program's answer again.
+-- So after @click@ the handler has run and the page shows what it
+-- rendered: read it at once, with no 'eventually'. What the program waits
+-- for in a @liftIO@ (a request) is not part of 'settle'; 'waitQuiet' waits
+-- for that too, but not for a pause the program wrote with core's
+-- @H.delay@ (a notice's timer, a ticker). A timer or an emitter that has
+-- not fired is neither, and is what 'eventually', the retrying @should@
+-- functions and 'waitForEvent' are for.
 --
--- On a page with no Halogen program 'settle' waits for the one task and
--- returns, so the package drives any page.
+-- On a page with no Halogen program 'settle' waits for the task and the
+-- frame and returns, so the package drives any page.
 --
 -- = Locators
 --
@@ -221,6 +224,8 @@ module Halogen.Playwright
   , waitForURL
   , waitForConsole
   , waitForWebSocket
+  , EventTarget (..)
+  , waitForEvent
   , awaitText
   , eventually
   , eventuallyWithin
@@ -701,8 +706,18 @@ waitStarted p = onPage p "waitStarted" []
 
 -- | Wait for a background-priority task of the page's, then, if a program
 -- in the page answers the probe, until it is idle (asking again after a
--- background task each time, never on a timer). Every action ends with it.
+-- background task each time, never on a timer); then for a move through
+-- the history the page asked for and the browser has not made yet (a
+-- handler's @history.back()@, whose @popstate@ comes a moment later); then
+-- for the page's next animation frame and a task after it, since the
+-- browser dispatches some events with the frame (a dialog's @close@, after
+-- Escape or @close()@; @resize@); and asks the program again, starting
+-- over if that event made it busy. Every action ends with it. A hidden
+-- page, which draws no frames, is not waited for, and a page whose frame
+-- does not come within 100 ms is not waited for again until it draws one.
 -- A navigation that takes the document away under it is not an error.
+-- What the page does later by itself, a timer of its own, is
+-- 'waitForEvent''s.
 settle :: (MonadIO m) => Page -> m ()
 settle p = onPage p "settle" []
 
@@ -1327,6 +1342,55 @@ waitForWebSocket p test = liftIO $ do
               <> "ms; "
               <> (if null seen then "no frame crossed" else "the last frames: " <> Text.intercalate "; " shown)
           )
+
+-- | Where 'waitForEvent' listens.
+data EventTarget
+  = -- | The page's window: @popstate@, @hashchange@, @message@, @resize@.
+    OnWindow Page
+  | -- | The page's document: @visibilitychange@, @selectionchange@, an
+    -- event the page dispatches on it.
+    OnDocument Page
+  | -- | The element the locator finds (waited for, as an action waits for
+    -- it), in a frame if the locator goes into one: its own events, and
+    -- those that bubble up to it from inside.
+    OnElement Locator
+
+-- | Run an action and wait until the target has heard an event of this
+-- type, then 'settle'. For what 'settle' does not wait for: an event the
+-- page causes later by itself, after the program is idle (a timer of the
+-- page's own that goes back, a @message@ from a worker, an event a library
+-- dispatches when it is ready). Every action waits for what the browser
+-- dispatches with the next frame and for a move through the history the
+-- page asked for while it settled; this is for the rest.
+--
+-- The listener is added in the page before the action, so the event cannot
+-- be missed, and after the page's own listeners on the target, so they
+-- have run by the time the call returns; then the page settles, so a
+-- program's handler of the event has too. None within the page's timeout
+-- (counted from the end of the action) is a @TimeoutError@ naming the
+-- event. The listener lives in the page's document: if the page navigates
+-- or closes before it has heard the event, the call fails with a
+-- 'PlaywrightError' named @NavigatedAway@ (the event may have come before
+-- the document went). It works under a Content Security Policy without
+-- @'unsafe-eval'@, as the other waits do.
+--
+-- > waitForEvent (OnWindow page) "popstate" (click (byRoleNamed page "button" "Back in a moment"))
+-- > url page `shouldReturn` previous
+waitForEvent :: (MonadIO m) => EventTarget -> Text -> IO a -> m a
+waitForEvent target eventType action = liftIO $ do
+  armed :: Int <- case target of
+    OnWindow p -> onPage p "expectEvent" ["on" .= ("window" :: Text), "eventType" .= eventType, "what" .= ("the window" :: Text)]
+    OnDocument p -> onPage p "expectEvent" ["on" .= ("document" :: Text), "eventType" .= eventType, "what" .= ("the document" :: Text)]
+    OnElement l -> on l "expectEvent" ["eventType" .= eventType, "what" .= ("the element " <> describe l)]
+  a <- action `onException` ignoringFailure (onPage page "forgetEvent" ["armed" .= armed] :: IO Value)
+  () <- onPage page "awaitEvent" ["armed" .= armed]
+  pure a
+  where
+    page = case target of
+      OnWindow p -> p
+      OnDocument p -> p
+      OnElement l -> l.page
+    ignoringFailure io = () <$ (try io :: IO (Either PlaywrightError Value))
 
 -- | The element's text, once it satisfies the test (retried as the @should@
 -- functions are, up to the page's timeout); the failure says what it last

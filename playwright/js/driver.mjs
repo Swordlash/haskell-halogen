@@ -141,6 +141,9 @@ let nextHandle = 1;
 // popups, by the number expectPopup gave.
 const downloads = new Map();
 const popups = new Map();
+// The events being waited for, by the number expectEvent gave: each the
+// handle of its listener's entry in the page.
+const events = new Map();
 // The DevTools events listened to, by page.
 const listening = new WeakMap();
 
@@ -222,56 +225,182 @@ const register = (page) => {
 // runs, so that a Halogen program in it answers (Halogen.Activity). An init
 // script is the DevTools protocol's (Page.addScriptToEvaluateOnNewDocument),
 // which a page's Content Security Policy does not govern.
+//
+// The same script notes the moves through the history the page asks for
+// (history.back(), forward(), go(n)), which the browser makes a moment
+// later, out of the page's hands: settle waits for one under way, so that
+// an action whose handler goes back has had its popstate (or hashchange)
+// when it returns. A move counts as under way from the call until the
+// document hears where it went (popstate, hashchange), leaves (pagehide),
+// or half a second has passed (a move into a frame's entries, which this
+// document never hears of). A move the Navigation API says has nowhere to
+// go in this document's entries (go(0), which reloads; back from the
+// first) is not counted. The methods keep their names and lengths, and
+// call the page's own History's.
 const probeScript = () => {
   if (globalThis.__halogenProbe === undefined) globalThis.__halogenProbe = {};
+  const key = Symbol.for("halogen.playwright.traversals");
+  if (typeof History !== "function" || typeof addEventListener !== "function" || globalThis[key]) return;
+  // Each move under way is a token of its own, so that one's half second
+  // ends that one and not a later move.
+  const moves = { pending: new Set(), waiters: [] };
+  Object.defineProperty(globalThis, key, { value: moves });
+  const arrived = () => {
+    moves.pending.clear();
+    for (const resolve of moves.waiters.splice(0)) resolve();
+  };
+  for (const event of ["popstate", "hashchange", "pagehide"]) addEventListener(event, arrived, true);
+  const somewhere = (delta) => {
+    const navigation = globalThis.navigation;
+    if (!delta) return false;
+    if (typeof navigation?.entries !== "function" || !navigation.currentEntry) return true;
+    const to = navigation.currentEntry.index + delta;
+    return to >= 0 && to < navigation.entries().length;
+  };
+  const wrap = (name, deltaOf) => {
+    const original = History.prototype[name];
+    if (typeof original !== "function") return;
+    const wrapped = {
+      [name](...args) {
+        if (somewhere(deltaOf(args))) {
+          const move = {};
+          moves.pending.add(move);
+          setTimeout(() => {
+            if (moves.pending.delete(move) && moves.pending.size === 0) arrived();
+          }, 500);
+        }
+        return original.apply(this, args);
+      },
+    }[name];
+    Object.defineProperty(wrapped, "length", { value: original.length });
+    Object.defineProperty(History.prototype, name, { value: wrapped, writable: true, configurable: true, enumerable: true });
+  };
+  wrap("back", () => -1);
+  wrap("forward", () => 1);
+  wrap("go", (args) => Math.trunc(Number(args[0])) || 0);
 };
 
 // A locator's steps, from its page. Two steps go into a frame, after which
 // the steps that follow are applied inside it: "frame" (the page's frame
 // whose address matches a glob, which must be the first step) and
 // "frameLocator" (the frame an iframe element shows).
-const locate = ({ page, steps }) =>
-  steps.reduce((at, step) => {
-    if ("frame" in step) {
-      const frame = at.frame?.({ url: step.frame });
-      if (!frame) throw Object.assign(new Error(`no frame of the page's has an address matching ${step.frame}`), { name: "NoFrame" });
-      return frame;
-    }
-    if ("frameLocator" in step) return at.frameLocator(step.frameLocator);
-    if ("css" in step) return at.locator(step.css);
-    if ("nth" in step) return at.nth(step.nth);
-    if ("hasText" in step) return at.filter({ hasText: step.hasText });
-    // The whole text, exactly: Playwright's text matching against a regular
-    // expression made of the text, escaped, from start to end.
-    if ("hasTextExact" in step) return at.filter({ hasText: new RegExp(`^${escapeRegExp(step.hasTextExact)}$`) });
-    if ("role" in step) return at.getByRole(step.role, step.name == null ? {} : { name: step.name, exact: true });
-    if ("text" in step) return at.getByText(step.text);
-    if ("label" in step) return at.getByLabel(step.label);
-    throw new Error(`unknown locator step ${JSON.stringify(step)}`);
-  }, pageOf(page));
+const stepFrom = (at, step) => {
+  if ("frame" in step) {
+    const frame = at.frame?.({ url: step.frame });
+    if (!frame) throw Object.assign(new Error(`no frame of the page's has an address matching ${step.frame}`), { name: "NoFrame" });
+    return frame;
+  }
+  if ("frameLocator" in step) return at.frameLocator(step.frameLocator);
+  if ("css" in step) return at.locator(step.css);
+  if ("nth" in step) return at.nth(step.nth);
+  if ("hasText" in step) return at.filter({ hasText: step.hasText });
+  // The whole text, exactly: Playwright's text matching against a regular
+  // expression made of the text, escaped, from start to end.
+  if ("hasTextExact" in step) return at.filter({ hasText: new RegExp(`^${escapeRegExp(step.hasTextExact)}$`) });
+  if ("role" in step) return at.getByRole(step.role, step.name == null ? {} : { name: step.name, exact: true });
+  if ("text" in step) return at.getByText(step.text);
+  if ("label" in step) return at.getByLabel(step.label);
+  throw new Error(`unknown locator step ${JSON.stringify(step)}`);
+};
+
+const locate = ({ page, steps }) => steps.reduce(stepFrom, pageOf(page));
 
 const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-// A task of the page's at background priority, then, if a program in this
-// document answers the probe, its answer until it is idle, a background
-// task between asks: a browser event reaches a wasm program as a task of
-// its own, so its handler may not have started when the action returns,
-// and the program says when it has finished. No clock is involved except
-// the deadline.
-const inPageSettle = async ({ deadline, quiet, pause }) => {
+// In the page, in this order:
+//
+// 1. A task of the page's at background priority: a browser event reaches
+//    a wasm program as a task of its own, so its handler may not have
+//    started when the action returns.
+// 2. If a program in this document answers the probe, its answer until it
+//    is idle, a background task between asks: the program says when it
+//    has finished.
+// 3. A move through the history the page asked for and the browser has
+//    not made yet (probeScript counts them), waited for until the document
+//    hears of it: a handler that called history.back() is idle at once,
+//    and its popstate comes a moment later.
+// 4. An animation frame, then a background task. What the browser
+//    dispatches with the next frame (a dialog's close, after Escape or
+//    close(); resize; a ResizeObserver's callback) is dispatched at the
+//    start of the frame, before its requestAnimationFrame callbacks, so
+//    after this frame it has been; the task after it is where a wasm
+//    program's handler of that event has started. The frame comes after
+//    the program is idle, not before: a program's handler that closes a
+//    dialog runs a task after the click, and its close comes with the
+//    frame after that. A document that is hidden draws no frames and is
+//    not waited for; nor, from the second time on, is one whose last frame
+//    did not come within 100 ms (a page that draws none, such as one under
+//    --enable-begin-frame-control): the wait is cut short there, and a
+//    frame that comes later says frames are drawn again.
+// 5. The program asked again. Busy (the event's handler started work), it
+//    is waited for and 3 to 5 are done again, since its work may have
+//    caused another late event; idle, the page has settled.
+//
+// No clock is involved except the deadline and the frame's bound.
+const inPageSettle = async ({ deadline, quiet, pause, frameBound }) => {
   const task = () =>
     new Promise((resolve) =>
       globalThis.scheduler?.postTask ? scheduler.postTask(resolve, { priority: "background" }) : setTimeout(resolve, 0),
     );
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  await task();
+  const frames = (globalThis[Symbol.for("halogen.playwright.frames")] ??= { missing: false });
+  const frame = () =>
+    new Promise((resolve) => {
+      if (typeof requestAnimationFrame !== "function" || document.visibilityState === "hidden") return resolve();
+      let done = false;
+      requestAnimationFrame(() => {
+        frames.missing = false;
+        if (!done) {
+          done = true;
+          resolve();
+        }
+      });
+      if (frames.missing) {
+        done = true;
+        return resolve();
+      }
+      setTimeout(() => {
+        if (!done) {
+          done = true;
+          frames.missing = true;
+          resolve();
+        }
+      }, frameBound);
+    });
+  const moves = globalThis[Symbol.for("halogen.playwright.traversals")];
+  const moving = () => moves?.pending.size > 0;
+  const moved = () => new Promise((resolve) => moves.waiters.push(resolve));
+  // A program gives the probe its answer when its first tree mounts, which
+  // may be during any of the waits here (a page whose program starts in
+  // the task this settle begins with): it is looked for each time.
   const probe = globalThis.__halogenProbe;
-  if (typeof probe?.activity !== "function") return { program: false };
+  const program = () => typeof probe?.activity === "function";
+  const idle = async () => {
+    for (;;) {
+      const a = await probe.activity();
+      if (a.running === 0 && (!quiet || a.waiting === 0)) return { activity: a };
+      if (Date.now() > deadline) return { activity: a, timedOut: true };
+      await (pause > 0 ? sleep(pause) : task());
+    }
+  };
+  await task();
+  let last = null;
   for (;;) {
+    if (program()) {
+      const reading = await idle();
+      if (reading.timedOut) return { program: true, ...reading };
+      last = reading.activity;
+    }
+    if (moving()) await moved();
+    await frame();
+    await task();
+    if (!program()) {
+      if (!moving()) return { program: false };
+      continue;
+    }
     const a = await probe.activity();
-    if (a.running === 0 && (!quiet || a.waiting === 0)) return { program: true, activity: a };
-    if (Date.now() > deadline) return { program: true, activity: a, timedOut: true };
-    await (pause > 0 ? sleep(pause) : task());
+    if (a.running === 0 && (!quiet || a.waiting === 0) && !moving()) return { program: true, activity: a };
+    if (Date.now() > deadline) return { program: true, activity: a ?? last, timedOut: true };
   }
 };
 
@@ -305,7 +434,11 @@ const silent = (page, ms) => () =>
 // once.
 const scriptless = new WeakSet();
 
-const settle = async (page, { quiet = false, timeout: ms = timeout } = {}) => {
+// The page, or one of its frames: each document has a probe and a program
+// of its own, so an action in a frame settles the frame's (frameOf) and
+// then the page's.
+const settle = async (target, { quiet = false, timeout: ms = timeout } = {}) => {
+  const page = typeof target.page === "function" ? target.page() : target;
   if (scriptless.has(page)) return null;
   const started = Date.now();
   let outcome;
@@ -314,13 +447,14 @@ const settle = async (page, { quiet = false, timeout: ms = timeout } = {}) => {
     // later it is taken not to be answering at all.
     outcome = await answeredWithin(
       ms + 1000,
-      page.evaluate(inPageSettle, { deadline: started + ms, quiet, pause: quiet ? 5 : 0 }),
-      silent(page, ms),
+      target.evaluate(inPageSettle, { deadline: started + ms, quiet, pause: quiet ? 5 : 0, frameBound: 100 }),
+      silent(target, ms),
     );
   } catch (error) {
-    // The document went, or the page itself did: a sign-in window that
-    // closes itself as the click that signs in is handled.
-    if (navigatedAway(error) || page.isClosed()) return null;
+    // The document went, or the page itself did (a sign-in window that
+    // closes itself as the click that signs in is handled), or the frame
+    // was taken out of its page.
+    if (navigatedAway(error) || page.isClosed() || target.isDetached?.()) return null;
     throw error;
   }
   if (outcome.timedOut) {
@@ -649,20 +783,54 @@ const performedAsPageClosed = (page, error) => {
   return page.isClosed() && /Target page, context or browser has been closed/.test(message) && /performing \w+ action/.test(message);
 };
 
-// An action on a locator, then settle. The action is given Playwright's
-// options with the call's timeout.
+// The frame a locator goes into, if it goes into one (the innermost): the
+// document its element is in, whose program hears what is done to the
+// element, and which settle asks as well as the page. Found without
+// waiting: null for a locator of the page's own document, and for a frame
+// that is not there (yet).
+const frameOf = async ({ page, steps }) => {
+  try {
+    let at = pageOf(page);
+    let inner = null;
+    for (const step of steps) {
+      at = stepFrom(at, step);
+      if ("frame" in step || "frameLocator" in step) inner = at;
+    }
+    if (!inner) return null;
+    // A frame found by its address is the frame itself; one an iframe
+    // element shows is that element's content.
+    if (typeof inner.evaluate === "function") return inner;
+    const [element] = await inner.owner().elementHandles();
+    return element ? await element.contentFrame() : null;
+  } catch {
+    return null;
+  }
+};
+
+// The frame an action's locator goes into, then the page: both settled.
+const settleAround = async (frame, page, options) => {
+  if (frame) await settle(frame, options);
+  await settle(page, options);
+};
+
+// An action on a locator, then settle: the frame the locator goes into, if
+// it goes into one, and the page. The action is given Playwright's options
+// with the call's timeout.
 // The page is taken before the action, which may close it (a sign-in
-// window's button): settling a page that has closed is nothing to do.
+// window's button): settling a page that has closed is nothing to do. The
+// frame is looked for before the action, which may take it away, and
+// again after it if it was not there yet.
 const acting = (act) => async (m) => {
   const page = pageOf(m.locator.page);
   const target = locate(m.locator);
+  const before = await frameOf(m.locator);
   try {
     await act(target, m, { timeout: within(m) });
   } catch (error) {
     if (!performedAsPageClosed(page, error)) throw error;
     return null;
   }
-  await settle(page, { timeout: within(m) });
+  await settleAround(before ?? (await frameOf(m.locator)), page, { timeout: within(m) });
   return null;
 };
 // An action on a page, then settle.
@@ -1011,6 +1179,94 @@ const methods = {
   },
   async forgetPopup(m) {
     popups.delete(m.popup);
+    return null;
+  },
+
+  // An event of a target in the page: armed before the action, as popups
+  // are, by a listener added in the page (on the locator's element, waited
+  // for as an action waits, or on the window or the document), and awaited
+  // after it, until the event has been dispatched, then settled. The
+  // listener is added last, so the page's own listeners on the target have
+  // run when it hears the event; the settle after it gives a program's
+  // handler its task. The listener lives in the document: one that goes
+  // (a navigation) takes it, and the wait fails, saying so, whether or not
+  // the event came first. Every function is sent to the page through the
+  // DevTools protocol, so a Content Security Policy does not stop it.
+  async expectEvent(m) {
+    const listen = (target, type) => {
+      let heard;
+      const entry = { fired: new Promise((resolve) => (heard = resolve)) };
+      const listener = () => {
+        target.removeEventListener(type, listener);
+        heard(true);
+      };
+      entry.remove = () => target.removeEventListener(type, listener);
+      target.addEventListener(type, listener);
+      return entry;
+    };
+    const source = `(target, type) => (${listen})(target, type)`;
+    let handle;
+    let page;
+    let frame = null;
+    if (m.locator) {
+      page = pageOf(m.locator.page);
+      handle = await locate(m.locator).evaluateHandle(functionOf(source), m.eventType, { timeout: within(m) });
+      // The document the element is in, whose program hears the event.
+      frame = await frameOf(m.locator);
+    } else {
+      page = pageOf(m.page);
+      handle = await page.evaluateHandle(
+        functionOf(`({ on, type }) => (${listen})(on === "document" ? document : window, type)`),
+        { on: m.on, type: m.eventType },
+      );
+    }
+    const id = nextHandle++;
+    events.set(id, { handle, page, frame, type: m.eventType, what: m.what });
+    return id;
+  },
+  async awaitEvent(m) {
+    const armed = events.get(m.armed);
+    events.delete(m.armed);
+    if (!armed) throw new Error(`no event ${m.armed} is expected`);
+    const { handle, page, frame, type, what } = armed;
+    const ms = within(m);
+    const late = () => `no ${type} event on ${what} of ${page.url()} within ${ms}ms`;
+    let fired;
+    try {
+      fired = await answeredWithin(
+        ms + 1000,
+        handle.evaluate(
+          (entry, ms) =>
+            Promise.race([entry.fired, new Promise((resolve) => setTimeout(() => resolve(false), ms))]).then((fired) => {
+              if (!fired) entry.remove();
+              return fired;
+            }),
+          ms,
+        ),
+        late,
+      );
+    } catch (error) {
+      if (navigatedAway(error) || /disposed|has been closed/i.test(String(error?.message))) {
+        throw Object.assign(
+          new Error(`the document listening for ${type} on ${what} went (the page navigated, or closed) before the event was heard; it may have come first`),
+          { name: "NavigatedAway" },
+        );
+      }
+      throw error;
+    } finally {
+      handle.dispose().catch(() => {});
+    }
+    if (!fired) throw timeoutError(late());
+    await settleAround(frame, page, { timeout: ms });
+    return null;
+  },
+  async forgetEvent(m) {
+    const armed = events.get(m.armed);
+    events.delete(m.armed);
+    if (armed) {
+      await armed.handle.evaluate((entry) => entry.remove()).catch(() => {});
+      armed.handle.dispose().catch(() => {});
+    }
     return null;
   },
 

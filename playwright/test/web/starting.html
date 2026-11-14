@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>A program that starts late</title></head>
+<body>
+  <!-- A page with no program until its button is clicked: then one starts
+       in the page's next background task, which is the task the driver's
+       settle begins with, and is running for a moment before it shows
+       that it started. A settle that looked for the program before that
+       task and not after it would take the page for one with none. -->
+  <p id="status">no program</p>
+  <button id="start">start</button>
+  <script>
+    const post = scheduler.postTask.bind(scheduler);
+    let armed = false;
+    scheduler.postTask = (callback, options) =>
+      post(() => {
+        if (armed) {
+          armed = false;
+          start();
+        }
+        return callback();
+      }, options);
+    function start() {
+      let running = 1;
+      __halogenProbe.activity = async () => ({ trees: 1, running, waiting: 0 });
+      setTimeout(() => {
+        document.getElementById("status").textContent = "started";
+        running = 0;
+      }, 150);
+    }
+    document.getElementById("start").addEventListener("click", () => {
+      armed = true;
+    });
+  </script>
+</body>
+</html>

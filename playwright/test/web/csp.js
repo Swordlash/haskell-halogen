@@ -22,9 +22,12 @@ byId("slow").addEventListener("click", () => {
   }, 300);
 });
 // The page's own timer, not a program's: what the waits are for.
+// It counts its times, and says so with an event of its own.
 byId("later").addEventListener("click", () => {
   setTimeout(() => {
     byId("later").textContent = "later";
+    byId("later").dataset.count = String(Number(byId("later").dataset.count ?? 0) + 1);
+    byId("later").dispatchEvent(new CustomEvent("later"));
     byId("shown").hidden = false;
     console.log("later");
   }, 300);

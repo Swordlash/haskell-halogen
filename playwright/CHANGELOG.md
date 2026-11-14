@@ -158,3 +158,22 @@ Policy, an editor in an iframe) needed, each with a test of its own:
   the context's init scripts and the options' throttle as every page does.
   An action whose page closes as it is handled (a sign-in window's button)
   no longer fails.
+
+What the wiki's smoke tests found next, each with a test of its own:
+
+- `settle`, and so every action, waits for the page's next animation frame
+  as well as for a task, and asks the program again after it: the browser
+  dispatches a dialog's `close` (after Escape, or a handler's `close()`)
+  with the next frame, so a program idle when the action returned had not
+  yet heard it, and a test read the dialog still open. It also waits for a
+  move through the history the page asked for (`history.back()`, `forward()`,
+  `go(n)`, which the driver's init script notes by wrapping those three
+  methods of `History.prototype` in every page) until the page has its
+  `popstate`. The frame costs an action about a dozen milliseconds; a hidden
+  page, or one that draws no frames, is not held up. An action on an element
+  in a frame now settles the frame's own program as well as the page's:
+  before, only the page's document was asked.
+- `waitForEvent`, with `EventTarget` (`OnWindow`, `OnDocument`, `OnElement`):
+  an action, then an event on the target, waited for by a listener the page
+  had before the action, then settled. For what the page does later by
+  itself.
