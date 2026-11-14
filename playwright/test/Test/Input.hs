@@ -78,6 +78,18 @@ spec base = describe "input, geometry and waits" $ do
     _ <- timesOut (waitForFunctionWith (withTimeout 300 page) "(n) => document.querySelectorAll('p').length > n" (100 :: Int))
     pure ()
 
+  it "waits for what an asynchronous predicate resolves to, and fails with what it throws" $ \pw -> withPage pw $ \page -> do
+    goto page (at "input.html")
+    -- A promise is truthy whatever it will say: what counts is what it
+    -- resolves to.
+    _ <- timesOut (waitForFunctionWith (withTimeout 300 page) "async () => false" ())
+    _ <- timesOut (waitForFunction (withTimeout 300 page) "Promise.resolve(0)")
+    click (locator page "#start")
+    waitForFunctionWith page "async (expected) => document.getElementById('status').textContent === expected" ("done" :: Text)
+    try (waitForFunctionWith page "async () => { throw new Error('the predicate broke'); }" ()) >>= \case
+      Left (e :: PlaywrightError) -> Text.unpack e.message `shouldContain` "the predicate broke"
+      Right () -> expectationFailure "the wait returned, though its predicate threw"
+
   -- the tutorial's test: the compiler's "ready" line in the console, which the
   -- page writes when it is, waited for after the action that starts it.
   it "waits for a console message, which may already be there" $ \pw -> withPage pw $ \page -> do

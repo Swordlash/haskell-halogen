@@ -396,7 +396,9 @@ const pollInPage = async (page, source, argument, ms, what) => {
 );
       const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
       for (;;) {
-        if (predicate(argument)) return true;
+        // An asynchronous predicate is waited for, as Playwright's wait
+        // does: a promise is truthy whatever it will say.
+        if (await predicate(argument)) return true;
         if (Date.now() > deadline) return false;
         await frame();
       }
@@ -973,7 +975,14 @@ const methods = {
   async expectPopup(m) {
     const id = nextHandle++;
     const waiting = pageOf(m.page).waitForEvent("popup", { timeout: within(m) });
-    waiting.catch(() => {}).finally(() => setTimeout(() => popups.delete(id), 60000).unref());
+    // A popup that came is kept until awaitPopup takes it (or forgetPopup,
+    // when the action failed), however long the action goes on after it
+    // opened. A wait that ended with its timeout is kept a minute, for
+    // awaitPopup to say so, and its rejection is nobody's otherwise.
+    waiting.then(
+      () => {},
+      () => setTimeout(() => popups.delete(id), 60000).unref(),
+    );
     popups.set(id, waiting);
     return id;
   },
@@ -1012,9 +1021,14 @@ const methods = {
   async expectDownload(m) {
     const id = nextHandle++;
     const waiting = pageOf(m.page).waitForEvent("download", { timeout: within(m) });
-    // A wait nobody comes back for (the action failed) ends with its
-    // timeout; its rejection is nobody's.
-    waiting.catch(() => {}).finally(() => setTimeout(() => downloads.delete(id), 60000).unref());
+    // A download that started is kept until awaitDownload takes it (or
+    // forgetDownload, when the action failed), however long the action
+    // goes on after it. A wait nobody comes back for ends with its timeout
+    // and is kept a minute; its rejection is nobody's.
+    waiting.then(
+      () => {},
+      () => setTimeout(() => downloads.delete(id), 60000).unref(),
+    );
     downloads.set(id, waiting);
     return id;
   },
