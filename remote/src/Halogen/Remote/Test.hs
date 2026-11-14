@@ -73,6 +73,9 @@ module Halogen.Remote.Test
   , Mounted (..)
   , queryComponent
   , TestServerError (..)
+
+    -- * The page
+  , withBase
   )
 where
 
@@ -102,10 +105,11 @@ data TestSettings = TestSettings
   -- component (its container and the client's scripts), which goes in the
   -- body: where a suite adds the application's stylesheets or scripts of
   -- its own. The default is a bare HTML document. The server puts a
-  -- @\<base href>@ naming the key's address first in its @\<head>@ (first
-  -- in the page, for a shell with none), so a relative address in it is
-  -- read against the key's address, whatever route the page is at; a
-  -- @\<base>@ of the shell's own comes after it, and does nothing.
+  -- @\<base href>@ naming the key's address first in its head ('withBase':
+  -- after its doctype and @\<html>@ tag, for a shell that writes no
+  -- @\<head>@), so a relative address in it is read against the key's
+  -- address, whatever route the page is at; a @\<base>@ of the shell's own
+  -- comes after it, and does nothing.
   , pages :: [(Text, FilePath, Text)]
   -- ^ Other files to serve, as "Halogen.Remote.Server"'s 'Server.pages':
   -- the path, the file and its media type (the application's CSS, say).
@@ -201,14 +205,7 @@ withTestServerWith settings action = do
       app request respond = case Wai.pathInfo request of
         "mount" : key : _ -> respond (Wai.responseLBS status200 [(hContentType, "text/html; charset=utf-8")] (page key))
         _ -> live request respond
-      page key = LazyByteString.fromStrict (encodeUtf8 (based key (settings.shell (body key))))
-      -- The page's base, first in its head (before anything in it that a
-      -- relative address could name), or first in the body for a shell
-      -- with no head of its own.
-      based key html = case Text.breakOn "<head>" html of
-        (before, after) | not (Text.null after) -> before <> "<head>" <> baseTag key <> Text.drop 6 after
-        _ -> baseTag key <> html
-      baseTag key = "<base href=\"/mount/" <> key <> "/\">"
+      page key = LazyByteString.fromStrict (encodeUtf8 (withBase ("/mount/" <> key <> "/") (settings.shell (body key))))
       body key =
         Text.unlines
           [ "<div id=\"halogen-remote-test\"></div>"
@@ -262,18 +259,59 @@ mountingEach server program = do
   key <- newKey server
   arrived <- STM.newTQueueIO
   let mountIt session = do
+        -- Its place in the order is taken as it connects, before its
+        -- program runs: a connection whose mount takes longer than a later
+        -- one's is still given first.
+        slot <- STM.newEmptyTMVarIO
+        STM.atomically (STM.writeTQueue arrived slot)
         outcome <- tryAny $ do
           (component, input) <- Session.run session program
           Mounted session <$> Session.mount session component input
-        STM.atomically (STM.writeTQueue arrived outcome)
+        STM.atomically (STM.putTMVar slot outcome)
         either throwIO (const pass) outcome
   STM.atomically $ STM.modifyTVar' server.waiting (Map.insert key Registered {once = False, mountIt})
   let address = addressOf server key
       next =
-        timeout server.settings.connectTimeout (STM.atomically (STM.readTQueue arrived)) >>= \case
+        -- The first connection not given yet, once it has mounted: the
+        -- queue keeps it until then.
+        timeout server.settings.connectTimeout (STM.atomically (STM.readTQueue arrived >>= STM.takeTMVar)) >>= \case
           Nothing -> throwIO (NoConnection address)
           Just outcome -> either throwIO pure outcome
   pure (address, next)
+
+-- | A page with a @\<base href>@ naming an address, first in its head,
+-- before anything in it that a relative address could name: after the
+-- head's opening tag, however it is written (@\<HEAD class=\"x\">@), or,
+-- for a page that writes none, after its doctype and its @\<html>@ tag,
+-- where the browser makes the head for it. Never before the doctype: a
+-- page with anything before it is laid out in quirks mode.
+withBase :: Text -> Text -> Text
+withBase address html = Text.take at html <> tag <> Text.drop at html
+  where
+    tag = "<base href=\"" <> address <> "\">"
+    -- Lowered letter by letter, so that an index in it is one in the page.
+    lower = Text.map (\c -> if isAscii c then toLower c else c) html
+    at = fromMaybe (afterTag "<html" (afterTag "<!doctype" 0)) headOpening
+    -- Where the head's opening tag ends, if the page writes one.
+    headOpening =
+      head
+        [ Text.length before + 5 + closing rest
+        | (before, found) <- Text.breakOnAll "<head" lower
+        , let rest = Text.drop 5 found
+        , opens rest
+        ]
+    -- Where a tag of this name ends, if one starts at an index (after any
+    -- blank); the index itself otherwise.
+    afterTag name start =
+      let blank = Text.length (Text.takeWhile isSpace (Text.drop start lower))
+          rest = Text.drop (start + blank + Text.length name) lower
+       in if name `Text.isPrefixOf` Text.drop (start + blank) lower && opens rest
+            then start + blank + Text.length name + closing rest
+            else start
+    -- What follows a tag's name: the tag's end or its attributes, not more
+    -- of a longer name (@\<header>@).
+    opens rest = maybe False (\(c, _) -> c == '>' || c == '/' || isSpace c) (Text.uncons rest)
+    closing rest = Text.length (Text.takeWhile (/= '>') rest) + 1
 
 newKey :: TestServer -> IO Text
 newKey server = show <$> atomicModifyIORef' server.keys (\n -> (n + 1, n :: Int))

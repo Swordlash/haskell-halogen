@@ -38,8 +38,11 @@ function halogen_remote_attach(container, send) {
     // The nodes the batch being applied has taken out.
     removed: [],
     // How many of the program's calls it has carried out
-    // (halogen_remote_connect's probe waits for a frame after one).
+    // (halogen_remote_connect's probe waits for a frame after one), and
+    // how many moves through the page's history (it waits for the page to
+    // have gone).
     calls: 0,
+    traversals: 0,
     // The client's own listeners on the window, [type, handler] pairs.
     own: [],
     // The address the program was last told of, or moved the page to.
@@ -313,7 +316,11 @@ function halogen_remote_history(client, how, argument) {
     var address = typeof argument === "string" ? argument : undefined;
     if (how === "push") history.pushState(null, "", address);
     else if (how === "replace") history.replaceState(null, "", address);
-    else if (how === "go" && typeof argument === "number") history.go(argument);
+    else if (how === "go" && typeof argument === "number") {
+      // The page goes a moment later, and says so with a popstate.
+      client.traversals += 1;
+      history.go(argument);
+    }
   } catch (e) {
     if (typeof console !== "undefined") console.warn("halogen-remote: history " + how + " failed:", e);
   }
@@ -579,7 +586,10 @@ function halogen_remote_ignore() {}
 // page dispatch an event a moment later (a dialog's "close" comes with the
 // page's next frame), so from a batch with a call until the page has had a
 // frame (halogen_remote_after_frame) the client holds the answers it
-// receives, and looks whether an event went out only then.
+// receives, and looks whether an event went out only then. A move through
+// the page's history the program asked for (back, forward, go) is the same:
+// the page goes a moment later, so the answers are held until it has
+// (halogen_remote_after_traversal).
 function halogen_remote_connect(address, container, options) {
   var settings = options || {};
   var minDelay = typeof settings.minDelay === "number" ? settings.minDelay : 500;
@@ -670,12 +680,22 @@ function halogen_remote_connect(address, container, options) {
     socket.onmessage = function (message) {
       if (typeof message.data !== "string") return;
       var calls = client.calls;
+      var traversals = client.traversals;
       var received = halogen_remote_message(client, message.data);
       if (client.calls !== calls) {
         // The batch held a call: an event it makes the page dispatch
         // later comes with the next frame.
         state.frames += 1;
         halogen_remote_after_frame(function () {
+          state.frames -= 1;
+          release();
+        });
+      }
+      if (client.traversals !== traversals) {
+        // The batch moved through the page's history: the page goes a
+        // moment later, and the program hears where it is then.
+        state.frames += 1;
+        halogen_remote_after_traversal(function () {
           state.frames -= 1;
           release();
         });
@@ -736,6 +756,33 @@ function halogen_remote_after_frame(run) {
     });
   }
   setTimeout(once, 100);
+}
+
+// Run once the page has gone where a move through its history takes it:
+// it says so with a popstate (a hashchange, for a fragment), after whose
+// listeners, the client's own and the program's, the address and the event
+// have been sent. A move with nowhere to go (forward from the last entry)
+// says nothing, and is not waited for longer than half a second.
+function halogen_remote_after_traversal(run) {
+  var done = false;
+  function once() {
+    if (done) return;
+    done = true;
+    if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
+      window.removeEventListener("popstate", gone);
+      window.removeEventListener("hashchange", gone);
+    }
+    run();
+  }
+  // After the event's other listeners, whenever they were added.
+  function gone() {
+    setTimeout(once, 0);
+  }
+  if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+    window.addEventListener("popstate", gone);
+    window.addEventListener("hashchange", gone);
+  }
+  setTimeout(once, 500);
 }
 
 function halogen_remote_nothing() {

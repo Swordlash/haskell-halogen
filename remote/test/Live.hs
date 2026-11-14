@@ -18,6 +18,9 @@ module Main (main) where
 import Control.Concurrent
   ( forkIO
   , killThread
+  , newEmptyMVar
+  , putMVar
+  , readMVar
   , threadDelay
   )
 import Control.Concurrent.Async (concurrently)
@@ -542,6 +545,59 @@ testing server = playwright $ describe "a component per page, mounted in the tes
     pathname page `shouldReturn` (under address <> "about")
     evaluate page "window.stayed === true" `shouldReturn` True
     evaluate page "history.length" `shouldReturn` (3 :: Int)
+
+  it "settles a click that goes back through the page's history once the page is there" $ inPage $ \page -> do
+    (address, next) <- routed False
+    visit page (address <> "blog/post/1")
+    _ <- next
+    click (locator page "#to-about")
+    readOnce page "#spot" `shouldReturn` "About"
+    -- The component asks the page to go back; the page goes a moment
+    -- later, and the click is settled only once the router has heard.
+    click (locator page "#step-back")
+    readOnce page "#spot" `shouldReturn` "Post 1"
+    pathname page `shouldReturn` (under address <> "blog/post/1")
+
+  it "gives the connections of one address in the order they came, whichever mounts first" $ \pw ->
+    withContext pw defaultContextOptions $ \ctx -> do
+      arrivals <- newIORef (0 :: Int)
+      held <- newEmptyMVar
+      (address, next) <- mountingEach server $ do
+        -- The first connection's program waits; the second's does not.
+        n <- liftIO (atomicModifyIORef' arrivals (\n -> (n + 1, n)))
+        when (n == 0) (liftIO (readMVar held))
+        pure (storing, ())
+      one <- newPage ctx
+      two <- newPage ctx
+      -- The first page connects and waits to be mounted (its goto with
+      -- it: the session answers the page's probe only once its program
+      -- has run); the second is mounted meanwhile.
+      (_, (first', second')) <- concurrently (goto one address) $ do
+        eventually two (readIORef arrivals `shouldReturn` 1)
+        visit two address
+        putMVar held ()
+        (,) <$> next <*> next
+      compare first'.session second'.session `shouldBe` LT
+
+  it "puts the page's base in its head and leaves the page in standards mode, whatever its shell" $ \_ -> do
+    RemoteTest.withBase "/mount/7/" "<!doctype html><html><head><title>t</title></head><body></body></html>"
+      `shouldBe` "<!doctype html><html><head><base href=\"/mount/7/\"><title>t</title></head><body></body></html>"
+    RemoteTest.withBase "/mount/7/" "<!DOCTYPE html>\n<HTML lang=\"en\">\n<HEAD class=\"x\"><title>t</title></HEAD>"
+      `shouldBe` "<!DOCTYPE html>\n<HTML lang=\"en\">\n<HEAD class=\"x\"><base href=\"/mount/7/\"><title>t</title></HEAD>"
+    -- No head written: after the doctype and the html tag, never before.
+    RemoteTest.withBase "/mount/7/" "<!doctype html>\n<html lang=\"en\">\n<title>t</title><header>h</header>"
+      `shouldBe` "<!doctype html>\n<html lang=\"en\"><base href=\"/mount/7/\">\n<title>t</title><header>h</header>"
+    RemoteTest.withBase "/mount/7/" "<!doctype html><title>t</title>" `shouldBe` "<!doctype html><base href=\"/mount/7/\"><title>t</title>"
+    RemoteTest.withBase "/mount/7/" "<p>bare</p>" `shouldBe` "<base href=\"/mount/7/\"><p>bare</p>"
+
+  it "serves a shell that writes no head in standards mode, with the key's address its base" $ inPage $ \page -> do
+    let settings = RemoteTest.defaultTestSettings {RemoteTest.shell = \body -> "<!doctype html>\n<title>No head</title>\n" <> body}
+    RemoteTest.withTestServerWith settings $ \bare -> do
+      (address, _) <- mounting bare view ()
+      visit page address
+      evaluate page "document.compatMode" `shouldReturn` ("CSS1Compat" :: Text)
+      evaluate page "document.baseURI" `shouldReturn` address
+      readOnce page "#label" `shouldReturn` "ready"
 
   it "replaces the history's entry on a redirect, which Back skips" $ inPage $ \page -> do
     (address, next) <- routed False

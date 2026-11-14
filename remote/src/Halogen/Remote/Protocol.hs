@@ -215,7 +215,9 @@
 -- sent an event since the question: it asks again, until an answer comes
 -- that no event followed. From a batch with a @call@ until the page's next
 -- frame it holds the answers it receives, since some events a call causes
--- are dispatched then (a dialog's @close@).
+-- are dispatched then (a dialog's @close@); and from a batch with a
+-- @history@ @go@ until the page has gone there (its @popstate@), since the
+-- page moves through its history a moment after it is asked.
 --
 -- = Messages a side does not know
 --

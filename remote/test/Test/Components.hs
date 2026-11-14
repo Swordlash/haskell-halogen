@@ -47,6 +47,7 @@ import Web.Event.Event (EventType (..))
 import Web.HTML.Common (AttrName (..))
 import Web.HTML.HTMLDialogElement qualified as HTMLDialogElement
 import Web.HTML.HTMLElement qualified as HTMLElement
+import Web.HTML.History qualified as History
 import Web.Storage.Storage qualified as Storage
 import Web.UIEvent.KeyboardEvent.EventTypes qualified as KET
 import Web.UIEvent.MouseEvent qualified as ME
@@ -421,12 +422,12 @@ spots =
       .+ #Post Row..== path "blog" (path "post" (int segment))
       .+ #About Row..== path "about" noArgs
 
-data Moving = Moved Spot | Went (Router.Follow Spot) | RedirectAbout
+data Moving = Moved Spot | Went (Router.Follow Spot) | RedirectAbout | StepBack
 
 -- | Where the router says the page is, links to each place, and a button
 -- that redirects to the page about the site (the history's entry
 -- replaced): what a routed page of an application is, given its router.
-routing :: forall q m. (MonadIO m) => H.Component q (Router.Router Spot) Void m
+routing :: forall q m. (MonadIO m, MonadBrowserDOM m) => H.Component q (Router.Router Spot) Void m
 routing = routed pure (const pass)
 
 -- | 'routing', with a hash router of its own, made as it starts and stopped
@@ -434,7 +435,7 @@ routing = routed pure (const pass)
 hashRouting :: forall q m. (MonadUnliftIO m, MonadBrowserDOM m) => H.Component q () Void m
 hashRouting = routed (\() -> Router.newHashRouter Front spots) Router.stop
 
-routed :: forall q i m. (MonadIO m) => (i -> m (Router.Router Spot)) -> (Router.Router Spot -> IO ()) -> H.Component q i Void m
+routed :: forall q i m. (MonadIO m, MonadBrowserDOM m) => (i -> m (Router.Router Spot)) -> (Router.Router Spot -> IO ()) -> H.Component q i Void m
 routed made stopped =
   H.component
     (\i -> made i >>= \router -> (router,) <$> Router.current router)
@@ -453,6 +454,9 @@ routed made stopped =
         RedirectAbout -> do
           (router, _) <- get
           Router.redirect router About
+        -- Back through the page's history, as a page's own Back button
+        -- does it: through the window's history, not the router.
+        StepBack -> H.liftEffect (DOM.window >>= \w -> liftIO (History.back w.history))
     ]
   where
     render :: (Router.Router Spot, Spot) -> H.ComponentHTML Moving Empty m
@@ -463,6 +467,7 @@ routed made stopped =
         , Router.link router Went (Post 1) [HP.id "to-post"] [HH.text "The first post"]
         , Router.link router Went About [HP.id "to-about"] [HH.text "About"]
         , HH.button [HP.id "redirect", HE.onClick (const RedirectAbout)] [HH.text "Redirect"]
+        , HH.button [HP.id "step-back", HE.onClick (const StepBack)] [HH.text "Back"]
         ]
 
 data Stored = Stored {count :: Int, visits :: Int}
