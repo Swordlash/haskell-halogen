@@ -32,6 +32,13 @@ module Halogen.JSBits.Value
   , freeCallback
   , invokeCallback
   , inBrowser
+  , NativeObject (..)
+  , answering
+  , nativeCall
+  , nativeSet
+  , nativeGet
+  , nativeInstanceOf
+  , textValue
   , Inert (..)
   , JSError (..)
   , checkThrown
@@ -45,6 +52,7 @@ import Data.ByteString qualified as ByteString
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Halogen.JSBits.Object (NativeObject (..))
 import System.IO.Unsafe (unsafePerformIO)
 
 #if !defined(HALOGEN_WASI) && (defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH))
@@ -69,6 +77,26 @@ import Data.Dynamic (fromDynamic, toDyn)
 import Data.Maybe (fromMaybe, isJust)
 import Halogen.JSBits.Native (Callback (..), JSVal (..))
 #endif
+
+-- | The value, answering for itself natively when a member of it is used
+-- through "Halogen.JSBits.Fields" ('NativeObject'): what a backend that is
+-- not a browser makes its handles of. What the value holds is read as
+-- before. In a browser the value is the engine's and answers as JavaScript
+-- does, so this is the value itself.
+answering :: NativeObject JSVal -> JSVal -> JSVal
+
+-- | What "Halogen.JSBits.Fields" writes natively for a member: the
+-- object's answer, if the value is one that answers ('answering'), and
+-- otherwise the inert one (nothing done, 'Nothing', 'False'). In a browser
+-- they are never asked, and give the inert answer.
+nativeCall :: JSVal -> Text -> [JSVal] -> IO ()
+nativeSet :: JSVal -> Text -> JSVal -> IO ()
+nativeGet :: JSVal -> Text -> Maybe JSVal
+nativeInstanceOf :: JSVal -> Text -> Bool
+
+-- | Text as a value of any kind: a string in a browser ('toJSText'), the
+-- 'Text' natively.
+textValue :: Text -> JSVal
 
 -- | Whether the program runs in a JavaScript engine. Natively every binding
 -- is an 'inert' stub, and the few wrappers that must do something else there
@@ -283,6 +311,13 @@ foreign import javascript unsafe "((o) => { const e = o.error; try { return e !=
 foreign import javascript unsafe "((o) => { const e = o.error; try { return e !== null && typeof e === \"object\" && typeof e.name === \"string\" ? String(e.message ?? \"\") : String(e); } catch (_) { return \"\"; } })"
   js_thrown_message :: JSVal -> IO JSText
 
+answering _ value = value
+nativeCall _ _ _ = pure ()
+nativeSet _ _ _ = pure ()
+nativeGet _ _ = Nothing
+nativeInstanceOf _ _ = False
+textValue = toJSText
+
 instance Inert JSVal where inert = JS.jsNull
 #elif defined(wasm32_HOST_ARCH) && !defined(HALOGEN_WASI)
 inBrowser = True
@@ -392,6 +427,13 @@ foreign import javascript unsafe "$1($2)" js_invoke :: Callback -> JSVal -> IO (
 
 foreign import javascript unsafe "null" js_null :: JSVal
 
+answering _ value = value
+nativeCall _ _ _ = pure ()
+nativeSet _ _ _ = pure ()
+nativeGet _ _ = Nothing
+nativeInstanceOf _ _ = False
+textValue = toJSText
+
 instance Inert JSVal where inert = js_null
 #else
 inBrowser = False
@@ -416,6 +458,13 @@ mkSyncCallback f = mkCallback (asSyncCallback . f)
 freeCallback _ = pure ()
 invokeCallback (Callback (JSVal held)) argument =
   maybe (pure ()) ($ argument) (fromDynamic held :: Maybe (JSVal -> IO ()))
+
+answering object (JSVal held) = NativeValue held (Just object)
+nativeCall (NativeValue _ object) name arguments = maybe (pure ()) (\o -> o.call name arguments) object
+nativeSet (NativeValue _ object) name value = maybe (pure ()) (\o -> o.set name value) object
+nativeGet (NativeValue _ object) name = object >>= \o -> o.get name
+nativeInstanceOf (NativeValue _ object) name = maybe False (\o -> o.instanceOf name) object
+textValue = JSVal . toDyn
 
 instance Inert JSVal where inert = jsNull
 #endif
