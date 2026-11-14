@@ -176,6 +176,16 @@ What the wiki's smoke tests found next, each with a test of its own:
   its frames came back read before the frame it should have waited for). An
   action on an element in a frame now settles the frame's own program as
   well as the page's: before, only the page's document was asked.
+- A frame that may not run scripts (sandboxed without `allow-scripts`) is
+  left alone. Since settle began to wait for the history and to settle
+  frames, the driver's init script left a `pagehide` listener in every
+  document, and Chromium wrote "Blocked script execution in 'about:blank'
+  because the document's frame is sandboxed" to the page's console for
+  every such frame a page's script made (a suite that fails a page on any
+  console error failed there); and an action on an element in such a frame
+  timed out, waiting for a timer the frame could never run. The init script
+  now notes nothing in a document that may not run scripts, and an action in
+  one settles at once.
 - `HALOGEN_PLAYWRIGHT_ARGS` gives Chromium more arguments, to run a suite as
   another machine's browser would (Chromium turns some behaviour on by
   machine; the README names the one that has mattered).

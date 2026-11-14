@@ -107,7 +107,11 @@ other way: `--enable-features=RenderDocument:level/all-frames`, or
   navigation that takes the document away is not an error. An action on an
   element in a frame (`inFrame`, `frameAt`) settles the frame's document
   first, which has a program of its own, and then the page's. On a page with no
-  Halogen program it waits for the task, the move and the frame. A hidden
+  Halogen program it waits for the task, the move and the frame. A document
+  that may not run scripts (a frame sandboxed without `allow-scripts`, as
+  untrusted markup is shown) is left alone: nothing of the driver's runs in
+  it, since the browser would refuse and write an error to the page's
+  console each time, and an action in it settles at once. A hidden
   page draws no frames and is not waited for; a page whose frame does not
   come within 100 ms is waited for 20 ms at most from then on, until it
   draws one. The frame
