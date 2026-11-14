@@ -73,8 +73,10 @@ spec m = do
     eventually (unsafeIOToPageM (shadowText "shadow") `shouldReturn` "Apples+0")
     unsafeIOToPageM (shadowColour "shadow" ".label") `shouldReturn` "rgb(1, 2, 3)"
     unsafeIOToPageM (lightHTML "shadow") `shouldReturn` ""
+    -- A click from script, which no action settles: settle does.
     unsafeIOToPageM (shadowClick "shadow" "button.increment")
-    eventually (unsafeIOToPageM (shadowText "shadow") `shouldReturn` "Apples+1")
+    settle
+    unsafeIOToPageM (shadowText "shadow") `shouldReturn` "Apples+1"
     undefine registration
 
   it "leaves nothing behind when an element already on the page fails to mount" $ runPage $ do

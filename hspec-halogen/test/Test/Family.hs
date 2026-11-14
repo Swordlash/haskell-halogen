@@ -1,9 +1,9 @@
 module Test.Family (spec) where
 
 import Control.Monad.UUID (MonadUUID)
+import Data.IORef (IORef, newIORef, readIORef)
 import Example.Family qualified as Family
 import Halogen qualified as H
-import Data.IORef (IORef, newIORef, readIORef)
 import Protolude hiding (find)
 import Test.Hspec.Halogen
 
@@ -48,7 +48,10 @@ spec m = do
     (ui, journal) <- family m
     addChildren ui 2
     removeChild ui 1
-    eventually $ unsafeIOToPageM (readIORef journal) `shouldReturn` ["finalised bo"]
+    -- The finaliser writes in a liftIO, a fiber of the tree's like any
+    -- other while the tree is mounted: once the program is quiet it has.
+    waitQuiet
+    unsafeIOToPageM (readIORef journal) `shouldReturn` ["finalised bo"]
 
   it "runs every child's finaliser when it is unmounted" $ runPage $ do
     (ui, journal) <- family m

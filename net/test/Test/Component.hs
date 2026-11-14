@@ -35,7 +35,11 @@ spec m = do
     ticks `shouldHaveText` "2"
     textContent result `shouldReturn` "loading"
     unsafeIOToPageM (release "pattern")
-    eventually (result `shouldHaveText` fixtureText)
+    -- The response, and its body, are what the fiber waiting in lift was
+    -- waiting for: once the program is quiet they have come and been
+    -- rendered.
+    waitQuiet
+    textContent result `shouldReturn` fixtureText
 
   it "aborts a request it keeps from another action" $ runPage $ do
     ui <- mount m (loader :: H.Component H.VoidF Text Void m) "held/kept-in-state/fixture.txt"
