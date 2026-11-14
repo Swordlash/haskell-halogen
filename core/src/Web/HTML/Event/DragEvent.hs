@@ -10,6 +10,7 @@ module Web.HTML.Event.DragEvent
   )
 where
 
+import Data.Foreign (readProp)
 import HPrelude
 import Halogen.JSBits (Inert)
 import Halogen.JSBits.Fields (Member (..), jsCast, jsFieldFunctions, jsFields)
@@ -28,7 +29,12 @@ $( jsFields
      [ -- What is being dragged, or dropped: the files of a drop are its
        -- 'Web.HTML.Event.DataTransfer.files'. 'Nothing' for a drag event a
        -- page made without one.
-       Fixed "dataTransfer" [t|Maybe DataTransfer|]
+       --
+       -- Natively, the event's JSON's @dataTransfer@ ("Web.HTML.Event.DataTransfer"
+       -- reads it).
+       Natively
+         [|\(DragEvent (Event value)) -> DataTransfer <$> readProp "dataTransfer" Just value|]
+         (Fixed "dataTransfer" [t|Maybe DataTransfer|])
      ]
  )
 

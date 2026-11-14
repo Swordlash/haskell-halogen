@@ -2,6 +2,53 @@
 
 ## Unreleased
 
+A handler can declare two more kinds of match. `HE.within "a[href]"
+HE.plainLeftClick` is for one handler on a container that hears the clicks
+on the links inside it, as a page of rendered Markdown has: the event's
+target is, or is inside, an element the CSS selector matches, inside the
+listening element, and the inner match is judged on that element, so the
+plain click is judged on the link (its `target`, its `download`), not on the
+container. A link outside the listening element does not count, even when it
+is the only one the selector finds; a target that is not an element starts
+from its parent; a selector that does not parse matches nothing rather than
+throwing (which on WebAssembly would end the program). A `within` inside
+another looks for its element inside the outer one's. `HE.carrying
+["Files"]` is for a drag or a paste that carries data of one of the types
+its `dataTransfer` or `clipboardData` lists (`"Files"`, `"text/plain"`), so
+a paste of files can be the component's and one of text the browser's. A
+file's own media type is not one of the types. `EventMatch` gained the
+constructors `Within` and `Carrying`: code that matches on it exhaustively
+adds two cases.
+
+A handler with a match now runs its function before the listener prevents
+the default or stops the event, as a handler without one always has: a
+function that reads the event in the listener (`Event.defaultPreventedNow`,
+to leave alone a click something else prevented) sees it as the page
+dispatched it, not as its own `HE.preventingDefault` left it. Before, such a
+function always found the default prevented and made no action.
+
+The reads a handler makes in its listener answer natively from an event made
+from JSON (a test's, or one haskell-halogen-remote's client sent), so the
+same handler gives the same answer there as in a page: `Event.target`, which
+was `Nothing`; `Element.fromEventTarget`, which takes an object with a
+`tagName` for an element; `Element.closestNow`, which answers from the
+element's `closest` object by selector (there is no selector engine
+natively); `Element.getAttributeNow`, from its `attributes` object;
+`Event.defaultPreventedNow`; `DragEvent.dataTransfer` and
+`ClipboardEvent.clipboardData`; and of a transfer, the new
+`DataTransfer.types` (also in the browser, a pure read of what it carries)
+and `DataTransfer.getData` (new, in the browser too), and its files'
+`FileList.now`, `length` and `item`, and each file's `name`, `type`, `size`
+and `lastModified`. A file's bytes are not there natively: `File.text` and
+`File.bytes` give a promise rejected with `NotInBrowserError`, as every
+promise natively does. `Element.closestNow` no longer throws for a selector
+that does not parse, and finds nothing instead. `Element.fromEventTarget`
+also takes, in a browser, an object with a `tagName` (an event a remote
+client described, in haskell-halogen-remote's loopback). Natively,
+`Data.Foreign.readProp` reads a JSON array as JavaScript does (its `length`,
+its elements by index), and the new `Data.Foreign.readElements` lists an
+array's elements.
+
 The in-memory DOM's handles answer for themselves when a program uses the
 `Web.*` types on them (haskell-halogen-jsbits' `withNativeObject`): a method that
 returns nothing or a property's assignment is noted on the node, and

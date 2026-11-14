@@ -20,8 +20,9 @@ module Web.Event.Event
   )
 where
 
+import Data.Foreign (foreignToBool, readProp)
 import HPrelude
-import Halogen.JSBits (JSText, toJSText)
+import Halogen.JSBits (JSText, inBrowser, toJSText)
 import Halogen.JSBits.Fields (inlineJS, jsFieldFunctions)
 import Web.Event.Internal.Types
 
@@ -38,10 +39,15 @@ $(inlineJS "js_default_prevented_now" "$1.defaultPrevented" [t|Event -> Bool|])
 -- | 'defaultPrevented', read purely, as the event is when the answer is
 -- forced: for a handler that decides in the event's listener
 -- ('Halogen.HTML.Events.handler'' gives it a pure function of the event),
--- which leaves an event an earlier listener has handled alone. Natively
--- 'False'.
+-- which leaves an event an earlier listener has handled alone. Natively it
+-- is the event's @defaultPrevented@ property, as an event made from JSON (a
+-- test's, or one a remote client sent, which says @true@ when something in
+-- the page prevented the default before the client got the event) has it,
+-- and 'False' for any other event.
 defaultPreventedNow :: Event -> Bool
-defaultPreventedNow = js_default_prevented_now
+defaultPreventedNow event@(Event value)
+  | inBrowser = js_default_prevented_now event
+  | otherwise = readProp "defaultPrevented" (Just . foreignToBool) value == Just True
 
 -- | A new event of a type, for 'dispatchEvent' to send to a target: one a
 -- program makes for listeners of its own, saying whether it bubbles up
