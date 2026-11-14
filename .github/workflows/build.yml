@@ -126,7 +126,8 @@ jobs:
     # About 18 minutes with the caches warm. Without a limit a build that
     # hangs holds the runner for GitHub's six hours: one stopped at
     # DOM.HTML.Indexed, whose splice the JavaScript backend runs in node,
-    # with "terminated" printed twice and nothing after it.
+    # with "terminated" printed twice and nothing after it. The Build step
+    # has a shorter limit of its own, which leaves a log.
     timeout-minutes: 90
 
     steps:
@@ -278,9 +279,14 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-ghcjs-build-${{ env.GHCJS_VERSION }}-
 
-    # Also writes the bundle sizes to the job summary.
+    # Also writes the bundle sizes to the job summary. Under a limit of its
+    # own and with the machine's memory printed once a minute: the build has
+    # twice stopped at DOM.HTML.Indexed and held the runner, which then
+    # uploaded no log. A build still going after an hour (one with warm caches
+    # takes eight minutes) is killed, so that the step fails with a log that
+    # says what memory was left, whose it was, and what the kernel killed.
     - name: Build
-      run: npm run build-js
+      run: sh toolchain/with-memory-watch.sh 60 npm run build-js
 
     # Before the tests: the suites built with hspec-halogen (hspec-halogen's,
     # material's, net's, custom-element's, devtools', remote's, tauri's and
@@ -309,11 +315,15 @@ jobs:
         fi
         ghcup set ghc "$GHC_VERSION"
 
+    # Under the same watch as the build: this step compiles the test suites,
+    # some with splices of their own, before it runs them, and on the very
+    # change that put the watch on the build it was still going after more
+    # than twenty minutes, against the eight it takes.
     - name: Test
       env:
         HSPEC_HALOGEN_JOBS: '2'
         HSPEC_HALOGEN_WORKERS: '2'
-      run: npm run test-ghcjs
+      run: sh toolchain/with-memory-watch.sh 45 npm run test-ghcjs
 
   # The wasm build is two jobs that run side by side: test-wasm, the test
   # suites, and learn-wasm, the tutorial and every other example as the
