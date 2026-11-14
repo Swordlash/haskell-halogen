@@ -14,7 +14,6 @@ where
 import Data.IORef (IORef, atomicModifyIORef')
 import Data.Time (NominalDiffTime)
 import Halogen.Hooks qualified as Hooks
-import Halogen.Hooks.Extra.Internal.Delay (delayFor)
 import Halogen.Hooks.Internal.HookM (effectIO)
 import Halogen.Hooks.Types (Hook, HookK (..), HookM)
 import Protolude
@@ -29,6 +28,9 @@ type UseThrottle a hooks = UseRef (Throttling a) : hooks
 -- | Wrap an action so that it runs at most once per period.
 --
 -- The waiting is a component fork, so it is killed along with the component.
+-- It is a counted pause ('Hooks.delayCounted'): a test that waits for the
+-- program to be quiet waits for it, and in a tree under a test's clock
+-- ("Halogen.Activity.Control") the test moves it on with @advance@.
 useThrottle
   :: forall a scope q slots output m hooks
    . (MonadIO m)
@@ -51,7 +53,7 @@ useThrottle period act = Hooks.do
   where
     drain :: IORef (Throttling a) -> HookM scope slots output m ()
     drain throttle = do
-      delayFor period
+      Hooks.delayCounted period
       waiting <- effectIO $ atomicModifyIORef' throttle $ \case
         Just (Just a) -> (Just Nothing, Just a)
         _ -> (Nothing, Nothing)

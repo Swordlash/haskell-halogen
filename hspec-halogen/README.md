@@ -273,7 +273,7 @@ busy five seconds after the action fails the test, saying how many trees
 were running, followed by what the trees did.
 
 What a component's fiber waits for in a `liftIO` (a request, a debounce
-written `liftIO (threadDelay n)`) is not part of `settle`:
+written `H.delayCounted`) is not part of `settle`:
 
 - `waitQuiet`: `settle`, and until no fiber is waiting in a `liftIO` either,
   then the page settled again, so one read sees what came back. It fails
@@ -283,7 +283,8 @@ written `liftIO (threadDelay n)`) is not part of `settle`:
 - A pause written with `H.delay` (`Hooks.delay`) is not waited for, on
   purpose: the program says which of its pauses a test waits for by how it
   writes them. A pause before work a test waits for (a debounce before a
-  request, an autosave) is `liftIO (threadDelay n)`; one that only takes
+  request, an autosave) is `H.delayCounted` (or `liftIO (threadDelay n)`,
+  which counts the same but a test's clock cannot move); one that only takes
   something off the screen or ticks (a "Saved" notice, a clock) is
   `H.delay`, so a test can see the notice before it goes, and a ticker does
   not keep the program from ever being quiet.

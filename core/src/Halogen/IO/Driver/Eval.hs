@@ -23,8 +23,8 @@ import Data.Functor.Coyoneda
 import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict qualified as M
 import Data.NT
-import Data.Time (NominalDiffTime, nominalDiffTimeToSeconds)
 import HPrelude hiding (Concurrently, finally, join, runConcurrently, state, throwIO)
+import Halogen.Activity.Control.Internal (awaitHeld, pause, unliftedRuns)
 import Halogen.Component
 import Halogen.IO.Driver.Runtime
 import Halogen.IO.Driver.State
@@ -43,8 +43,12 @@ data ComponentGone = ComponentGone
 instance Exception ComponentGone
 
 -- | A program of the component, as a fiber's steps. Everything but 'Lift',
--- 'Delay' (and 'Unlift', whose body is arbitrary 'IO') is synchronous work
--- on the loop.
+-- 'Delay', 'DelayCounted' (and 'Unlift', whose body is arbitrary 'IO') is
+-- synchronous work on the loop.
+--
+-- A tree mounted under a test's control ("Halogen.Activity.Control") has
+-- its waits held and its pauses on the test's clock; the tree's 'control'
+-- says so, and is 'Nothing' for every other tree.
 evalM
   :: forall m r s f act ps i o a
    . IORef (DriverState m r s f act ps i o)
@@ -79,10 +83,13 @@ evalM var (HalogenM hm) = foldF go hm
         pure next
       Lift aff -> do
         ds <- sync (readIORef var)
-        await (treeRunM ds.tree aff)
+        awaitHeld ds.tree.control ds.tag (treeRunM ds.tree aff)
       -- The same suspension, with its own worker killed with the fiber,
-      -- but not counted as waiting (see 'delay').
-      Delay d a -> a <$ awaitUncounted (sleepFor d)
+      -- but not counted as waiting (see 'delay'); or, on a test's clock,
+      -- a sleeper the test wakes.
+      Delay d a -> withDriverState $ \ds -> a <$ pause ds.tree.control False d
+      -- Counted as waiting, as 'Lift' is.
+      DelayCounted d a -> withDriverState $ \ds -> a <$ pause ds.tree.control True d
       LiftEffect eff -> do
         ds <- sync (readIORef var)
         sync (withinEffect ds.tree.loop (treeRunM ds.tree eff))
@@ -90,10 +97,19 @@ evalM var (HalogenM hm) = foldF go hm
         ds <- sync (readIORef var)
         -- The body is arbitrary IO, run on a worker; each program it runs
         -- is a fiber of this component, handed to the loop, and waited for.
-        await $ q $ UnliftIO $ \program -> do
+        -- In a tree a test controls, the worker is parked while it waits
+        -- for a program of its own ('unliftedRuns').
+        started <- sync (unliftedRuns ds.tree.control)
+        -- Masked from queuing the program, whose end unparks the worker,
+        -- until the worker is parked for it (none of it blocks): a worker
+        -- killed in between would otherwise be parked with nothing to
+        -- unpark it, or not at all. Only the wait is not masked.
+        awaitHeld ds.tree.control ds.tag $ q $ UnliftIO $ \program -> mask $ \restore -> do
           result <- newEmptyMVar
-          post ds.tree.loop $ launchOwned var False (const pass) (evalM var program) (putMVar result)
-          takeMVar result >>= \case
+          (parked, ended) <- started
+          post ds.tree.loop $ launchOwned var False (const pass) (evalM var program) (\outcome -> ended >> putMVar result outcome)
+          parked
+          restore (takeMVar result) `onException` ended >>= \case
             Done a -> pure a
             Failed e -> throwIO e
             Cancelled -> throwIO ComponentGone
@@ -145,6 +161,12 @@ evalM var (HalogenM hm) = foldF go hm
       GetRef (Input.RefLabel p) k -> sync $ do
         DriverState {refs} <- readIORef var
         pure $ k $ M.lookup p refs
+
+    -- The component's state as the next step finds it, read with nothing
+    -- else: no step of its own (a pause read none before it had a clock
+    -- to ask for).
+    withDriverState :: forall x. (DriverState m r s f act ps i o -> Turn x) -> Turn x
+    withDriverState f = Turn $ \fb ek k -> readIORef var >>= \ds -> runTurn (f ds) fb ek k
 
     update :: forall x. (s -> (x, s)) -> IO x
     update f = do
@@ -253,23 +275,6 @@ report what = \case
 -- | A state as the trace carries it, when its type is known.
 stateDynamic :: ComponentInfo s -> s -> Maybe Dynamic
 stateDynamic info s = (`Dynamic` s) <$> info.stateType
-
--- | Sleep for a duration, in parts small enough for an 'Int' of
--- microseconds on a 32-bit backend (WebAssembly's and JavaScript's 'Int'
--- holds about 35 minutes of them). Rounded up to the microsecond, so that a
--- pause is never shorter than asked; nothing at all for a duration that is
--- not positive.
-sleepFor :: NominalDiffTime -> IO ()
-sleepFor d = go (ceiling (nominalDiffTimeToSeconds d * 1_000_000) :: Integer)
-  where
-    go n
-      | n <= 0 = pass
-      | otherwise = do
-          let part = min n chunk
-          threadDelay (fromInteger part)
-          go (n - part)
-    -- A thousand seconds, well inside a 32-bit 'Int' of microseconds.
-    chunk = 1_000_000_000
 
 fresh :: (Int -> a) -> DriverState m r s f act ps i o -> IO a
 fresh f ds = atomicModifyIORef' ds.fresh (\i -> (i + 1, f i))

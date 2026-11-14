@@ -19,6 +19,7 @@ where
 
 import Data.Row
 import HPrelude hiding (state)
+import Halogen.Activity.Control.Internal (TreeControl)
 import Halogen.Component
 import Halogen.Data.Slot as SlotStorage
 import Halogen.IO.Driver.Runtime (Fiber, Loop)
@@ -54,6 +55,9 @@ data Tree m r = Tree
   -- what is to run once none is left: nothing in the tree waits for them,
   -- but a page rendered ahead of its program does
   -- ('Halogen.IO.Driver.Mount.runUIInitialized').
+  , control :: Maybe TreeControl
+  -- ^ The test's control of the tree's waits and pauses, if it was mounted
+  -- inside a bracket of "Halogen.Activity.Control"'s.
   }
 
 -- | Run the components' monad (the fields are polymorphic, so not reached

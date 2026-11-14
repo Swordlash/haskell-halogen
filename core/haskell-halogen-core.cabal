@@ -118,6 +118,7 @@ library
 
       Halogen
       Halogen.Activity
+      Halogen.Activity.Control
 
       Halogen.VDom
       Halogen.Data.Slot
@@ -232,6 +233,7 @@ library
       
     other-modules:
       HPrelude
+      Halogen.Activity.Control.Internal
       Halogen.Activity.Internal
       Halogen.Activity.Signal
       Halogen.IO.Driver.Mount
@@ -298,9 +300,11 @@ test-suite Halogen-core-test
                       row-types,
                       text,
                       time,
+                      unliftio-core,
                       unordered-containers
     
     other-modules:  Test.Activity
+                    Test.Control
                     Test.Canvas
                     Test.CanvasMachine
                     Test.Cookie

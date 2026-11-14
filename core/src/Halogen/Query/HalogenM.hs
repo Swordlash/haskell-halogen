@@ -33,6 +33,9 @@ data HalogenF state action slots output m a
   | -- | A pause: as a 'Lift' of a sleep, but not counted as waiting by
     -- "Halogen.Activity" (see 'delay').
     Delay NominalDiffTime a
+  | -- | A pause counted as waiting, as a 'Lift' of a sleep is (see
+    -- 'delayCounted').
+    DelayCounted NominalDiffTime a
   | Unlift (UnliftIO (HalogenM state action slots output m) -> IO a)
   | ChildQuery (CQ.ChildQuery slots a)
   | Raise output a
@@ -54,6 +57,7 @@ instance (Functor m) => Functor (HalogenF state' action slots' output m) where
     Lift m -> Lift (fmap f m)
     LiftEffect m -> LiftEffect (fmap f m)
     Delay d a -> Delay d (f a)
+    DelayCounted d a -> DelayCounted d (f a)
     Unlift q -> Unlift (fmap f . q)
     ChildQuery cq -> ChildQuery (fmap f cq)
     Raise o a -> Raise o (f a)
@@ -110,20 +114,20 @@ liftEffect = HalogenM . liftF . LiftEffect
 -- | Pause the program for this long (in seconds: @delay 3@ is three
 -- seconds, @delay 0.2@ a fifth of one), while the rest of the tree goes on.
 --
--- It is @liftIO (threadDelay n)@ in every way but one: "Halogen.Activity"
--- does not count the fiber as waiting while it sleeps. It is neither
--- running nor waiting until it wakes, and like any other once it has. So a
--- test that waits for the program to be quiet
--- ('Halogen.Activity.waitQuiet', or a browser driver's) does not wait for
--- the pause. A pause is still the fiber's: a fork that is killed, or a
--- component that goes away, ends it, and what follows it never runs.
+-- It is 'delayCounted' in every way but one: "Halogen.Activity" does not
+-- count the fiber as waiting while it sleeps. It is neither running nor
+-- waiting until it wakes, and like any other once it has. So a test that
+-- waits for the program to be quiet ('Halogen.Activity.waitQuiet', or a
+-- browser driver's) does not wait for the pause. A pause is still the
+-- fiber's: a fork that is killed, or a component that goes away, ends it,
+-- and what follows it never runs.
 --
 -- Which to write depends on what comes after the pause, and only the
 -- application knows that:
 --
 -- * A pause followed by work a test should wait for -- a debounce before a
 --   request, a draft saved two seconds after the last key -- is waiting:
---   write it @liftIO (threadDelay n)@, and a quiet program then means the
+--   write it with 'delayCounted', and a quiet program then means the
 --   request has been made and answered.
 --
 -- * A pause that only takes something off the screen or ticks -- a
@@ -132,6 +136,11 @@ liftEffect = HalogenM . liftF . LiftEffect
 --   work anybody waits for: write it with 'delay'. Otherwise a quiet
 --   program would mean the notice is gone (so a test could never see it),
 --   and a ticker would keep the program from ever being quiet.
+--
+-- Both sleep on a test's clock in a tree mounted under one
+-- ("Halogen.Activity.Control"'s 'Halogen.Activity.Control.withTestClock'),
+-- so a test moves them on without waiting; @liftIO (threadDelay n)@, which
+-- counts as 'delayCounted' does, always sleeps on the real clock.
 --
 -- The duration is a 'NominalDiffTime', as every duration in this library
 -- and @haskell-halogen-hooks@ is, so that its unit is in its type rather
@@ -145,6 +154,19 @@ liftEffect = HalogenM . liftF . LiftEffect
 -- a pause in an @Initialize@ itself (not in a fork) holds up the render.
 delay :: forall state action slots output m. (Functor m) => NominalDiffTime -> HalogenM state action slots output m ()
 delay d = HalogenM $ liftF $ Delay d ()
+
+-- | Pause the program for this long (in seconds), counted as waiting: the
+-- pause before work a test waits for, such as a debounce before a request
+-- or an autosave after the last key (see 'delay' for which to write).
+--
+-- On the real clock it is @liftIO (threadDelay n)@, with the duration in
+-- seconds: "Halogen.Activity" counts the fiber as waiting until it wakes,
+-- so a quiet program means the work after it is done. In a tree mounted
+-- under a test's clock ('Halogen.Activity.Control.withTestClock') it
+-- sleeps on that clock instead, and the test moves it on with
+-- 'Halogen.Activity.Control.advance' rather than waiting for it.
+delayCounted :: forall state action slots output m. (Functor m) => NominalDiffTime -> HalogenM state action slots output m ()
+delayCounted d = HalogenM $ liftF $ DelayCounted d ()
 
 instance (MonadUnliftIO m) => MonadUnliftIO (HalogenM state' action slots' output m) where
   withRunInIO inner =
@@ -346,6 +368,7 @@ mapHalogen lens fa fo nat (HalogenM alg) = HalogenM (hoistF go alg)
       Lift q -> Lift (runNT nat q)
       LiftEffect q -> LiftEffect (runNT nat q)
       Delay d a -> Delay d a
+      DelayCounted d a -> DelayCounted d a
       Unlift q -> Unlift $ q . mapUnliftIO (mapHalogen lens fa fo nat)
       ChildQuery cq -> ChildQuery cq
       Raise o a -> Raise (fo o) a

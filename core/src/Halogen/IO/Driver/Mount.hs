@@ -19,6 +19,7 @@ import Data.NT
 import Data.Row
 import GHC.Clock (getMonotonicTime)
 import HPrelude hiding (get, onException, throwIO, try)
+import Halogen.Activity.Control.Internal (controlFor)
 import Halogen.Activity.Internal qualified as Activity
 import Halogen.Component
 import Halogen.Data.Slot qualified as Slot
@@ -154,9 +155,12 @@ mount
   -> m (HalogenSocket f o m)
 mount toTheEnd spec@RenderSpec {dispose} c i = withRunInIO $ \runInIO -> do
   loop <- newLoop
+  -- On the thread that mounts: a test's bracket open there controls the
+  -- tree ("Halogen.Activity.Control"). With none open anywhere, one read.
+  control <- controlFor loop
   batch <- newIORef Nothing
   initializing <- newIORef (0, [])
-  let tree = Tree {loop, runM = runInIO, batch, render = renderComponent tree spec, initializing}
+  let tree = Tree {loop, runM = runInIO, batch, render = renderComponent tree spec, initializing, control}
   sio <- runInIO HS.create
   mounted <- newEmptyMVar
   -- The tree's outputs reach its listeners at once, on the tree's loop, as

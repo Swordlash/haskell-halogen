@@ -19,7 +19,6 @@ where
 import Data.IORef (readIORef, writeIORef)
 import Data.Time (NominalDiffTime)
 import Halogen.Hooks qualified as Hooks
-import Halogen.Hooks.Extra.Internal.Delay (delayFor)
 import Halogen.Hooks.Internal.HookM (effectIO)
 import Halogen.Hooks.Types (Hook, HookK (..), HookM)
 import Halogen.Query.HalogenM (ForkId)
@@ -32,6 +31,9 @@ type UseDebouncer hooks = UseRef (Maybe ForkId) : hooks
 -- without another value arriving. The action runs with the most recent value.
 --
 -- The waiting is a component fork, so it is killed along with the component.
+-- It is a counted pause ('Hooks.delayCounted'): a test that waits for the
+-- program to be quiet waits for it, and in a tree under a test's clock
+-- ("Halogen.Activity.Control") the test moves it on with @advance@.
 useDebouncer
   :: forall a scope q slots output m hooks
    . (MonadIO m)
@@ -46,7 +48,7 @@ useDebouncer quiet act = Hooks.do
     -- Whatever was waiting is no longer the latest value.
     traverse_ Hooks.kill =<< effectIO (readIORef pending)
     forkId <- Hooks.fork $ do
-      delayFor quiet
+      Hooks.delayCounted quiet
       effectIO $ writeIORef pending Nothing
       act a
     effectIO $ writeIORef pending (Just forkId)

@@ -11,7 +11,7 @@ args: -package haskell-halogen-hooks
 - `Hooks.useState initial` gives this render's value and a handle for changing it, `countId`. A click handler is a `Hooks.HookM` program: `Hooks.modify_ countId (+ 1)` changes the count, and the component renders again.
 - `Hooks.useLifecycleEffect` runs its program once, after the first render. This one starts a `ticker` with `Hooks.fork`: a loop that waits a second (`Hooks.delay 1`, in seconds) and adds one to `seconds`. What it returns, `Just (Hooks.kill ticker)`, runs when the component goes away (when you compile again, say) and stops the loop.
 
-`Hooks.delay` waits as lesson 5's `liftIO (threadDelay 2000000)` does, except that Halogen does not count the pause as work under way: a test that waits for the program to finish waits for what a `liftIO` waits for, a request say, but not for a clock's next tick, which would keep it waiting for ever. So a pause that only ticks, or takes something off the screen, is written with `Hooks.delay`.
+`Hooks.delay` waits as lesson 5's `liftIO (threadDelay 2000000)` does, except that Halogen does not count the pause as work under way: a test that waits for the program to finish waits for what a `liftIO` waits for, a request say, but not for a clock's next tick, which would keep it waiting for ever. So a pause that only ticks, or takes something off the screen, is written with `Hooks.delay`, and one before work a test waits for, a debounce before a request say, with `Hooks.delayCounted`, which is counted as a `liftIO` is. Both sleep on a test's own clock when a test has one (`Halogen.Activity.Control`), so the test moves them on instead of waiting.
 
 ## A hook of your own
 

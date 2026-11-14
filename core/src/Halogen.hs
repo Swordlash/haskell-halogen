@@ -15,7 +15,7 @@ import Halogen.Data.Slot (Slot, VoidF)
 import Halogen.HTML (ComponentHTML)
 import Halogen.HTML.Core (AttrName (..), ClassName (..), ElemName (..), HTML, Namespace (..), PropName (..))
 import Halogen.IO.Driver (HalogenSocket (..))
-import Halogen.Query (ForkId, HalogenF (..), HalogenM (..), HalogenQ (..), RefLabel (..), Request, SubscriptionId, Tell, delay, fork, getHTMLElementRef, getRef, join, kill, liftEffect, mkRequest, mkTell, newRefLabel, query, queryAll, raise, request, requestAll, subscribe, subscribe', tell, tellAll, unsubscribe)
+import Halogen.Query (ForkId, HalogenF (..), HalogenM (..), HalogenQ (..), RefLabel (..), Request, SubscriptionId, Tell, delay, delayCounted, fork, getHTMLElementRef, getRef, join, kill, liftEffect, mkRequest, mkTell, newRefLabel, query, queryAll, raise, request, requestAll, subscribe, subscribe', tell, tellAll, unsubscribe)
 
 -- | A component from its initial state, its render and its handlers:
 --

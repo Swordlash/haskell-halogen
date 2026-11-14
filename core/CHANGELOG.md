@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+`Halogen.Activity.Control` is how to control a program in a native test.
+Inside `withHeldWaits`, the waits of the trees a test mounts (a component's
+`lift` and `liftIO`, and a `withRunInIO` body) are held: the fiber counts as
+waiting, as always, but the action does not start until the test lets it
+with `release`, or makes it throw with `failWith`. `pending` returns the
+waits held once the program has done everything it can without the test,
+oldest first, each with the `Halogen.Trace` tag of the component that made
+it, so a test can answer two requests in the order it chooses without a
+backend of its own. Inside `withTestClock`, the trees' pauses sleep on a
+clock that only `advance` moves, as fake timers do: each pause due by then
+is woken in turn and the trees are let run before the next, so a ticker
+ticks as often as its period fits and a pause armed by what woke is
+honoured in the same `advance`. Both brackets control the trees mounted
+inside them by their own thread, and nothing else: a program no test
+controls pays one read of a reference per mount, and nothing per wait or
+pause. When a bracket ends, what it still holds is let go (held waits run,
+sleeping pauses sleep the rest of their time on the real clock).
+
+`H.delayCounted` is a pause that counts as waiting, as `liftIO (threadDelay n)`
+does, for the pause before work a test waits for (a debounce before a
+request, an autosave), in seconds like `H.delay`; under a test's clock it
+sleeps on that clock, which `liftIO (threadDelay n)` cannot. `HalogenF` has a
+new constructor for it, `DelayCounted`, and `Halogen.IO.Driver.State`'s
+`Tree` a new field, `control`; code that matches every constructor of
+`HalogenF`, or builds a `Tree`, adds them. `H.delay` sleeps on a test's clock
+too, and is still not counted.
+
 `Halogen.Activity.waitActivity` returns once the program's reading satisfies a
 predicate, woken by every change of what the reading is made of (a tree's
 loop taken or given up, work queued, a fiber starting or ending a wait in a

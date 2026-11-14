@@ -2,10 +2,16 @@
 
 ## 0.1.0.0 -- unreleased
 
+* `Hooks.delayCounted` pauses a handler as core's `H.delayCounted` does:
+  counted as waiting, for a pause before work a test waits for, and moved on
+  by a test's clock (`Halogen.Activity.Control.withTestClock`). The
+  debouncer and the throttle (`useDebouncer`, `useThrottle`) pause with it,
+  so they count as before and a test's clock moves them; they were
+  `liftIO (threadDelay n)`, which no clock of the test's can move.
 * `Hooks.delay` pauses a handler for a `NominalDiffTime` (seconds) as core's
   `H.delay` does: the pause is not counted as waiting by `Halogen.Activity`,
   so a test that waits for a quiet program does not wait for it. Use it for a
-  notice's timer or a ticker; keep `liftIO (threadDelay n)`, or the debouncer
+  notice's timer or a ticker; use `Hooks.delayCounted`, or the debouncer
   and throttle here, for a pause before work a test should wait for. A killed
   fork or a finalized component ends the pause.
 * In core's trace (`Halogen.Trace`, and what `haskell-halogen-devtools`
