@@ -87,6 +87,27 @@ spec base = describe "the document that asked" $ do
         nows <- requestsOf page
         map (\r -> (r.url, r.document)) nows `shouldBe` [(at "second.html?" <> run, Just next.id)]
 
+  -- The page's session reports nothing of a worker's fetch, so the request
+  -- waits for a report that never comes; the next document's fetch of the
+  -- same address, reported a moment later, is not it.
+  it "keeps a worker's request its document's when the next document asks for the same address" $ \pw ->
+    withContext pw defaultContextOptions $ \ctx -> do
+      page <- newPage ctx
+      forM_ [1 :: Int .. 5] $ \i -> do
+        let run = "run=" <> Text.pack (show i)
+        goto page (at "documents.html?" <> run)
+        first' <- currentDocument page
+        click (locator page "#worker")
+        locator page "#said" `shouldHaveText` "fetched"
+        goto page (at "documents.html?fetch&" <> run)
+        second <- currentDocument page
+        eventually page $ do
+          fetched <- endingIn "/plain.html" <$> requestsOf page
+          map (.document) fetched `shouldBe` [Just second.id]
+        -- The worker's stays where it was, however many reports follow.
+        earlier <- filter (\r -> r.document == Just first'.id) . endingIn "/plain.html" <$> requests ctx
+        length earlier `shouldBe` 1
+
   it "tells two pages of one context apart" $ \pw -> withContext pw defaultContextOptions $ \ctx -> do
     one <- newPage ctx
     two <- newPage ctx

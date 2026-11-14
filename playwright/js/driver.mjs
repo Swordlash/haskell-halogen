@@ -678,6 +678,17 @@ const sessionOf = (page) => {
 // (both orders happen: the protocol's came first for 84% of a thousand
 // requests measured, 69% with a route on the context).
 //
+// Not every request Playwright reports has such a report: the page's
+// session says nothing of a dedicated worker's requests or of a frame's in
+// another process, and those wait for a match that never comes. So a match
+// has to be one the two reports could both be of: both a navigation's own
+// request or neither, both the main frame's or neither, and, for a request
+// that is not a navigation's, heard by Playwright no earlier than the
+// protocol said its document had become its frame's (a document asks for
+// nothing but itself before that). Without the last, a worker's fetch
+// would be given to the next document as soon as that fetched the same
+// address.
+//
 // Until its match arrives, a request is the document's its frame has as
 // the driver knows it (the page's main frame: the protocol's frameNavigated;
 // another frame: the one tracked with its address), and the match amends it
@@ -693,11 +704,15 @@ let nextRequest = 1;
 const attributions = new WeakMap();
 
 const trackDocuments = async (page) => {
-  const tracker = { frames: new Map(), main: null, twins: [], heard: [] };
+  // frames: each frame's document now; since: when each document became
+  // its frame's, by the driver's count of what it has heard (tick), which
+  // orders the protocol's reports and Playwright's without a clock.
+  const tracker = { frames: new Map(), main: null, twins: [], heard: [], since: new Map(), tick: 0 };
   tracked.set(page, tracker);
   const session = await sessionOf(page);
   const known = (frame) => {
     tracker.frames.set(frame.id, { document: frame.loaderId, url: frame.url + (frame.urlFragment ?? "") });
+    if (!tracker.since.has(frame.loaderId)) tracker.since.set(frame.loaderId, ++tracker.tick);
     if (!frame.parentId) tracker.main = frame.id;
   };
   session.on("Page.frameNavigated", ({ frame }) => known(frame));
@@ -725,9 +740,16 @@ const reported = (tracker, event) => {
   const found = event.loaderId
     ? { document: event.loaderId, documentUrl: event.documentURL ?? frame?.url ?? null }
     : { document: frame?.document ?? null, documentUrl: frame?.url ?? null };
+  // A navigation's own request, as Playwright tells one.
+  const navigation = event.type === "Document" && event.requestId === event.loaderId;
+  // Unknown (null) only for what is heard before the page's frames are.
+  const main = tracker.main === null ? null : event.frameId === tracker.main;
+  // When the document that asked became its frame's: a request of its own
+  // (not the navigation that loads it) cannot have been heard before.
+  const since = navigation ? 0 : (tracker.since.get(found.document) ?? 0);
   const now = Date.now();
   tracker.heard = tracker.heard.filter((h) => now - h.at < 5000);
-  const i = tracker.heard.findIndex((h) => h.url === url && h.method === method);
+  const i = tracker.heard.findIndex((h) => h.url === url && h.method === method && h.navigation === navigation && (main === null || h.main === main) && h.tick > since);
   if (i >= 0) {
     const [heard] = tracker.heard.splice(i, 1);
     const a = heard.attribution;
@@ -739,7 +761,7 @@ const reported = (tracker, event) => {
     return;
   }
   tracker.twins = tracker.twins.filter((t) => now - t.at < 10000);
-  tracker.twins.push({ url, method, at: now, ...found });
+  tracker.twins.push({ url, method, navigation, main, at: now, ...found });
 };
 
 // A request Playwright reports, attributed: matched with the protocol's
@@ -759,14 +781,15 @@ const attribute = (context, request) => {
   const tracker = tracked.get(page);
   const url = request.url();
   const method = request.method();
-  const i = tracker.twins.findIndex((t) => t.url === url && t.method === method);
+  const navigation = request.isNavigationRequest();
+  const main = frame === page.mainFrame();
+  const i = tracker.twins.findIndex((t) => t.url === url && t.method === method && t.navigation === navigation && (t.main === null || t.main === main));
   if (i >= 0) {
     const [twin] = tracker.twins.splice(i, 1);
     a.document = twin.document;
     a.documentUrl = twin.documentUrl;
     return a;
   }
-  const main = frame === page.mainFrame();
   const candidates = [...tracker.frames.entries()].filter(([id, f]) => (main ? id === tracker.main : id !== tracker.main && f.url === frame.url()));
   if (candidates.length === 1) {
     a.document = candidates[0][1].document;
@@ -774,7 +797,7 @@ const attribute = (context, request) => {
   } else {
     a.documentUrl = frame.url() || null;
   }
-  tracker.heard.push({ url, method, at: Date.now(), attribution: a });
+  tracker.heard.push({ url, method, navigation, main, at: Date.now(), tick: ++tracker.tick, attribution: a });
   return a;
 };
 

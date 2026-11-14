@@ -7,7 +7,9 @@
        plain.html), one the test holds while the page goes elsewhere, and a
        beacon it sends as it goes (with the page's own query, to tell one
        run's from the next's), which the browser reports after the next
-       document has started to load, or not at all. -->
+       document has started to load, or not at all. With "?fetch" it asks
+       for plain.html itself as it loads, the address its worker fetches:
+       the document after one whose worker did. -->
   <h1>Documents</h1>
   <iframe src="framed.html?documents"></iframe>
   <button id="worker">worker</button>
@@ -19,6 +21,7 @@
       worker.onmessage = (event) => (document.getElementById("said").textContent = event.data);
     });
     document.getElementById("late").addEventListener("click", () => fetch("plain.html?late").catch(() => {}));
+    if (new URLSearchParams(location.search).has("fetch")) fetch("plain.html").catch(() => {});
     addEventListener("pagehide", () => navigator.sendBeacon("plain.html?beacon" + location.search.replace("?", "&"), "gone"));
   </script>
 </body>

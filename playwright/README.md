@@ -356,7 +356,10 @@ fonts `shouldBe` []
 
 How sure that is: the driver matches each request Playwright reports with the
 browser's own report of it on a session of the page's (the same address and
-method, first come first matched), which names the document exactly. What the
+method, both the main frame's or neither, both a navigation's own request or
+neither, and never a report by a document that was not yet its frame's when
+the request was heard; first come first matched), which names the document
+exactly. What the
 page's session does not report keeps the document its frame had when the
 driver heard of it: a dedicated worker's requests (right unless the worker
 asked just before its document went), and a frame's in another process (a
