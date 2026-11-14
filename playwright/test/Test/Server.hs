@@ -1,6 +1,7 @@
 -- | A small server of the tests' own, for what a directory served as it is
--- cannot do: an API that answers @POST@ and sets cookies. Everything else
--- is @test/web@, served as "Halogen.Playwright.Serve" serves it.
+-- cannot do: an API that answers @POST@ and sets cookies, and pages sent
+-- with a Content Security Policy. Everything else is @test/web@, served as
+-- "Halogen.Playwright.Serve" serves it.
 module Test.Server (withServer, standInImage) where
 
 import Data.Aeson (encode, object, (.=))
@@ -23,7 +24,9 @@ import Network.Wai.Handler.Warp qualified as Warp
 -- * @api/data@: a little JSON;
 -- * @api/big@: 1000 bytes of text;
 -- * @api/pic.png@: a 32 by 32 PNG;
--- * any file of @test/web@.
+-- * any file of @test/web@, and with @?csp@ in its address, sent with
+--   @Content-Security-Policy: script-src 'self'@: the page's own scripts
+--   and no others, no inline script, no @eval@.
 withServer :: (Text -> IO a) -> IO a
 withServer body =
   Warp.testWithApplication (pure app) $ \port -> body ("http://127.0.0.1:" <> Text.pack (show port) <> "/")
@@ -48,7 +51,10 @@ withServer body =
       ["api", "data"] -> respond (Wai.responseLBS HTTP.status200 [("content-type", "application/json")] "{\"data\":\"from the server\"}")
       ["api", "big"] -> respond (Wai.responseLBS HTTP.status200 [("content-type", "text/plain")] (LazyByteString.replicate 1000 120))
       ["api", "pic.png"] -> respond (Wai.responseLBS HTTP.status200 [("content-type", "image/png")] (LazyByteString.fromStrict standInImage))
-      _ -> static request respond
+      _
+        | any ((== "csp") . fst) (Wai.queryString request) ->
+            static request (respond . Wai.mapResponseHeaders (("content-security-policy", "script-src 'self'") :))
+        | otherwise -> static request respond
 
 -- | A 32 by 32 PNG.
 standInImage :: ByteString.ByteString

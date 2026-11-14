@@ -123,6 +123,15 @@ address it was written at (`url`, a frame's for a message one of the page's
 frames wrote) and its `line`, so a test can leave out what an interactive
 frame's sandbox refuses: `not (maybe False ("?interactive" `Text.isInfixOf`) m.url)`.
 
+Every wait works on a page sent with a Content Security Policy that refuses
+`eval` (`script-src 'self'`, no `'unsafe-eval'`), as a real server's pages
+are. Playwright's own `waitForFunction` compiles its expression in the page
+with `eval`, which such a policy refuses (an uncaught `EvalError`, and a wait
+that never ends); this package's compiles the expression together with the loop
+that polls it, through the DevTools protocol, which the page's policy does not
+govern. The probe is an init script, which the policy does not govern either,
+and `evaluate` and its kin go through the protocol too.
+
 `waitForWebSocket page test` is the same for the frames of the page's
 WebSockets, which are kept as they cross, both ways (`webSocketFrames page`):
 the first, from the page's start, that satisfies a test, so the server's

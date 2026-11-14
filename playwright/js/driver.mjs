@@ -187,7 +187,9 @@ const pageOf = (id) => {
 };
 
 // Every page of every context gets the probe before any of its scripts
-// runs, so that a Halogen program in it answers (Halogen.Activity).
+// runs, so that a Halogen program in it answers (Halogen.Activity). An init
+// script is the DevTools protocol's (Page.addScriptToEvaluateOnNewDocument),
+// which a page's Content Security Policy does not govern.
 const probeScript = () => {
   if (globalThis.__halogenProbe === undefined) globalThis.__halogenProbe = {};
 };
@@ -340,6 +342,42 @@ const activity = async (page, ms = timeout) => {
   } catch (error) {
     if (navigatedAway(error)) return null;
     throw error;
+  }
+};
+
+// A predicate polled in the page at its animation frames until it is
+// truthy, up to the call's timeout. Playwright's own waitForFunction
+// compiles the predicate in the page with eval, which a Content Security
+// Policy without 'unsafe-eval' refuses (an uncaught EvalError, and a wait
+// that never ends); here the loop and the predicate are one function
+// compiled in node and sent as Playwright sends any function, through the
+// DevTools protocol, which the page's policy does not govern. A navigation
+// under the wait starts it again in the new document, as Playwright's does;
+// what the predicate throws is the call's error.
+const pollInPage = async (page, source, argument, ms, what) => {
+  const deadline = Date.now() + ms;
+  const poll = functionOf(
+    `async ({ argument, deadline }) => {
+      const predicate = (${source}
+);
+      const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+      for (;;) {
+        if (predicate(argument)) return true;
+        if (Date.now() > deadline) return false;
+        await frame();
+      }
+    }`,
+  );
+  for (;;) {
+    let done;
+    try {
+      done = await answeredWithin(Math.max(0, deadline - Date.now()) + 1000, page.evaluate(poll, { argument, deadline }), silent(page, ms));
+    } catch (error) {
+      if (!navigatedAway(error)) throw error;
+      done = false;
+    }
+    if (done) return null;
+    if (Date.now() > deadline) throw timeoutError(`${what} was not truthy in ${page.url()} within ${ms}ms`);
   }
 };
 
@@ -700,16 +738,15 @@ const methods = {
     return result === undefined ? null : result;
   },
   // An expression polled in the page, at its animation frames, until it is
-  // truthy.
+  // truthy (pollInPage). As Playwright's, an expression whose value is a
+  // function is called, and that is polled.
   async waitForFunction(m) {
-    await pageOf(m.page).waitForFunction(m.expression, undefined, { timeout: within(m) });
-    return null;
+    const predicate = `() => { const value = (${m.expression}\n); return typeof value === "function" ? value() : value; }`;
+    return await pollInPage(pageOf(m.page), predicate, null, within(m), `the expression ${m.expression}`);
   },
-  // An expression's function, polled as waitForFunction's, with an
-  // argument.
+  // A function polled as waitForFunction's expression, with an argument.
   async waitForFunctionWith(m) {
-    await pageOf(m.page).waitForFunction(functionOf(m.function), m.argument, { timeout: within(m) });
-    return null;
+    return await pollInPage(pageOf(m.page), m.function, m.argument, within(m), `the function ${m.function}`);
   },
   // A function called in the page with the locator's element (waited for)
   // and the argument.

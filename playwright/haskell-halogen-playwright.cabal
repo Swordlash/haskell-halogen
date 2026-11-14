@@ -91,6 +91,7 @@ test-suite Halogen-playwright-test
                       Test.Files
                       Test.Frames
                       Test.Input
+                      Test.Policy
                       Test.Probe
                       Test.Routes
                       Test.Serve

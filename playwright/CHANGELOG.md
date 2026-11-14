@@ -133,3 +133,13 @@ Policy, an editor in an iframe) needed, each with a test of its own:
 - The Chrome DevTools Protocol's events: `listenCDP` keeps an event of the
   page's session from then on, `cdpEvents` reads them and `waitForCDP` waits
   for one, as the console is kept and waited on.
+- `waitForFunction` works on a page whose Content Security Policy refuses
+  `eval`: it polls in the page at its animation frames as before, but the
+  expression is compiled through the DevTools protocol rather than with
+  `eval` in the page, which such a policy refuses (Playwright's own call
+  failed with an `EvalError` once the expression was not true at once).
+  `waitForFunctionWith` worked there only because Playwright evaluates a
+  function's source once, inside the DevTools call; it now polls the same
+  way. A navigation under either wait starts it again in the new document.
+  Every other wait, and the probe, already worked there; the suite now says
+  so.

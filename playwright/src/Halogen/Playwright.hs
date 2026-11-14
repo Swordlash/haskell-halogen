@@ -1212,7 +1212,14 @@ waitFor l s = on l "waitFor" ["state" .= stateName]
 -- | Poll a JavaScript expression in the page, at its animation frames,
 -- until it is truthy, up to the timeout. For what the page does by itself
 -- and not through its program, so that 'settle' does not wait for it: the
--- page's own frames, say.
+-- page's own frames, say. A navigation under the wait starts it again in
+-- the new document; what the expression throws is the call's error.
+--
+-- It works under a Content Security Policy that refuses @eval@ (no
+-- @'unsafe-eval'@), unlike Playwright's own @waitForFunction@, which
+-- compiles the expression in the page with @eval@: the expression is
+-- compiled with the loop that polls it, by the DevTools protocol, which
+-- the page's policy does not govern. So do the other waits of this module.
 --
 -- > waitForFunction page "document.querySelectorAll('li').length > 3"
 waitForFunction :: (MonadIO m) => Page -> Text -> m ()
