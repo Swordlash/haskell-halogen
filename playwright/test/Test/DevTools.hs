@@ -80,6 +80,8 @@ spec base = describe "the DevTools protocol" $ do
   -- throttled, so that races are found on purpose.
   it "slows a page's processor down" $ \pw -> withPage pw $ \page -> do
     goto page (at "basics.html")
+    -- Full speed, whatever throttle the environment puts on every page.
+    throttleCPU page 1
     _ <- computation page
     full <- computation page
     throttleCPU page 6
