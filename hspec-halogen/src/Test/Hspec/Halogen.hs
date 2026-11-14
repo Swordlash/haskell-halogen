@@ -47,10 +47,15 @@
 -- server can load it, but 'runBrowserTests' only reports that it skipped the
 -- suite.
 --
--- Every action waits for the component to react before it returns (see
--- 'settle'), so a synchronous @handleAction@ has rendered by then. What
--- finishes later -- a forked effect, a timer, work a JavaScript widget defers
--- to the next frame -- is what 'eventually' is for, and 'find' and the
+-- Every action waits for the program to finish reacting before it returns
+-- (see 'settle'): what its handlers did, and what the page fired a moment
+-- later because of them (a dialog's @close@, which comes with the next
+-- animation frame; the @popstate@ of a @history.back()@ a handler called)
+-- and what the program's handlers of that did, have rendered by then, so
+-- one read sees it. 'waitQuiet' also waits for what the program's fibers
+-- wait for in a @liftIO@ (a request, a debounce). What the program does not
+-- know of -- a JavaScript widget's own timer, a CSS transition, a real
+-- connection's events -- is what 'eventually' is for, and 'find' and the
 -- @should@ helpers here already retry.
 module Test.Hspec.Halogen
   ( -- * Running a suite
@@ -100,7 +105,13 @@ module Test.Hspec.Halogen
   , press
   , focus
   , blur
+
+    -- * Waiting for the program
   , settle
+  , waitQuiet
+  , waitQuietWithin
+  , activity
+  , Activity
 
     -- * Reading
   , textContent
@@ -138,6 +149,7 @@ import Data.Sequence qualified as Seq
 import Data.Text qualified as T
 import Data.Unique (Unique, newUnique)
 import GHC.Clock (getMonotonicTime)
+import Halogen.Activity (Activity (..))
 import Halogen.Activity qualified as Activity
 import Halogen.Component (Component)
 import Halogen.IO.Driver (HalogenSocket (..))
@@ -310,7 +322,11 @@ runPage (PageM test) = do
         atomicWriteIORef pageHolder (Just me)
         runReaderT test env `catch` \failure -> throwIO =<< withEvents timeline failure
   where
-    open = PageEnv <$> (maybe Page.createContainer Page.createRootIn =<< readIORef pagesIn) <*> newIORef [] <*> newIORef Nothing
+    open = do
+      -- Before the test's first action, so that a move through the history
+      -- one of its handlers asks for is seen (see 'settle').
+      Page.watchHistory
+      PageEnv <$> (maybe Page.createContainer Page.createRootIn =<< readIORef pagesIn) <*> newIORef [] <*> newIORef Nothing
     close env = do
       atomicWriteIORef pageHolder Nothing
       pending <- atomicModifyIORef' env.teardowns ([],)
@@ -435,9 +451,9 @@ instance Eq (Element s) where
 -- unmounted when the page is torn down.
 --
 -- The component has rendered, and run its initialisers up to their first
--- wait, by the time this returns: what one loads when it starts may still be
--- on its way, so check it with an expectation that waits ('shouldHaveText',
--- 'eventually'). Its outputs are collected from then on, for 'outputs'.
+-- wait, by the time this returns: what one loads in a @liftIO@ when it
+-- starts may still be on its way, which 'waitQuiet' waits for. Its outputs
+-- are collected from then on, for 'outputs'.
 --
 -- The monad is the first argument, @mount BrowserDOM component input@, so a
 -- spec polymorphic in it passes it on as @mount m@.
@@ -537,7 +553,8 @@ findAllIn (Element element) selector = unsafeIOToPageM $ map Element <$> Page.qu
 --------------------------------------------------------------------------------
 
 -- | Click an element as a user would: Playwright waits until it is visible,
--- stable, enabled and not covered, then clicks its centre.
+-- stable, enabled and not covered, then clicks its centre. Like every action
+-- here, it returns once the program has finished reacting ('settle').
 --
 -- Without the runner (a page with no Playwright behind it, such as the
 -- tutorial's, see 'runBrowserTestsIn') this and the other actions are done
@@ -548,51 +565,213 @@ findAllIn (Element element) selector = unsafeIOToPageM $ map Element <$> Page.qu
 -- false), whether something covers the element is not checked, and of what
 -- the browser does by itself only the commonest is reproduced (see the
 -- README).
-click :: Element s -> PageM s ()
+click :: (HasCallStack) => Element s -> PageM s ()
 click = viaRunner "click" ""
 
 -- | Drag the first element onto the second as a user would with the mouse:
 -- press on its centre, move to the other's, release. Under the runner
 -- Playwright does it, so the page sees pointer and mouse events along the
 -- way, and Chromium's HTML5 @dragstart@, @dragover@ and @drop@.
-dragTo :: Element s -> Element s -> PageM s ()
+dragTo :: (HasCallStack) => Element s -> Element s -> PageM s ()
 dragTo (Element source) (Element target) = unsafeIOToPageM (Page.drag source target) >> settle
 
 -- | Type text into an element key by key, after what it already holds.
-typeText :: Element s -> Text -> PageM s ()
+typeText :: (HasCallStack) => Element s -> Text -> PageM s ()
 typeText element text = viaRunner "type" text element
 
 -- | Empty an input as a user selecting all and deleting would.
-clear :: Element s -> PageM s ()
+clear :: (HasCallStack) => Element s -> PageM s ()
 clear = viaRunner "clear" ""
 
 -- | Press a key, or a chord such as @Shift+Tab@, on the focused element. Key
 -- names are Playwright's: @Enter@, @Backspace@, @ArrowDown@, …
-press :: Text -> PageM s ()
+press :: (HasCallStack) => Text -> PageM s ()
 press key = unsafeIOToPageM (Page.pressKey key) >> settle
 
-focus :: Element s -> PageM s ()
+focus :: (HasCallStack) => Element s -> PageM s ()
 focus (Element element) = unsafeIOToPageM (Page.focusElement element) >> settle
 
-blur :: Element s -> PageM s ()
+blur :: (HasCallStack) => Element s -> PageM s ()
 blur (Element element) = unsafeIOToPageM (Page.blurElement element) >> settle
-
--- | Let the component finish reacting to what just happened in the page.
---
--- A JavaScript event reaches Haskell as a callback, which the wasm runtime
--- does not run on the spot (the JavaScript backend's does, and waiting costs
--- it only a task): it schedules its scheduler loop as a task of its
--- own (@scheduler.postTask@ in Chromium), and this thread would otherwise be
--- resumed before that task ran. Waiting for a background-priority task lets
--- every task already queued at the normal priority run first. Every action
--- here ends with it; call it directly after acting on the page some other way.
-settle :: PageM s ()
-settle = unsafeIOToPageM Page.settleTasks
 
 -- The runner acts on a selector, so the element is tagged with one for the
 -- length of the call.
-viaRunner :: Text -> Text -> Element s -> PageM s ()
+viaRunner :: (HasCallStack) => Text -> Text -> Element s -> PageM s ()
 viaRunner action argument (Element element) = unsafeIOToPageM (Page.act action element argument) >> settle
+
+--------------------------------------------------------------------------------
+-- Waiting for the program
+--------------------------------------------------------------------------------
+
+-- | Wait until the program has finished reacting to what just happened in
+-- the page, and to what the page fired a moment later because of it. Every
+-- action here ends with it; call it directly after acting on the page some
+-- other way (an 'unsafeIOToPageM' that dispatches an event, say).
+--
+-- In this order, until a round finds nothing left:
+--
+-- 1. A task of the page's at background priority. A JavaScript event
+--    reaches Haskell as a callback, which the wasm runtime does not run on
+--    the spot: it schedules its scheduler loop as a task of its own
+--    (@scheduler.postTask@ in Chromium), and the tasks queued at normal
+--    priority run before this one.
+--
+-- 2. The program idle ("Halogen.Activity": no tree running a piece of work
+--    or with work queued), read directly, a background task between
+--    readings: what the handlers did synchronously, and the renders it
+--    caused, are done.
+--
+-- 3. The moves through the history the program asked for and the browser
+--    has not made yet (@history.back()@, @forward()@, @go(n)@), each until
+--    the document hears it has arrived (its @popstate@), for at most half a
+--    second. A handler that goes back is idle at once, and its @popstate@
+--    comes a moment later. A move with nowhere to go (back from the first
+--    entry) is not waited for, since no @popstate@ comes.
+--
+-- 4. The page's next animation frame, and a background task after it: what
+--    the browser dispatches with a frame (a dialog's @close@, after Escape
+--    or @close()@; @resize@; a @ResizeObserver@'s callback) has been, and
+--    the program's handler of it has started. A hidden page draws no frames
+--    and is not waited for; a page whose frame did not come within 100 ms is
+--    waited for at most 20 ms from then on, until a frame comes.
+--
+-- 5. The program read again: busy (the late event's handler started work),
+--    or with a move under way, and 2 to 5 are done again.
+--
+-- It costs an action about one frame (a few to 17 milliseconds at 60 frames
+-- a second) beyond the program's own work. Nothing is polled on a clock but
+-- the deadline: every wait is a promise of the page's, so the page has its
+-- turns meanwhile.
+--
+-- A program that is still busy five seconds after the action (a loop that
+-- queues work for ever, a render that does not end) fails the test with how
+-- many trees were running, followed, as every failure here is, by what the
+-- trees did and what the program was doing then. What a fiber waits for in
+-- a @liftIO@ is not waited for here: that is 'waitQuiet'.
+settle :: (HasCallStack) => PageM s ()
+settle = void (settleUntil Idle actionDeadlineMs)
+
+-- | 'settle', and until no fiber of the program is waiting in a @liftIO@
+-- either: a request has come back, a debounce written
+-- @liftIO (threadDelay n)@ has fired, and what they led to has rendered;
+-- then the page settled again, for what that made it fire. It reads the
+-- program five milliseconds apart, for up to five seconds, and then fails
+-- saying how many trees were running and how many fibers still waited
+-- (followed by what the trees did, which names the component whose action
+-- started the wait).
+--
+-- A pause written with 'Halogen.Query.HalogenM.delay' (@H.delay@,
+-- @Hooks.delay@) is not waited for: while it sleeps its fiber is neither
+-- running nor waiting, as "Halogen.Activity" has it. That is on purpose,
+-- and the program says which of its pauses a test waits for by how it
+-- writes them: a pause before work a test waits for (a debounce before a
+-- request, an autosave) is @liftIO (threadDelay n)@, so that a quiet program
+-- means the request was answered; one that only takes something off the
+-- screen or ticks (a \"Saved\" notice, a clock,
+-- @forever (H.delay 1 >> tick)@) is @H.delay@, so a test can see the notice
+-- before it goes, and a ticker does not keep the program from being quiet.
+--
+-- A fiber that waits for ever (a subscription's loop written as a
+-- @liftIO@ that never returns) keeps the program from ever being quiet:
+-- 'settle' is the wait for such a program.
+waitQuiet :: (HasCallStack) => PageM s ()
+waitQuiet = waitQuietWithin actionDeadlineMs
+
+-- | 'waitQuiet' with a deadline in milliseconds, for a request or a debounce
+-- that can outlast five seconds, or a test that expects the program to stay
+-- busy for a while and checks so with a short one.
+waitQuietWithin :: (HasCallStack) => Int -> PageM s ()
+waitQuietWithin ms = void (settleUntil Quiet ms)
+
+-- | What the program is doing at this moment ("Halogen.Activity"): the trees
+-- mounted, those running or with work queued, the fibers waiting in a
+-- @liftIO@. For a test that has to check the reading itself; to wait for
+-- the program, 'settle' and 'waitQuiet'.
+--
+-- 'Activity' is core's, exported here without its fields, whose names
+-- (@trees@, @running@, @waiting@) a suite's own records may well have
+-- already: read them with @import Halogen.Activity (Activity (..))@, or
+-- with core's 'Halogen.Activity.idle' and 'Halogen.Activity.quiet'.
+activity :: PageM s Activity
+activity = unsafeIOToPageM Activity.activity
+
+-- | How long an action, and 'waitQuiet', waits for the program before it
+-- fails: as long as the runner gives Playwright to find an element it acts
+-- on, and haskell-halogen-playwright an action.
+actionDeadlineMs :: Int
+actionDeadlineMs = 5000
+
+-- | How long a frame is waited for before the page is taken to draw none.
+frameBoundMs :: Int
+frameBoundMs = 100
+
+-- | What a settle waits for the program to be.
+data Until
+  = -- | 'settle''s: no tree running or with work queued.
+    Idle
+  | -- | 'waitQuiet''s: idle, and no fiber waiting in a @liftIO@.
+    Quiet
+
+-- | 'settle' until the program is as asked, failing at the deadline; the
+-- last reading.
+settleUntil :: (HasCallStack) => Until -> Int -> PageM s Activity
+settleUntil wanted ms = unsafeIOToPageM $ do
+  started <- getMonotonicTime
+  let (done, quiet) = case wanted of
+        Idle -> (Activity.idle, False)
+        Quiet -> (Activity.quiet, True)
+      overdue a moving = do
+        now <- getMonotonicTime
+        when ((now - started) * 1000 > fromIntegral ms) $
+          assertFailure (toS (overdueText wanted ms a moving))
+      -- On wasm a thread that does not wait for the page holds it: each
+      -- reading after the first waits for a promise of the page's.
+      untilDone = do
+        a <- Activity.activity
+        unless (done a) $ do
+          overdue a False
+          if quiet then Page.sleepMs 5 else Page.settleTasks
+          untilDone
+      -- What is left of the deadline, in milliseconds.
+      left = do
+        now <- getMonotonicTime
+        pure (max 0 (ms - floor ((now - started) * 1000)))
+      go = do
+        untilDone
+        -- For what is left of the deadline and no longer: a page that
+        -- never stops moving through its history fails like a program that
+        -- never goes idle, and a move does not outlast a shorter deadline.
+        Page.historyLanded =<< left
+        still <- Page.historyMoving
+        when still $ Activity.activity >>= \a -> overdue a True
+        Page.nextFrame frameBoundMs
+        a <- Activity.activity
+        moving <- Page.historyMoving
+        if done a && not moving then pure a else overdue a moving >> go
+  Page.settleTasks
+  go
+
+-- | What a settle that ran out of time says.
+--
+-- > waitQuiet: the program was not quiet after 300 ms: 0 of 1 tree running or with work queued, 1 fiber waiting in liftIO.
+overdueText :: Until -> Int -> Activity -> Bool -> Text
+overdueText wanted ms a moving =
+  ( case wanted of
+      Idle -> "settle: the program was still busy"
+      Quiet -> "waitQuiet: the program was not quiet"
+  )
+    <> " after "
+    <> show ms
+    <> " ms: "
+    <> show a.running
+    <> " of "
+    <> counted a.trees "tree"
+    <> " running or with work queued, "
+    <> counted a.waiting "fiber"
+    <> " waiting in liftIO"
+    <> (if moving then ", and a move through the history it asked for had not arrived." else ".")
+  where
+    counted n thing = show n <> " " <> thing <> (if n == 1 then "" else "s")
 
 --------------------------------------------------------------------------------
 -- Reading

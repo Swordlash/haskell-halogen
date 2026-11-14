@@ -511,10 +511,182 @@ async function halogen_test_synthetic_drag(source, target) {
   source.dispatchEvent(new DragEvent('dragend', {...to, dataTransfer}));
 }
 
+// What settle (Test.Hspec.Halogen) waits for in the page, between its
+// readings of the program, which it takes in Haskell. Each is a promise the
+// test's thread waits for, so that the page has its turns meanwhile: on wasm
+// a thread that only loops in Haskell holds the page's one thread.
+
+// A task at background priority: every task already queued at the normal
+// priority runs first, among them the one in which the wasm runtime runs a
+// callback a browser event made. A page that always has work at the normal
+// priority (a program whose threads are always runnable, whose runtime
+// posts a task for its scheduler each time it hands the page back) runs no
+// background task at all, so the wait ends after 50 ms anyway: settle then
+// reads the program again, sees it busy, and keeps to its deadline.
 async function halogen_test_settle() {
-  await new Promise((resolve) => globalThis.scheduler
-    ? scheduler.postTask(resolve, {priority: 'background'})
-    : setTimeout(resolve, 0));
+  await new Promise((resolve) => {
+    const timer = setTimeout(resolve, 50);
+    const done = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    if (globalThis.scheduler?.postTask) scheduler.postTask(done, {priority: 'background'});
+    else setTimeout(done, 0);
+  });
+}
+
+function halogen_test_sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// The page's next animation frame, then a background task. What the browser
+// dispatches with a frame (a dialog's close, after Escape or close(); resize;
+// a ResizeObserver's callback) is dispatched at the start of the frame,
+// before its requestAnimationFrame callbacks, so it has been by the time this
+// frame's callback runs, and the task after it is where a wasm program's
+// handler of that event has run.
+//
+// Nothing is waited for where there are no frames: in a Web Worker, which has
+// no document, and in a hidden document (a tab in the background), which
+// draws none. A page that draws none although it is visible (Chromium under
+// --enable-begin-frame-control) is waited for up to bound milliseconds once;
+// from then on, until a frame comes again and says frames are drawn, only
+// up to 20 ms, a little more than a frame at 60 frames a second. Not at all
+// would be cheaper, but a page whose frames come back (one throttled for a
+// while) would then be read before the first of them for as long as it took
+// to come, by every action in that time.
+function halogen_test_frame(bound) {
+  // Not a logical nullish assignment: wasm embeds this file in a C string,
+  // where its two question marks and an equals sign are a trigraph.
+  const key = Symbol.for('halogen.test.frames');
+  if (!globalThis[key]) globalThis[key] = {missing: false};
+  const frames = globalThis[key];
+  const frame = new Promise((resolve) => {
+    if (typeof document === 'undefined' || typeof requestAnimationFrame !== 'function' || document.visibilityState === 'hidden') {
+      resolve();
+      return;
+    }
+    let done = false;
+    const finish = () => {
+      if (!done) {
+        done = true;
+        resolve();
+      }
+    };
+    requestAnimationFrame(() => {
+      frames.missing = false;
+      finish();
+    });
+    setTimeout(() => {
+      if (!done) {
+        frames.missing = true;
+        finish();
+      }
+    }, frames.missing ? Math.min(bound, 20) : bound);
+  });
+  return frame.then(halogen_test_settle);
+}
+
+// The moves through the history the page asks for (history.back(),
+// forward(), go(n)), which the browser makes a moment later, out of the
+// page's hands: a handler that went back has finished, and its popstate is
+// still to come. settle waits for the moves under way, so that an action
+// whose handler goes back has had its popstate when it returns.
+//
+// History's methods are wrapped once per page, by the first runPage
+// (halogen_test_watch_history), before the test's first action; they keep
+// their names and lengths and call the methods they replaced. The moves are
+// kept under a key of the harness's own, so that a page also driven by
+// haskell-halogen-playwright, whose driver wraps the same methods from an
+// init script before any of the page's scripts runs, keeps both wraps: ours
+// calls the driver's, which calls the browser's, and each counts the move
+// for its own settle.
+//
+// A move is under way from the call until the document hears that it has
+// arrived (popstate, which a move within the document always fires, one per
+// move, with or without a state) or leaves (pagehide), or until half a second
+// has passed (a move in a frame's entries, which this document never hears
+// of). A move the Navigation API says has nowhere to go (go(0), which
+// reloads; back from the first entry; a second back() in a row from the
+// second entry), counting the moves already under way, is not counted: the
+// browser makes nothing of it, and no popstate would come.
+const halogen_test_moves_key = Symbol.for('halogen.test.traversals');
+
+function halogen_test_watch_history() {
+  if (typeof History !== 'function' || typeof addEventListener !== 'function' || globalThis[halogen_test_moves_key]) return;
+  // pending: the moves under way, oldest first, each with its delta and the
+  // timer that gives up on it.
+  const moves = {pending: [], waiters: []};
+  Object.defineProperty(globalThis, halogen_test_moves_key, {value: moves});
+  const settled = () => {
+    if (moves.pending.length === 0) for (const resolve of moves.waiters.splice(0)) resolve();
+  };
+  const forget = (move) => {
+    const at = moves.pending.indexOf(move);
+    if (at >= 0) {
+      clearTimeout(move.timer);
+      moves.pending.splice(at, 1);
+    }
+  };
+  addEventListener('popstate', () => {
+    if (moves.pending.length > 0) forget(moves.pending[0]);
+    settled();
+  }, true);
+  addEventListener('pagehide', () => {
+    for (const move of moves.pending.slice()) forget(move);
+    settled();
+  }, true);
+  const somewhere = (delta) => {
+    if (!delta) return false;
+    const navigation = globalThis.navigation;
+    if (typeof navigation?.entries !== 'function' || !navigation.currentEntry) return true;
+    const to = navigation.currentEntry.index + moves.pending.reduce((sum, move) => sum + move.delta, 0) + delta;
+    return to >= 0 && to < navigation.entries().length;
+  };
+  const wrap = (name, deltaOf) => {
+    const original = History.prototype[name];
+    if (typeof original !== 'function') return;
+    const wrapped = {
+      [name](...args) {
+        const delta = deltaOf(args);
+        if (somewhere(delta)) {
+          const move = {delta};
+          move.timer = setTimeout(() => {
+            forget(move);
+            settled();
+          }, 500);
+          moves.pending.push(move);
+        }
+        return original.apply(this, args);
+      },
+    }[name];
+    Object.defineProperty(wrapped, 'length', {value: original.length});
+    Object.defineProperty(History.prototype, name, {value: wrapped, writable: true, configurable: true, enumerable: true});
+  };
+  wrap('back', () => -1);
+  wrap('forward', () => 1);
+  wrap('go', (args) => Math.trunc(Number(args[0])) || 0);
+}
+
+function halogen_test_moving() {
+  return (globalThis[halogen_test_moves_key]?.pending.length ?? 0) > 0;
+}
+
+// Resolved once no move is under way (at once if none is), or after this
+// many milliseconds, what is left of settle's deadline: a page that never
+// stops moving (each popstate's listener asking for another move before
+// the last has been taken off) would otherwise keep settle from ever
+// looking at its clock.
+function halogen_test_moves_landed(within) {
+  const moves = globalThis[halogen_test_moves_key];
+  if (!moves || moves.pending.length === 0) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, Math.max(0, within));
+    moves.waiters.push(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
 }
 
 function halogen_test_focus(element) {

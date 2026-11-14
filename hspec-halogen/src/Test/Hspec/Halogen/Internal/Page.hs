@@ -29,6 +29,11 @@ module Test.Hspec.Halogen.Internal.Page
   , focusElement
   , blurElement
   , settleTasks
+  , sleepMs
+  , nextFrame
+  , watchHistory
+  , historyMoving
+  , historyLanded
   , textContentOf
   , propertyOf
   , attributeOf
@@ -64,6 +69,11 @@ $( browserJS
      , ("js_drag", "halogen_test_drag", Safe, [t|Element -> Element -> IO (Promise JSVal)|])
      , ("js_press", "halogen_test_press", Safe, [t|JSText -> IO (Promise JSVal)|])
      , ("js_settle", "halogen_test_settle", Safe, [t|IO (Promise JSVal)|])
+     , ("js_sleep", "halogen_test_sleep", Safe, [t|Int -> IO (Promise JSVal)|])
+     , ("js_frame", "halogen_test_frame", Safe, [t|Int -> IO (Promise JSVal)|])
+     , ("js_watch_history", "halogen_test_watch_history", Safe, [t|IO ()|])
+     , ("js_moving", "halogen_test_moving", Safe, [t|IO Bool|])
+     , ("js_moves_landed", "halogen_test_moves_landed", Safe, [t|Int -> IO (Promise JSVal)|])
      , ("js_focus", "halogen_test_focus", Safe, [t|Element -> IO ()|])
      , ("js_blur", "halogen_test_blur", Safe, [t|Element -> IO ()|])
      , ("js_text_content", "halogen_test_text_content", Safe, [t|Element -> IO JSText|])
@@ -168,6 +178,33 @@ blurElement = js_blur
 -- | Wait until every task the page has queued at normal priority has run.
 settleTasks :: IO ()
 settleTasks = awaitJS js_settle
+
+-- | Sleep on the page's clock (a @setTimeout@), giving the page its turns
+-- meanwhile.
+sleepMs :: Int -> IO ()
+sleepMs ms = awaitJS (js_sleep ms)
+
+-- | Wait for the page's next animation frame and a background task after
+-- it; not at all where no frames are drawn (a worker, a hidden page), and,
+-- in a page whose frame did not come within this many milliseconds, not
+-- again until one comes.
+nextFrame :: Int -> IO ()
+nextFrame bound = awaitJS (js_frame bound)
+
+-- | Start noting the moves through the history the page asks for (once per
+-- page; again does nothing), for 'historyMoving' and 'historyLanded'.
+watchHistory :: IO ()
+watchHistory = js_watch_history
+
+-- | Whether a move through the history the page asked for is under way.
+historyMoving :: IO Bool
+historyMoving = js_moving
+
+-- | Wait until no move through the history the page asked for is under way
+-- (each is given up on after half a second), for this many milliseconds at
+-- most: a page that keeps asking for moves never has none.
+historyLanded :: Int -> IO ()
+historyLanded within = awaitJS (js_moves_landed within)
 
 textContentOf :: Element -> IO Text
 textContentOf element = fromJSText <$> js_text_content element

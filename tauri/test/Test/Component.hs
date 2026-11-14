@@ -38,7 +38,10 @@ spec m = do
     ticks `shouldHaveText` "2"
     textContent answer `shouldReturn` "waiting"
     unsafeIOToPageM (release "component")
-    eventually (answer `shouldHaveText` "component")
+    -- The command's answer is what the fiber waiting in lift was waiting
+    -- for: once the program is quiet it has come and been rendered.
+    waitQuiet
+    textContent answer `shouldReturn` "component"
 
   it "hears an event it subscribed to, and stops listening when it goes away" $ runPage $ do
     -- Counted from what the tests before this one left on the bus.

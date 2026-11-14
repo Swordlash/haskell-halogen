@@ -15,6 +15,7 @@ import Test.Async qualified
 import Test.Busy qualified
 import Test.Fields qualified
 import Test.Islands qualified
+import Test.Late qualified
 import Test.Window qualified
 #endif
 import Test.Counter qualified
@@ -33,6 +34,7 @@ import Test.Promised qualified
 import Test.Reconcile qualified
 import Test.Timeline qualified
 import Test.Todo qualified
+import Test.Waiting qualified
 import Test.Worker qualified
 
 -- Natively BrowserDOM has no MonadBrowserDOM, which this spec asks for.
@@ -59,6 +61,7 @@ main = runBrowserTests $ parallel $ do
   describe "The activity probe" (Test.Probe.spec BrowserDOM)
   describe "Without the runner" (Test.InPage.spec BrowserDOM)
   describe "A failure's timeline" (Test.Timeline.spec BrowserDOM)
+  describe "Waiting for the program" (Test.Waiting.spec BrowserDOM)
   describe "In a worker" Test.Worker.spec
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
   -- These need the browser's DOM ('MonadBrowserDOM'), which 'BrowserDOM'
@@ -71,6 +74,8 @@ main = runBrowserTests $ parallel $ do
   describe "Window" (Test.Window.spec BrowserDOM)
   describe "Fields of Web types" (Test.Fields.spec BrowserDOM)
   describe "Dispatch to a subscription" (Test.Dispatch.subscribedSpec BrowserDOM)
+  describe "Late events" (Test.Late.spec BrowserDOM)
+  describe "Late events without the runner" (Test.InPage.withoutRunner (Test.Late.inPageSpec BrowserDOM))
 #endif
 
 #if defined(wasm32_HOST_ARCH) && !defined(INTERACTIVE)

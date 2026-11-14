@@ -37,7 +37,9 @@ spec m = do
   it "patches the material when the colour changes" $ runPage $ do
     ui <- mountScene m
     find ui ".recolour" >>= click
-    eventually (Page.colorOf Scene.boxName `shouldReturn` Just Scene.secondColor)
+    -- The material is patched in the render the click caused, which the
+    -- click has waited for (the drawing, a frame later, is not read here).
+    Page.colorOf Scene.boxName `shouldReturn` Just Scene.secondColor
 
   it "disposes of a removed mesh's geometry and material" $ runPage $ do
     ui <- mountScene m
