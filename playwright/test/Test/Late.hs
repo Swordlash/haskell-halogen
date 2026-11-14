@@ -68,6 +68,21 @@ spec base = describe "events the browser dispatches late" $ do
 
   -- Forward from the last entry goes nowhere, and no popstate comes: the
   -- settle does not wait for one (half a second, were it counted).
+  -- A program gives the probe its answer when it starts, which may be in
+  -- the very task a settle begins with.
+  it "settles a program that starts in the task the settle begins with" $ \pw -> withPage pw $ \page -> do
+    goto page (at "starting.html")
+    click (locator page "#start")
+    textContent (locator page "#status") `shouldReturn` "started"
+
+  -- A frame has a document, a probe and a program of its own: an action on
+  -- an element in it settles that program, not only the page's.
+  it "settles the frame an action's element is in" $ \pw -> withPage pw $ \page -> do
+    goto page (at "framing.html")
+    let inner = inFrame page "iframe#inner"
+    click (locator inner "#slow")
+    textContent (locator inner "#state") `shouldReturn` "done"
+
   it "does not wait for a move through the history that has nowhere to go" $ \pw -> withPage pw $ \page -> do
     visit page (at "late.html")
     click (locator page "#push")
@@ -121,6 +136,13 @@ spec base = describe "events the browser dispatches late" $ do
       waitForEvent (OnWindow page) "popstate" (click (locator page "#back-later"))
       textContent (locator page "#state") `shouldReturn` "0"
       url page `shouldReturn` at "late.html"
+
+    it "settles the frame of the element it listened on" $ \pw -> withPage pw $ \page -> do
+      goto page (at "framing.html")
+      let slow = locator (inFrame page "iframe#inner") "#slow"
+      -- A click from script, which no action settles: the wait does.
+      waitForEvent (OnElement slow) "click" (evaluateOn slow "(e) => { e.click(); return null; }" () :: IO ())
+      textContent (locator (inFrame page "iframe#inner") "#state") `shouldReturn` "done"
 
     it "gives the action's result" $ \pw -> withPage pw $ \page -> do
       visit page (at "late.html")

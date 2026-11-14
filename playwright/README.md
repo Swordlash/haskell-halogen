@@ -95,7 +95,9 @@ has `browserArgs`, Chromium's command-line switches (a
   after Escape or `close()`, `resize`, a `ResizeObserver`'s callback), and
   asks the program again, starting over if the event made it busy. Every
   action (`click`, `fill`, `typeText`, `press`, `goto`, ...) ends with it. A
-  navigation that takes the document away is not an error. On a page with no
+  navigation that takes the document away is not an error. An action on an
+  element in a frame (`inFrame`, `frameAt`) settles the frame's document
+  first, which has a program of its own, and then the page's. On a page with no
   Halogen program it waits for the task, the move and the frame. A hidden
   page draws no frames and is not waited for; a page whose frame does not
   come within 100 ms is not waited for again until it draws one. The frame

@@ -170,7 +170,9 @@ What the wiki's smoke tests found next, each with a test of its own:
   `go(n)`, which the driver's init script notes by wrapping those three
   methods of `History.prototype` in every page) until the page has its
   `popstate`. The frame costs an action about a dozen milliseconds; a hidden
-  page, or one that draws no frames, is not held up.
+  page, or one that draws no frames, is not held up. An action on an element
+  in a frame now settles the frame's own program as well as the page's:
+  before, only the page's document was asked.
 - `waitForEvent`, with `EventTarget` (`OnWindow`, `OnDocument`, `OnElement`):
   an action, then an event on the target, waited for by a listener the page
   had before the action, then settled. For what the page does later by

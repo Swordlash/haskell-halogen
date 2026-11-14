@@ -284,25 +284,26 @@ const probeScript = () => {
 // the steps that follow are applied inside it: "frame" (the page's frame
 // whose address matches a glob, which must be the first step) and
 // "frameLocator" (the frame an iframe element shows).
-const locate = ({ page, steps }) =>
-  steps.reduce((at, step) => {
-    if ("frame" in step) {
-      const frame = at.frame?.({ url: step.frame });
-      if (!frame) throw Object.assign(new Error(`no frame of the page's has an address matching ${step.frame}`), { name: "NoFrame" });
-      return frame;
-    }
-    if ("frameLocator" in step) return at.frameLocator(step.frameLocator);
-    if ("css" in step) return at.locator(step.css);
-    if ("nth" in step) return at.nth(step.nth);
-    if ("hasText" in step) return at.filter({ hasText: step.hasText });
-    // The whole text, exactly: Playwright's text matching against a regular
-    // expression made of the text, escaped, from start to end.
-    if ("hasTextExact" in step) return at.filter({ hasText: new RegExp(`^${escapeRegExp(step.hasTextExact)}$`) });
-    if ("role" in step) return at.getByRole(step.role, step.name == null ? {} : { name: step.name, exact: true });
-    if ("text" in step) return at.getByText(step.text);
-    if ("label" in step) return at.getByLabel(step.label);
-    throw new Error(`unknown locator step ${JSON.stringify(step)}`);
-  }, pageOf(page));
+const stepFrom = (at, step) => {
+  if ("frame" in step) {
+    const frame = at.frame?.({ url: step.frame });
+    if (!frame) throw Object.assign(new Error(`no frame of the page's has an address matching ${step.frame}`), { name: "NoFrame" });
+    return frame;
+  }
+  if ("frameLocator" in step) return at.frameLocator(step.frameLocator);
+  if ("css" in step) return at.locator(step.css);
+  if ("nth" in step) return at.nth(step.nth);
+  if ("hasText" in step) return at.filter({ hasText: step.hasText });
+  // The whole text, exactly: Playwright's text matching against a regular
+  // expression made of the text, escaped, from start to end.
+  if ("hasTextExact" in step) return at.filter({ hasText: new RegExp(`^${escapeRegExp(step.hasTextExact)}$`) });
+  if ("role" in step) return at.getByRole(step.role, step.name == null ? {} : { name: step.name, exact: true });
+  if ("text" in step) return at.getByText(step.text);
+  if ("label" in step) return at.getByLabel(step.label);
+  throw new Error(`unknown locator step ${JSON.stringify(step)}`);
+};
+
+const locate = ({ page, steps }) => steps.reduce(stepFrom, pageOf(page));
 
 const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -369,8 +370,11 @@ const inPageSettle = async ({ deadline, quiet, pause, frameBound }) => {
   const moves = globalThis[Symbol.for("halogen.playwright.traversals")];
   const moving = () => moves?.pending.size > 0;
   const moved = () => new Promise((resolve) => moves.waiters.push(resolve));
+  // A program gives the probe its answer when its first tree mounts, which
+  // may be during any of the waits here (a page whose program starts in
+  // the task this settle begins with): it is looked for each time.
   const probe = globalThis.__halogenProbe;
-  const program = typeof probe?.activity === "function";
+  const program = () => typeof probe?.activity === "function";
   const idle = async () => {
     for (;;) {
       const a = await probe.activity();
@@ -382,21 +386,21 @@ const inPageSettle = async ({ deadline, quiet, pause, frameBound }) => {
   await task();
   let last = null;
   for (;;) {
-    if (program) {
+    if (program()) {
       const reading = await idle();
-      if (reading.timedOut) return { program, ...reading };
+      if (reading.timedOut) return { program: true, ...reading };
       last = reading.activity;
     }
     if (moving()) await moved();
     await frame();
     await task();
-    if (!program) {
-      if (!moving()) return { program };
+    if (!program()) {
+      if (!moving()) return { program: false };
       continue;
     }
     const a = await probe.activity();
-    if (a.running === 0 && (!quiet || a.waiting === 0) && !moving()) return { program, activity: a };
-    if (Date.now() > deadline) return { program, activity: a ?? last, timedOut: true };
+    if (a.running === 0 && (!quiet || a.waiting === 0) && !moving()) return { program: true, activity: a };
+    if (Date.now() > deadline) return { program: true, activity: a ?? last, timedOut: true };
   }
 };
 
@@ -430,7 +434,11 @@ const silent = (page, ms) => () =>
 // once.
 const scriptless = new WeakSet();
 
-const settle = async (page, { quiet = false, timeout: ms = timeout } = {}) => {
+// The page, or one of its frames: each document has a probe and a program
+// of its own, so an action in a frame settles the frame's (frameOf) and
+// then the page's.
+const settle = async (target, { quiet = false, timeout: ms = timeout } = {}) => {
+  const page = typeof target.page === "function" ? target.page() : target;
   if (scriptless.has(page)) return null;
   const started = Date.now();
   let outcome;
@@ -439,13 +447,14 @@ const settle = async (page, { quiet = false, timeout: ms = timeout } = {}) => {
     // later it is taken not to be answering at all.
     outcome = await answeredWithin(
       ms + 1000,
-      page.evaluate(inPageSettle, { deadline: started + ms, quiet, pause: quiet ? 5 : 0, frameBound: 100 }),
-      silent(page, ms),
+      target.evaluate(inPageSettle, { deadline: started + ms, quiet, pause: quiet ? 5 : 0, frameBound: 100 }),
+      silent(target, ms),
     );
   } catch (error) {
-    // The document went, or the page itself did: a sign-in window that
-    // closes itself as the click that signs in is handled.
-    if (navigatedAway(error) || page.isClosed()) return null;
+    // The document went, or the page itself did (a sign-in window that
+    // closes itself as the click that signs in is handled), or the frame
+    // was taken out of its page.
+    if (navigatedAway(error) || page.isClosed() || target.isDetached?.()) return null;
     throw error;
   }
   if (outcome.timedOut) {
@@ -774,20 +783,54 @@ const performedAsPageClosed = (page, error) => {
   return page.isClosed() && /Target page, context or browser has been closed/.test(message) && /performing \w+ action/.test(message);
 };
 
-// An action on a locator, then settle. The action is given Playwright's
-// options with the call's timeout.
+// The frame a locator goes into, if it goes into one (the innermost): the
+// document its element is in, whose program hears what is done to the
+// element, and which settle asks as well as the page. Found without
+// waiting: null for a locator of the page's own document, and for a frame
+// that is not there (yet).
+const frameOf = async ({ page, steps }) => {
+  try {
+    let at = pageOf(page);
+    let inner = null;
+    for (const step of steps) {
+      at = stepFrom(at, step);
+      if ("frame" in step || "frameLocator" in step) inner = at;
+    }
+    if (!inner) return null;
+    // A frame found by its address is the frame itself; one an iframe
+    // element shows is that element's content.
+    if (typeof inner.evaluate === "function") return inner;
+    const [element] = await inner.owner().elementHandles();
+    return element ? await element.contentFrame() : null;
+  } catch {
+    return null;
+  }
+};
+
+// The frame an action's locator goes into, then the page: both settled.
+const settleAround = async (frame, page, options) => {
+  if (frame) await settle(frame, options);
+  await settle(page, options);
+};
+
+// An action on a locator, then settle: the frame the locator goes into, if
+// it goes into one, and the page. The action is given Playwright's options
+// with the call's timeout.
 // The page is taken before the action, which may close it (a sign-in
-// window's button): settling a page that has closed is nothing to do.
+// window's button): settling a page that has closed is nothing to do. The
+// frame is looked for before the action, which may take it away, and
+// again after it if it was not there yet.
 const acting = (act) => async (m) => {
   const page = pageOf(m.locator.page);
   const target = locate(m.locator);
+  const before = await frameOf(m.locator);
   try {
     await act(target, m, { timeout: within(m) });
   } catch (error) {
     if (!performedAsPageClosed(page, error)) throw error;
     return null;
   }
-  await settle(page, { timeout: within(m) });
+  await settleAround(before ?? (await frameOf(m.locator)), page, { timeout: within(m) });
   return null;
 };
 // An action on a page, then settle.
@@ -1164,9 +1207,12 @@ const methods = {
     const source = `(target, type) => (${listen})(target, type)`;
     let handle;
     let page;
+    let frame = null;
     if (m.locator) {
       page = pageOf(m.locator.page);
       handle = await locate(m.locator).evaluateHandle(functionOf(source), m.eventType, { timeout: within(m) });
+      // The document the element is in, whose program hears the event.
+      frame = await frameOf(m.locator);
     } else {
       page = pageOf(m.page);
       handle = await page.evaluateHandle(
@@ -1175,14 +1221,14 @@ const methods = {
       );
     }
     const id = nextHandle++;
-    events.set(id, { handle, page, type: m.eventType, what: m.what });
+    events.set(id, { handle, page, frame, type: m.eventType, what: m.what });
     return id;
   },
   async awaitEvent(m) {
     const armed = events.get(m.armed);
     events.delete(m.armed);
     if (!armed) throw new Error(`no event ${m.armed} is expected`);
-    const { handle, page, type, what } = armed;
+    const { handle, page, frame, type, what } = armed;
     const ms = within(m);
     const late = () => `no ${type} event on ${what} of ${page.url()} within ${ms}ms`;
     let fired;
@@ -1211,7 +1257,7 @@ const methods = {
       handle.dispose().catch(() => {});
     }
     if (!fired) throw timeoutError(late());
-    await settle(page, { timeout: ms });
+    await settleAround(frame, page, { timeout: ms });
     return null;
   },
   async forgetEvent(m) {
