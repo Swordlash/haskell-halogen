@@ -410,6 +410,24 @@ On the wire this is the protocol's third kind of message: node asks
 `js/driver.mjs`. The thread that reads node's output never runs a handler and
 never writes.
 
+## Functions the page calls
+
+`exposeFunction page name f` (or on a context, for all its pages) gives the page
+`window[name]`, a function of the test's: the page calls it with one argument and
+gets a promise of the result, both JSON, as a page calls a native app's bridge or
+reports to a test harness. It is an ask too (`{"ask": 13, "exposed": 5,
+"argument": ...}`), so each call runs on a thread of its own and may block while
+others are answered. What the function throws (an argument that does not decode
+too) rejects the page's promise with its message, is written to stderr and kept,
+and an `inPage` failure lists it under "Exposed functions that failed". It is
+there for every document the page loads after, until the page or the context
+closes.
+
+```haskell
+exposeFunction page "reportScore" $ \(score :: Int) -> writeIORef best score
+-- in the page: await window.reportScore(42)
+```
+
 ## Files
 
 `download page action` runs an action that downloads a file (a click on an
@@ -575,11 +593,10 @@ hspec's: hspec's own `focus` would otherwise meet the page's.
 ## Not here
 
 Written against the smoke tests it is to run, it leaves out what they do not
-use, and some of what they do: traces, video and other browsers;
-`exposeFunction` (a page calling the test; it would be one more kind of ask,
-answered with JSON); popups; a wait for a response of the page's own (see the
-pauses above; `waitForExchange` is one after the fact); and the mouse's buttons
-pressed and released apart.
+use, and some of what they do: traces, video and other browsers; popups; a
+wait for a response of the page's own (see the pauses above; `waitForExchange`
+is one after the fact); taking an exposed function away; and the mouse's
+buttons pressed and released apart.
 
 ## Its own tests
 

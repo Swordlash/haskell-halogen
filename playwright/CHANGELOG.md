@@ -149,3 +149,7 @@ Policy, an editor in an iframe) needed, each with a test of its own:
   came and time out; another document is waited for as before. With no entry
   to go to they fail with a `PlaywrightError` named `NoHistoryEntry`, where
   they did nothing.
+- `exposeFunction`: a function of the test's that a page (or every page of a
+  context) calls as `window[name]`, JSON both ways, each call on a thread of
+  its own; what it throws rejects the page's promise and is listed in an
+  `inPage` failure ("Exposed functions that failed").

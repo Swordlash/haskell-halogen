@@ -27,16 +27,20 @@
 //                                            its exchanges, once it has ended
 //   {"event": "cdp", "page": 2, "name": "Network.requestWillBeSent", "params": {...}}
 //                                            a DevTools event the test listens to
-//   {"event": "unrouted", "routes": [3, 4]}  these routes went with their page
-//                                            or context; no ask of theirs is
-//                                            waiting for an answer any more
+//   {"event": "unrouted", "routes": [3, 4]}  these routes (or exposed functions)
+//                                            went with their page or context; no
+//                                            ask of theirs is waiting for an
+//                                            answer any more
 // node to Haskell, a question, which Haskell answers once:
 //   {"ask": 12, "route": 3, "request": {"url": "...", "method": "GET", "resourceType": "fetch",
 //                                       "headers": {...}, "allHeaders": {...}, "postData": "<base64>" | null}}
+//   {"ask": 13, "exposed": 5, "argument": <JSON>}   the page called a function the test exposed
 // Haskell to node, its answer:
 //   {"answer": 12, "action": "continue"}
 //   {"answer": 12, "action": "fulfill", "status": 200, "headers": {...}, "contentType": "..." | null, "body": "<base64>"}
 //   {"answer": 12, "action": "abort", "error": "connectionrefused"}
+//   {"answer": 13, "result": <JSON>}                 the page's promise resolved with it
+//   {"answer": 13, "error": "..."}                   the page's promise rejected with it
 // While a route's ask waits for its answer, Haskell may call "fetchRouted"
 // with the ask's number: the request is sent to the server, and the reply is
 // the response (status, headers, body), which the handler then looks at or
@@ -44,14 +48,16 @@
 // Messages are told apart by their keys: "id" (a call, or its reply),
 // "event", "ask" and "answer". Bytes cross as base64.
 //
-// A route's id is chosen by Haskell, which registers its handler before it
-// calls "route", so that no ask can arrive for a route Haskell does not
-// know. A route may carry "resourceTypes" and "methods": a request of
-// another kind is passed on here without asking Haskell. An ask waits here
-// until its answer comes, or until its route goes (unrouted by Haskell, or
-// with its page or context), whichever is first: then the request is let go
-// on as if the route had not been there, and an answer that comes later is
-// ignored. So neither side is ever left waiting for the other.
+// A route's id (and an exposed function's) is chosen by Haskell, which
+// registers its handler before it calls "route" ("expose"), so that no ask
+// can arrive for a route Haskell does not know. A route may carry
+// "resourceTypes" and "methods": a request of another kind is passed on here
+// without asking Haskell. An ask waits here until its answer comes, or until
+// its route goes (unrouted by Haskell, or with its page or context),
+// whichever is first: then the request is let go on as if the route had not
+// been there (an exposed function's call is rejected), and an answer that
+// comes later is ignored. So neither side is ever left waiting for the
+// other.
 //
 // Nothing else writes to stdout: console.log is sent to stderr, which the
 // Haskell side relays. When stdin ends, the browser is closed and node
@@ -475,19 +481,25 @@ const sessionOf = (page) => {
 
 // Routes: the test's handlers for a page's or a context's requests. Each
 // matching request is asked of Haskell, and waits for its answer (see the
-// header). An entry is {id, page, context, target, pattern, resourceTypes,
-// methods, handler, asks, gone}.
+// header). An entry is {id, kind, page, context, target, pattern,
+// resourceTypes, methods, handler, asks, gone}. The functions a test exposes
+// to its pages are entries of the same map, of the kind "exposed", so that
+// they go with their page or context as routes do.
 const routes = new Map();
 const asks = new Map();
 let nextAsk = 1;
 
 // An ask that will get no answer from Haskell: the request goes on as if
 // the route had not been there (to the next route that matches, or the
-// network). On a page or context that has closed this fails, which is
-// nothing to wait for.
+// network); an exposed function's call is rejected. On a page or context
+// that has closed this fails, which is nothing to wait for.
 const letGo = (ask) => {
   asks.delete(ask.id);
   ask.entry.asks.delete(ask.id);
+  if (ask.entry.kind === "exposed") {
+    ask.reject(new Error(`the test's function ${ask.entry.pattern} is gone`));
+    return;
+  }
   ask.route.fallback().catch(() => {});
   ask.resolve();
 };
@@ -526,6 +538,17 @@ const routeHandler = (entry) => async (route) => {
   });
 };
 
+// A function the page calls, answered by Haskell: each call is an ask, and
+// the page's promise settles with the answer.
+const exposedHandler = (entry) => (_source, argument) =>
+  new Promise((resolve, reject) => {
+    const ask = { id: nextAsk++, entry, resolve, reject };
+    if (entry.gone) return letGo(ask);
+    asks.set(ask.id, ask);
+    entry.asks.add(ask.id);
+    send({ ask: ask.id, exposed: entry.id, argument: argument === undefined ? null : argument });
+  });
+
 // The headers of a response, in order, each name in lower case: a list, as
 // a header may come more than once (set-cookie).
 const headerList = (headers) => headers.map(({ name, value }) => [name.toLowerCase(), value]);
@@ -537,6 +560,11 @@ const answered = (message) => {
   if (!ask) return;
   asks.delete(ask.id);
   ask.entry.asks.delete(ask.id);
+  if (ask.entry.kind === "exposed") {
+    if (message.error != null) ask.reject(new Error(message.error));
+    else ask.resolve(message.result);
+    return;
+  }
   const { route } = ask;
   let done;
   if (message.action === "fulfill") {
@@ -822,6 +850,7 @@ const methods = {
     const target = m.page != null ? pageOf(m.page) : contextOf(m.context);
     const entry = {
       id: m.route,
+      kind: "route",
       page: m.page ?? null,
       context: m.context,
       target,
@@ -871,6 +900,21 @@ const methods = {
       headers: headerList(response.headersArray()).filter(([name]) => !hop.has(name)),
       body: (await response.body()).toString("base64"),
     };
+  },
+
+  // A function of the test's that the context's or a page's pages call as
+  // window[name], each call an ask (see the header).
+  async expose(m) {
+    const target = m.page != null ? pageOf(m.page) : contextOf(m.context);
+    const entry = { id: m.exposed, kind: "exposed", page: m.page ?? null, context: m.context, target, pattern: m.name, asks: new Set(), gone: false };
+    routes.set(entry.id, entry);
+    try {
+      await target.exposeBinding(m.name, exposedHandler(entry));
+    } catch (error) {
+      routes.delete(entry.id);
+      throw error;
+    }
+    return null;
   },
 
   // A DevTools event of the page's session, sent to Haskell each time it

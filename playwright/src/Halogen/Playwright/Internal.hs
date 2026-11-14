@@ -36,9 +36,10 @@ module Halogen.Playwright.Internal
   , Context (..)
   , Page (..)
 
-    -- * Routes
+    -- * Routes, and functions exposed to pages
   , addRoute
   , addRouteWith
+  , addExposed
   , removeRoute
 
     -- * What pages said, and what contexts asked for
@@ -56,12 +57,14 @@ module Halogen.Playwright.Internal
   , FailedRequest (..)
   , failedRequests
   , routeFailures
+  , exposedFailures
 
     -- * The driver's source
   , driverScript
   )
 where
 
+import Control.Applicative ((<|>))
 import Control.Concurrent (ThreadId, forkIO, forkIOWithUnmask, killThread, threadDelay)
 import Control.Concurrent.MVar
 import Control.Concurrent.STM (TVar, atomically, check, modifyTVar', newTVarIO, orElse, readTVar, readTVarIO, registerDelay)
@@ -169,19 +172,31 @@ data Playwright = Playwright
   -- ^ The last lines node wrote to stderr, for the message when it dies.
   }
 
--- | A route's handler and the threads answering its asks now, by ask.
+-- | A route's handler, or a function exposed to pages, and the threads
+-- answering its asks now, by ask.
 data RouteEntry = RouteEntry
   { context :: Int
+  , kind :: HandlerKind
   , pattern :: Text
+  -- ^ A route's glob, or the exposed function's name.
   , handler :: Int -> Aeson.Object -> IO [Aeson.Pair]
   -- ^ Given the ask's number and the ask; the answer's fields.
   , inFlight :: IntMap ThreadId
   }
 
+-- | What an ask is answered for: what a failure of its handler means.
+data HandlerKind
+  = -- | A route's: the request is aborted.
+    RouteHandler
+  | -- | A function a page called: its promise is rejected.
+    ExposedHandler
+  deriving stock (Eq)
+
 -- | What went wrong in a context that a failure should mention.
 data ContextFailures = ContextFailures
   { requests :: Seq FailedRequest
   , handlers :: Seq Text
+  , exposed :: Seq Text
   }
 
 -- | A browser context: pages that share cookies and storage, and nothing
@@ -359,10 +374,15 @@ failedRequests pw context = maybe Seq.empty (.requests) . IntMap.lookup context 
 routeFailures :: Playwright -> Int -> IO (Seq Text)
 routeFailures pw context = maybe Seq.empty (.handlers) . IntMap.lookup context <$> readIORef pw.failures
 
+-- | How the functions exposed to a context's pages failed, the last fifty,
+-- oldest first: each the function's name and the exception.
+exposedFailures :: Playwright -> Int -> IO (Seq Text)
+exposedFailures pw context = maybe Seq.empty (.exposed) . IntMap.lookup context <$> readIORef pw.failures
+
 -- | Add to a context's failures, keeping the last fifty of each kind.
 addFailure :: Playwright -> Int -> (ContextFailures -> ContextFailures) -> IO ()
 addFailure pw context f =
-  atomicModifyIORef' pw.failures (\m -> (IntMap.alter (Just . f . fromMaybe (ContextFailures Seq.empty Seq.empty)) context m, ()))
+  atomicModifyIORef' pw.failures (\m -> (IntMap.alter (Just . f . fromMaybe (ContextFailures Seq.empty Seq.empty Seq.empty)) context m, ()))
 
 lastFifty :: Seq a -> Seq a
 lastFifty xs = Seq.drop (Seq.length xs - 50) xs
@@ -627,7 +647,9 @@ readReplies pw h ready stderrDone = (forever readOne `catchEnd` pure ()) `finall
     relay page kind text =
       when pw.options.relayConsole $
         hPutStrLn stderr (Text.unpack ("[page " <> Text.pack (show page) <> "] [" <> kind <> "] " <> text))
-    onAsk o = for_ (Aeson.parseMaybe (\v -> (,) <$> v .: "ask" <*> v .: "route") o) $ \(ask, entry) ->
+    -- A route's ask names its route, an exposed function's its function:
+    -- both are handlers of the same map.
+    onAsk o = for_ (Aeson.parseMaybe (\v -> (,) <$> v .: "ask" <*> (v .: "route" <|> v .: "exposed")) o) $ \(ask, entry) ->
       startHandler pw ask entry o
     ended = do
       -- What node said last explains why it went: wait (briefly) for its
@@ -731,19 +753,34 @@ addRoute pw context target pattern handler = addRouteWith pw context target patt
 -- while it waits (@"fetchRouted"@).
 addRouteWith :: Playwright -> Int -> Aeson.Pair -> Text -> [Aeson.Pair] -> (Int -> Aeson.Object -> IO [Aeson.Pair]) -> IO Int
 addRouteWith pw context target pattern fields handler =
-  addHandler pw context pattern handler' $ \route ->
+  addHandler pw context RouteHandler pattern handler' $ \route ->
     call_ pw "route" (["route" .= route, "context" .= context, target, "pattern" .= pattern] <> fields)
   where
     handler' ask o = case Aeson.parseMaybe (.: "request") o of
       Just request -> handler ask request
       Nothing -> throwIO (PlaywrightError "route" "DecodeError" "an ask with no request")
 
+-- | Register a function and ask node to expose it to a page's or a
+-- context's pages under a name. The handler is given the argument each call
+-- of the page's passed, and returns the result, which the page's promise
+-- resolves with; it runs on a thread of its own for each call. What it
+-- throws rejects the page's promise, and is added to the context's
+-- failures.
+addExposed :: Playwright -> Int -> Aeson.Pair -> Text -> (Value -> IO Value) -> IO ()
+addExposed pw context target name handler =
+  void . addHandler pw context ExposedHandler name handler' $ \exposed ->
+    call_ pw "expose" ["exposed" .= exposed, "context" .= context, target, "name" .= name]
+  where
+    handler' _ o = do
+      result <- handler (fromMaybe Null (KeyMap.lookup "argument" o))
+      pure ["result" .= result]
+
 -- | Register a handler under a fresh id, then tell node about it: first,
 -- so that the first ask finds it.
-addHandler :: Playwright -> Int -> Text -> (Int -> Aeson.Object -> IO [Aeson.Pair]) -> (Int -> IO Value) -> IO Int
-addHandler pw context pattern handler tell = do
+addHandler :: Playwright -> Int -> HandlerKind -> Text -> (Int -> Aeson.Object -> IO [Aeson.Pair]) -> (Int -> IO Value) -> IO Int
+addHandler pw context kind pattern handler tell = do
   i <- atomicModifyIORef' pw.nextId (\n -> (n + 1, n))
-  atomicModifyIORef' pw.routes (\m -> (IntMap.insert i RouteEntry {context, pattern, handler, inFlight = IntMap.empty} m, ()))
+  atomicModifyIORef' pw.routes (\m -> (IntMap.insert i RouteEntry {context, kind, pattern, handler, inFlight = IntMap.empty} m, ()))
   (tell i >> pure i)
     `onException` atomicModifyIORef' pw.routes (\m -> (IntMap.delete i m, ()))
 
@@ -761,7 +798,8 @@ removeRoute pw route = do
 
 -- | Answer an ask from a thread of its own, which is registered with its
 -- route before it starts, so that removing the route finds it. A route
--- that has gone meanwhile lets the request go on.
+-- that has gone meanwhile lets the request go on (node has let it go
+-- already, and ignores the answer; so for a function).
 startHandler :: Playwright -> Int -> Int -> Aeson.Object -> IO ()
 startHandler pw ask route message = mask_ $ do
   registered <- newEmptyMVar
@@ -786,6 +824,11 @@ startHandler pw ask route message = mask_ $ do
           -- Stopped: its route went, or the driver did; node has let the
           -- request go.
           | isJust (fromException e :: Maybe SomeAsyncException) -> throwIO e
+          | entry.kind == ExposedHandler -> do
+              let what = entry.pattern <> ": " <> Text.pack (displayException e)
+              hPutStrLn stderr (Text.unpack ("[playwright] an exposed function failed, and the page's call was rejected: " <> what))
+              addFailure pw entry.context (\f -> f {exposed = lastFifty (f.exposed Seq.|> what)})
+              answer ["error" .= Text.pack (displayException e)]
           | otherwise -> do
               let address = fromMaybe "?" (Aeson.parseMaybe (\o -> o .: "request" >>= (.: "url")) message)
                   what = entry.pattern <> ": " <> address <> ": " <> Text.pack (displayException e)

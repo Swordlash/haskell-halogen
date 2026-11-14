@@ -10,6 +10,7 @@ import Test.Adoption qualified
 import Test.DevTools qualified
 import Test.Driver qualified
 import Test.Exchanges qualified
+import Test.Exposed qualified
 import Test.Failures qualified
 import Test.Files qualified
 import Test.Frames qualified
@@ -48,4 +49,5 @@ main = serveDirectory "test/web" $ \base -> do
       Test.Exchanges.spec
       Test.History.spec base
       Test.Policy.spec
+      Test.Exposed.spec base
     Test.Failures.spec base

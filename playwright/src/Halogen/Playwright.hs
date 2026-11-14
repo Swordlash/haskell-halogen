@@ -50,7 +50,8 @@
 -- first ('fetchResponse', 'passThrough'). 'hold' is such a handler:
 -- requests wait until 'release', as a test holds @app.wasm@ to look at the
 -- prerendered page first. 'routeWith' and 'holdWith' take only some
--- resource types or methods.
+-- resource types or methods. 'exposeFunction' goes the other way: the
+-- page calls a function of the test's.
 --
 -- = The rest of the browser
 --
@@ -262,6 +263,12 @@ module Halogen.Playwright
   , waitHeld
   , rearm
   , closeGate
+
+    -- * Functions the page calls
+
+    -- | A function of the test's that a page's JavaScript calls, as
+    -- @await window.name(argument)@.
+  , exposeFunction
 
     -- * Downloads
   , Download (..)
@@ -1829,6 +1836,30 @@ waitHeld g = liftIO $ do
   if held
     then pure ()
     else throwIO (PlaywrightError "waitHeld" "TimeoutError" ("no request matching " <> g.route.pattern <> " was held within " <> Text.pack (show g.timeoutMs) <> "ms"))
+
+----------------------------------------------------------------------
+-- Functions the page calls
+
+-- | Give a page (or every page of a context) a function of the test's, as
+-- @window[name]@: the page calls it with one argument and gets a promise
+-- of the result, both JSON (@await window.signIn({user: "ada"})@; no
+-- argument is @null@, and several go as an array or an object). As a
+-- route's handler, each call runs on a thread of its own, so the function
+-- may block, and the page's promise waits for it. What it throws (a
+-- decoding failure of the argument too) rejects the page's promise with
+-- its message; it is written to stderr and kept with the context, and
+-- "Halogen.Playwright.Hspec" adds it to a test's failure. It applies to the
+-- page as it is and to every document loaded after; the function is there
+-- until its page or context closes (there is no taking it away), and a
+-- call under way then is rejected.
+--
+-- > exposeFunction page "reportScore" $ \(score :: Int) -> writeIORef best score
+exposeFunction :: (Routed s, FromJSON a, ToJSON b, MonadIO m) => s -> Text -> (a -> IO b) -> m ()
+exposeFunction s name f = liftIO $ do
+  let (pw, context, target, _) = routedOn s
+  addExposed pw context target name $ \argument -> case Aeson.fromJSON argument of
+    Aeson.Success a -> toJSON <$> f a
+    Aeson.Error e -> throwIO (PlaywrightError "exposeFunction" "DecodeError" ("the argument of " <> name <> ": " <> Text.pack e))
 
 ----------------------------------------------------------------------
 -- Downloads
