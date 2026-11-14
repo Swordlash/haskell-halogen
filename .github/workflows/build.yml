@@ -279,6 +279,25 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-ghcjs-build-${{ env.GHCJS_VERSION }}-
 
+    # Room for core's compile. On this backend the compiler keeps some 390 MB
+    # for every module of a package that has a splice, and core has about
+    # forty: a build that compiles core takes the compiler to 14 GB of the
+    # runner's 16, with the rest of the build beside it, and what swap the
+    # runner comes with has not always been enough (the job then stops
+    # answering and uploads no log). A run that does not compile core stays
+    # under 10 GB and uses none of this. The file goes on the runner's
+    # temporary disk where there is one.
+    - name: Add swap
+      run: |
+        swapon --show
+        dir=/mnt
+        [ -d "$dir" ] && [ -w "$dir" ] || sudo test -w "$dir" || dir=/var/tmp
+        sudo fallocate -l 12G "$dir/halogen-swap"
+        sudo chmod 600 "$dir/halogen-swap"
+        sudo mkswap "$dir/halogen-swap" >/dev/null
+        sudo swapon "$dir/halogen-swap"
+        free -m
+
     # Also writes the bundle sizes to the job summary. Under a limit of its
     # own and with the machine's memory printed once a minute: the build has
     # twice stopped at DOM.HTML.Indexed and held the runner, which then
