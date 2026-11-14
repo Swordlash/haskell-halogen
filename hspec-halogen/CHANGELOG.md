@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+A failing test says more of why. After the tree's events it says what the
+program was doing when it failed, from haskell-halogen-core's
+`Halogen.Activity`: how many trees were mounted, how many were running or had
+work queued, how many fibers were waiting in a `liftIO`. A tree still running
+long after its last event is one whose loop is held; a fiber waiting is work
+the test did not wait for.
+
+An `eventually` around an expectation that retries by itself
+(`eventually (element \`shouldHaveText\` "done")`: `shouldHaveText` already
+waits two seconds) used to fail with "no attempt finished within 2000 ms",
+since its deadline came a moment before the expectation's own and cut it
+short. It now fails as the expectation inside last did, with what was
+expected and what was found.
+
 The suite tests haskell-halogen-core's Web fields in the browser
 (`Test.Fields`): one test for each kind of member, a Promise awaited and one
 rejected, and checked casts.
