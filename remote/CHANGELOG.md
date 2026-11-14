@@ -81,3 +81,17 @@ connects once and stays disconnected when the connection closes.
 while it runs in the test's own process: `withTestServer`, and per example `mounting`, which gives
 the address of a page that shows that component alone and an action that waits for the page to
 connect and gives the component's session and socket (`Mounted`, with `queryComponent`).
+
+What a component does to the page through the `Web.*` types crosses the wire without the
+component changing: a focus through a ref (`H.getHTMLElementRef`, then `HTMLElement.focus`, or
+`focusWithoutScrolling`), `blur`, `click`, an input's `select`, `scrollIntoView` (and
+`Element.scrollIntoViewBlock`), a dialog's `showModal`, `show` and `close` (through
+`HTMLDialogElement.fromElement`), and the document's title (`doc.title_set`). Natively a handle
+answers for itself (haskell-halogen-jsbits' `answering`): the call is recorded as an operation,
+`["call", node, method, [arguments]]` or `["set", 0, "title", value]`, in the batch being recorded
+(a render's, so a focus in an `Initialize` comes after the element's creation), and the client
+performs it from an allowlist, logging one that throws. A cast of a handle asks what its node is, so
+the casts that gave `Nothing` natively now find the element. Reads still cannot cross in time and
+keep their inert answers (measuring, `document.activeElement`, a dialog's `open`, the clipboard);
+nothing off the allowlist is recorded; a call on a node that has gone records nothing. In the
+loopback, where a handle is the engine's value, nothing of this is carried out.

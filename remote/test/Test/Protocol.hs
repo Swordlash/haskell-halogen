@@ -34,6 +34,10 @@ every =
   , ListenerOptions 2 "keydown" 8 handlerOptions {stopPropagation = True, matching = Just (Keys [keyMatch "/", (keyMatch "s") {ctrlKey = Just True, altKey = Just False}])}
   , ListenerOptions 2 "input" 9 handlerOptions {matching = Just AnyEvent}
   , ListenerOptions 2 "submit" 10 handlerOptions
+  , Call 2 "focus" []
+  , Call 2 "focus" [object ["preventScroll" .= True]]
+  , Call 5 "close" [Aeson.String "done"]
+  , Assign 0 "title" (Aeson.String "Notes")
   ]
 
 spec :: Spec
@@ -45,6 +49,9 @@ spec = describe "the protocol" $ do
   it "writes an operation as an array with its name first" $ do
     Aeson.toJSON (Create 2 Nothing "div") `shouldBe` Aeson.toJSON (["create", Aeson.Number 2, Aeson.Null, "div"] :: [Aeson.Value])
     Aeson.toJSON (SetProperty 2 "tabIndex" (ScalarNum 3)) `shouldBe` Aeson.toJSON (["prop", Aeson.Number 2, "tabIndex", Aeson.Number 3] :: [Aeson.Value])
+    Aeson.toJSON (Call 2 "scrollIntoView" [object ["block" .= ("center" :: Text)]])
+      `shouldBe` Aeson.toJSON (["call", Aeson.Number 2, "scrollIntoView", Aeson.toJSON [object ["block" .= ("center" :: Text)]]] :: [Aeson.Value])
+    Aeson.toJSON (Assign 0 "title" "Notes") `shouldBe` Aeson.toJSON (["set", Aeson.Number 0, "title", "Notes"] :: [Aeson.Value])
 
   it "writes a listener's options as the client reads them" $ do
     Aeson.toJSON (ListenerOptions 2 "keydown" 8 handlerOptions {preventDefault = True, matching = Just (Keys [(keyMatch "s") {ctrlKey = Just True}])})

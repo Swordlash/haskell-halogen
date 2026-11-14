@@ -163,8 +163,37 @@ function halogen_remote_op(client, op) {
     case "options":
       halogen_remote_options(client, op[1], op[2], op[3], op[4]);
       break;
+    case "call":
+      halogen_remote_call(nodes.get(op[1]), op[2], op[3]);
+      break;
+    case "set":
+      // The document's title, on node 0 (the window, which the program
+      // knows as its document too), and nothing else.
+      if (op[1] === 0 && op[2] === "title" && typeof op[3] === "string" && typeof document !== "undefined") document.title = op[3];
+      break;
     default:
       break;
+  }
+}
+
+// The methods of an element the program may call through the wire: what a
+// component does to the page through the Web.* types that a page across a
+// wire has to do for it (Halogen.Remote.Protocol). Only these, with the
+// arguments the program sends (already read down to what each takes), and
+// only on an element: the list is not a way to call anything by name.
+var halogen_remote_methods = ["focus", "blur", "click", "select", "scrollIntoView", "showModal", "show", "close"];
+
+// A call of one of them. A node the client does not have (forgotten, or
+// never made) is not called; neither is a method the element does not have
+// (show on a div). One that throws (showModal on a dialog already open as a
+// non-modal one) is logged, and the rest of the batch goes on.
+function halogen_remote_call(node, method, args) {
+  if (!node || typeof Element === "undefined" || !(node instanceof Element)) return;
+  if (halogen_remote_methods.indexOf(method) < 0 || typeof node[method] !== "function") return;
+  try {
+    node[method].apply(node, Array.isArray(args) ? args : []);
+  } catch (e) {
+    if (typeof console !== "undefined") console.warn("halogen-remote: " + method + " failed:", e);
   }
 }
 

@@ -8,6 +8,9 @@ module Test.Session
   , elementWithId
   , listenerOn
   , clickOn
+  , mounted
+  , required
+  , silent
   )
 where
 

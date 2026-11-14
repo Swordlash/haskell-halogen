@@ -13,17 +13,26 @@ module Test.Components
   , linking
   , searching
   , failing
+  , operating
+  , titling
   )
 where
 
+import Control.Monad.UUID (MonadUUID)
 import Data.Row (Empty, type (.==))
 import Halogen qualified as H
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
 import Halogen.Router qualified as Router
+import Halogen.VDom.DOM.Monad (MonadBrowserDOM)
+import Halogen.VDom.DOM.Monad qualified as DOM
 import Protolude
+import Web.DOM.Element qualified as Element
+import Web.DOM.Internal.Types (Element)
 import Web.Event.Event (EventType (..))
+import Web.HTML.HTMLDialogElement qualified as HTMLDialogElement
+import Web.HTML.HTMLElement qualified as HTMLElement
 import Web.UIEvent.KeyboardEvent.EventTypes qualified as KET
 import Web.UIEvent.MouseEvent qualified as ME
 
@@ -228,3 +237,113 @@ failing =
     (\() -> liftIO (throwIO (ErrorCall "no state to start from")) :: m ())
     (\() -> HH.text "never shown" :: H.ComponentHTML () Empty m)
     []
+
+data Operations = Operations
+  { first :: H.RefLabel
+  , second :: H.RefLabel
+  , dialog :: H.RefLabel
+  , far :: H.RefLabel
+  , doomed :: H.RefLabel
+  , kept :: Maybe Element
+  -- ^ The element under @doomed@, kept once it is gone.
+  , shown :: Bool
+  }
+
+data Operate
+  = FocusSecond
+  | FocusQuietly
+  | OpenDialog
+  | CloseDialog
+  | ScrollFar
+  | Forget
+  | FocusForgotten
+  | NotListed
+
+-- | What a component does to the page through the @Web.*@ types, through
+-- refs, as a component written for a page does it: it focuses its first
+-- field in its @Initialize@, and on its buttons focuses the second field
+-- (with and without scrolling), opens and closes a dialog, scrolls an
+-- element far down the page into view, takes away a field after keeping
+-- its element and then focuses that element, and sets an attribute
+-- through the element (a method the page across a wire is not asked to
+-- call).
+operating :: forall m. (MonadIO m, MonadUUID m) => H.Component H.VoidF () Void m
+operating =
+  H.component
+    ( \() ->
+        Operations
+          <$> H.newRefLabel "first"
+          <*> H.newRefLabel "second"
+          <*> H.newRefLabel "dialog"
+          <*> H.newRefLabel "far"
+          <*> H.newRefLabel "doomed"
+          <*> pure Nothing
+          <*> pure True
+    )
+    render
+    [ H.onInitialize (focusing (.first) HTMLElement.focus)
+    , H.onAction $ \case
+        FocusSecond -> focusing (.second) HTMLElement.focus
+        FocusQuietly -> focusing (.second) HTMLElement.focusWithoutScrolling
+        OpenDialog -> withDialog (.showModal)
+        CloseDialog -> withDialog HTMLDialogElement.close
+        ScrollFar -> do
+          s <- get
+          H.getRef s.far >>= traverse_ (\e -> H.liftEffect (liftIO (Element.scrollIntoViewBlock e Element.ToCenter)))
+        Forget -> do
+          s <- get
+          element <- H.getRef s.doomed
+          modify (\st -> st {kept = element, shown = False})
+        FocusForgotten -> do
+          s <- get
+          for_ (s.kept >>= HTMLElement.fromElement) (H.liftEffect . liftIO . HTMLElement.focus)
+        NotListed -> do
+          s <- get
+          H.getRef s.second >>= traverse_ (\e -> H.liftEffect (liftIO (e.setAttribute "data-set" "by the program")))
+    ]
+  where
+    focusing label act = do
+      s <- get
+      H.getHTMLElementRef (label s) >>= traverse_ (H.liftEffect . liftIO . act)
+    withDialog act = do
+      s <- get
+      dialog <- (>>= HTMLDialogElement.fromElement) <$> H.getRef s.dialog
+      for_ dialog (H.liftEffect . liftIO . act)
+    render :: Operations -> H.ComponentHTML Operate Empty m
+    render s =
+      HH.div_ $
+        [ HH.input [HP.id "first", HP.ref s.first]
+        , HH.input [HP.id "second", HP.ref s.second]
+        , HH.button [HP.id "focus-second", HE.onClick (const FocusSecond)] [HH.text "Focus"]
+        , HH.button [HP.id "focus-quietly", HE.onClick (const FocusQuietly)] [HH.text "Focus quietly"]
+        , HH.button [HP.id "open", HE.onClick (const OpenDialog)] [HH.text "Open"]
+        , HH.dialog
+            [HP.id "dialog", HP.ref s.dialog]
+            [HH.p_ [HH.text "In a dialog"], HH.button [HP.id "close", HE.onClick (const CloseDialog)] [HH.text "Close"]]
+        , HH.button [HP.id "scroll", HE.onClick (const ScrollFar)] [HH.text "Scroll"]
+        , HH.button [HP.id "forget", HE.onClick (const Forget)] [HH.text "Forget"]
+        , HH.button [HP.id "focus-forgotten", HE.onClick (const FocusForgotten)] [HH.text "Focus the forgotten"]
+        , HH.button [HP.id "not-listed", HE.onClick (const NotListed)] [HH.text "Set an attribute"]
+        ]
+          <> [ HH.div [HP.id "spacer", HP.styleText "height: 4000px"] []
+             , HH.div [HP.id "far", HP.ref s.far] [HH.text "Far down"]
+             ]
+          <> [HH.input [HP.id "doomed", HP.ref s.doomed] | s.shown]
+
+data Retitle = Retitle Text
+
+-- | A component that sets the page's title in its @Initialize@, through the
+-- document the backend gives, and again on a click, through the window's
+-- @document@ field: the two ways a component reaches the title.
+titling :: forall m. (MonadIO m, MonadBrowserDOM m) => H.Component H.VoidF () Void m
+titling =
+  H.component
+    (\() -> pure ())
+    (\() -> HH.button [HP.id "retitle", HE.onClick (const (Retitle "Second title"))] [HH.text "Retitle"] :: H.ComponentHTML Retitle Empty m)
+    [ H.onInitialize $ do
+        doc <- lift (DOM.window >>= DOM.document)
+        H.liftEffect (liftIO (doc.title_set "First title"))
+    , H.onAction $ \(Retitle t) -> do
+        w <- lift DOM.window
+        H.liftEffect (liftIO (w.document.title_set t))
+    ]

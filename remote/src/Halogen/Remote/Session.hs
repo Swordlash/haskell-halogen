@@ -25,9 +25,18 @@
 -- and the wire between them takes time, so:
 --
 -- * A ref ('Halogen.Query.HalogenM.getRef') is a node of the session's
---   mirror, not an element of the page: an effect that talks to the browser
---   through it (focusing, measuring, a canvas) does nothing useful, as under
---   the in-memory DOM.
+--   mirror, not an element of the page. What a component does to the page
+--   through it with the @Web.*@ types does cross: natively a handle answers
+--   for itself ("Halogen.JSBits.Value"'s @answering@), and a focus, @blur@,
+--   @click@, @select@, @scrollIntoView@, a dialog's @showModal@, @show@ and
+--   @close@, and the document's title are recorded as operations the client
+--   performs from an allowlist ("Halogen.Remote.Protocol"), in the batch
+--   being recorded (a render's, after the operations that made the node, or
+--   the next). What only the page can answer cannot cross in time, and a
+--   read keeps its inert answer: measuring, @document.activeElement@, a
+--   dialog's @open@ (which Escape changes in the page), the clipboard, a
+--   canvas, a method with a result. Anything off the allowlist, and a call
+--   on a node the session has forgotten, does nothing.
 -- * What a handler decides comes too late for the page: the page has
 --   finished with an event before the program hears of it, so
 --   'Web.Event.Event.preventDefault' called from an action does nothing, and
@@ -47,7 +56,8 @@
 --   element that the browser would follow in this tab (the main button, no
 --   modifier key, a link with no other @target@ and no @download@), and of
 --   nothing else.
--- * Focus and selection are the page's. The client sets an element's
+-- * Focus and selection are the page's, except where the component moves
+--   the focus itself (above). The client sets an element's
 --   @value@ only when it differs from what the element holds, so text being
 --   typed is not undone, and every event reports the values of its target's
 --   form controls, which the mirror takes as the element's.
