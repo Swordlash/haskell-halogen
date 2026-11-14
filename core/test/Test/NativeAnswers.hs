@@ -2,8 +2,7 @@
 
 -- | Natively a value can answer for itself when the program uses a member
 -- of it through the @Web.*@ types ("Halogen.JSBits.Fields"): a call of a
--- method that returns nothing, an assignment, an object it has, a checked
--- cast. A value that does not answer has the inert answers, as before. The
+-- method, an assignment, a read, a checked cast. A value that does not answer has the inert answers, as before. The
 -- in-memory DOM's handles answer by noting what was done to their node, so
 -- a test sees that a component focused an element or opened a dialog.
 module Test.NativeAnswers (spec) where
@@ -33,7 +32,7 @@ import Data.Void (Void)
 import Halogen qualified as H
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Properties qualified as HP
-import Halogen.JSBits (JSVal, NativeObject (..), jsNull, jsValText, textValue, toJSInt, withNativeObject)
+import Halogen.JSBits (JSVal, NativeObject (..), jsNull, jsValText, textValue, toJSBool, toJSInt, withNativeObject)
 import Halogen.VDom.DOM.Monad (MonadBrowserDOM, runMemDOM)
 import Halogen.VDom.DOM.Monad qualified as DOM
 import Halogen.VDom.DOM.Monad.Native qualified as N
@@ -60,6 +59,7 @@ recording klass = do
       object =
         NativeObject
           { call = \name arguments -> note (Call name arguments)
+          , invoke = \_ _ -> pure Nothing
           , set = \name value -> note (Set name value)
           , get = \name -> if name == "document" then Just (toJSInt 8) else Nothing
           , live = \_ -> pure Nothing
@@ -72,6 +72,9 @@ keeping :: (Text -> IO (Maybe JSVal)) -> NativeObject JSVal
 keeping kept =
   NativeObject
     { call = \_ _ -> pure ()
+    , invoke = \name arguments -> case (name, arguments) of
+        ("hasAttribute", [a]) -> pure (Just (toJSBool (jsValText a == "open")))
+        _ -> pure Nothing
     , set = \_ _ -> pure ()
     , get = const Nothing
     , live = kept
@@ -155,7 +158,7 @@ spec = describe "values that answer for themselves, natively" $ do
     -- An object it has, as a fixed member.
     foreignToInt (coerce (coerce element :: Window).document :: JSVal) `shouldBe` 8
 
-  it "keeps a read and a method with a result inert" $ do
+  it "keeps a read and a method with a result that the value declines inert" $ do
     (value, asked) <- recording "HTMLDialogElement"
     let element = Element value
     element.isConnected `shouldReturn` False
@@ -169,6 +172,7 @@ spec = describe "values that answer for themselves, natively" $ do
           "hash" -> pure (Just jsNull)
           "body" -> pure (Just jsNull)
           "activeElement" -> pure (Just (toJSInt 9))
+          "innerWidth" -> pure (Just (toJSInt 1024))
           _ -> pure Nothing
         location = Location (withNativeObject (keeping kept) (toJSInt 3))
         doc = HTMLDocument (withNativeObject (keeping kept) (toJSInt 4))
@@ -181,8 +185,12 @@ spec = describe "values that answer for themselves, natively" $ do
     -- A 'Maybe' of an object: null is 'Nothing', an object 'Just'.
     isNothing <$> doc.body `shouldReturn` True
     fmap (foreignToInt . (coerce :: Element -> JSVal)) <$> doc.activeElement `shouldReturn` Just 9
-    -- A number is not asked.
-    (coerce doc :: Window).innerWidth `shouldReturn` 0
+    -- A number is asked as well.
+    (coerce doc :: Window).innerWidth `shouldReturn` 1024
+    -- A method with a result is asked, and one it declines is inert.
+    (coerce doc :: Element).hasAttribute "open" `shouldReturn` True
+    (coerce doc :: Element).hasAttribute "hidden" `shouldReturn` False
+    (coerce doc :: Element).getAttribute "open" `shouldReturn` Nothing
     -- A value that does not answer reads inert.
     Location.pathname (Location (toJSInt 3)) `shouldReturn` ""
 

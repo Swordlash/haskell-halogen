@@ -5,6 +5,8 @@ module Data.Foreign where
 
 import GHC.Base (isTrue#, reallyUnsafePtrEquality, reallyUnsafePtrEquality#)
 import HPrelude
+import Halogen.JSBits (nativeInvoke)
+import System.IO.Unsafe (unsafePerformIO)
 
 #if defined(javascript_HOST_ARCH) && !defined(HALOGEN_WASI)
 import GHC.Base (Int#)
@@ -102,6 +104,7 @@ import Data.Aeson.KeyMap qualified as KeyMap
 import Control.Exception (throw)
 import Data.Dynamic (fromDynamic, toDyn)
 import Data.Scientific (toRealFloat)
+import Halogen.JSBits (isNull, nativeRead)
 import Halogen.JSBits.Native (JSVal (..))
 
 -- | What an engine would hold. Natively a 'JSVal' is a 'Data.Dynamic.Dynamic'
@@ -147,22 +150,35 @@ stringToForeign = toForeign
 -- reads it. A JSON array has the properties JavaScript gives one: its
 -- @length@, and its elements by index (@"0"@, @"1"@, written as JavaScript
 -- writes the number). A value that is neither has none.
+--
+-- A value that answers for itself ('Halogen.JSBits.Value.withNativeObject')
+-- is asked first, as for a changing member's read
+-- ('Halogen.JSBits.Value.NativeObject''s @live@), when the property is
+-- read: an element of the in-memory DOM gives its @value@ as the tree has
+-- it then, and an event it dispatches its @target@ and @currentTarget@. What
+-- it declines is read from the JSON it holds, if any.
 readProp :: Text -> (Foreign tag -> Maybe a) -> Foreign tag' -> Maybe a
-readProp key f (JSVal held) = case fromDynamic held of
-  Just (Aeson.Object fields) -> case KeyMap.lookup (Key.fromText key) fields of
-    Nothing -> Nothing
-    Just Aeson.Null -> Nothing
-    Just field -> f (toForeign field)
-  Just (Aeson.Array items)
-    | key == "length" -> f (toForeign (Aeson.Number (fromIntegral (length items))))
-    | Just index <- readMaybe (toS key :: [Char]) :: Maybe Int
-    , (show index :: Text) == key
-    , index >= 0 ->
-        case drop index (toList items) of
-          Aeson.Null : _ -> Nothing
-          field : _ -> f (toForeign field)
-          [] -> Nothing
-  _ -> Nothing
+readProp key f value@(JSVal held) = case unsafePerformIO (nativeRead value key) of
+  Just answer
+    | isNull answer -> Nothing
+    | otherwise -> f answer
+  Nothing -> json
+  where
+    json = case fromDynamic held of
+      Just (Aeson.Object fields) -> case KeyMap.lookup (Key.fromText key) fields of
+        Nothing -> Nothing
+        Just Aeson.Null -> Nothing
+        Just field -> f (toForeign field)
+      Just (Aeson.Array items)
+        | key == "length" -> f (toForeign (Aeson.Number (fromIntegral (length items))))
+        | Just index <- readMaybe (toS key :: [Char]) :: Maybe Int
+        , (show index :: Text) == key
+        , index >= 0 ->
+            case drop index (toList items) of
+              Aeson.Null : _ -> Nothing
+              field : _ -> f (toForeign field)
+              [] -> Nothing
+      _ -> Nothing
 
 -- | The text the value holds, or the JSON string; empty for anything else.
 foreignToString :: Foreign tag -> Text
@@ -195,6 +211,18 @@ foreignToNumber (JSVal held)
   | Just (Aeson.Number number) <- fromDynamic held = toRealFloat number
   | otherwise = 0
 #endif
+
+-- | A method of a value that answers for itself
+-- ('Halogen.JSBits.Value.withNativeObject'), called with these arguments
+-- when the answer is forced, as a pure read in a browser reads the page as
+-- it is then: the answer, @'Just' null@ for none, or 'Nothing' when the
+-- value does not answer it (a value made from JSON, and every value in a
+-- browser). For the pure reads a listener makes natively
+-- ('Web.DOM.Element.closestNow'), which ask an element of the in-memory DOM
+-- before the JSON an event carries.
+nativeInvokeNow :: Foreign tag -> Text -> [Foreign tag'] -> Maybe (Foreign tag'')
+nativeInvokeNow value name arguments = unsafePerformIO (nativeInvoke value name arguments)
+{-# NOINLINE nativeInvokeNow #-}
 
 -- | The elements of an array, read as JavaScript reads them: its @length@,
 -- then each index below it. Natively the value is a JSON array ('readProp'

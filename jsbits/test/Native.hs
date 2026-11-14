@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -8,8 +9,8 @@
 
 -- | Natively, the fields "Halogen.JSBits.Fields" writes ask a value that
 -- answers for itself ('withNativeObject'), and give every other value their inert
--- answers, as before. A changing member is asked for its value when it is a
--- text or an object; a number keeps its inert answer.
+-- answers, as before. Every read and every method is asked, of any type but
+-- a Promise or bytes; what the value declines keeps its inert answer.
 module Main (main) where
 
 import Control.Monad (unless)
@@ -17,7 +18,7 @@ import Data.Dynamic (fromDynamic)
 import Data.IORef (atomicModifyIORef', newIORef, readIORef)
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Halogen.JSBits (Inert, JSVal, NativeObject (..), jsNull, jsValText, textValue, toJSInt, withNativeObject)
+import Halogen.JSBits (Inert, JSVal, NativeObject (..), jsNull, jsValText, textValue, toJSBool, toJSInt, withNativeObject)
 import Halogen.JSBits.Fields (Member (..), jsCast, jsFields)
 import Halogen.JSBits.Native (JSVal (JSVal))
 
@@ -38,6 +39,9 @@ $( jsFields
      , Live "pending" [t|Maybe Text|]
      , Live "next" [t|Maybe Other|]
      , Live "width" ''Int
+     , Live "shown" ''Bool
+     , Method "has" [t|Text -> IO Bool|]
+     , Method "find" [t|Text -> IO (Maybe Other)|]
      ]
  )
 
@@ -50,13 +54,22 @@ main = do
       object =
         NativeObject
           { call = \name arguments -> note (name <> " " <> Text.unwords (map shown arguments))
+          , invoke = \name arguments -> pure $ case (name, map jsValText arguments) of
+              ("has", ["x"]) -> Just (toJSBool True)
+              ("find", ["x"]) -> Just (toJSInt 2)
+              ("find", _) -> Just jsNull
+              _ -> Nothing
           , set = \name value -> note (name <> " = " <> jsValText value)
-          , get = \name -> if name == "other" then Just (toJSInt 2) else Nothing
+          , get = \case
+              "other" -> Just (toJSInt 2)
+              "size" -> Just (toJSInt 7)
+              _ -> Nothing
           , live = \name -> pure $ case name of
               "status" -> Just (textValue "ready")
               "pending" -> Just jsNull
               "next" -> Just (toJSInt 2)
               "width" -> Just (toJSInt 640)
+              "shown" -> Just (toJSBool True)
               _ -> Nothing
           , instanceOf = (== "Other")
           }
@@ -67,13 +80,18 @@ main = do
   answers.poke 3 "x"
   answers.label_set "hello"
   readIORef asked >>= check "a call and an assignment are asked of the value" . (== ["poke a value x", "label = hello"])
-  check "a method with a result is not asked" . (== 0) =<< answers.count
+  check "a method with a result the value declines is inert" . (== 0) =<< answers.count
+  check "a method with a result is asked, with its arguments" =<< answers.has "x"
+  check "and its answer is read as the type" . not =<< answers.has "y"
+  check "an object a method answers" . maybe False isTwo =<< answers.find "x"
+  check "and null is Nothing" . maybe True (const False) =<< answers.find "y"
   check "a read the value does not keep is inert" . Text.null =<< answers.label
   check "a changing text the value keeps is its answer" . (== "ready") =<< answers.status
   check "a null is Nothing" . (== Nothing) =<< answers.pending
   check "a changing object the value keeps is its answer" . maybe False isTwo =<< answers.next
-  check "a number is not asked" . (== 0) =<< answers.width
-  check "nor is a fixed member that is not an object" (answers.size == 0)
+  check "a changing number is asked" . (== 640) =<< answers.width
+  check "and a changing boolean" =<< answers.shown
+  check "and a fixed member that is not an object" (answers.size == 7)
   check "a fixed object is the value's to give" (isTwo answers.other)
   check "a cast asks the value" (maybe False (const True) (toOther answers))
 
@@ -83,6 +101,7 @@ main = do
   check "and its fixed object is the inert one" (not (isTwo plain.other))
   check "and it is no cast" (maybe True (const False) (toOther plain))
   check "and its changing members are inert" . Text.null =<< plain.status
+  check "and its methods with a result" . not =<< plain.has "x"
   putStrLn "Native answers checked"
   where
     isTwo (Other value) = heldInt value == Just 2

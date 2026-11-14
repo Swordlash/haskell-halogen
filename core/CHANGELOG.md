@@ -97,11 +97,77 @@ or set the title. A checked cast on one asks what the node is, so
 `H.getHTMLElementRef` and `HTMLDialogElement.fromElement` find the element
 natively, where before they gave `Nothing`; `Halogen.VDom.Types.elementInstanceOf`
 is the table both this and haskell-halogen-remote answer from. The window's
-`document` field gives the in-memory document. Nothing is carried out: a read
-(`dialog.open`, `doc.activeElement`) keeps its inert answer.
+`document` field gives the in-memory document. A call such as `focus` or
+`showModal` is only noted (what is carried out and read is below).
 `HTMLElement.focusWithoutScrolling` and `Element.scrollIntoViewBlock` are,
 natively, `focus` and `scrollIntoView` with their options as JSON, for such
 a value.
+
+A native test can drive a component on the in-memory DOM as a page would,
+and read what it rendered without a reader of its own.
+`Halogen.VDom.DOM.Monad.Native.dispatch "click" (object ["button" .= 0])
+node` dispatches an event at a node: its listeners run, then those of each
+node around it, up to the document and the window when the node is in one,
+before `dispatch` returns. A handler finds the node as the event's `target`
+and its own element as its `currentTarget`, as handles of the tree; the
+rest of the event is the JSON (`key`, `button`, `clientX`). `stopPropagation`
+and `stopImmediatePropagation` (a handler's own, or `HE.stoppingPropagation`)
+stop it, `preventDefault` (or `HE.preventingDefault`) is remembered and read
+by `Event.defaultPreventedNow` in later listeners, and a handler's declared
+match is judged on the tree: `HE.within "a[href]"` finds the link around the
+target with the selector. `focus`, `blur`, `mouseenter`, `scroll` and the
+other events a page does not bubble stay on their node, unless the JSON says
+`"bubbles": true`; a click on a disabled `button`, `input`, `select` or
+`textarea` (or one in a disabled `fieldset`) is not dispatched at all; an
+event dispatched at a text node goes to its element. `dispatchOutcome` says
+whether the default was prevented, how many listeners ran and whether the
+click was on a disabled control. Nothing is done by default afterwards: to
+type, a test sets the field's `value` and dispatches `input`. `event` still
+makes a bare event from JSON, for a test that calls one listener itself.
+
+`newContainer` makes a `div` in the ambient document's body to mount into:
+what is rendered there is connected, and an event dispatched there reaches
+the listeners a component put on the document or the window
+(`HQE.eventListener`, `Halogen.Query.Event.Window`), so a popup that closes
+on a press outside it or on Escape can be tested natively. An element made
+with `newElement` is in no document, as before: nothing in it is connected,
+and no event from it reaches a document. `ambientDocument` is that document.
+
+The in-memory DOM's elements now answer, from the tree, what a component
+reads of them through the `Web.*` types, where they read inert before:
+`isConnected`, `contains`, `getAttribute`, `hasAttribute`, `closest` and
+`querySelector`, `textContent`, `nextElementSibling`, a document's `body` and
+`head`, and the pure `Element.closestNow` and `Element.getAttributeNow`. A
+property a handler reads of its element (`HE.onValueInput` reads
+`currentTarget.value`) is the node's property, or the one that reflects an
+attribute (`href` from the `href` attribute, `disabled` from its presence).
+An assignment is carried out as well as noted (`input.value_set`,
+`el.textContent_set`, the document's `title_set`), and so are
+`setAttribute`, `removeAttribute` and `remove`. A test that counted on such a
+read being `False`, `Nothing` or empty on an in-memory node gets the tree's
+answer now. `getAttribute` gives a property that reflects its attribute as
+the attribute (`disabled` as `""`, `className` as `class`), but not `value`,
+`checked`, `selected` or `muted`, which a page does not reflect. An event
+made from JSON reads as before; haskell-halogen-remote's nodes answer what
+they answered before.
+
+`querySelector`, `querySelectorAll`, `textContent`, `attribute` and
+`isConnected` in `Halogen.VDom.DOM.Monad.Native` read the tree in a test.
+The selectors understood, there, by an element's `closest` and
+`querySelector`, by a handler's `within`, and by the in-memory DOM's
+`MonadBrowserDOM` `querySelector`, are a type, `*`, `#id`, `.class`,
+`[attr]` and `[attr=value]` with `~=`, `|=`, `^=`, `$=`, `*=` and the `i`
+flag, compounds of those, the descendant and child combinators, lists, and
+`:not` of compounds. Any other selector throws a `JSError` naming it (a
+`NotSupportedError` for CSS this does not understand, such as `:hover` or
+`+`, a `SyntaxError` for what is not CSS), where before the in-memory
+`querySelector` understood a tag, an `#id` or one `.class` and found nothing
+for anything else.
+
+Natively `Data.Foreign.readProp` asks a value that answers for itself
+before it reads the JSON the value holds, and `Data.Foreign.nativeInvokeNow`
+calls a method of such a value purely, as a pure read in a browser reads the
+page when it is forced.
 
 `HalogenSocket` has a fourth field, `activity`: what that tree alone is
 doing, as `Halogen.Activity.activity` reads every tree of the process (one

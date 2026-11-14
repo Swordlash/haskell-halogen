@@ -23,7 +23,7 @@ spec = xdescribe "hydration" $ pure ()
 #else
 
 import Control.Monad.State.Class (modify, put)
-import Data.Aeson (object)
+import Data.Aeson (object, (.=))
 import Data.Foldable (for_)
 import Data.IORef
 import Data.Row (Empty, type (.==))
@@ -141,12 +141,12 @@ elementsNamed name node = filter named <$> descendants node
 textsUnder :: N.NativeNode -> IO [N.NativeNode]
 textsUnder node = filter ((== N.TextNode) . (.kind)) <$> descendants node
 
--- | Run the click listeners an element has, as a click would.
+-- | Click the element, as the reader would: its listeners, and the ones
+-- around it, run.
 click :: N.NativeNode -> IO ()
 click node = do
-  listeners <- readIORef node.listeners
-  assertWith "the element has a click listener" (any ((== "click") . (.eventType)) listeners)
-  for_ [l | l <- listeners, l.eventType == "click"] $ \l -> runMemDOM (l.fire (N.event (object [])))
+  outcome <- N.dispatchOutcome "click" (object ["button" .= (0 :: Int)]) node
+  assertWith "a click listener heard the click" (outcome.heard > 0)
 
 -- | The component adopts the HTML another one left, and ends with what it
 -- renders itself.

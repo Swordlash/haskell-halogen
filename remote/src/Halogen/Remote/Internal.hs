@@ -316,7 +316,8 @@ blank sink ident kind =
 -- 'Halogen.Query.getHTMLElementRef' and a dialog's @fromElement@ find it;
 -- the document is the window too, as node 0 is both, and is its own
 -- @document@, and has the page's @location@ and @history@
--- ('locationObject', 'historyObject'). Reads are not answered, but for
+-- ('locationObject', 'historyObject'). Reads, and methods with a result
+-- (@getAttribute@, @closest@, @contains@), are not answered, but for
 -- what the session mirrors of the page (its address, and the document's
 -- @baseURI@ when the page has a @\<base href>@): the page has the values,
 -- across the wire, and a read cannot wait for them.
@@ -326,6 +327,7 @@ operations sink ident kind self =
     { call = \method arguments -> case kind of
         ElementNode {} -> for_ (allowedCall method arguments) (recordFrom sink ident . Call ident method)
         _ -> pass
+    , invoke = \_ _ -> pure Nothing
     , set = \name value -> case kind of
         DocumentNode | name == "title" -> recordFrom sink ident (Assign ident name (Aeson.String (foreignToString value)))
         _ -> pass
@@ -350,6 +352,7 @@ locationObject :: Address -> NativeObject JSVal
 locationObject address =
   NativeObject
     { call = \_ _ -> pass
+    , invoke = \_ _ -> pure Nothing
     , set = \_ _ -> pass
     , get = const Nothing
     , live = \name -> do
@@ -381,6 +384,7 @@ historyObject sink =
         ("forward", []) -> recordAny sink (HistoryOp (Go 1))
         ("go", [n]) -> recordAny sink (HistoryOp (Go (foreignToInt n)))
         _ -> pass
+    , invoke = \_ _ -> pure Nothing
     , set = \_ _ -> pass
     , get = const Nothing
     , live = \_ -> pure Nothing

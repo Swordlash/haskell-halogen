@@ -16,12 +16,10 @@ import Prelude
 import Test.Hspec (Spec, describe, it)
 import Test.Utils (assertEqual, assertWith)
 #if defined(HALOGEN_WASI) || (!defined(javascript_HOST_ARCH) && !defined(wasm32_HOST_ARCH))
-import Data.Foldable (for_)
-import Data.Foreign (toForeign)
+import Data.Aeson (object)
 import Data.Text (Text)
 import Halogen.VDom.DOM.Monad (MemDOM, runMemDOM, window)
 import Halogen.VDom.DOM.Monad.Native qualified as N
-import Web.Event.Event (Event (..))
 import Web.HTML.HTMLDocument.VisibilityState (VisibilityState (..))
 #endif
 
@@ -128,10 +126,8 @@ ambient = N.toNative <$> runMemDOM window
 listenersFor :: Text -> IO Int
 listenersFor ty = length . filter (== ty) <$> (N.listenerTypes =<< ambient)
 
--- | What a browser does when the page's event happens: call the window's
--- listeners for it.
+-- | What a browser does when the page's event happens: dispatch it at the
+-- window.
 dispatch :: Text -> IO ()
-dispatch ty = do
-  listeners <- readIORef . (.listeners) =<< ambient
-  for_ [l | l <- listeners, l.eventType == ty] $ \l -> runMemDOM (l.fire (Event (toForeign ())))
+dispatch ty = N.dispatch ty (object []) =<< ambient
 #endif

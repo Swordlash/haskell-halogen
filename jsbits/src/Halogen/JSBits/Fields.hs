@@ -78,22 +78,24 @@
 -- in-memory DOM records them for a test to read). Natively, then:
 --
 -- * a 'Method' whose result is @()@ asks the value to carry out the call,
---   with its arguments;
+--   with its arguments, and one with a result asks it for the result (the
+--   in-memory DOM's @getAttribute@, @closest@, @contains@);
 -- * a 'Writable' member's @_set@ field asks it to carry out the assignment;
--- * a 'Fixed' member whose type is an object (a newtype over a 'JSVal')
---   asks it for the object, which it gives if it has it (the window's
---   @document@);
--- * a 'Live' member, or a 'Writable' one's read, whose type is a text, an
---   object, or 'Maybe' one, asks it for the value, which it gives if it
---   keeps it (haskell-halogen-remote's mirror of the page's address);
+-- * a 'Fixed' member asks it for the value, which it gives if it has it
+--   (the window's @document@);
+-- * a 'Live' member, or a 'Writable' one's read, asks it for the value,
+--   which it gives if it keeps it (haskell-halogen-remote's mirror of the
+--   page's address, the in-memory DOM's @isConnected@);
 -- * a 'jsCast' asks it whether it is an instance of the class.
 --
--- Everything else (a read the value does not keep, a number or a boolean
--- read, a method with a result), and every member of a value that does not
--- answer (a number, an event made from JSON), has its inert answer, or what
--- 'Natively' gives it: a read a page across a wire would have to answer
--- cannot be answered at once. A 'Natively' member keeps its expression,
--- except for a 'Writable' member's assignment, which is still asked.
+-- A value may decline any of them ('Nothing'), and then, as for every
+-- member of a value that does not answer (a number, an event made from
+-- JSON), the member has its inert answer, or what 'Natively' gives it. A
+-- method that returns a Promise or a 'Data.ByteString.ByteString', and a
+-- member of either type, is never asked: a value that answers at once
+-- cannot stand for what a page would answer later. A 'Natively' member
+-- keeps its expression, except for a 'Writable' member's assignment, which
+-- is still asked.
 --
 -- = Exceptions
 --
@@ -142,10 +144,14 @@ import Halogen.JSBits.Value
   , fromJSText
   , isNull
   , jsNull
+  , jsValBool
+  , jsValDouble
+  , jsValInt
   , jsValText
   , nativeCall
   , nativeGet
   , nativeInstanceOf
+  , nativeInvoke
   , nativeRead
   , nativeSet
   , textValue
@@ -261,11 +267,9 @@ member receiver native = \case
     ty <- toType quoted
     shape <- valueShape js ty
     when (shape `elem` [Unit, Bytes, PromiseOf]) $ failFor js "a fixed member cannot be (), a ByteString or a Promise; read it as Live"
-    -- An object the value has for as long as it lives (the window's
-    -- document) can be the native object's to give.
-    let asked
-          | shape == Plain = [|\o -> maybe inert coerce (nativeGet (coerce o) $(name js))|]
-          | otherwise = [|inert|]
+    -- What the value has for as long as it lives (the window's document,
+    -- an event's type) can be the native object's to give.
+    let asked = [|\o -> maybe inert $(nativeResult shape ty) (nativeGet (coerce o) $(name js))|]
     get <- browser (fromMaybe asked native) $ do
       raw <- rawName "get" js
       pure ([importJS raw (nullish shape ("$1." <> js)) (self `arrow` ffiType shape ty)], [|\o -> $(pureResult shape) ($(varE raw) o)|])
@@ -274,13 +278,13 @@ member receiver native = \case
     result <- notIO js =<< toType quoted
     shape <- valueShape js result
     let ty = AppT (ConT ''IO) result
-    get <- browser (fromMaybe (nativeLive js shape) native) (readLive js shape result)
+    get <- browser (fromMaybe (nativeLive js shape result) native) (readLive js shape result)
     pure (field js ty get)
   Writable js quoted -> do
     result <- notIO js =<< toType quoted
     shape <- valueShape js result
     let ty = AppT (ConT ''IO) result
-    get <- browser (fromMaybe (nativeLive js shape) native) (readLive js shape result)
+    get <- browser (fromMaybe (nativeLive js shape result) native) (readLive js shape result)
     argument <- argumentShape js result
     -- A native 'Natively' expression is the read's: the assignment is the
     -- native object's to carry out, if the value is one.
@@ -298,20 +302,18 @@ member receiver native = \case
     (shape, result) <- ioResult js io
     shapes <- mapM (argumentShape js) arguments
     -- A method that returns nothing is the native object's to carry out,
-    -- if the value is one; one that returns a value cannot be answered at
-    -- once by what a native object stands for, and keeps its inert answer.
-    asked <-
-      if shape /= Unit
-        then pure [|inert|]
-        else do
-          vs <- mapM (const (newName "a")) arguments
-          o <- newName "o"
-          let passed = listE (zipWith3 nativeArgument shapes arguments (map varE vs))
-          pure (lamE (varP o : map varP vs) [|nativeCall (coerce $(varE o)) $(name js) $passed|])
+    -- if the value is one, and one that returns a value its to answer, if
+    -- it can at once; a Promise or bytes it cannot, and they keep their
+    -- inert answer.
+    vs <- mapM (const (newName "a")) arguments
+    o <- newName "o"
+    let passed = listE (zipWith3 nativeArgument shapes arguments (map varE vs))
+        asked
+          | shape == Unit = lamE (varP o : map varP vs) [|nativeCall (coerce $(varE o)) $(name js) $passed|]
+          | answerable shape = lamE (varP o : map varP vs) [|nativeInvoke (coerce $(varE o)) $(name js) $passed >>= maybe inert (pure . $(nativeResult shape result))|]
+          | otherwise = [|inert|]
     call <- browser (fromMaybe asked native) $ do
       (raw, decls, guard) <- guarded "call" js (callOf js (length arguments)) shape result (self : zipWith ffiType shapes arguments)
-      vs <- mapM (const (newName "a")) arguments
-      o <- newName "o"
       let applied = foldl appE (varE raw) (varE o : zipWith toForeign shapes (map varE vs))
       pure (decls, lamE (varP o : map varP vs) (guard applied))
     pure (field js ty call)
@@ -320,10 +322,10 @@ member receiver native = \case
     typeName = nameBase receiver
     name js = [|Text.pack $(litE (stringL js))|]
     -- A changing member's read, natively: the value's answer, if it keeps
-    -- the member and the member is a text or an object; inert otherwise.
-    nativeLive js shape
-      | shape `elem` [AsText, MaybeText, Plain, MaybeValue] =
-          [|\o -> nativeRead (coerce o) $(name js) >>= maybe inert (pure . $(nativeResult shape))|]
+    -- the member; inert otherwise, and for a Promise or bytes.
+    nativeLive js shape result
+      | answerable shape =
+          [|\o -> nativeRead (coerce o) $(name js) >>= maybe inert (pure . $(nativeResult shape result))|]
       | otherwise = [|inert|]
     rawName kind js = newName ("js_" <> kind <> "_" <> typeName <> "_" <> js)
     readLive js shape result = do
@@ -458,12 +460,22 @@ pureResult = \case
   MaybeValue -> [|\v -> if isNull v then Nothing else Just (coerce v)|]
   _ -> [|id|]
 
--- From a value a native object gave to the field's value.
-nativeResult :: Shape -> Q Exp
-nativeResult = \case
+-- Whether a native object is asked for a value of this shape: everything
+-- but what only a page could give later (a Promise, bytes) and nothing.
+answerable :: Shape -> Bool
+answerable shape = shape `elem` [Plain, Primitive, AsText, MaybeText, MaybeValue]
+
+-- From a value a native object gave to the field's value, of this type.
+nativeResult :: Shape -> Type -> Q Exp
+nativeResult shape ty = case shape of
   AsText -> [|jsValText|]
   MaybeText -> [|\v -> if isNull v then Nothing else Just (jsValText v)|]
   MaybeValue -> [|\v -> if isNull v then Nothing else Just (coerce v)|]
+  Primitive -> case ty of
+    ConT n
+      | n == ''Int -> [|jsValInt|]
+      | n == ''Double -> [|jsValDouble|]
+    _ -> [|jsValBool|]
   _ -> [|coerce|]
 
 -- The import's call, as the field's IO action.
