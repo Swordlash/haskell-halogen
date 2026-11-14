@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Opener</title></head>
+<body>
+  <!-- A page that opens others: by window.open, as a sign-in window is
+       opened, and by a link to a new tab. -->
+  <button id="open" onclick="window.open('second.html')">open</button>
+  <a id="tab" href="program.html" target="_blank">a program, in a new tab</a>
+  <button id="signin" onclick="signIn()">sign in</button>
+  <p id="signed">no</p>
+  <script>
+    // The window posts back who signed in, as an OAuth window does.
+    function signIn() {
+      window.open("signin.html");
+    }
+    addEventListener("message", (event) => {
+      document.getElementById("signed").textContent = event.data;
+    });
+  </script>
+</body>
+</html>

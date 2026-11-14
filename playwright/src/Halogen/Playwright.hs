@@ -70,7 +70,8 @@
 -- takes the window alone. 'listenCDP' keeps a DevTools event, for
 -- 'cdpEvents' and 'waitForCDP'. A context whose options say
 -- 'recordExchanges' keeps each request with its headers and body and its
--- response ('exchanges', 'waitForExchange').
+-- response ('exchanges', 'waitForExchange'). 'waitForPopup' is the page
+-- an action opened, and 'pages' a context's pages.
 --
 -- Functions are in 'MonadIO', and every failure is a 'PlaywrightError'
 -- (the driver's; a timeout's message is Playwright's, which names the
@@ -105,6 +106,8 @@ module Halogen.Playwright
   , closePage
   , withPage
   , pageContext
+  , pages
+  , waitForPopup
   , withTimeout
 
     -- * Going places
@@ -553,6 +556,33 @@ newPage :: (MonadIO m) => Context -> m Page
 newPage c = liftIO $ do
   handle <- call c.playwright "newPage" ["context" .= c.handle]
   pure Page {playwright = c.playwright, handle, context = c.handle, callTimeout = Nothing}
+
+-- | The context's pages now, oldest first: those the test opened and those
+-- its pages opened ('waitForPopup'), until they close.
+pages :: (MonadIO m) => Context -> m [Page]
+pages c = liftIO $ do
+  handles <- call c.playwright "pages" ["context" .= c.handle]
+  pure [Page {playwright = c.playwright, handle, context = c.handle, callTimeout = Nothing} | handle <- handles]
+
+-- | Run an action that makes the page open another (@window.open@, a link
+-- with @target=_blank@, a sign-in window), and the page it opened, once it
+-- has loaded (its @load@) and settled, as after 'goto'. The wait is armed
+-- before the action, so that the popup cannot be missed; none within the
+-- page's timeout is a @TimeoutError@. The popup is a page of the same
+-- context, like any other: it has the probe and the context's init scripts,
+-- its routes and exposed functions, the options' throttle, its own console;
+-- it closes with the context, and takes the opener's timeout.
+--
+-- > (_, signIn) <- waitForPopup page (click (byRoleNamed page "button" "Sign in"))
+-- > fill (byLabel signIn "Name") "ada"
+waitForPopup :: (MonadIO m) => Page -> IO a -> m (a, Page)
+waitForPopup p action = liftIO $ do
+  armed :: Int <- onPage p "expectPopup" []
+  a <- action `onException` ignoringFailure (onPage p "forgetPopup" ["popup" .= armed] :: IO Value)
+  handle <- onPage p "awaitPopup" ["popup" .= armed]
+  pure (a, Page {playwright = p.playwright, handle, context = p.context, callTimeout = p.callTimeout})
+  where
+    ignoringFailure io = () <$ (try io :: IO (Either PlaywrightError Value))
 
 -- | The context a page is in: for what is the context's, which a test
 -- holding only the page (as 'Halogen.Playwright.Hspec.inPage' gives it)

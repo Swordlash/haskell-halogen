@@ -153,3 +153,8 @@ Policy, an editor in an iframe) needed, each with a test of its own:
   context) calls as `window[name]`, JSON both ways, each call on a thread of
   its own; what it throws rejects the page's promise and is listed in an
   `inPage` failure ("Exposed functions that failed").
+- Popups: `waitForPopup` runs an action and gives the page it opened, loaded
+  and settled, and `pages` lists a context's pages. A popup gets the probe,
+  the context's init scripts and the options' throttle as every page does.
+  An action whose page closes as it is handled (a sign-in window's button)
+  no longer fails.

@@ -74,7 +74,7 @@ for any reason.
 | `HALOGEN_PLAYWRIGHT_NODE` | the `node` to run |
 | `HALOGEN_PLAYWRIGHT_ARTIFACTS` | where a failing test's screenshot is saved |
 | `HALOGEN_PLAYWRIGHT_CONSOLE` | print what pages write to their console, and what they throw, as it arrives |
-| `HALOGEN_PLAYWRIGHT_THROTTLE` | slow every page's processor down by this factor (`4`: four times as slow) |
+| `HALOGEN_PLAYWRIGHT_THROTTLE` | slow every page's processor down by this factor (`4`: four times as slow), popups too |
 
 A run with `HALOGEN_PLAYWRIGHT_THROTTLE=6` is a run of the same tests on a slow
 machine: a test that only passed because the program was quick enough
@@ -288,7 +288,7 @@ waitStarted page
 repairsSinceMarked page >>= shouldHaveNoRepairs
 ```
 
-## Contexts: init scripts and requests
+## Contexts: init scripts, requests and pages
 
 `addInitScript context js` runs a script of the test's own in every page of
 the context before the page's own scripts, after the probe: to stand in for
@@ -319,6 +319,23 @@ withContext pw defaultContextOptions {recordExchanges = Just 65536} $ \ctx -> do
   saved.status `shouldBe` Just 200
   lookup "cookie" saved.requestHeaders `shouldBe` Just ("session=" <> token)
   (decodeStrict =<< saved.responseBody) `shouldBe` Just (object ["saved" .= True])
+```
+
+`pages context` lists the context's pages, those its pages opened among them.
+`waitForPopup page action` runs an action that opens a page (`window.open`, a
+link to a new tab, a sign-in window) and gives the page it opened, once it has
+loaded and settled. The wait is armed before the action, so the popup cannot be
+missed. A popup is a page of the context like any other: it has the probe and
+the context's init scripts, routes and exposed functions, the options'
+throttle, a console of its own, and it closes with the context. A page that
+closes itself as a click is handled (a sign-in window that posts back to its
+opener) is no error for the click.
+
+```haskell
+(_, signIn) <- waitForPopup page (click (byRoleNamed page "button" "Sign in"))
+fill (byLabel signIn "Name") "ada"
+click (byRoleNamed signIn "button" "Sign in")   -- the window closes
+locator page "#user" `shouldHaveText` "ada"
 ```
 
 ## Requests answered by the test
@@ -593,10 +610,10 @@ hspec's: hspec's own `focus` would otherwise meet the page's.
 ## Not here
 
 Written against the smoke tests it is to run, it leaves out what they do not
-use, and some of what they do: traces, video and other browsers; popups; a
-wait for a response of the page's own (see the pauses above; `waitForExchange`
-is one after the fact); taking an exposed function away; and the mouse's
-buttons pressed and released apart.
+use, and some of what they do: traces, video and other browsers; a wait for a
+response of the page's own (see the pauses above; `waitForExchange` is one
+after the fact); taking an exposed function away; and the mouse's buttons
+pressed and released apart.
 
 ## Its own tests
 

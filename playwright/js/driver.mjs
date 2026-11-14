@@ -137,8 +137,10 @@ try {
 const contexts = new Map();
 const pages = new Map();
 let nextHandle = 1;
-// The downloads being waited for, by the number expectDownload gave.
+// The downloads being waited for, by the number expectDownload gave; the
+// popups, by the number expectPopup gave.
 const downloads = new Map();
+const popups = new Map();
 // The DevTools events listened to, by page.
 const listening = new WeakMap();
 
@@ -190,6 +192,30 @@ const pageOf = (id) => {
   const page = pages.get(id);
   if (!page) throw Object.assign(new Error(`no page ${id}: it was closed`), { name: "ClosedError" });
   return page;
+};
+
+// Every page of every context, the ones the test opens and the ones a page
+// opens (popups), gets a handle, is watched (its console, its errors), and
+// is slowed down by the options' throttle, as soon as it is seen: the
+// context's "page" event, or newPage's result, whichever comes first. A
+// page's entry is {id, ready}: ready is the throttle applied.
+const known = new WeakMap();
+const register = (page) => {
+  let entry = known.get(page);
+  if (entry) return entry;
+  const id = nextHandle++;
+  pages.set(id, page);
+  if (page.context().halogenScriptless) scriptless.add(page);
+  watch(id, page);
+  // The options' processor throttle, before the page loads anything (for a
+  // popup, as soon as it is seen).
+  const ready = options.throttle
+    ? sessionOf(page).then((session) => session.send("Emulation.setCPUThrottlingRate", { rate: options.throttle }))
+    : Promise.resolve();
+  ready.catch(() => {});
+  entry = { id, ready };
+  known.set(page, entry);
+  return entry;
 };
 
 // Every page of every context gets the probe before any of its scripts
@@ -292,7 +318,9 @@ const settle = async (page, { quiet = false, timeout: ms = timeout } = {}) => {
       silent(page, ms),
     );
   } catch (error) {
-    if (navigatedAway(error)) return null;
+    // The document went, or the page itself did: a sign-in window that
+    // closes itself as the click that signs in is handled.
+    if (navigatedAway(error) || page.isClosed()) return null;
     throw error;
   }
   if (outcome.timedOut) {
@@ -606,10 +634,13 @@ const dropRoutes = (which) => {
 
 // An action on a locator, then settle. The action is given Playwright's
 // options with the call's timeout.
+// The page is taken before the action, which may close it (a sign-in
+// window's button): settling a page that has closed is nothing to do.
 const acting = (act) => async (m) => {
+  const page = pageOf(m.locator.page);
   const target = locate(m.locator);
   await act(target, m, { timeout: within(m) });
-  await settle(pageOf(m.locator.page), { timeout: within(m) });
+  await settle(page, { timeout: within(m) });
   return null;
 };
 // An action on a page, then settle.
@@ -649,6 +680,8 @@ const methods = {
     const id = nextHandle++;
     contexts.set(id, context);
     context.on("close", () => dropRoutes((entry) => entry.context === id));
+    // Every page as it appears, a popup too (see register).
+    context.on("page", register);
     // Every request of the context's, as it is made: its pages' and their
     // workers', whose requests are the context's and not always a page's.
     context.on("request", (request) =>
@@ -673,16 +706,16 @@ const methods = {
     return null;
   },
   async newPage(m) {
-    const context = contextOf(m.context);
-    const page = await context.newPage();
-    if (context.halogenScriptless) scriptless.add(page);
-    const id = nextHandle++;
-    pages.set(id, page);
-    watch(id, page);
-    // The options' processor throttle, on every page as it is made, before
-    // it loads anything.
-    if (options.throttle) await (await sessionOf(page)).send("Emulation.setCPUThrottlingRate", { rate: options.throttle });
+    const page = await contextOf(m.context).newPage();
+    const { id, ready } = register(page);
+    await ready;
     return id;
+  },
+  // The context's pages now, those its pages opened included, oldest first.
+  async pages(m) {
+    return contextOf(m.context)
+      .pages()
+      .map((page) => register(page).id);
   },
   async closePage(m) {
     const page = pages.get(m.page);
@@ -914,6 +947,31 @@ const methods = {
       routes.delete(entry.id);
       throw error;
     }
+    return null;
+  },
+
+  // Popups: armed before the action that opens one, as downloads are, and
+  // awaited after it: the page's handle, once it has loaded and settled.
+  async expectPopup(m) {
+    const id = nextHandle++;
+    const waiting = pageOf(m.page).waitForEvent("popup", { timeout: within(m) });
+    waiting.catch(() => {}).finally(() => setTimeout(() => popups.delete(id), 60000).unref());
+    popups.set(id, waiting);
+    return id;
+  },
+  async awaitPopup(m) {
+    const waiting = popups.get(m.popup);
+    popups.delete(m.popup);
+    if (!waiting) throw new Error(`no popup ${m.popup} is expected`);
+    const popup = await waiting;
+    const { id, ready } = register(popup);
+    await ready;
+    await popup.waitForLoadState("load", { timeout: within(m) });
+    await settle(popup, { timeout: within(m) });
+    return id;
+  },
+  async forgetPopup(m) {
+    popups.delete(m.popup);
     return null;
   },
 

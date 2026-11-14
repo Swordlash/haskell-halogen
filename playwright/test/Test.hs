@@ -18,6 +18,7 @@ import Test.History qualified
 import Test.Hspec (aroundAll, hspec)
 import Test.Input qualified
 import Test.Policy qualified
+import Test.Popups qualified
 import Test.Probe qualified
 import Test.Routes qualified
 import Test.Serve qualified
@@ -50,4 +51,5 @@ main = serveDirectory "test/web" $ \base -> do
       Test.History.spec base
       Test.Policy.spec
       Test.Exposed.spec base
+      Test.Popups.spec base
     Test.Failures.spec base
