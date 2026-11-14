@@ -60,6 +60,7 @@ module Halogen.IO.Driver.Runtime
   , catchTurn
   , await
   , awaitUncounted
+  , countAwaiting
   , suspend
   , currentFiber
   , ParTurn (..)
@@ -660,6 +661,9 @@ noteWorker :: Loop -> (ThreadId -> Set ThreadId -> Set ThreadId) -> ThreadId -> 
 noteWorker (Loop ref) f t = atomicModifyIORef' ref (\s -> (s {workers = f t s.workers}, ()))
 
 -- | Count a fiber as waiting for a worker, or take it out of the count.
+-- Also for a suspension with no worker that counts as waiting (a counted
+-- pause on a test's clock, "Halogen.Activity.Control"), which uncounts
+-- itself once its next step is queued, as a worker does.
 countAwaiting :: Loop -> Int -> IO ()
 countAwaiting (Loop ref) n = atomicModifyIORef' ref (\s -> (s {awaiting = s.awaiting + n}, ())) >> changed
 

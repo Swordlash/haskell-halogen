@@ -77,17 +77,19 @@
 -- = Pauses
 --
 -- A timer written as a sleeping fiber is counted as the program writes it.
--- @liftIO (threadDelay n)@ is a wait like any other: the fiber is 'waiting'
--- until it wakes, so 'quiet' waits for it. 'Halogen.Query.HalogenM.delay'
--- (@Hooks.delay@ in hooks) is a pause that is not counted: while it sleeps
--- the fiber is neither running nor waiting, and once it wakes it is like
--- any other again (its next piece of work is queued, so the tree is
--- 'running'). Only the application knows which of its pauses a test should
--- wait for, so it says so by how it writes them:
+-- 'Halogen.Query.HalogenM.delayCounted' (@Hooks.delayCounted@ in hooks) is
+-- a pause counted as waiting, as @liftIO (threadDelay n)@ is: the fiber is
+-- 'waiting' until it wakes, so 'quiet' waits for it.
+-- 'Halogen.Query.HalogenM.delay' (@Hooks.delay@) is a pause that is not
+-- counted: while it sleeps the fiber is neither running nor waiting, and
+-- once it wakes it is like any other again (its next piece of work is
+-- queued, so the tree is 'running'). Only the application knows which of
+-- its pauses a test should wait for, so it says so by how it writes them:
 --
 -- * a pause followed by work a test waits for, such as a debounce before a
 --   request or an autosave two seconds after the last key, is
---   @liftIO (threadDelay n)@: 'quiet' then means the request was answered;
+--   'Halogen.Query.HalogenM.delayCounted': 'quiet' then means the request
+--   was answered;
 --
 -- * a pause that only takes something off the screen or ticks, such as a
 --   \"Saved\" notice hidden after three seconds or a clock, is 'delay':
@@ -95,7 +97,9 @@
 --   a @forever@ ticker leaves the program quiet between its ticks.
 --
 -- A pause is still its fiber's: a fork that is killed, or a component that
--- goes away, ends it, and nothing after it runs.
+-- goes away, ends it, and nothing after it runs. Both pauses sleep on a
+-- test's clock in a tree mounted under one, and a test can hold the
+-- program's other waits: "Halogen.Activity.Control".
 --
 -- = The probe
 --

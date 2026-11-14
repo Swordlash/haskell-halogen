@@ -10,6 +10,7 @@ import Test.GHCJS qualified as GHCJS
 import Test.Activity qualified as Activity
 import Test.Canvas qualified as Canvas
 import Test.CanvasMachine qualified as CanvasMachine
+import Test.Control qualified as Control
 import Test.Cookie qualified as Cookie
 import Test.DriverContract qualified as DriverContract
 import Test.DriverLifecycleRaces qualified as DriverLifecycleRaces
@@ -45,6 +46,7 @@ main = hspec $ do
 #endif
   Canvas.spec
   CanvasMachine.spec
+  Control.spec
   Cookie.spec
   DriverContract.spec
   DriverReentrancy.spec
