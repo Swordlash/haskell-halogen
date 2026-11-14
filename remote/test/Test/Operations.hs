@@ -7,7 +7,9 @@
 module Test.Operations (spec) where
 
 import Data.Aeson (Value (..), object, (.=))
-import Halogen.JSBits (inBrowser)
+import Data.Coerce (coerce)
+import Data.Foreign (foreignToString, readProp)
+import Halogen.JSBits (JSVal, inBrowser)
 import Halogen.Remote.Internal (runRemoteDOM)
 import Halogen.Remote.Internal qualified as Internal
 import Halogen.Remote.Protocol (NodeId, Op (..))
@@ -18,7 +20,8 @@ import Protolude
 import Test.Components
 import Test.Hspec (Spec, describe, it, shouldBe, shouldReturn, shouldSatisfy, xdescribe)
 import Test.Session (clickOn, elementWithId, listenerOn, mounted, nextOps, required, silent)
-import Web.DOM.Internal.Types (HTMLElement (..), Node (..))
+import Web.DOM.Element qualified as Element
+import Web.DOM.Internal.Types (Element (..), HTMLElement (..), Node (..))
 import Web.HTML.Common (AttrName (..))
 import Web.HTML.HTMLElement qualified as HTMLElement
 
@@ -77,6 +80,33 @@ spec = (if inBrowser then xdescribe else describe) "what a component does to the
     clicking session ops "not-listed"
     silent wire
     Session.dispose session
+
+  it "answers no read of an element, which only the page could answer" $ do
+    -- The in-memory DOM answers these from its tree; a remote node's tree
+    -- is the page's, across the wire, and a read cannot wait for it.
+    recorder <- Internal.newRecorder
+    let HTMLElement bodyValue = Internal.bodyHandle recorder
+        body = Node bodyValue
+    (anchor, inner) <- runRemoteDOM recorder $ do
+      made' <- createElement Nothing (ElemName "a") (Internal.documentHandle recorder)
+      setAttribute Nothing (AttrName "href") "/p/1" made'
+      elementToNode made' >>= (`appendChild` body)
+      span' <- createElement Nothing (ElemName "span") (Internal.documentHandle recorder)
+      spanNode <- elementToNode span'
+      elementToNode made' >>= appendChild spanNode
+      pure (made', spanNode)
+    _ <- Internal.takeBatch recorder
+    anchor.isConnected `shouldReturn` False
+    anchor.getAttribute "href" `shouldReturn` Nothing
+    anchor.hasAttribute "href" `shouldReturn` False
+    isNothing <$> anchor.closest "a" `shouldReturn` True
+    anchor.contains inner `shouldReturn` False
+    anchor.textContent `shouldReturn` ""
+    isNothing (Element.closestNow anchor "a") `shouldBe` True
+    Element.getAttributeNow anchor "href" `shouldBe` Nothing
+    readProp "href" (Just . foreignToString) (coerce anchor :: JSVal) `shouldBe` Nothing
+    -- And none of them is an operation.
+    Internal.takeBatch recorder `shouldReturn` Just []
 
   it "keeps a call made on a node that is taken out before the batch ends, before its removal" $ do
     -- A link clicked through its ref and hidden by the same action: the

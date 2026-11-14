@@ -25,10 +25,10 @@ module Halogen.VDom.DOM.HandlerOptions
   )
 where
 
-import Data.Foreign (foreignToBool, foreignToInt, foreignToString, readElements, readProp)
+import Data.Foreign (foreignToBool, foreignToInt, foreignToString, nativeInvokeNow, readElements, readProp)
 import Data.Text qualified as T
 import HPrelude
-import Halogen.JSBits (JSText, JSVal, Safety (..), browserJS, inBrowser, isNull, jsNull, toJSText)
+import Halogen.JSBits (JSText, JSVal, Safety (..), browserJS, inBrowser, isNull, jsNull, jsValBool, nativeInstanceOf, textValue, toJSText)
 import Web.Event.Internal.Types (Event (..))
 import Web.UIEvent.KeyboardEvent (KeyboardEvent (..))
 import Web.UIEvent.KeyboardEvent qualified as KE
@@ -134,8 +134,11 @@ keyMatch :: Text -> KeyMatch
 keyMatch key = KeyMatch {key, ctrlKey = Nothing, shiftKey = Nothing, altKey = Nothing, metaKey = Nothing}
 
 -- | Whether an event matches, read as it is now: in the listener, while the
--- event is being dispatched. Natively it is read from the event's JSON, as
--- an event a remote client sends or a test makes carries it: a 'Within'
+-- event is being dispatched. Natively, an event the in-memory DOM
+-- dispatches ("Halogen.VDom.DOM.Monad.Native"'s @dispatch@) is judged on
+-- its tree as in a page, a 'Within' finding its element with the selector
+-- around the event's target. Otherwise it is read from the event's JSON,
+-- as an event a remote client sends or a test makes carries it: a 'Within'
 -- finds its element under the event's @target@'s @closest@, by its
 -- selector (@{"target": {"closest": {"a[href]": {...}}}}@), and takes the
 -- sender's word that it is where the match says; a 'Carrying' reads the
@@ -174,14 +177,29 @@ matchesOn element match event = case match of
   Carrying types -> any (carrying event) types
 
 -- The element around the event's target that a selector matches, inside
--- the element given. Natively it is the one the event's JSON says the
--- client found for the selector.
+-- the element given. Natively, a target of the in-memory DOM finds it in
+-- the tree as a page does, and a target described in JSON is the one the
+-- JSON says the client found for the selector.
 within :: JSVal -> Text -> Event -> Maybe JSVal
 within element selector event@(Event value)
   | inBrowser =
       let found = js_within event element (toJSText selector)
        in if isNull found then Nothing else Just found
-  | otherwise = readProp "target" (readProp "closest" (readProp selector Just)) value
+  | otherwise = do
+      target <- readProp "target" Just value
+      case start target >>= \origin -> nativeInvokeNow origin "closest" [textValue selector] of
+        Just found
+          | isNull found -> Nothing
+          | inside found -> Just found
+          | otherwise -> Nothing
+        Nothing -> readProp "closest" (readProp selector Just) target
+  where
+    -- A target that is not an element (a text node) starts from its parent
+    -- element.
+    start target
+      | nativeInstanceOf target "Element" = Just target
+      | otherwise = readProp "parentElement" Just target
+    inside found = maybe True jsValBool (nativeInvokeNow element "contains" [found])
 
 -- Whether the event's transfer lists a type.
 carrying :: Event -> Text -> Bool
@@ -198,7 +216,8 @@ carrying event@(Event value) wanted
 -- element it found).
 --
 -- Natively it is read from the event's JSON, as an event a remote client
--- sends or a test makes carries it: @button@ must be there and be 0, and
+-- sends or a test makes carries it (and, for an event the in-memory DOM
+-- dispatches, the link from its tree): @button@ must be there and be 0, and
 -- @ctrlKey@, @metaKey@, @shiftKey@, @altKey@ and @defaultPrevented@, when
 -- there, false; of the link, the event's @currentTarget@, a @target@ other
 -- than @_self@ (in any case) or a @download@ that is @true@ (the link has
@@ -226,4 +245,9 @@ nativePlainLeftClick anchor (Event value) =
     elsewhere = case T.toLower <$> readProp "target" (Just . foreignToString) anchor of
       Just target -> not (T.null target) && target /= "_self"
       Nothing -> False
-    download = readProp "download" (Just . foreignToBool) anchor == Just True
+    -- A described link says @true@; an element of the in-memory DOM has
+    -- the attribute, even an empty one.
+    download =
+      readProp "download" (Just . foreignToBool) anchor
+        == Just True
+        || maybe False jsValBool (nativeInvokeNow anchor "hasAttribute" [textValue "download"])

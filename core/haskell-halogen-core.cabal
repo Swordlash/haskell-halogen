@@ -270,6 +270,8 @@ library
       exposed-modules:
         Halogen.Static
         Halogen.VDom.DOM.Monad.Native
+      other-modules:
+        Halogen.VDom.DOM.Monad.Native.Selector
       -- Data.Foreign reads a JSON number natively with it (aeson's own).
       build-depends: scientific
       
@@ -313,6 +315,7 @@ test-suite Halogen-core-test
                     Test.IndexedDB
                     Test.IndexedRows
                     Test.NativeAnswers
+                    Test.NativeDispatch
                     Test.NativeDom
                     Test.NativeEvents
                     Test.Refs

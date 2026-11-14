@@ -20,6 +20,40 @@
 -- separate element and text types, and each of them holds one
 -- ('NodeHandle').
 --
+-- = Testing a component on it
+--
+-- A native test mounts a component as a page does, acts on what it
+-- rendered as the reader would, waits for the program, and reads the tree:
+--
+-- > container <- N.newContainer
+-- > socket <- runMemDOM (runUI component input (N.fromNative container))
+-- > Just button <- N.querySelector "button.mark" container
+-- > N.dispatch "click" (object ["button" .= (0 :: Int)]) button
+-- > Activity.waitQuiet
+-- > unread <- N.querySelectorAll ".notification.unread" container
+-- > disabled <- N.attribute "disabled" button
+-- > runMemDOM socket.dispose
+--
+-- * Mount into 'newContainer', in the ambient document, so that what is
+--   rendered is connected and an event reaches the listeners a component
+--   put on the document or the window; an element made with 'newElement'
+--   is in no document.
+-- * 'dispatch' an event at a node: it bubbles as in a page, with the node
+--   as its target, and the handlers' actions are handled before it returns
+--   when the tree's loop is free. What a program then waits for in a
+--   @liftIO@ is not done yet: wait for it with "Halogen.Activity"
+--   ('Halogen.Activity.waitQuiet', or 'Halogen.Activity.waitIdle').
+-- * Read the tree with 'querySelector', 'querySelectorAll', 'textContent'
+--   and 'attribute', or serialise it with 'renderToText'; 'performedOn'
+--   says what the program did that the tree does not show (a focus, a
+--   dialog opened).
+--
+-- What a component reads of its elements through the @Web.*@ types is
+-- answered from the tree too, so the same component code runs here as in
+-- a page. There is no layout, no focus, no default action after an event (a
+-- test sets a field's @value@ itself before it dispatches @input@), and no
+-- capturing phase.
+--
 -- The instance is an orphan because the class lives in
 -- "Halogen.VDom.DOM.Monad.Class". Exactly one backend module is compiled into
 -- the package (the cabal file selects on @arch@), so the instances can never
@@ -34,10 +68,22 @@ module Halogen.VDom.DOM.Monad.Native
     -- * Constructing documents
   , newDocument
   , newElement
+  , newContainer
+  , ambientDocument
   , NodeHandle (..)
 
     -- * Events
   , event
+  , dispatch
+  , dispatchOutcome
+  , Dispatched (..)
+
+    -- * Reading the tree
+  , querySelector
+  , querySelectorAll
+  , textContent
+  , attribute
+  , isConnected
 
     -- * Inspection
   , Performed (..)
@@ -54,16 +100,20 @@ where
 
 import Control.Exception.Safe (throwString)
 import Data.Aeson qualified as Aeson
+import Data.Aeson.KeyMap qualified as KeyMap
+import Data.Dynamic (fromDynamic)
 import Data.Foreign (toForeign, unsafeFromForeign)
 import Data.Map.Strict qualified as M
 import Data.Text qualified as T
 import Data.Text.Lazy qualified as TL
 import Data.Text.Lazy.Builder qualified as TB
-import HPrelude
-import Halogen.JSBits (JSVal, NativeObject (..), jsValText, withNativeObject)
-import Halogen.JSBits.Native (Callback (..))
-import Halogen.VDom.DOM.Monad.Class
+import HPrelude hiding (Selector)
+import Halogen.JSBits (JSError (..), JSVal, NativeObject (..), jsNull, jsValText, textValue, toJSBool, toJSDouble, toJSInt, withNativeObject)
+import Halogen.JSBits.Native (Callback (..), JSVal (JSVal))
+import Halogen.VDom.DOM.Monad.Class hiding (querySelector)
+import Halogen.VDom.DOM.Monad.Class qualified as Class
 import Halogen.VDom.DOM.Monad.Mem
+import Halogen.VDom.DOM.Monad.Native.Selector (Refusal (..), Selector, Subject (..), matches, parseSelector)
 import Halogen.VDom.Types
 import Numeric (floatToDigits)
 import System.IO.Unsafe (unsafePerformIO)
@@ -135,10 +185,13 @@ identSource = unsafePerformIO (newIORef 0)
 nextIdent :: IO Int
 nextIdent = atomicModifyIORef' identSource $ \n -> (n + 1, n)
 
--- | The ambient document. @window@ and @document@ take no arguments, so the
--- class can only be satisfied by a global — but tests that want isolation
--- should build their own root with 'newDocument' and mount into that rather
--- than touching this one.
+-- | The ambient document, which is also the window: what
+-- 'Halogen.VDom.DOM.Monad.window' and 'Halogen.VDom.DOM.Monad.document'
+-- give. They take no arguments, so the class can only be satisfied by a
+-- global. A component that listens on the document or the window listens
+-- on it, and 'newContainer' makes the elements to mount into in it; a test
+-- that wants a tree of its own, which no component's document listener
+-- hears, builds a root with 'newDocument' instead.
 {-# NOINLINE ambientDocument #-}
 ambientDocument :: NativeNode
 ambientDocument = unsafePerformIO newDocument
@@ -175,9 +228,36 @@ newDocument = do
       modifyIORef' parent.kids (<> [child])
       writeIORef child.parentRef (Just parent)
 
--- | A detached element, for mounting a component into during a test.
+-- | A detached element: in no document, so not connected ('isConnected'),
+-- and an event dispatched inside it reaches no document's listeners. For a
+-- test of what is rendered and nothing else; 'newContainer' is the one to
+-- mount a component that reads the page into.
 newElement :: Maybe Namespace -> ElemName -> IO NativeNode
 newElement ns name = newNode (ElementNode ns name)
+
+-- | A new @div@ at the end of the ambient document's @body@, to mount a
+-- component into for a test as a page would have it: what is rendered in it
+-- is connected ('isConnected', which a popup asks before it acts), and an
+-- event 'dispatch'ed inside it bubbles up to the document and the window,
+-- where a component's 'Halogen.Query.Event.eventListener' on the document,
+-- or a "Halogen.Query.Event.Window" emitter, hears it.
+--
+-- The ambient document is the one 'Halogen.VDom.DOM.Monad.window' and
+-- 'Halogen.VDom.DOM.Monad.document' give, one for the whole program: every
+-- container is in it, every component's document listeners are on it, and
+-- an event that reaches it reaches all of them, as in one page. A test that
+-- mounts components side by side whose document listeners must not hear
+-- each other's events mounts them one after another, and disposes of each
+-- (taking its container out with the DOM's @remove@ if it likes) before
+-- the next.
+newContainer :: IO NativeNode
+newContainer = do
+  container <- newElement Nothing "div"
+  body <-
+    documentChild "body" ambientDocument
+      >>= maybe (throwString "Halogen.VDom.DOM.Monad.Native.newContainer: the ambient document has no body") pure
+  insertNative container Nothing body
+  pure container
 
 newNode :: NodeKind -> IO NativeNode
 newNode k = do
@@ -192,31 +272,148 @@ newNode k = do
     <*> newIORef []
 
 -- | The value every handle of a node holds: the node, answering for itself
--- when the program uses a member of it through the @Web.*@ types, by
--- noting what it did ('Performed'), giving the document's @document@ (the
--- in-memory document is the window too), and saying which DOM classes it
--- is an instance of, so that a checked cast
--- ('Halogen.Query.getHTMLElementRef') finds an element.
+-- when the program uses a member of it through the @Web.*@ types
+-- ("Halogen.JSBits.Fields"), and when a handler reads a property of it
+-- ("Data.Foreign"'s @readProp@), as a page's node would, from the tree:
+--
+-- * __calls__ are noted ('Performed'), and the ones that change the tree
+--   are carried out too: @setAttribute@, @removeAttribute@, @remove@
+--   (@focus@, @showModal@, @scrollIntoView@ and the rest are only noted:
+--   there is no focus, no layout and no top layer here);
+-- * __assignments__ are noted and carried out: @textContent@ replaces what
+--   is in an element, any other property is set as the reconciler sets one
+--   (a text, a boolean or a number; a value of any other kind is only
+--   noted);
+-- * __methods with a result__ answer from the tree: @getAttribute@,
+--   @hasAttribute@, @closest@, @querySelector@ (the selectors
+--   "Halogen.VDom.DOM.Monad.Native.Selector" understands, and an exception
+--   for any other), @contains@, @appendChild@, and the document's
+--   @getElementById@;
+-- * __reads__ answer from the tree: @isConnected@ ('isConnected'),
+--   @textContent@, @tagName@, @nodeName@, @nodeType@, @parentElement@,
+--   @nextElementSibling@, the document's @body@ and @head@, a property the
+--   node has, and one that reflects an attribute ('attribute' says which);
+-- * a checked cast ('Halogen.Query.getHTMLElementRef') finds the DOM
+--   classes the node is an instance of, and the document is its own
+--   @document@ (the in-memory document is the window too).
+--
+-- Anything else is declined, and has its inert answer: the active
+-- element, a node's size and position, the page's address.
 handleOf :: NativeNode -> JSVal
 handleOf node = withNativeObject object (toForeign node)
   where
     object =
       NativeObject
-        { call = \name _ -> atomicModifyIORef' node.performed (\done -> (Called name : done, ()))
-        , -- It answers no method with a result either: see 'live'.
-          invoke = \_ _ -> pure Nothing
-        , set = \name value -> atomicModifyIORef' node.performed (\done -> (Assigned name (jsValText value) : done, ()))
+        { call = \name arguments -> do
+            noting (Called name)
+            carryOut node name arguments
+        , invoke = answerCall node
+        , set = \name value -> do
+            noting (Assigned name (jsValText value))
+            assign node name value
         , get = \name -> case node.kind of
             DocumentNode | name == "document" -> Just (handleOf node)
             _ -> Nothing
-        , -- It keeps no address and no other value a browser would have:
-          -- every changing member reads inert.
-          live = \_ -> pure Nothing
+        , live = readMember node
         , instanceOf = \klass -> case node.kind of
             ElementNode ns name -> elementInstanceOf ns name klass
             TextNode -> klass `elem` ["EventTarget", "Node", "CharacterData", "Text"]
             DocumentNode -> klass `elem` ["EventTarget", "Node", "Document", "HTMLDocument", "Window"]
         }
+    noting done = atomicModifyIORef' node.performed (\before -> (done : before, ()))
+
+-- | A method that returns nothing, carried out where it changes the tree.
+carryOut :: NativeNode -> Text -> [JSVal] -> IO ()
+carryOut node name arguments = case (node.kind, name, arguments) of
+  (ElementNode {}, "setAttribute", [attr, value]) ->
+    modifyIORef' node.attrs (M.insert (Nothing, attributeName node (jsValText attr)) (jsValText value))
+  (ElementNode {}, "removeAttribute", [attr]) -> do
+    let wanted = attributeName node (jsValText attr)
+    modifyIORef' node.attrs (M.filterWithKey (\(_, n) _ -> n /= wanted))
+  (_, "remove", []) -> detach node
+  _ -> pass
+
+-- | An assignment to a property, carried out.
+assign :: NativeNode -> Text -> JSVal -> IO ()
+assign node name value = case node.kind of
+  TextNode | name `elem` ["textContent", "data", "nodeValue"] -> writeIORef node.content (jsValText value)
+  ElementNode {} | name == "textContent" -> replaceText node (jsValText value)
+  _ -> for_ (scalarOf value) $ \scalar -> modifyIORef' node.props (M.insert name scalar)
+  where
+    scalarOf (JSVal held) =
+      (ScalarText <$> fromDynamic held)
+        <|> (ScalarBool <$> fromDynamic held)
+        <|> (ScalarInt . toInteger <$> (fromDynamic held :: Maybe Int))
+        <|> (ScalarNum <$> fromDynamic held)
+
+-- | What a method with a result answers, from the tree: 'Nothing' for a
+-- method it does not answer, @'Just' 'jsNull'@ for an answer of @null@.
+answerCall :: NativeNode -> Text -> [JSVal] -> IO (Maybe JSVal)
+answerCall node name arguments = case (node.kind, name, arguments) of
+  (ElementNode {}, "getAttribute", [attr]) -> Just . maybe jsNull textValue <$> attribute (jsValText attr) node
+  (ElementNode {}, "hasAttribute", [attr]) -> Just . toJSBool . isJust <$> attribute (jsValText attr) node
+  (ElementNode {}, "closest", [selector]) -> Just . maybe jsNull handleOf <$> closest (jsValText selector) node
+  (_, "querySelector", [selector]) | node.kind /= TextNode -> Just . maybe jsNull handleOf <$> querySelector (jsValText selector) node
+  (DocumentNode, "getElementById", [wanted]) -> do
+    let byId e = (== Just (jsValText wanted)) <$> attribute "id" e
+    Just . maybe jsNull handleOf . head <$> (filterM byId =<< descendantElements node)
+  (_, "contains", [other]) -> Just . toJSBool <$> maybe (pure False) (contains node) (nodeOf other)
+  (_, "appendChild", [child]) | node.kind /= TextNode -> case nodeOf child of
+    Just c -> do
+      insertNative c Nothing node
+      pure (Just (handleOf c))
+    Nothing -> pure Nothing
+  _ -> pure Nothing
+
+-- | The node a value is a handle of, if it is one.
+nodeOf :: JSVal -> Maybe NativeNode
+nodeOf (JSVal held) = fromDynamic held
+
+-- | A property's value, read from the tree: 'Nothing' for one the
+-- in-memory DOM does not keep (see 'handleOf').
+readMember :: NativeNode -> Text -> IO (Maybe JSVal)
+readMember node name = case (node.kind, name) of
+  (_, "isConnected") -> Just . toJSBool <$> isConnected node
+  (_, "nodeType") -> pure . Just . toJSInt $ case node.kind of
+    ElementNode {} -> 1
+    TextNode -> 3
+    DocumentNode -> 9
+  (_, "parentElement") -> Just . maybe jsNull handleOf <$> parentElement node
+  (_, "parentNode") -> Just . maybe jsNull handleOf <$> readIORef node.parentRef
+  (DocumentNode, "body") -> Just . maybe jsNull handleOf <$> documentChild "body" node
+  (DocumentNode, "head") -> Just . maybe jsNull handleOf <$> documentChild "head" node
+  (DocumentNode, "nodeName") -> pure (Just (textValue "#document"))
+  (DocumentNode, _) -> fmap scalarValue . M.lookup name <$> readIORef node.props
+  (TextNode, _)
+    | name `elem` ["textContent", "data", "nodeValue", "wholeText"] -> Just . textValue <$> readIORef node.content
+    | name == "nodeName" -> pure (Just (textValue "#text"))
+    | otherwise -> pure Nothing
+  (ElementNode ns (ElemName tag), _)
+    | name `elem` ["tagName", "nodeName"] -> pure (Just (textValue (if isNothing (htmlIsNothing ns) then T.toUpper tag else tag)))
+    | name == "localName" -> pure (Just (textValue tag))
+    | name == "textContent" -> Just . textValue <$> textContent node
+    | name == "nextElementSibling" -> Just . maybe jsNull handleOf <$> nextElement node
+    | otherwise -> property name node
+
+-- | A property of an element: the one the reconciler (or an assignment)
+-- set, or else the one that reflects an attribute, from the attribute.
+property :: Text -> NativeNode -> IO (Maybe JSVal)
+property name node = do
+  props <- readIORef node.props
+  case M.lookup name props of
+    Just v -> pure (Just (scalarValue v))
+    Nothing -> case M.lookup name reflections of
+      Just (Plain attr) -> Just . textValue . fromMaybe "" <$> attribute attr node
+      Just (Presence attr) -> Just . toJSBool . isJust <$> writtenAttribute attr node
+      _ -> pure Nothing
+
+-- | A property's value as a value: what a read of it gives.
+scalarValue :: PropScalar -> JSVal
+scalarValue = \case
+  ScalarText t -> textValue t
+  ScalarBool b -> toJSBool b
+  ScalarInt i -> toJSInt (fromInteger i)
+  ScalarNum d -> toJSDouble d
 
 -- | The DOM's handles that stand for a node: each holds the 'NativeNode'
 -- in its value, so taking one apart finds the node it was made from, and a
@@ -532,7 +729,7 @@ renderIn context node = case node.kind of
             <> foldMap (\mine -> [("selected", if mine then Just Bare else Nothing)]) picked
         open = "<" <> TB.fromText name <> foldMap renderAttribute (M.toAscList merged) <> ">"
     for_ (M.toList merged) $ \case
-      ((_, attribute), Valued v) -> refuseNul ("the attribute " <> attribute) v
+      ((_, attr), Valued v) -> refuseNul ("the attribute " <> attr) v
       _ -> pass
     if html && name `elem` voidElements
       then pure open
@@ -832,13 +1029,13 @@ escapeAttribute = escape True
 -- Text passes: a builder operation for every escape allocates too much when
 -- escapes are dense. Ampersands go first so new references stay intact.
 escape :: Bool -> Text -> TB.Builder
-escape attribute txt =
+escape inAttribute txt =
   let (plain, rest) = T.break needsEscape txt
    in TB.fromText plain <> TB.fromText (escaped rest)
   where
-    needsEscape c = c == '&' || c == '<' || c == '>' || c == '\xa0' || c == '\r' || (attribute && c == '"')
+    needsEscape c = c == '&' || c == '<' || c == '>' || c == '\xa0' || c == '\r' || (inAttribute && c == '"')
     escaped =
-      (if attribute then T.replace "\"" "&quot;" else identity)
+      (if inAttribute then T.replace "\"" "&quot;" else identity)
         . T.replace "\r" "&#13;"
         . T.replace "\xa0" "&nbsp;"
         . T.replace ">" "&gt;"
@@ -846,48 +1043,488 @@ escape attribute txt =
         . T.replace "&" "&amp;"
 
 --------------------------------------------------------------------------------
--- Selectors
+-- Reading the tree
 --------------------------------------------------------------------------------
 
--- | Depth-first search for the first node matching a selector.
+-- | The first element inside the node, in document order, that the CSS
+-- selector matches, as the DOM's @querySelector@ finds it: the selector is
+-- matched against the whole tree, so @div p@ finds a @p@ inside the node
+-- whose @div@ is around the node. The selectors understood are
+-- "Halogen.VDom.DOM.Monad.Native.Selector"'s; any other throws a
+-- 'JSError' that names it (a @NotSupportedError@ for a selector CSS has
+-- and this does not, a @SyntaxError@ for one that is not CSS), never
+-- finding nothing.
+querySelector :: Text -> NativeNode -> IO (Maybe NativeNode)
+querySelector selector node = do
+  parsed <- selectorOf selector
+  firstM (matchesSelector parsed) =<< descendantElements node
+
+-- | Every element inside the node that the selector matches, in document
+-- order (see 'querySelector').
+querySelectorAll :: Text -> NativeNode -> IO [NativeNode]
+querySelectorAll selector node = do
+  parsed <- selectorOf selector
+  filterM (matchesSelector parsed) =<< descendantElements node
+
+-- | The text of the node: a text node's own, and the text of everything
+-- inside an element or a document, in order, as the DOM's @textContent@
+-- (whose document's is @null@).
+textContent :: NativeNode -> IO Text
+textContent node = case node.kind of
+  TextNode -> readIORef node.content
+  _ -> mconcat <$> (traverse textContent =<< readIORef node.kids)
+
+-- | An attribute of an element as a page has it, which is the DOM's
+-- @getAttribute@: 'Nothing' for one it does not have.
 --
--- Only the three selector shapes the library itself uses are supported: a tag
--- name, @#id@ and @.class@. Anything else finds nothing.
-queryNative :: Text -> NativeNode -> IO (Maybe NativeNode)
-queryNative selector root = go root
+-- The in-memory DOM keeps an element's attributes and its properties
+-- apart, as the reconciler sets them, where a page reflects most of the
+-- properties HTML defines into their attribute. So the attribute is the
+-- one written, or, if the element has the property that reflects it, the
+-- property's: @className@ for @class@, @htmlFor@ for @for@, @id@, @href@,
+-- @title@, … as text, and a boolean one (@disabled@, @hidden@, @open@,
+-- @required@, @readOnly@ for @readonly@, …) as @""@ when it is true and
+-- not at all when it is false, as 'renderToText' writes them. Four
+-- properties a page does not reflect, because they are what the reader
+-- changed rather than what the page said: @value@, @checked@, @selected@
+-- and @muted@; their attributes are only the ones written (as in a page,
+-- @input.value@ is not @getAttribute "value"@). The name is compared without
+-- regard to case on an HTML element.
+attribute :: Text -> NativeNode -> IO (Maybe Text)
+attribute name node = case node.kind of
+  ElementNode {} -> do
+    let wanted = attributeName node name
+    reflected <- case M.lookup wanted reflectingProperties of
+      Just (prop, how) -> fmap (reflectedValue how) . M.lookup prop <$> readIORef node.props
+      Nothing -> pure Nothing
+    case reflected of
+      Just fromProperty -> pure fromProperty
+      Nothing -> writtenAttribute wanted node
+  _ -> pure Nothing
   where
-    go node = do
-      children <- readIORef node.kids
-      firstMatch children
+    reflectedValue how v = case reflect how v of
+      (_, Just (Valued t)) -> Just t
+      (_, Just Bare) -> Just ""
+      (_, Nothing) -> Nothing
 
-    firstMatch [] = pure Nothing
-    firstMatch (c : cs) = do
-      hit <- matches c
-      if hit then pure (Just c) else go c >>= maybe (firstMatch cs) (pure . Just)
+-- | An attribute as written (with 'setAttribute', or by the reconciler),
+-- in any namespace, the one in none first.
+writtenAttribute :: Text -> NativeNode -> IO (Maybe Text)
+writtenAttribute wanted node = do
+  attributes <- readIORef node.attrs
+  let named = [v | ((_, n), v) <- M.toAscList attributes, attributeName node n == wanted]
+  pure (M.lookup (Nothing, wanted) attributes <|> head named)
 
-    matches node = case node.kind of
-      ElementNode _ (ElemName name) -> case T.uncons selector of
-        Just ('#', wanted) -> (== Just wanted) <$> attributeOrProperty "id" node
-        Just ('.', wanted) -> do
-          classes <- attributeOrProperty "class" node
-          pure $ maybe False (elem wanted . T.words) classes
-        _ -> pure (name == selector)
-      _ -> pure False
+-- | An attribute's name as the element compares it: in lower case on an
+-- HTML element, as written on any other.
+attributeName :: NativeNode -> Text -> Text
+attributeName node name = case node.kind of
+  ElementNode ns _ | isNothing (htmlIsNothing ns) -> T.toLower name
+  _ -> name
 
-    -- @id@ and @class@ reach the DOM as either an attribute or a property
-    -- depending on how the VDom node was built, so check both.
-    attributeOrProperty name node = do
-      attributes <- readIORef node.attrs
-      case M.lookup (Nothing, name) attributes of
-        Just v -> pure (Just v)
-        Nothing -> fmap scalarText . M.lookup name <$> readIORef node.props
+-- | The property that reflects each attribute, and how: every one
+-- 'renderToText' writes but the four a page does not reflect (see
+-- 'attribute').
+reflectingProperties :: Map Text (Text, Reflection)
+reflectingProperties =
+  M.fromList
+    [ (attributeOf how, (prop, how))
+    | (prop, how) <- M.toList reflections
+    , prop `notElem` ["value", "checked", "selected", "muted"]
+    ]
+  where
+    attributeOf = \case
+      Plain a -> a
+      Presence a -> a
+      TrueFalse a -> a
+      YesNo a -> a
+
+-- | Whether the node is in a document: whether the chain of its parents
+-- reaches one, as the DOM's @isConnected@ says. A node under an element
+-- made with 'newElement' is not, however deep, until that element is put
+-- in a document; one under 'newContainer' is.
+isConnected :: NativeNode -> IO Bool
+isConnected node = case node.kind of
+  DocumentNode -> pure True
+  _ -> readIORef node.parentRef >>= maybe (pure False) isConnected
+
+-- | Whether the other node is this one or inside it, as the DOM's
+-- @contains@.
+contains :: NativeNode -> NativeNode -> IO Bool
+contains node other
+  | node == other = pure True
+  | otherwise = readIORef other.parentRef >>= maybe (pure False) (contains node)
+
+-- | The node's parent, if it is an element.
+parentElement :: NativeNode -> IO (Maybe NativeNode)
+parentElement node =
+  readIORef node.parentRef <&> \case
+    Just p | isElement p -> Just p
+    _ -> Nothing
+
+isElement :: NativeNode -> Bool
+isElement n = case n.kind of
+  ElementNode {} -> True
+  _ -> False
+
+-- | The next element among the node's siblings.
+nextElement :: NativeNode -> IO (Maybe NativeNode)
+nextElement node =
+  nextSiblingNative node >>= \case
+    Nothing -> pure Nothing
+    Just n
+      | isElement n -> pure (Just n)
+      | otherwise -> nextElement n
+
+-- | A document's @body@ or @head@: the element of that name in its
+-- @html@.
+documentChild :: Text -> NativeNode -> IO (Maybe NativeNode)
+documentChild name doc = do
+  roots <- readIORef doc.kids
+  case [r | r <- roots, isNamed "html" r] of
+    html : _ -> find (isNamed name) <$> readIORef html.kids
+    [] -> pure Nothing
+  where
+    isNamed wanted n = case n.kind of
+      ElementNode ns (ElemName tag) -> isNothing (htmlIsNothing ns) && tag == wanted
+      _ -> False
+
+-- | Every element inside the node, in document order.
+descendantElements :: NativeNode -> IO [NativeNode]
+descendantElements node = do
+  children <- readIORef node.kids
+  concat <$> for children (\c -> if isElement c then (c :) <$> descendantElements c else pure [])
+
+-- | The element itself or its nearest ancestor that the selector matches,
+-- as the DOM's @closest@.
+closest :: Text -> NativeNode -> IO (Maybe NativeNode)
+closest selector node = do
+  parsed <- selectorOf selector
+  let go n
+        | isElement n =
+            matchesSelector parsed n >>= \case
+              True -> pure (Just n)
+              False -> parentElement n >>= maybe (pure Nothing) go
+        | otherwise = pure Nothing
+  go node
+
+-- | The selector, or the exception that says why it is refused.
+selectorOf :: Text -> IO Selector
+selectorOf selector = case parseSelector selector of
+  Right parsed -> pure parsed
+  Left (Unsupported why) ->
+    throwIO
+      JSError
+        { name = "NotSupportedError"
+        , message = "the in-memory DOM does not understand the selector " <> show selector <> ": " <> why
+        }
+  Left (Malformed why) ->
+    throwIO
+      JSError
+        { name = "SyntaxError"
+        , message = "the selector " <> show selector <> " is not a valid selector: " <> why
+        }
+
+matchesSelector :: Selector -> NativeNode -> IO Bool
+matchesSelector = matches subject
+  where
+    subject =
+      Subject
+        { tag = \n -> case n.kind of
+            ElementNode _ (ElemName t) -> t
+            _ -> ""
+        , html = \n -> case n.kind of
+            ElementNode ns _ -> isNothing (htmlIsNothing ns)
+            _ -> False
+        , attribute = flip attribute
+        , parent = parentElement
+        }
+
+firstM :: (a -> IO Bool) -> [a] -> IO (Maybe a)
+firstM _ [] = pure Nothing
+firstM f (x : xs) = f x >>= \hit -> if hit then pure (Just x) else firstM f xs
+
+-- | Replace what is in an element with one text node (none for empty
+-- text), as setting its @textContent@ does.
+replaceText :: NativeNode -> Text -> IO ()
+replaceText n txt = do
+  traverse_ detach =<< readIORef n.kids
+  unless (T.null txt) $ do
+    text <- newNode TextNode
+    writeIORef text.content txt
+    insertNative text Nothing n
+
+--------------------------------------------------------------------------------
+-- Dispatching an event
+--------------------------------------------------------------------------------
+
+-- | What became of an event 'dispatchOutcome' dispatched.
+data Dispatched = Dispatched
+  { defaultPrevented :: Bool
+  -- ^ Whether a listener prevented its default (a handler's own
+  -- @preventDefault@, or 'Halogen.HTML.Events.preventingDefault'), which a
+  -- page would then not take.
+  , heard :: Int
+  -- ^ How many listeners ran.
+  , disabled :: Bool
+  -- ^ Whether it was a click on a disabled form control, which a page does
+  -- not dispatch at all: then nothing ran.
+  }
+  deriving stock (Eq, Show)
+
+-- | 'dispatchOutcome', for a test that does not ask what became of the
+-- event.
+dispatch :: Text -> Aeson.Value -> NativeNode -> IO ()
+dispatch eventType fields node = void (dispatchOutcome eventType fields node)
+
+-- | Dispatch an event of a type, with the fields of the JSON object (a
+-- key's @key@, a click's @button@, @clientX@), at a node, as a page
+-- dispatches one the reader caused: the listeners on the node run, then
+-- those on each node around it in turn, up to the document and the window
+-- if the node is in one ('newContainer'). Each listener runs before this
+-- returns, in the order it was added, in 'MemDOM', on this thread; an
+-- exception out of one ends the dispatch and is thrown here. A listener's
+-- handler that hands an action to its component has it handled before this
+-- returns when the component's loop is free, as in a page: what the
+-- program then waits for in a @liftIO@ is not, and a test waits for it
+-- with "Halogen.Activity".
+--
+-- What a listener reads of the event:
+--
+-- * @target@ is the node dispatched at, and @currentTarget@ the node whose
+--   listener runs, as handles of the tree (@Element.fromEventTarget@,
+--   @Element.closestNow@, @element.contains@ and the rest read the tree
+--   through them); @type@, @bubbles@, @cancelable@ and @eventPhase@ are
+--   the event's, and @defaultPrevented@ is whether a listener has
+--   prevented it so far ('Web.Event.Event.defaultPreventedNow');
+-- * everything else is the JSON's (@key@, @button@, @ctrlKey@,
+--   @clientX@, @dataTransfer@, …), as for 'event'; a @target@ or
+--   @currentTarget@ in it is not read;
+-- * a checked cast finds the class the type is of: a @keydown@ is a
+--   @KeyboardEvent@, a @click@ a @MouseEvent@, a @pointerdown@ a
+--   @PointerEvent@ and a @MouseEvent@, a @focus@ a @FocusEvent@, a @paste@ a
+--   @ClipboardEvent@, a @drop@ a @DragEvent@, and every one an @Event@.
+--
+-- @stopPropagation@ (a handler's own, or
+-- 'Halogen.HTML.Events.stoppingPropagation') lets the rest of the
+-- listeners on that node run and stops the event there;
+-- @stopImmediatePropagation@ stops it at once. A handler's declared match
+-- ('Halogen.HTML.Events.matching') is judged on the tree, as in a page: a
+-- 'Halogen.HTML.Events.within' finds its element with the selector.
+--
+-- An event bubbles unless its JSON says @"bubbles": false@, or its type is
+-- one that does not in a page and the JSON does not say @true@: @focus@,
+-- @blur@, @mouseenter@, @mouseleave@, @pointerenter@, @pointerleave@,
+-- @load@, @unload@, @error@, @abort@, @scroll@, @scrollend@, @resize@,
+-- @toggle@, @invalid@, @cancel@, @close@ and a media element's events
+-- (@play@, @pause@, @ended@, @timeupdate@, …). It is cancelable unless its
+-- JSON says @"cancelable": false@, or its type is one a page cannot
+-- prevent (@input@, @change@, @focusin@, @focusout@, @select@ and the
+-- non-bubbling ones but @invalid@ and @cancel@): its @preventDefault@ then
+-- does nothing.
+--
+-- An event dispatched at a text node is dispatched at its parent element,
+-- which is where the reader's pointer is on the text: no event the reader
+-- causes has a text node as its target (one with no parent element keeps
+-- it).
+--
+-- The nodes it travels through are fixed when it is dispatched, and a
+-- listener runs only if it is still on its node when its turn comes, as in
+-- a page: a listener that takes its node out of the tree (a handler that
+-- closes the popup it is in, or ends the whole tree) does not keep the
+-- nodes around it from hearing the event, and one a listener removes
+-- before its turn does not run. There is no capturing phase: the
+-- in-memory DOM's listeners are all bubbling ones.
+--
+-- A @click@ dispatched at a disabled form control (a @button@, @input@,
+-- @select@ or @textarea@ that has @disabled@, as an attribute or the
+-- property, or is inside a @fieldset@ that has it and not in that
+-- fieldset's first @legend@) is not dispatched, as a page does not
+-- dispatch the reader's click there: nothing runs, and 'disabled' says so.
+-- Other events are dispatched there as anywhere.
+--
+-- The window and the document are one node here (see 'newContainer'): the
+-- window's listeners and the document's run in the order they were added,
+-- and a @stopPropagation@ in either does not keep the other's from
+-- running. Nothing does what a page does by default after the event (a
+-- link followed, a checkbox ticked, a character typed): a test does that
+-- itself (sets the field's @value@ property, then dispatches @input@).
+dispatchOutcome :: Text -> Aeson.Value -> NativeNode -> IO Dispatched
+dispatchOutcome eventType fields at = do
+  -- What the reader points at or types into is an element: a text node is
+  -- never the target of an event the reader causes.
+  target <-
+    if at.kind == TextNode
+      then fromMaybe at <$> parentElement at
+      else pure at
+  dispatchAt eventType fields target
+
+dispatchAt :: Text -> Aeson.Value -> NativeNode -> IO Dispatched
+dispatchAt eventType fields target = do
+  blocked <- if eventType == "click" then disabledControl target else pure False
+  if blocked
+    then pure Dispatched {defaultPrevented = False, heard = 0, disabled = True}
+    else do
+      ancestors <- ancestorsOf target
+      prevented <- newIORef False
+      stopped <- newIORef False
+      stoppedNow <- newIORef False
+      count <- newIORef (0 :: Int)
+      let path = if bubbles then target : ancestors else [target]
+          propagation = Propagation {prevented, stopped, stoppedNow}
+          visit [] = pass
+          visit (current : rest) = do
+            registered <- filter ((== eventType) . (.eventType)) <$> readIORef current.listeners
+            for_ registered $ \l -> do
+              now <- readIORef stoppedNow
+              -- A listener taken off its node before its turn does not run.
+              still <- any (\m -> m.ident == l.ident && m.eventType == eventType) <$> readIORef current.listeners
+              when (not now && still) $ do
+                modifyIORef' count (+ 1)
+                runMemDOM (l.fire (eventFor propagation current))
+            done <- readIORef stopped
+            unless done (visit rest)
+      visit path
+      Dispatched <$> readIORef prevented <*> readIORef count <*> pure False
+  where
+    flag name = case fields of
+      Aeson.Object o -> case KeyMap.lookup name o of
+        Just (Aeson.Bool b) -> Just b
+        _ -> Nothing
+      _ -> Nothing
+    bubbles = fromMaybe (eventType `notElem` nonBubbling) (flag "bubbles")
+    cancelable = fromMaybe (eventType `notElem` uncancelable) (flag "cancelable")
+    eventFor propagation current =
+      Event (withNativeObject (eventObject propagation current) (toForeign fields))
+    eventObject propagation current =
+      NativeObject
+        { call = \name _ -> case name of
+            "preventDefault" -> when cancelable (writeIORef propagation.prevented True)
+            "stopPropagation" -> writeIORef propagation.stopped True
+            "stopImmediatePropagation" -> writeIORef propagation.stopped True >> writeIORef propagation.stoppedNow True
+            _ -> pass
+        , invoke = \_ _ -> pure Nothing
+        , set = \_ _ -> pass
+        , get = fixed current
+        , live = \case
+            "defaultPrevented" -> Just . toJSBool <$> readIORef propagation.prevented
+            name -> pure (fixed current name)
+        , instanceOf = (`elem` eventClasses eventType)
+        }
+    fixed current = \case
+      "type" -> Just (textValue eventType)
+      "target" -> Just (handleOf target)
+      "currentTarget" -> Just (handleOf current)
+      "bubbles" -> Just (toJSBool bubbles)
+      "cancelable" -> Just (toJSBool cancelable)
+      "eventPhase" -> Just (toJSInt (if current == target then 2 else 3))
+      _ -> Nothing
+
+-- | Where an event being dispatched stands.
+data Propagation = Propagation
+  { prevented :: IORef Bool
+  , stopped :: IORef Bool
+  , stoppedNow :: IORef Bool
+  }
+
+-- | The nodes around a node, nearest first, up to the top of its tree.
+ancestorsOf :: NativeNode -> IO [NativeNode]
+ancestorsOf node =
+  readIORef node.parentRef >>= \case
+    Nothing -> pure []
+    Just p -> (p :) <$> ancestorsOf p
+
+-- | Whether the node is a form control a page dispatches no click to: one
+-- with @disabled@, or one inside a @fieldset@ with @disabled@ and not in
+-- that fieldset's first @legend@.
+disabledControl :: NativeNode -> IO Bool
+disabledControl node = case node.kind of
+  ElementNode ns (ElemName tag)
+    | isNothing (htmlIsNothing ns) && tag `elem` ["button", "input", "select", "textarea"] -> do
+        own <- isJust <$> attribute "disabled" node
+        if own then pure True else fieldsetDisabled node =<< ancestorsOf node
+  _ -> pure False
+  where
+    -- The ancestors, nearest first: a disabled fieldset disables the
+    -- control unless the control is in its first legend, which is then the
+    -- ancestor just before it.
+    fieldsetDisabled _ [] = pure False
+    fieldsetDisabled child (a : rest) = do
+      here <- case a.kind of
+        ElementNode ns (ElemName "fieldset") | isNothing (htmlIsNothing ns) -> do
+          off <- isJust <$> attribute "disabled" a
+          if not off
+            then pure False
+            else do
+              legend <- find isLegend <$> readIORef a.kids
+              pure (legend /= Just child)
+        _ -> pure False
+      if here then pure True else fieldsetDisabled a rest
+    isLegend n = case n.kind of
+      ElementNode ns (ElemName "legend") -> isNothing (htmlIsNothing ns)
+      _ -> False
+
+-- | The types that do not bubble in a page.
+nonBubbling :: [Text]
+nonBubbling =
+  [ "focus"
+  , "blur"
+  , "mouseenter"
+  , "mouseleave"
+  , "pointerenter"
+  , "pointerleave"
+  , "load"
+  , "unload"
+  , "error"
+  , "abort"
+  , "scroll"
+  , "scrollend"
+  , "resize"
+  , "toggle"
+  , "invalid"
+  , "cancel"
+  , "close"
+  ]
+    <> mediaEvents
+
+-- | The types whose default a page cannot prevent.
+uncancelable :: [Text]
+uncancelable =
+  filter (`notElem` ["invalid", "cancel"]) nonBubbling
+    <> ["input", "change", "focusin", "focusout", "select"]
+
+mediaEvents :: [Text]
+mediaEvents =
+  concatMap
+    T.words
+    [ "play pause playing ended timeupdate volumechange durationchange loadstart progress"
+    , "loadedmetadata loadeddata canplay canplaythrough seeking seeked waiting ratechange emptied stalled suspend"
+    ]
+
+-- | The classes an event of a type is an instance of.
+eventClasses :: Text -> [Text]
+eventClasses eventType = "Event" : specific
+  where
+    ui = ["UIEvent"]
+    mouse = "MouseEvent" : ui
+    specific
+      | eventType `elem` ["keydown", "keyup", "keypress"] = "KeyboardEvent" : ui
+      | "pointer" `T.isPrefixOf` eventType || eventType `elem` ["gotpointercapture", "lostpointercapture"] = "PointerEvent" : mouse
+      | eventType `elem` ["click", "dblclick", "auxclick", "contextmenu", "mousedown", "mouseup", "mousemove", "mouseover", "mouseout", "mouseenter", "mouseleave"] = mouse
+      | eventType == "wheel" = "WheelEvent" : mouse
+      | "drag" `T.isPrefixOf` eventType || eventType == "drop" = "DragEvent" : mouse
+      | eventType `elem` ["focus", "blur", "focusin", "focusout"] = "FocusEvent" : ui
+      | "touch" `T.isPrefixOf` eventType = "TouchEvent" : ui
+      | eventType `elem` ["copy", "cut", "paste"] = ["ClipboardEvent"]
+      | eventType `elem` ["input", "beforeinput"] = "InputEvent" : ui
+      | otherwise = []
 
 --------------------------------------------------------------------------------
 -- The instance
 --------------------------------------------------------------------------------
 
--- | How a property reads as text, for the inspection helpers and for the
--- @#id@\/@.class@ selectors. Not used for equality — 'PropScalar' is.
+-- | How a property reads as text, for the inspection helpers. Not used for
+-- equality — 'PropScalar' is.
 scalarText :: PropScalar -> Text
 scalarText = \case
   ScalarInt x -> show x
@@ -923,12 +1560,7 @@ instance MonadDOM MemDOM where
     case n.kind of
       TextNode -> writeIORef n.content txt
       DocumentNode -> pass
-      ElementNode {} -> do
-        traverse_ detach =<< readIORef n.kids
-        unless (T.null txt) $ do
-          text <- newNode TextNode
-          writeIORef text.content txt
-          insertNative text Nothing n
+      ElementNode {} -> replaceText n txt
 
   createElement ns name _ = liftIO $ fromNative <$> newElement ns name
 
@@ -995,7 +1627,7 @@ instance MonadBrowserDOM MemDOM where
   querySelector (QuerySelector selector) parent =
     liftIO
       $ fmap fromNative
-      <$> queryNative selector (toNative parent)
+      <$> querySelector selector (toNative parent)
   readyState _ = liftIO $ pure ReadyState.Complete
   readStorageItem kind key = liftIO $ M.lookup key . store kind <$> readIORef ambientStorage
   writeStorageItem kind key text =

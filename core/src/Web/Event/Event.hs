@@ -40,10 +40,11 @@ $(inlineJS "js_default_prevented_now" "$1.defaultPrevented" [t|Event -> Bool|])
 -- forced: for a handler that decides in the event's listener
 -- ('Halogen.HTML.Events.handler'' gives it a pure function of the event),
 -- which leaves an event an earlier listener has handled alone. Natively it
--- is the event's @defaultPrevented@ property, as an event made from JSON (a
--- test's, or one a remote client sent, which says @true@ when something in
--- the page prevented the default before the client got the event) has it,
--- and 'False' for any other event.
+-- is whether a listener has prevented an event the in-memory DOM
+-- dispatches so far, or else the event's @defaultPrevented@ property, as an
+-- event made from JSON (a test's, or one a remote client sent, which says
+-- @true@ when something in the page prevented the default before the
+-- client got the event) has it, and 'False' for any other event.
 defaultPreventedNow :: Event -> Bool
 defaultPreventedNow event@(Event value)
   | inBrowser = js_default_prevented_now event
