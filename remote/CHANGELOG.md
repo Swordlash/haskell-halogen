@@ -93,5 +93,6 @@ answers for itself (haskell-halogen-jsbits' `withNativeObject`): the call is rec
 performs it from an allowlist, logging one that throws. A cast of a handle asks what its node is, so
 the casts that gave `Nothing` natively now find the element. Reads still cannot cross in time and
 keep their inert answers (measuring, `document.activeElement`, a dialog's `open`, the clipboard);
-nothing off the allowlist is recorded; a call on a node that has gone records nothing. In the
+nothing off the allowlist is recorded; a call on a node that has gone records nothing (one made
+before the node went, in the same batch, is performed before its removal). In the
 loopback, where a handle is the engine's value, nothing of this is carried out.

@@ -48,6 +48,12 @@
 -- of a removed element's children, which takes each out of it and stops
 -- its listeners, a property set on it) is left out of it: the client
 -- forgets the node with everything under it, so none of it would show.
+-- A method the program called on it before it went is not left out, and
+-- stays where it was among the operations, before the removal: what a call
+-- does need not stay inside the node (a link clicked through its ref to
+-- start a download, and hidden by the same action), and whether it happens
+-- must not depend on whether a batch was taken between the call and the
+-- removal.
 module Halogen.Remote.Internal
   ( -- * The monad
     RemoteDOM (..)
@@ -356,8 +362,9 @@ ready recorder = do
 -- | Take what is pending as a batch, once no render is under way (waiting
 -- for the one there is to end), and forget the nodes it leaves without a
 -- parent: 'Nothing' once the recorder is closed. What the batch says about
--- the nodes forgotten, other than their removal and the insertions that
--- moved nodes about, is left out (see the module's header).
+-- the nodes forgotten, other than their removal, the insertions that moved
+-- nodes about and the methods called on them, is left out (see the module's
+-- header).
 takeBatch :: Recorder -> IO (Maybe [Op])
 takeBatch recorder = do
   taken <- STM.atomically $ do
@@ -391,8 +398,9 @@ takeBatch recorder = do
       Listen n _ _ -> n `IntSet.member` gone
       Unlisten n _ _ -> n `IntSet.member` gone
       ListenerOptions n _ _ _ -> n `IntSet.member` gone
-      Call n _ _ -> n `IntSet.member` gone
       Assign n _ _ -> n `IntSet.member` gone
+      -- Not a 'Call': it may have done something outside the node, and the
+      -- node was still the client's when the program made it.
       _ -> False
 
 -- | Run a render, counted as under way while it runs (and fails), so that no

@@ -97,7 +97,9 @@ been taken from wherever it was. A node taken out and not put back by the end of
 gone, on both sides: after the batch's last operation, each node a `remove` took out that still
 has no parent is forgotten with its subtree and their listeners, and is never named again. A
 batch leaves out what would happen inside such a node (its children taken out of it, its
-listeners stopped), which the client forgets with it.
+listeners stopped), which the client forgets with it; a `call` the program made on it before it
+went stays, before its `remove`, since a method can do something outside the node (a link clicked
+to start a download, then hidden).
 
 `options` follows the `listen` of a handler that declares anything, in the same batch, and comes
 again whenever a render changes what it declares: `{"preventDefault": true, "stopPropagation":
@@ -272,7 +274,8 @@ dialog's `showModal` and `close` through `HTMLDialogElement.fromElement`, `blur`
 document's title (`doc.title_set`, with the document from `window >>= document` or the window's
 `document` field). Each is recorded when it is made, from `IO` on whatever thread the effect runs,
 and goes with the batch being recorded: a render's, so a focus in an `Initialize` comes after the
-operations that made the element, or the next one. A call on a node the program has forgotten,
+operations that made the element, or the next one. A call on an element that the same action then
+takes off the page is still performed, before the removal. A call on a node the program has forgotten,
 and any method or property not on the list (an attribute set through `setAttribute`, removing an
 element with `remove`), records nothing, as before.
 

@@ -8,12 +8,18 @@ module Test.Operations (spec) where
 
 import Data.Aeson (Value (..), object, (.=))
 import Halogen.JSBits (inBrowser)
+import Halogen.Remote.Internal (runRemoteDOM)
+import Halogen.Remote.Internal qualified as Internal
 import Halogen.Remote.Protocol (NodeId, Op (..))
 import Halogen.Remote.Session qualified as Session
+import Halogen.VDom.DOM.Monad (MonadBrowserDOM (..), MonadDOM (..))
+import Halogen.VDom.Types (ElemName (..))
 import Protolude
 import Test.Components
 import Test.Hspec (Spec, describe, it, shouldBe, shouldReturn, shouldSatisfy, xdescribe)
 import Test.Session (clickOn, elementWithId, listenerOn, mounted, nextOps, required, silent)
+import Web.DOM.Internal.Types (HTMLElement (..), Node (..))
+import Web.HTML.HTMLElement qualified as HTMLElement
 
 -- | Click a button the first render made, by its id.
 clicking :: Session.Session -> [Op] -> Text -> IO ()
@@ -70,6 +76,27 @@ spec = (if inBrowser then xdescribe else describe) "what a component does to the
     clicking session ops "not-listed"
     silent wire
     Session.dispose session
+
+  it "keeps a call made on a node that is taken out before the batch ends, before its removal" $ do
+    -- A link clicked through its ref and hidden by the same action: the
+    -- click is the page's to perform (a download starts), whether or not a
+    -- batch was taken in between.
+    recorder <- Internal.newRecorder
+    let HTMLElement bodyValue = Internal.bodyHandle recorder
+        body = Node bodyValue
+    anchor <- runRemoteDOM recorder $ do
+      made' <- createElement Nothing (ElemName "a") (Internal.documentHandle recorder)
+      elementToNode made' >>= (`appendChild` body)
+      pure made'
+    opening <- Internal.takeBatch recorder
+    made <- required "the link" (head [n | Create n _ "a" <- fold opening])
+    clickable <- required "the link as an HTML element" (HTMLElement.fromElement anchor)
+    HTMLElement.click clickable
+    runRemoteDOM recorder (elementToNode anchor >>= (`removeChild` body))
+    Internal.takeBatch recorder `shouldReturn` Just [Call made "click" [], Remove 1 made]
+    -- Forgotten now: a call on it is nobody's.
+    HTMLElement.click clickable
+    Internal.takeBatch recorder `shouldReturn` Just []
 
   it "sets the document's title, from Initialize and from a click" $ do
     (session, wire, ops, _) <- mounted titling
