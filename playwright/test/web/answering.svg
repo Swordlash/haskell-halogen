@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="220" height="60">
+  <!-- A document that is an SVG, not HTML, whose script plays a program's
+       side of the probe (as program.html's does): a click keeps it busy for
+       a while, and it counts the click only then. A read right after the
+       click sees the count only if the click settled this document's own
+       program, which the page around it knows nothing of. -->
+  <rect id="bar" width="220" height="60" fill="#ccd"/>
+  <text id="count" x="10" y="36">0</text>
+  <script>
+    const fake = { trees: 1, running: 0, waiting: 0 };
+    if (globalThis.__halogenProbe) {
+      __halogenProbe.activity = async () => ({ trees: fake.trees, running: fake.running, waiting: fake.waiting });
+    }
+    let clicks = 0;
+    document.getElementById("bar").addEventListener("click", () => {
+      fake.running = 1;
+      setTimeout(() => {
+        clicks += 1;
+        document.getElementById("count").textContent = String(clicks);
+        fake.running = 0;
+      }, 150);
+    });
+  </script>
+</svg>

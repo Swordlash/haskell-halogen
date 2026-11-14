@@ -262,17 +262,18 @@ const register = (page) => {
 // to the page's console each time ("Blocked script execution in
 // 'about:blank' because the document's frame is sandboxed", for the
 // pagehide of a frame's first document). No script of such a document can
-// ask for a move, so there is nothing to note. Whether a document may run
-// scripts shows, without running anything, in how it parses <noscript>:
-// as text where scripting is on, as elements where it is off.
+// ask for a move, so there is nothing to note.
+//
+// Whether a document may run scripts is asked of the media query
+// "scripting", which runs nothing, changes nothing in the document and is
+// no sink a page's policy governs: none for a sandbox without allow-scripts
+// (the attribute, one inherited from a frame around, or a Content Security
+// Policy's), and for JavaScript turned off; in an HTML document, an SVG one
+// and an XHTML one alike. A browser that does not know the query answers
+// that it does not match, and the document is taken to run scripts.
 const probeScript = () => {
   if (globalThis.__halogenProbe === undefined) globalThis.__halogenProbe = {};
-  const scripting = () => {
-    const parsed = document.createElement("div");
-    parsed.innerHTML = "<noscript><p></p></noscript>";
-    return parsed.querySelector("p") === null;
-  };
-  if (typeof document !== "object" || !scripting()) return;
+  if (typeof matchMedia === "function" && matchMedia("(scripting: none)").matches) return;
   const key = Symbol.for("halogen.playwright.traversals");
   if (typeof History !== "function" || typeof addEventListener !== "function" || globalThis[key]) return;
   // Each move under way is a token of its own, so that one's half second
@@ -376,9 +377,7 @@ const inPageSettle = async ({ deadline, quiet, pause, frameBound }) => {
   // allow-scripts; see probeScript) has no program, and no task, timer or
   // frame callback of its would ever run: asking for one would wait for
   // ever and write an error to the page's console. It has settled.
-  const parsed = document.createElement("div");
-  parsed.innerHTML = "<noscript><p></p></noscript>";
-  if (parsed.querySelector("p") !== null) return { program: false };
+  if (typeof matchMedia === "function" && matchMedia("(scripting: none)").matches) return { program: false };
   const task = () =>
     new Promise((resolve) =>
       globalThis.scheduler?.postTask ? scheduler.postTask(resolve, { priority: "background" }) : setTimeout(resolve, 0),

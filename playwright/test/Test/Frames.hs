@@ -74,6 +74,20 @@ spec base = describe "frames" $ do
       took `shouldSatisfy` (< 2)
     map (\m -> (m.kind, m.text)) <$> consoleMessages page `shouldReturn` []
 
+  -- A frame whose document is an SVG and may run scripts is settled like
+  -- any other: the picture's program is busy for a while after a click and
+  -- counts it only then, and one read after the click sees the count. (How
+  -- a document may be asked whether it runs scripts differs between HTML
+  -- and XML documents: asked the HTML way, an SVG seemed to run none, and
+  -- was left unsettled.)
+  it "settles an action in a frame whose document is an SVG that runs scripts" $ \pw -> withPage pw $ \page -> do
+    goto page (at "picture.html")
+    let picture = inFrame page "iframe[title='A picture that answers']"
+    for_ [1 :: Int .. 5] $ \i -> do
+      click (locator picture "#bar")
+      textContent (locator picture "#count") `shouldReturn` Text.pack (show i)
+    map (\m -> (m.kind, m.text)) <$> consoleMessages page `shouldReturn` []
+
   it "fails in a frame that is not there, naming its address" $ \pw -> withPage pw $ \page -> do
     goto page (at "basics.html")
     try (textContent (locator (frameAt page "**/nowhere.html") "p")) >>= \case
