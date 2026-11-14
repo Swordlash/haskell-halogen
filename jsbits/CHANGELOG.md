@@ -5,23 +5,28 @@
 **Natively a value can answer for itself** when a member of it is used:
 `withNativeObject object value` is the value (what it holds is read as before) with
 a `NativeObject`, whose `call`, `set`, `get` and `instanceOf` say what a
-method's call, a property's assignment, a fixed object member and a checked
+method's call, a property's assignment, a fixed member and a checked
 cast do with it. The fields `jsFields` writes ask it natively before they fall
 back to `inert`: a `Method` whose result is `()` asks it to carry out the
 call, a `Writable` member's `_set` field the assignment, a `Fixed` member
-whose type is an object (a newtype over a `JSVal`) for the object, and
-`jsCast` whether the value is an instance of the class. A read of anything
-else and a method with a result keep their inert answers, as does every
-member of a value that does not answer, which is every value made before
-this release. A backend that is not a browser makes its handles this way, so
+for the value, and `jsCast` whether the value is an instance of the class.
+Every member of a value that does not answer keeps its inert answer, which
+is every value made before this release. A backend that is not a browser makes its handles this way, so
 that what a program does to the page through the `Web.*` types reaches it.
 Nothing changes in the browsers, where `withNativeObject` gives the value itself.
 A `NativeObject` also has `live`, which answers a read of a changing member:
-natively a `Live` member, and a `Writable` one's read, whose type is a text,
-an object or `Maybe` of one ask the value for it (`nativeRead`), and keep their
-inert answer when it gives `Nothing`; a number or a boolean is not asked. That
-is how a backend that keeps a mirror of a page answers for its address
-(haskell-halogen-remote's `location.pathname`).
+natively a `Live` member, and a `Writable` one's read, ask the value for it
+(`nativeRead`), and keep their inert answer when it gives `Nothing`. That is
+how a backend that keeps a mirror of a page answers for its address
+(haskell-halogen-remote's `location.pathname`). And it has `invoke`, which
+answers a method with a result (`nativeInvoke`), as the in-memory DOM answers
+`getAttribute`, `closest` and `contains` from its tree. Every member is asked,
+whatever its type (a boolean or a number read with the new `jsValBool`,
+`jsValInt` and `jsValDouble`), except a method or a member that gives a
+Promise or bytes, which only a page could give later; an object declines
+whatever it does not know with `Nothing`, and the member keeps its inert
+answer. Code that builds a `NativeObject` gives it an `invoke` (`\_ _ -> pure
+Nothing` declines every method with a result, as before).
 `textValue` is a `Text` as a value of any kind. Natively `JSVal` is a data
 type with a pattern `JSVal`, which builds and takes apart a value as the
 newtype's constructor did.

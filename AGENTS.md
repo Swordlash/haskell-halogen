@@ -247,7 +247,10 @@ and wired into `test/Test.hs`.
 
 A component evaluates in the monad the DOM is spoken in. Each backend is a newtype over `IO`:
 `BrowserDOM` (instances in `Halogen.VDom.DOM.Monad.JSFFI`, one module for both browser backends),
-`MemDOM` (in-memory tree, instance in `.Native`, native only — this is what native tests render into),
+`MemDOM` (in-memory tree, instance in `.Native`, native only — this is what native tests render into, and drive
+as a page: `N.dispatch` bubbles an event from a node with it as the target, `N.newContainer` mounts in the ambient
+document so that document listeners hear it and `isConnected` holds, `N.querySelectorAll`/`textContent`/`attribute`
+read the tree, with the selectors `.Native.Selector` understands and an exception for any other),
 `PixiDOM` in `pixi`, `ThreeDOM` in `three` and `RemoteDOM` in `remote` (whose DOM is a mirror of a page
 across a wire; its handles hold node numbers). Natively a `JSVal` is a `Dynamic` of what it was made
 from (`Halogen.JSBits.Native`), so an event built from JSON (a test's, or one a remote client sent)
@@ -391,11 +394,14 @@ A plain property read or method call needs no `.js` file: `Halogen.JSBits.Fields
 writes a `HasField` instance per member with the JavaScript inline (core's `Web.*` types are
 written with it, the instances beside each newtype), and `jsFieldFunctions` the same as functions.
 Natively a field is `inert` unless the value answers for itself (`Halogen.JSBits.Value.withNativeObject`,
-a `NativeObject`): then a method returning `()`, a `_set`, a `Fixed` object member, a `Live` read of a
-text or an object (`live`) and a `jsCast` ask it first. `MemDOM`'s handles answer by noting calls on the
-node (`performedOn`), `RemoteDOM`'s by recording `call`/`set` operations the client performs from an
-allowlist, and its window by answering `location` from the session's mirror of the page's address and
-recording `history`'s pushes as operations; other reads stay inert. The router asks the window natively,
+a `NativeObject`): then every member but a Promise or bytes asks it first (`call` for a method returning `()`,
+`invoke` for one with a result, `set`, `get` for a `Fixed` member, `live` for a read, `instanceOf` for a
+`jsCast`), and what it declines (`Nothing`) is inert; natively `Data.Foreign.readProp` asks `live` too.
+`MemDOM`'s handles answer from the tree (reads, `getAttribute`, `closest`, `contains`; assignments and
+`setAttribute` carried out) and note calls on the node (`performedOn`), `RemoteDOM`'s by recording `call`/`set`
+operations the client performs from an allowlist, and its window by answering `location` from the session's
+mirror of the page's address and recording `history`'s pushes as operations; its other reads and methods stay
+inert, since the page has the answers. The router asks the window natively,
 so it follows a page across a wire without depending on `remote`.
 A `Safe` binding catches what its JavaScript throws and throws it as a `JSError` (on wasm an
 exception out of a synchronous import would end the program); `Unsafe` is for functions that cannot
