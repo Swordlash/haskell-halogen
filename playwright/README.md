@@ -322,13 +322,42 @@ the context before the page's own scripts, after the probe: to stand in for
 something the page would find (a `Worker` that refuses to start, say).
 `requests context` is what the context's pages and their Web Workers have
 asked the network for so far (address, method, resource type), kept as they
-are made: a worker's requests are its context's, not always its page's, which
+are made: a service worker's requests are its context's and no page's, which
 is why it is asked of the context. `workers page` is how many dedicated Web
 Workers the page has alive.
 
+Each `Request` also says who asked: `page` (a page's `pageNumber`;
+`requestedBy page request` compares), `document`, the identity of the
+document that asked, and `documentUrl`, its address. A document's identity
+is the browser's (the DevTools protocol's loader id): new for every document
+a frame loads, the same across a state the page pushed or a fragment. A
+navigation's own request is the document it loads; a frame's requests are its
+own document's; a request the document made before the page went elsewhere
+stays the document's however late it is reported. `currentDocument page` is
+the document the page shows now and `documents page` its frames' too, and
+`requestsOf page` is the requests of the documents the page shows now: on a
+page shared between examples, what the document a test went to asked for,
+without going to `about:blank` first.
+
+```haskell
+goto page (base <> "no-picture.html")
+fonts <- filter (\r -> r.resourceType == "font") <$> requestsOf page
+fonts `shouldBe` []
+```
+
+How sure that is: the driver matches each request Playwright reports with the
+browser's own report of it on a session of the page's (the same address and
+method, first come first matched), which names the document exactly. What the
+page's session does not report keeps the document its frame had when the
+driver heard of it: a dedicated worker's requests (right unless the worker
+asked just before its document went), and a frame's in another process (a
+cross-site `iframe`). A service worker's requests have no page and no
+document.
+
 A context opened with `recordExchanges = Just limit` also keeps each request,
 once it has ended, with what was sent and what came back: `exchanges context`.
-An `Exchange` has the request's address, method and resource type, every header
+An `Exchange` has the request's address, method, resource type, page and
+document, every header
 it was sent with (`cookie` among them, which a page's script never sees), its
 body, and the response's status, headers (a `set-cookie` that came twice is
 there twice) and body, kept when it is at most `limit` bytes; or why it failed.

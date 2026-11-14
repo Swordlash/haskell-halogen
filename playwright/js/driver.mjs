@@ -17,12 +17,18 @@
 //   {"event": "pageerror", "page": 2, "message": "..."}
 //   {"event": "dialog", "page": 2, "type": "beforeunload", "message": "..."}
 //   {"event": "closed", "page": 2}
-//   {"event": "request", "context": 1, "url": "...", "method": "GET", "resourceType": "script"}
+//   {"event": "request", "context": 1, "n": 9, "url": "...", "method": "GET", "resourceType": "script",
+//    "page": 2 | null, "document": "<loader id>" | null, "documentUrl": "..." | null}
+//   {"event": "requestDocument", "context": 1, "n": 9, "document": "...", "documentUrl": "..."}
+//                                            request 9 was another document's
+//                                            than the request event said (see
+//                                            attribute)
 //   {"event": "requestfailed", "context": 1, "url": "...", "method": "GET", "failure": "net::ERR_FAILED"}
 //   {"event": "exchange", "context": 1, "url": "...", "method": "POST", "resourceType": "fetch",
 //    "requestHeaders": [["cookie", "..."], ...], "postData": "<base64>" | null,
 //    "status": 200 | null, "responseHeaders": [[name, value], ...],
-//    "responseBody": "<base64>" | null, "failure": "net::..." | null}
+//    "responseBody": "<base64>" | null, "failure": "net::..." | null,
+//    "page": 2 | null, "document": "..." | null, "documentUrl": "..." | null}
 //                                            a request of a context that records
 //                                            its exchanges, once it has ended
 //   {"event": "cdp", "page": 2, "name": "Network.requestWillBeSent", "params": {...}}
@@ -169,6 +175,12 @@ const recordExchanges = (context, id, limit) => {
       responseBody: null,
       failure,
     };
+    // The attribution as it is when the request has ended, its match with
+    // the protocol's report long made.
+    const a = attributions.get(request);
+    exchange.page = a?.page ?? null;
+    exchange.document = a?.document ?? null;
+    exchange.documentUrl = a?.documentUrl ?? null;
     if (failure === null) {
       const response = await request.response().catch(() => null);
       if (response) {
@@ -211,10 +223,14 @@ const register = (page) => {
   if (page.context().halogenScriptless) scriptless.add(page);
   watch(id, page);
   // The options' processor throttle, before the page loads anything (for a
-  // popup, as soon as it is seen).
-  const ready = options.throttle
-    ? sessionOf(page).then((session) => session.send("Emulation.setCPUThrottlingRate", { rate: options.throttle }))
-    : Promise.resolve();
+  // popup, as soon as it is seen), and the documents its requests are
+  // attributed to.
+  const ready = Promise.all([
+    options.throttle
+      ? sessionOf(page).then((session) => session.send("Emulation.setCPUThrottlingRate", { rate: options.throttle }))
+      : Promise.resolve(),
+    trackDocuments(page),
+  ]);
   ready.catch(() => {});
   entry = { id, ready };
   known.set(page, entry);
@@ -645,6 +661,134 @@ const sessionOf = (page) => {
   return session;
 };
 
+// Which document asked for a request. Playwright's request says which
+// frame, and for a dedicated worker's the frame that started it, but not
+// which of the frame's documents: frame.url() is the frame's address when
+// the event is heard, which for a request reported late (Playwright reports
+// a routed request once its route has it, up to a few hundred milliseconds
+// after the browser sent it) is the next document's. The DevTools protocol
+// says exactly: Network.requestWillBeSent carries the loader of the
+// document that asked (loaderId, documentURL), and for a navigation request
+// the loader of the document it loads. Its id is the document's identity: a
+// new one for every document a frame loads, the same for a state pushed or
+// a fragment. So each page has a session of the driver's with the Network
+// domain on, and each request Playwright reports is matched with the
+// protocol's report of it on the page's session: the same address and
+// method, first come first matched, whichever of the two arrives first
+// (both orders happen: the protocol's came first for 84% of a thousand
+// requests measured, 69% with a route on the context).
+//
+// Until its match arrives, a request is the document's its frame has as
+// the driver knows it (the page's main frame: the protocol's frameNavigated;
+// another frame: the one tracked with its address), and the match amends it
+// ("requestDocument"). A request the page's session never reports keeps
+// that: a dedicated worker's (its frame's document when the request was
+// heard), a request of a frame in another process, one made before the
+// page's session existed (a popup's first). A service worker's request has
+// no page.
+const tracked = new WeakMap();
+let nextRequest = 1;
+// Each Playwright request's attribution, which the exchange reads when the
+// request ends: {n, context, page, document, documentUrl}.
+const attributions = new WeakMap();
+
+const trackDocuments = async (page) => {
+  const tracker = { frames: new Map(), main: null, twins: [], heard: [] };
+  tracked.set(page, tracker);
+  const session = await sessionOf(page);
+  const known = (frame) => {
+    tracker.frames.set(frame.id, { document: frame.loaderId, url: frame.url + (frame.urlFragment ?? "") });
+    if (!frame.parentId) tracker.main = frame.id;
+  };
+  session.on("Page.frameNavigated", ({ frame }) => known(frame));
+  session.on("Page.navigatedWithinDocument", ({ frameId, url }) => {
+    const frame = tracker.frames.get(frameId);
+    if (frame) frame.url = url;
+  });
+  session.on("Page.frameDetached", ({ frameId }) => tracker.frames.delete(frameId));
+  session.on("Network.requestWillBeSent", (event) => reported(tracker, event));
+  await Promise.all([session.send("Page.enable"), session.send("Network.enable")]);
+  const { frameTree } = await session.send("Page.getFrameTree");
+  const walk = (tree) => {
+    if (!tracker.frames.has(tree.frame.id)) known(tree.frame);
+    for (const child of tree.childFrames ?? []) walk(child);
+  };
+  walk(frameTree);
+};
+
+// The protocol's report of a request: the document that asked (a worker's
+// script, which has no loader of its own, is its frame's document's).
+const reported = (tracker, event) => {
+  const { url, method } = event.request;
+  if (url.startsWith("data:")) return;
+  const frame = tracker.frames.get(event.frameId);
+  const found = event.loaderId
+    ? { document: event.loaderId, documentUrl: event.documentURL ?? frame?.url ?? null }
+    : { document: frame?.document ?? null, documentUrl: frame?.url ?? null };
+  const now = Date.now();
+  tracker.heard = tracker.heard.filter((h) => now - h.at < 5000);
+  const i = tracker.heard.findIndex((h) => h.url === url && h.method === method);
+  if (i >= 0) {
+    const [heard] = tracker.heard.splice(i, 1);
+    const a = heard.attribution;
+    if (a.document !== found.document || a.documentUrl !== found.documentUrl) {
+      a.document = found.document;
+      a.documentUrl = found.documentUrl;
+      send({ event: "requestDocument", context: a.context, n: a.n, document: a.document, documentUrl: a.documentUrl });
+    }
+    return;
+  }
+  tracker.twins = tracker.twins.filter((t) => now - t.at < 10000);
+  tracker.twins.push({ url, method, at: now, ...found });
+};
+
+// A request Playwright reports, attributed: matched with the protocol's
+// report if it has come, else its frame's document as known now.
+const attribute = (context, request) => {
+  const a = { n: nextRequest++, context, page: null, document: null, documentUrl: null };
+  attributions.set(request, a);
+  let frame = null;
+  try {
+    frame = request.frame();
+  } catch {
+    // A service worker's request: no frame, no page.
+  }
+  const page = frame?.page();
+  if (!page) return a;
+  a.page = register(page).id;
+  const tracker = tracked.get(page);
+  const url = request.url();
+  const method = request.method();
+  const i = tracker.twins.findIndex((t) => t.url === url && t.method === method);
+  if (i >= 0) {
+    const [twin] = tracker.twins.splice(i, 1);
+    a.document = twin.document;
+    a.documentUrl = twin.documentUrl;
+    return a;
+  }
+  const main = frame === page.mainFrame();
+  const candidates = [...tracker.frames.entries()].filter(([id, f]) => (main ? id === tracker.main : id !== tracker.main && f.url === frame.url()));
+  if (candidates.length === 1) {
+    a.document = candidates[0][1].document;
+    a.documentUrl = candidates[0][1].url;
+  } else {
+    a.documentUrl = frame.url() || null;
+  }
+  tracker.heard.push({ url, method, at: Date.now(), attribution: a });
+  return a;
+};
+
+// The page's frames' documents now, the main frame's first.
+const documentsOf = async (page) => {
+  const session = await sessionOf(page);
+  const { frameTree } = await session.send("Page.getFrameTree");
+  const walk = (tree) => [
+    { id: tree.frame.loaderId, url: tree.frame.url + (tree.frame.urlFragment ?? "") },
+    ...(tree.childFrames ?? []).flatMap(walk),
+  ];
+  return walk(frameTree);
+};
+
 // Routes: the test's handlers for a page's or a context's requests. Each
 // matching request is asked of Haskell, and waits for its answer (see the
 // header). An entry is {id, kind, page, context, target, pattern,
@@ -874,9 +1018,21 @@ const methods = {
     context.on("page", register);
     // Every request of the context's, as it is made: its pages' and their
     // workers', whose requests are the context's and not always a page's.
-    context.on("request", (request) =>
-      send({ event: "request", context: id, url: request.url(), method: request.method(), resourceType: request.resourceType() }),
-    );
+    // Each with the page and the document that asked (attribute).
+    context.on("request", (request) => {
+      const a = attribute(id, request);
+      send({
+        event: "request",
+        context: id,
+        n: a.n,
+        url: request.url(),
+        method: request.method(),
+        resourceType: request.resourceType(),
+        page: a.page,
+        document: a.document,
+        documentUrl: a.documentUrl,
+      });
+    });
     // A request that failed: refused, aborted by a route, cut off.
     context.on("requestfailed", (request) =>
       send({ event: "requestfailed", context: id, url: request.url(), method: request.method(), failure: request.failure()?.errorText ?? "" }),
@@ -937,6 +1093,9 @@ const methods = {
   goForward: traverse(1),
   async url(m) {
     return pageOf(m.page).url();
+  },
+  async documents(m) {
+    return await documentsOf(pageOf(m.page));
   },
   async title(m) {
     return await pageOf(m.page).title();

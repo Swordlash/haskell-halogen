@@ -8,6 +8,7 @@ import Halogen.Playwright.Serve (serveDirectory)
 import System.Environment (lookupEnv)
 import Test.Adoption qualified
 import Test.DevTools qualified
+import Test.Documents qualified
 import Test.Driver qualified
 import Test.Exchanges qualified
 import Test.Exposed qualified
@@ -49,6 +50,7 @@ main = serveDirectory "test/web" $ \base -> do
       Test.Sockets.spec base
       Test.Serve.spec
       Test.Exchanges.spec
+      Test.Documents.spec base
       Test.History.spec base
       Test.Late.spec base
       Test.Policy.spec
