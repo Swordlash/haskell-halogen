@@ -25,7 +25,7 @@ import Control.Monad.State.Class (get, modify)
 import Data.Aeson (Value, object, (.=))
 import Data.Coerce (coerce)
 import Data.Foldable (for_, traverse_)
-import Data.Foreign (foreignToString, readProp)
+import Data.Foreign (foreignToBool, foreignToString, readProp)
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Maybe (isJust, isNothing)
 import Data.Row (Empty)
@@ -46,7 +46,7 @@ import Halogen.VDom.Driver (runUI)
 import Halogen.VDom.Types (ElemName (..), Namespace (..))
 import Test.Hspec (Spec, describe, it, shouldBe, shouldReturn)
 import Web.DOM.Element qualified as Element
-import Web.DOM.Internal.Types (Element (..), EventListener, Node, toNode)
+import Web.DOM.Internal.Types (Element (..), EventListener, HTMLElement (..), Node, toNode)
 import Web.Event.Event (Event, EventTarget, EventType (..))
 import Web.Event.Event qualified as Event
 import Web.HTML.Common (AttrName (..))
@@ -396,6 +396,17 @@ spec = describe "the in-memory DOM, driven and read as a page" $ do
       container <- N.newContainer
       N.isConnected container `shouldReturn` True
 
+    it "give the document's head and body, to put a node in" $ do
+      document <- runMemDOM (DOM.window >>= DOM.document)
+      style <- N.newElement Nothing (ElemName "style")
+      void ((coerce document.head :: Element).appendChild (toNode (N.fromNative style :: Element)))
+      N.isConnected style `shouldReturn` True
+      Just found <- N.querySelector "head > style" N.ambientDocument
+      (found == style) `shouldBe` True
+      Just body <- document.body
+      (isJust <$> (coerce body :: Element).closest "html") `shouldReturn` True
+      (N.fromNative style :: Element).remove
+
     it "say what they contain, a node itself included" $ do
       (_, root) <- page
       [list, a2, li3] <- traverse (`named` root) ["list", "a2", "li3"]
@@ -445,6 +456,18 @@ spec = describe "the in-memory DOM, driven and read as a page" $ do
       (HTMLInputElement (coerce (N.fromNative input :: Element))).value `shouldReturn` "typed"
       (HTMLInputElement (coerce (N.fromNative input :: Element))).value_set "set"
       readProp "value" (Just . foreignToString) (handle input) `shouldBe` Just "set"
+      -- An attribute the program writes is what the element has from then
+      -- on, whatever property the reconciler set before.
+      runMemDOM $ do
+        DOM.setProperty "disabled" (DOM.BoolProp False) (N.fromNative button :: Element)
+        DOM.setProperty "className" (DOM.TxtProp "a b") (N.fromNative button :: Element)
+      (N.fromNative button :: Element).setAttribute "disabled" ""
+      N.attribute "disabled" button `shouldReturn` Just ""
+      (.disabled) <$> N.dispatchOutcome "click" (object ["button" .= (0 :: Int)]) button `shouldReturn` True
+      readProp "disabled" (Just . foreignToBool) (handle button) `shouldBe` Just True
+      (N.fromNative button :: Element).setAttribute "class" "c"
+      (length <$> N.querySelectorAll ".c" wrapper) `shouldReturn` 1
+      (length <$> N.querySelectorAll ".a" wrapper) `shouldReturn` 0
       -- An attribute reads as its property when no property is set.
       a <- el "a" [("href", "/h"), ("hidden", "")] []
       readProp "href" (Just . foreignToString) (handle a) `shouldBe` Just "/h"

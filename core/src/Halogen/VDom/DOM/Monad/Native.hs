@@ -312,7 +312,12 @@ handleOf node = withNativeObject object (toForeign node)
             noting (Assigned name (jsValText value))
             assign node name value
         , get = \name -> case node.kind of
-            DocumentNode | name == "document" -> Just (handleOf node)
+            DocumentNode
+              | name == "document" -> Just (handleOf node)
+              -- A member that does not change is asked for purely
+              -- ('Halogen.JSBits.Fields.Fixed'): the document's head is
+              -- made with it and stays, so it is read when asked for.
+              | name == "head" -> handleOf <$> unsafePerformIO (documentChild "head" node)
             _ -> Nothing
         , live = readMember node
         , instanceOf = \klass -> case node.kind of
@@ -325,13 +330,27 @@ handleOf node = withNativeObject object (toForeign node)
 -- | A method that returns nothing, carried out where it changes the tree.
 carryOut :: NativeNode -> Text -> [JSVal] -> IO ()
 carryOut node name arguments = case (node.kind, name, arguments) of
-  (ElementNode {}, "setAttribute", [attr, value]) ->
-    modifyIORef' node.attrs (M.insert (Nothing, attributeName node (jsValText attr)) (jsValText value))
+  (ElementNode {}, "setAttribute", [attr, value]) -> do
+    let wanted = attributeName node (jsValText attr)
+    modifyIORef' node.attrs (M.insert (Nothing, wanted) (jsValText value))
+    forgetReflecting wanted
   (ElementNode {}, "removeAttribute", [attr]) -> do
     let wanted = attributeName node (jsValText attr)
     modifyIORef' node.attrs (M.filterWithKey (\(_, n) _ -> n /= wanted))
+    forgetReflecting wanted
   (_, "remove", []) -> detach node
   _ -> pass
+  where
+    -- In a page a property that reflects an attribute is the attribute
+    -- read another way, so writing the attribute changes it. Here the two
+    -- are kept apart and the property is read first ('attribute'): one the
+    -- reconciler set earlier would hide what the program has just written
+    -- (a button rendered with @disabled@ false would stay enabled after
+    -- @setAttribute "disabled" ""@), so it is forgotten and the attribute
+    -- is what the element has.
+    forgetReflecting wanted =
+      for_ (M.lookup wanted reflectingProperties) $ \(prop, _) ->
+        modifyIORef' node.props (M.delete prop)
 
 -- | An assignment to a property, carried out.
 assign :: NativeNode -> Text -> JSVal -> IO ()
@@ -1088,7 +1107,10 @@ textContent node = case node.kind of
 -- properties a page does not reflect, because they are what the reader
 -- changed rather than what the page said: @value@, @checked@, @selected@
 -- and @muted@; their attributes are only the ones written (as in a page,
--- @input.value@ is not @getAttribute "value"@). The name is compared without
+-- @input.value@ is not @getAttribute "value"@). An attribute the program
+-- writes or removes itself (@element.setAttribute@) is the element's from
+-- then on: the property that reflects it is forgotten, as in a page the
+-- property would have changed with it. The name is compared without
 -- regard to case on an HTML element.
 attribute :: Text -> NativeNode -> IO (Maybe Text)
 attribute name node = case node.kind of
