@@ -173,7 +173,21 @@ What the wiki's smoke tests found next, each with a test of its own:
   page, or one that draws no frames, is not held up. An action on an element
   in a frame now settles the frame's own program as well as the page's:
   before, only the page's document was asked.
+- `HALOGEN_PLAYWRIGHT_ARGS` gives Chromium more arguments, to run a suite as
+  another machine's browser would (Chromium turns some behaviour on by
+  machine; the README names the one that has mattered).
 - `waitForEvent`, with `EventTarget` (`OnWindow`, `OnDocument`, `OnElement`):
   an action, then an event on the target, waited for by a listener the page
   had before the action, then settled. For what the page does later by
   itself.
+- Each logged request says who asked: `Request` (and `Exchange`) grew three
+  fields, `page` (the page's number, `pageNumber`; `requestedBy` compares),
+  `document` (the identity of the document that asked: new for every
+  document a frame loads) and `documentUrl` (its address). A navigation's
+  own request is the document it loads. `currentDocument` and `documents`
+  are what a page shows now, and `requestsOf page` the requests of those
+  documents: on a page shared between examples, a late request of the
+  document before is no longer counted against the one a test went to, and
+  the test need not go to `about:blank` first. Code that reads the records'
+  fields by name is unchanged; code that builds a `Request` or an
+  `Exchange` gives the new fields.

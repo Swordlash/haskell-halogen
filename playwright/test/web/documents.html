@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Documents</title></head>
+<body>
+  <!-- A document whose requests the test attributes: its own, its frame's
+       (a document of its own), its dedicated worker's (worker.js fetches
+       plain.html), one the test holds while the page goes elsewhere, and a
+       beacon it sends as it goes (with the page's own query, to tell one
+       run's from the next's), which the browser reports after the next
+       document has started to load, or not at all. With "?fetch" it asks
+       for plain.html itself as it loads, the address its worker fetches:
+       the document after one whose worker did. -->
+  <h1>Documents</h1>
+  <iframe src="framed.html?documents"></iframe>
+  <button id="worker">worker</button>
+  <button id="late">late</button>
+  <p id="said"></p>
+  <script>
+    document.getElementById("worker").addEventListener("click", () => {
+      const worker = new Worker("worker.js");
+      worker.onmessage = (event) => (document.getElementById("said").textContent = event.data);
+    });
+    document.getElementById("late").addEventListener("click", () => fetch("plain.html?late").catch(() => {}));
+    if (new URLSearchParams(location.search).has("fetch")) fetch("plain.html").catch(() => {});
+    addEventListener("pagehide", () => navigator.sendBeacon("plain.html?beacon" + location.search.replace("?", "&"), "gone"));
+  </script>
+</body>
+</html>

@@ -27,7 +27,8 @@ through the history the page asked for, then for the program again, an action th
 (`waitForEvent`), with hspec integration and a static server for a built directory
 (`Halogen.Playwright.Serve`); requests answered by the test's handlers (routes, a gate that holds `app.wasm`,
 either by resource type and method too; node asks, Haskell answers, each handler on a thread of its own, and a
-handler can fetch the server's response and pass it on), a context's exchanges recorded on request (every header
+handler can fetch the server's response and pass it on), each request logged with the page and the document that
+asked (the browser's loader id, `requestsOf` a page's current documents'), a context's exchanges recorded on request (every header
 a request carried, its body, the response), functions of the test a page calls, the pages a page opens, Back and
 Forward that return for an entry within the document or a frame's, waits that poll through the DevTools protocol
 so that a page's Content Security Policy does not stop them, the check that a prerendered page is adopted with

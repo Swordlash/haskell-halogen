@@ -304,6 +304,12 @@ module Halogen.Playwright
   , dialogs
   , Request (..)
   , requests
+  , Document (..)
+  , currentDocument
+  , documents
+  , requestsOf
+  , requestedBy
+  , pageNumber
   , Exchange (..)
   , exchanges
   , waitForExchange
@@ -369,7 +375,12 @@ import Text.Read (readMaybe)
 -- * @HALOGEN_PLAYWRIGHT_CONSOLE@ (set, not empty): print what pages write to
 --   their console as it arrives ('relayConsole');
 -- * @HALOGEN_PLAYWRIGHT_THROTTLE@: slow every page's processor down by this
---   factor ('throttle'), to find on purpose the races a slow machine would.
+--   factor ('throttle'), to find on purpose the races a slow machine would;
+-- * @HALOGEN_PLAYWRIGHT_ARGS@: more arguments for Chromium, separated by
+--   blanks ('browserArgs'), to run the same tests as another machine's
+--   browser would: Chromium turns some of its behaviour on by machine, such
+--   as @--enable-features=RenderDocument:level\/all-frames@, under which a
+--   navigation gives the frame a new host.
 optionsFromEnvironment :: IO Options
 optionsFromEnvironment = do
   headed <- maybe False (not . null) <$> lookupEnv "HALOGEN_PLAYWRIGHT_HEADED"
@@ -379,6 +390,7 @@ optionsFromEnvironment = do
   artifactsDir <- lookupEnv "HALOGEN_PLAYWRIGHT_ARTIFACTS"
   relay <- maybe False (not . null) <$> lookupEnv "HALOGEN_PLAYWRIGHT_CONSOLE"
   rate <- (>>= readMaybe) <$> lookupEnv "HALOGEN_PLAYWRIGHT_THROTTLE"
+  more <- maybe [] (Text.words . Text.pack) <$> lookupEnv "HALOGEN_PLAYWRIGHT_ARGS"
   pure
     defaultOptions
       { headless = not headed
@@ -388,6 +400,7 @@ optionsFromEnvironment = do
       , artifacts = nonEmpty artifactsDir
       , relayConsole = relay
       , throttle = rate
+      , browserArgs = defaultOptions.browserArgs <> more
       }
   where
     nonEmpty = \case
@@ -515,10 +528,62 @@ addInitScript c script = liftIO (call c.playwright "addInitScript" ["context" .=
 
 -- | What the context's pages, and their workers, have asked the network
 -- for so far, oldest first: every request as it was made, whether it was
--- answered or not. A worker's requests are the context's, and not always
--- a page's, which is why this is asked of the context.
+-- answered or not, each with the page and the document that asked. A
+-- service worker's requests are the context's and no page's, which is why
+-- this is asked of the context; 'requestsOf' is a page's current
+-- document's.
 requests :: (MonadIO m) => Context -> m [Request]
 requests c = liftIO (toList <$> contextRequests c.playwright c.handle)
+
+-- | A document a page's frame shows: its identity (the browser's loader
+-- id, as a 'Request''s @document@ names it) and its address.
+data Document = Document
+  { id :: Text
+  , url :: Text
+  }
+  deriving stock (Eq, Show)
+
+instance FromJSON Document where
+  parseJSON = withObject "Document" $ \o -> Document <$> o .: "id" <*> o .: "url"
+
+-- | The document the page shows now (its main frame's): a new one after
+-- every navigation, the same after a state the page pushed or a fragment.
+currentDocument :: (MonadIO m) => Page -> m Document
+currentDocument p = do
+  shown <- documents p
+  case shown of
+    d : _ -> pure d
+    [] -> liftIO (throwIO (PlaywrightError "currentDocument" "NoDocument" "the page has no main frame"))
+
+-- | The documents the page shows now: its main frame's first, then its
+-- frames' (an @iframe@'s document is its own, with its own requests).
+documents :: (MonadIO m) => Page -> m [Document]
+documents p = onPage p "documents" []
+
+-- | The requests of the documents the page shows now ('documents': its main
+-- frame's and its frames'), oldest first: what the page asked for since it
+-- loaded, its navigation's own request among them, and its dedicated
+-- workers' (see 'Request''s @document@ for how sure that is), but not what
+-- the document before it asked, however late it was reported. On a page
+-- shared between examples, the requests since the last 'goto':
+--
+-- > goto page (base <> "no-picture.html")
+-- > fonts <- filter (\r -> r.resourceType == "font") <$> requestsOf page
+-- > fonts `shouldBe` []
+requestsOf :: (MonadIO m) => Page -> m [Request]
+requestsOf p = do
+  shown <- map (.id) <$> documents p
+  filter (\r -> requestedBy p r && maybe False (`elem` shown) r.document) <$> requests (pageContext p)
+
+-- | Whether the page made the request (one of its documents, or a worker
+-- of one).
+requestedBy :: Page -> Request -> Bool
+requestedBy p r = r.page == Just (pageNumber p)
+
+-- | The page's number, as a 'Request''s (and an 'Exchange''s) @page@ names
+-- it: the driver's, unique among the driver's pages.
+pageNumber :: Page -> Int
+pageNumber p = p.handle
 
 -- | The context's exchanges so far, in the order they ended, when its
 -- options record them ('recordExchanges'; none otherwise): each request

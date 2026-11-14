@@ -158,8 +158,9 @@ data Playwright = Playwright
   , logs :: IORef (IntMap PageLog)
   , logged :: TVar Int
   -- ^ Changed whenever a page's log is, for a wait on what a page says.
-  , requestLogs :: IORef (IntMap (Seq Request))
-  -- ^ Each context's requests, oldest first.
+  , requestLogs :: IORef (IntMap (Seq (Int, Request)))
+  -- ^ Each context's requests, oldest first, each with the driver's number
+  -- for it, by which a later event says which document it was.
   , exchangeLogs :: IORef (IntMap (Seq Exchange))
   -- ^ Each context's exchanges, in the order they ended, when the context
   -- records them.
@@ -310,17 +311,33 @@ waitForReading pw ms reading = do
 
 -- | A request a page of a context, or a worker of one of its pages, made:
 -- its address, its method and Playwright's name for what it is for
--- (@document@, @script@, @fetch@, ...).
+-- (@document@, @script@, @fetch@, ...), and who asked: the page, and the
+-- document of the page's (or of one of its frames) that asked.
 data Request = Request
   { url :: Text
   , method :: Text
   , resourceType :: Text
+  , page :: Maybe Int
+  -- ^ The page's number (its 'Page''s @handle@): 'Nothing' for a service
+  -- worker's request, which is no page's.
+  , document :: Maybe Text
+  -- ^ The document that asked, as the browser names it (the DevTools
+  -- protocol's loader id): a new one for every document a frame loads, the
+  -- same across a state the page pushed or a fragment. A navigation's own
+  -- request is the document it loads. A dedicated worker's request is the
+  -- document its frame had when the driver heard of it, which for a
+  -- request a worker made just before its document went may be the next.
+  -- 'Nothing' when the driver could not tell (a service worker's request,
+  -- one of a frame in another process before that frame was known).
+  , documentUrl :: Maybe Text
+  -- ^ That document's address (a navigation's own request: the address it
+  -- goes to).
   }
   deriving stock (Eq, Show)
 
 -- | A context's requests so far, oldest first.
 contextRequests :: Playwright -> Int -> IO (Seq Request)
-contextRequests pw context = fromMaybe Seq.empty . IntMap.lookup context <$> readIORef pw.requestLogs
+contextRequests pw context = maybe Seq.empty (fmap snd) . IntMap.lookup context <$> readIORef pw.requestLogs
 
 -- | A request of a context that records its exchanges, once it has ended:
 -- what was asked, with every header the browser sent (cookies included)
@@ -345,6 +362,12 @@ data Exchange = Exchange
   -- redirect's), or no response.
   , failure :: Maybe Text
   -- ^ Why the request failed, Chromium's error text, when it did.
+  , page :: Maybe Int
+  -- ^ As a 'Request''s: the page that asked.
+  , document :: Maybe Text
+  -- ^ As a 'Request''s: the document that asked.
+  , documentUrl :: Maybe Text
+  -- ^ As a 'Request''s: that document's address.
   }
   deriving stock (Eq, Show)
 
@@ -622,8 +645,13 @@ readReplies pw h ready stderrDone = (forever readOne `catchEnd` pure ()) `finall
         modifyLog page (\l -> l {errors = l.errors Seq.|> text})
       "dialog" -> for_ (Aeson.parseMaybe (\v -> (,,) <$> v .: "page" <*> v .: "type" <*> v .: "message") o) $ \(page, kind, message) ->
         modifyLog page (\l -> l {dialogs = l.dialogs Seq.|> Dialog {kind, message}})
-      "request" -> for_ (Aeson.parseMaybe (\v -> (,,,) <$> v .: "context" <*> v .: "url" <*> v .: "method" <*> v .: "resourceType") o) $ \(context, url, method, resourceType) ->
-        atomicModifyIORef' pw.requestLogs (\m -> (IntMap.alter (Just . (Seq.|> Request {url, method, resourceType}) . fromMaybe Seq.empty) context m, ()))
+      "request" -> for_ (Aeson.parseMaybe requestParser o) $ \(context, n, request) ->
+        atomicModifyIORef' pw.requestLogs (\m -> (IntMap.alter (Just . (Seq.|> (n, request)) . fromMaybe Seq.empty) context m, ()))
+      -- A request was another document's than its event said: the driver
+      -- had not yet matched it with the browser's report of it.
+      "requestDocument" -> for_ (Aeson.parseMaybe (\v -> (,,,) <$> v .: "context" <*> v .: "n" <*> v .:? "document" <*> v .:? "documentUrl") o) $ \(context, n :: Int, document, documentUrl) ->
+        let amend = fmap (\entry@(m, r :: Request) -> if m == n then (m, Request {url = r.url, method = r.method, resourceType = r.resourceType, page = r.page, document, documentUrl}) else entry)
+         in atomicModifyIORef' pw.requestLogs (\m -> (IntMap.adjust amend context m, ()))
       "exchange" -> case Aeson.parseEither exchangeParser o of
         Right (context, exchange) -> do
           atomicModifyIORef' pw.exchangeLogs (\m -> (IntMap.alter (Just . (Seq.|> exchange) . fromMaybe Seq.empty) context m, ()))
@@ -685,12 +713,29 @@ exchangeParser v = do
   responseHeaders <- v .: "responseHeaders" >>= traverse pair
   responseBody <- v .:? "responseBody" >>= traverse bytes
   failure <- v .:? "failure"
-  pure (context, Exchange {url, method, resourceType, requestHeaders, postData, status, responseHeaders, responseBody, failure})
+  page <- v .:? "page"
+  document <- v .:? "document"
+  documentUrl <- v .:? "documentUrl"
+  pure (context, Exchange {url, method, resourceType, requestHeaders, postData, status, responseHeaders, responseBody, failure, page, document, documentUrl})
   where
     pair = \case
       [name, value] -> pure (name, value)
       other -> fail ("a header is a name and a value: " <> show other)
     bytes t = either (fail . ("base64: " <>)) pure (Base64.decode (Text.encodeUtf8 t))
+
+-- | A request event: its context, the driver's number for it, and the
+-- request.
+requestParser :: Aeson.Object -> Aeson.Parser (Int, Int, Request)
+requestParser v = do
+  context <- v .: "context"
+  n <- v .: "n"
+  url <- v .: "url"
+  method <- v .: "method"
+  resourceType <- v .: "resourceType"
+  page <- v .:? "page"
+  document <- v .:? "document"
+  documentUrl <- v .:? "documentUrl"
+  pure (context, n, Request {url, method, resourceType, page, document, documentUrl})
 
 userErrorText :: Text -> IOError
 userErrorText = userError . Text.unpack

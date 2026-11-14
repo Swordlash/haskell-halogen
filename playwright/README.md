@@ -75,12 +75,21 @@ for any reason.
 | `HALOGEN_PLAYWRIGHT_ARTIFACTS` | where a failing test's screenshot is saved |
 | `HALOGEN_PLAYWRIGHT_CONSOLE` | print what pages write to their console, and what they throw, as it arrives |
 | `HALOGEN_PLAYWRIGHT_THROTTLE` | slow every page's processor down by this factor (`4`: four times as slow), popups too |
+| `HALOGEN_PLAYWRIGHT_ARGS` | more arguments for Chromium, separated by blanks |
 
 A run with `HALOGEN_PLAYWRIGHT_THROTTLE=6` is a run of the same tests on a slow
 machine: a test that only passed because the program was quick enough
 fails there, so races are found on purpose rather than in CI. `Options` also
 has `browserArgs`, Chromium's command-line switches (a
 `--host-resolver-rules` that sends a made-up host name to the loopback, say).
+
+Chromium turns some of its behaviour on by machine, so a test can pass on one
+and fail on another with the same browser. One that has mattered here: whether
+a navigation gives the frame a new host (its `RenderDocument` feature), under
+which the last requests of the document that goes (a beacon sent in `pagehide`)
+are sent and reported to nobody. `HALOGEN_PLAYWRIGHT_ARGS` runs the tests the
+other way: `--enable-features=RenderDocument:level/all-frames`, or
+`--disable-features=RenderDocument`.
 
 ## The waits
 
@@ -322,13 +331,48 @@ the context before the page's own scripts, after the probe: to stand in for
 something the page would find (a `Worker` that refuses to start, say).
 `requests context` is what the context's pages and their Web Workers have
 asked the network for so far (address, method, resource type), kept as they
-are made: a worker's requests are its context's, not always its page's, which
+are made: a service worker's requests are its context's and no page's, which
 is why it is asked of the context. `workers page` is how many dedicated Web
 Workers the page has alive.
 
+Each `Request` also says who asked: `page` (a page's `pageNumber`;
+`requestedBy page request` compares), `document`, the identity of the
+document that asked, and `documentUrl`, its address. A document's identity
+is the browser's (the DevTools protocol's loader id): new for every document
+a frame loads, the same across a state the page pushed or a fragment. A
+navigation's own request is the document it loads; a frame's requests are its
+own document's; a request the document made before the page went elsewhere
+stays the document's however late it is reported. `currentDocument page` is
+the document the page shows now and `documents page` its frames' too, and
+`requestsOf page` is the requests of the documents the page shows now: on a
+page shared between examples, what the document a test went to asked for,
+without going to `about:blank` first.
+
+```haskell
+goto page (base <> "no-picture.html")
+fonts <- filter (\r -> r.resourceType == "font") <$> requestsOf page
+fonts `shouldBe` []
+```
+
+How sure that is: the driver matches each request Playwright reports with the
+browser's own report of it on a session of the page's (the same address and
+method, both the main frame's or neither, both a navigation's own request or
+neither, and never a report by a document that was not yet its frame's when
+the request was heard; first come first matched), which names the document
+exactly. What the
+page's session does not report keeps the document its frame had when the
+driver heard of it: a dedicated worker's requests (right unless the worker
+asked just before its document went), and a frame's in another process (a
+cross-site `iframe`). A service worker's requests have no page and no
+document. And what a document asks for as it goes (a beacon sent in
+`pagehide`) may be in no log at all: when a navigation gives the frame a new
+host, which Chromium does on some machines and not on others, the browser
+sends such a request and reports it to nobody.
+
 A context opened with `recordExchanges = Just limit` also keeps each request,
 once it has ended, with what was sent and what came back: `exchanges context`.
-An `Exchange` has the request's address, method and resource type, every header
+An `Exchange` has the request's address, method, resource type, page and
+document, every header
 it was sent with (`cookie` among them, which a page's script never sees), its
 body, and the response's status, headers (a `set-cookie` that came twice is
 there twice) and body, kept when it is at most `limit` bytes; or why it failed.
