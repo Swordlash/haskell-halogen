@@ -123,7 +123,8 @@
 -- With no probe in the page, a mount costs one read of a global, and
 -- nothing else; with none in the program at all (natively, in Node) it
 -- costs nothing. Every mount and every dispose updates the registry once;
--- nothing happens per event.
+-- per event, with no wait under way, a loop reads one reference more (to
+-- find that nobody waits).
 module Halogen.Activity
   ( Activity (..)
   , activity

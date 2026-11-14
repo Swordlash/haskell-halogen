@@ -1,9 +1,9 @@
--- | The probe's questions and answers through a session driven by hand, and
--- the session's identity: what the page is told, in what order, and what a
--- session counts as unsent.
+-- | The probe's questions and answers through a session driven by hand, a
+-- wait on a session's reading, a session's disposal, and the session's
+-- identity: what the page is told, in what order, what a session counts as
+-- unsent, what wakes a wait, and what has run when dispose returns.
 module Test.Probe (spec) where
 
-import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Row (Empty)
 import Halogen qualified as H
 import Halogen.Activity (Activity (..))
@@ -14,10 +14,11 @@ import Halogen.HTML.Properties qualified as HP
 import Halogen.Remote.Protocol (Batch (..), FromProgram (..), Op (..), decodeFromProgram, encodeProbeQuestion)
 import Halogen.Remote.Session qualified as Session
 import Protolude
-import System.Timeout (timeout)
 import Test.Components
 import Test.Hspec (Spec, describe, expectationFailure, it, shouldBe, shouldNotBe, shouldReturn, shouldSatisfy)
 import Test.Session (clickOn, elementWithId, listenerOn)
+import UnliftIO.IORef (newIORef, readIORef, writeIORef)
+import UnliftIO.Timeout (timeout)
 
 -- | Every message the session sends, decoded, in order; and a gate the
 -- sender waits at before each batch (not before an answer) while it is
