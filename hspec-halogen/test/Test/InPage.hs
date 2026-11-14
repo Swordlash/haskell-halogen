@@ -6,7 +6,11 @@
 -- That is how a suite runs in a page with no Playwright behind it, as the
 -- haskell-halogen tutorial's does; the components cannot tell the
 -- difference.
-module Test.InPage (spec) where
+module Test.InPage
+  ( spec
+  , withoutRunner
+  )
+where
 
 import Halogen.JSBits (Safety (..), browserJS)
 import Protolude
@@ -27,10 +31,15 @@ $( browserJS
  )
 
 spec :: forall m -> (MonadBrowserTest m) => Spec
-spec m = around_ (bracket_ js_hide_runner js_restore_runner) $ do
+spec m = withoutRunner $ do
   describe "Counter" (Test.Counter.spec m)
   describe "Agreement" (Test.Agreement.spec m)
   describe "Digits" (Test.Digits.spec m)
   describe "Todo" (Test.Todo.spec m)
   describe "Drag" (Test.Drag.spec m)
   describe "Editing" (Test.Editing.spec m)
+
+-- | Every example of a spec with the runner's actions taken away, given back
+-- after each.
+withoutRunner :: Spec -> Spec
+withoutRunner = around_ (bracket_ js_hide_runner js_restore_runner)

@@ -207,8 +207,8 @@ other `IO`, there is `unsafeIOToPageM`, unsafe in the same way as
 
 - `mount m component input`: mount into the page. The component has
   rendered and run its initialisers up to their first wait when this
-  returns; what they load may still be on its way, which `shouldHaveText`
-  and `eventually` wait for.
+  returns; what they load in a `liftIO` may still be on its way, which
+  `waitQuiet` waits for.
 - `htmlContainer "<p>…</p>"` and `hydrate m container component input`: a
   container holding HTML the browser parsed, as a prerendered page holds a
   component's, and the component mounted into it with `hydrateUI`, adopting
@@ -240,8 +240,64 @@ other `IO`, there is `unsafeIOToPageM`, unsafe in the same way as
   Playwright's (`Backspace`, `ArrowDown`, `Shift+Tab`, …).
 - `focus` and `blur`.
 
-Every action returns once the component has reacted, so a synchronous
-`handleAction` has rendered by then.
+Every action returns once the program has finished reacting (`settle`, below),
+so a synchronous `handleAction` has rendered by then, and so has what the
+page fired a moment later because of it.
+
+### Waiting for the program
+
+The suite and the components are one program in the page, and core's
+`Halogen.Activity` says whether its trees are busy. Every action ends with
+`settle`, which waits, in this order, until a round finds nothing left:
+
+1. a task of the page's at background priority (on WebAssembly an event's
+   handler runs in a task of its own, after the event);
+2. the program idle: no tree running a piece of work or with work queued;
+3. a move through the history a handler asked for (`history.back()`,
+   `forward()`, `go(n)`), until its `popstate` has come, for at most half a
+   second; a move with nowhere to go (back from the first entry) is not
+   waited for;
+4. the page's next animation frame and a task after it: the browser
+   dispatches some events with a frame (a dialog's `close`, after Escape or
+   `close()`; `resize`; a `ResizeObserver`'s callback); a hidden page is not
+   waited for, and a page whose frame does not come within 100 ms is waited
+   for at most 20 ms from then on, until one comes;
+5. the program again: if that event's handler made it busy, round again.
+
+So one read after an action sees what the program did, late events
+included. Call `settle` yourself after acting on the page another way (an
+`unsafeIOToPageM` that dispatches an event). It costs an action about one
+frame, 17 ms at 60 frames a second. Every wait in it is a promise of the
+page's, never a loop, so the page has its turns meanwhile; a program still
+busy five seconds after the action fails the test, saying how many trees
+were running, followed by what the trees did.
+
+What a component's fiber waits for in a `liftIO` (a request, a debounce
+written `liftIO (threadDelay n)`) is not part of `settle`:
+
+- `waitQuiet`: `settle`, and until no fiber is waiting in a `liftIO` either,
+  then the page settled again, so one read sees what came back. It fails
+  after five seconds, saying how many trees were running and how many
+  fibers waited; `waitQuietWithin ms` takes another deadline, for a request
+  or a debounce that can take longer.
+- A pause written with `H.delay` (`Hooks.delay`) is not waited for, on
+  purpose: the program says which of its pauses a test waits for by how it
+  writes them. A pause before work a test waits for (a debounce before a
+  request, an autosave) is `liftIO (threadDelay n)`; one that only takes
+  something off the screen or ticks (a "Saved" notice, a clock) is
+  `H.delay`, so a test can see the notice before it goes, and a ticker does
+  not keep the program from ever being quiet.
+- `activity`: the reading itself (trees, running, waiting), for a test that
+  checks it; its fields are core's (`import Halogen.Activity (Activity (..))`).
+
+These are `haskell-halogen-playwright`'s names for the same waits, so a test
+reads the same on either harness.
+
+```haskell
+find ui "button.save" >>= click
+waitQuiet
+find ui ".status" >>= textContent >>= (`shouldBe` "Saved")
+```
 
 ### Without the runner
 
@@ -330,9 +386,11 @@ how it went.
   and `shouldBeHidden` retry for up to two seconds before they fail.
 - A pattern that does not match, such as `[a, b] <- findAll ui "li"` finding
   three, fails the test.
-- `eventually` gives any expectation the same retrying, for what finishes
-  later: a forked effect, a timer, work a JavaScript widget defers to the next
-  frame.
+- `eventually` gives any expectation the same retrying, for what the page
+  does that the program does not know of: a JavaScript widget's own timer, a
+  CSS transition, a real connection's events. What the program does in
+  response to an action is `settle`'s and `waitQuiet`'s, which need no
+  retrying.
 
   ```haskell
   eventually $ getProperty input "value" `shouldReturn` "saved"

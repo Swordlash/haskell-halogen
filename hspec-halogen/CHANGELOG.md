@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+Every action now waits for the program to finish reacting, and for what the
+page fires a moment later because of it, so that one read after it sees what
+the program did. `settle`, which every action ends with, used to wait for one
+background task of the page's; it now waits for that, then until the
+program is idle (haskell-halogen-core's `Halogen.Activity`: no tree running
+or with work queued), then for a move through the history a handler asked
+for (`history.back()`, `forward()`, `go(n)`) until its `popstate` has come,
+then for the page's next animation frame, with which the browser dispatches
+a dialog's `close` and `resize`, and then the program again, round after
+round until nothing is left. A test that read a dialog's close or a Back's
+`popstate` right after its click used to see the old state most of the time
+without the runner (38 of 40 reads of a close, about 20 of 40 of a Back, in
+the suite's own tests); under the runner Playwright's own waits hid it. It
+costs an action about one frame, 17 ms at 60 frames a second, and nothing
+for a hidden page, which draws none. A program still busy five seconds
+after an action fails the test, saying so, rather than hanging it; the
+actions take a call stack, so the failure points at the test's line.
+
+New: `waitQuiet` is `settle` and until no fiber of the program is waiting in
+a `liftIO` either (a request has come back, a debounce written
+`liftIO (threadDelay n)` has fired), failing after five seconds, or after
+the milliseconds `waitQuietWithin` is given, with how many fibers still
+waited. A pause written with `H.delay` is not waited for, as in core, so a
+ticker does not hold it up. `activity` gives the reading itself (core's
+`Activity`, exported without its fields: import them from
+`Halogen.Activity`). The names are `haskell-halogen-playwright`'s, so a test
+reads the same on either harness.
+
+What to change: an `eventually` around a read of what the program did in
+response to an action can go; one around what a `liftIO` loaded becomes
+`waitQuiet` and a single read. A test that polls `Halogen.Activity`'s
+`waitIdle` or `waitQuiet` itself can call these instead, which give the page
+its turns as they wait and keep to a deadline. Keep `eventually` for what
+the program does not know of: a JavaScript widget's timer, a CSS
+transition, a real connection's events.
+
 A failing test says more of why. After the tree's events it says what the
 program was doing when it failed, from haskell-halogen-core's
 `Halogen.Activity`: how many trees were mounted, how many were running or had

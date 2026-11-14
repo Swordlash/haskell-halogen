@@ -103,11 +103,13 @@ test-suite hspec-halogen-test
                       Example.Editing
                       Example.Family
                       Example.Islands
+                      Example.Late
                       Example.Loader
                       Example.Notebook
                       Example.Promised
                       Example.Reconcile
                       Example.Todo
+                      Example.Waiting
                       Example.Window
                       Test.Agreement
                       Test.Async
@@ -125,11 +127,13 @@ test-suite hspec-halogen-test
                       Test.InPage
                       Test.Islands
                       Test.LastRun
+                      Test.Late
                       Test.Probe
                       Test.Promised
                       Test.Reconcile
                       Test.Timeline
                       Test.Todo
+                      Test.Waiting
                       Test.Window
                       Test.Worker
     ghc-options: -Wall -Wextra -Wcompat -Wincomplete-uni-patterns -Wincomplete-record-updates -Wredundant-constraints -Wmissing-home-modules -Wmissing-export-lists -Wunused-packages
@@ -156,17 +160,22 @@ test-suite hspec-halogen-test
         hspec-halogen
 
     -- The Busy example's click, the Islands example's wait, the
-    -- Promised example's work, the in-page tests' hiding of the runner and
-    -- what the worker tests ask of where they run are JavaScript of the
-    -- suite's own (test/jsbits), declared with browserJS as a package's is.
+    -- Promised example's work, the Late example's dialog and history, the
+    -- Waiting example's request, the frames the Late tests take away, the
+    -- in-page tests' hiding of the runner and what the worker tests ask of
+    -- where they run are JavaScript of the suite's own (test/jsbits),
+    -- declared with browserJS as a package's is.
     if arch(javascript)
         js-sources: test/jsbits/busy.js
                     test/jsbits/delegated.js
                     test/jsbits/dispatch.js
+                    test/jsbits/frames.js
                     test/jsbits/inpage.js
                     test/jsbits/islands.js
+                    test/jsbits/late.js
                     test/jsbits/probe.js
                     test/jsbits/promised.js
+                    test/jsbits/waiting.js
                     test/jsbits/window.js
                     test/jsbits/worker.js
 

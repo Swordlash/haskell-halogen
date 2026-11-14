@@ -193,7 +193,11 @@ and wired into `test/Test.hs`.
   (`Halogen.JSBits.Promise.promise`), and `waitCatch` for it, sleeping in `STM` until a callback has
   written the outcome, so the test does not run on while the page still acts.
   And a JS→Haskell callback is not run on the spot: the glue schedules the RTS scheduler loop as a
-  task (`scheduler.postTask` in Chromium), which is why every harness action ends with `settle`.
+  task (`scheduler.postTask` in Chromium), which is why every harness action ends with `settle`:
+  a background task, the program idle (`Halogen.Activity`, read in process), a `history.back()`'s
+  `popstate` (`page.js` wraps `History`'s methods), the next animation frame (a dialog's `close`)
+  and the program again, each wait a promise of the page's (`threadDelay` is a `setTimeout` on
+  wasm, but a Haskell loop without one holds the page); `waitQuiet` also waits for `liftIO`s.
 - `examples/learn/browser-test` (`halogen-example-learn-browser-test`, native, through
   `haskell-halogen-playwright`; `npm run test-learn`) tests the deployed artefact rather than a component:
   it serves the built `dist-newstyle/wasm/public/learn`, the rootfs in its `rootfs/`, under
