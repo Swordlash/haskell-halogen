@@ -87,10 +87,19 @@ has `browserArgs`, Chromium's command-line switches (a
 - **`settle page`** waits for a task of the page's at background priority (a
   browser event reaches a WebAssembly program as a task of its own, so its
   handler may not have started when Playwright's click returns), then asks
-  the page's program until it is idle, a background task between asks. Every
+  the page's program until it is idle, a background task between asks. Then
+  it waits for a move through the history the page asked for and the browser
+  has not made yet (a handler's `history.back()`, whose `popstate` comes a
+  moment later), for the page's next animation frame and a task after it
+  (the browser dispatches some events with the frame: a dialog's `close`
+  after Escape or `close()`, `resize`, a `ResizeObserver`'s callback), and
+  asks the program again, starting over if the event made it busy. Every
   action (`click`, `fill`, `typeText`, `press`, `goto`, ...) ends with it. A
   navigation that takes the document away is not an error. On a page with no
-  Halogen program it waits for the one task. JavaScript the test runs in the
+  Halogen program it waits for the task, the move and the frame. A hidden
+  page draws no frames and is not waited for; a page whose frame does not
+  come within 100 ms is not waited for again until it draws one. The frame
+  costs an action about a dozen milliseconds. JavaScript the test runs in the
   page (`evaluate`, `evaluateWith`, `evaluateOn`, `evaluateAll`) and `cdp` are
   not actions and do not settle: after one that dispatches an event to the
   program (a `blur`, a `mouseup`, a link clicked from script), call `settle`.
@@ -115,7 +124,19 @@ argument` takes the value as an argument rather than spliced into the
 JavaScript). `awaitText locator test` reads an element's text once it
 satisfies a test, and its failure says what the text last was.
 `waitForURL page address` waits for the page's address (exactly, or a glob)
-after a link the program follows, and settles. `waitForConsole page test` is
+after a link the program follows, and settles. `waitForEvent target type
+action` runs an action and waits until the target (`OnWindow page`,
+`OnDocument page` or `OnElement locator`) has heard an event of the type,
+then settles: for an event the page causes later by itself (a timer of its
+own that goes back, a worker's `message`). Its listener is added in the page
+before the action and after the page's own; none within the timeout is a
+`TimeoutError` naming the event, and a document that goes first is an error
+named `NavigatedAway`.
+
+```haskell
+waitForEvent (OnWindow page) "popstate" (click (byRoleNamed page "button" "Back in a moment"))
+```
+ `waitForConsole page test` is
 the first console message, from the page's start, that satisfies a test,
 waiting for one if there is none yet: one written before the call counts, so
 the message an action caused cannot be missed. A `ConsoleMessage` has the

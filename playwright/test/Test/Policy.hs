@@ -40,6 +40,9 @@ spec = describe "a Content Security Policy" $ do
       _ <- waitForConsole page (\m -> m.text == "later")
       evaluateOn (locator page "#later") "(e, suffix) => e.textContent + suffix" ("!" :: Text) `shouldReturn` ("later!" :: Text)
       evaluateWith page "(n) => n + 1" (41 :: Int) `shouldReturn` (42 :: Int)
+      -- An event the page's timer dispatches, waited for: read at once.
+      waitForEvent (OnElement (locator page "#later")) "later" (click (locator page "#later"))
+      getAttribute (locator page "#later") "data-count" `shouldReturn` Just "2"
       -- A wait that does not come true times out, rather than failing on
       -- the policy.
       try (waitForFunction (withTimeout 300 page) "false") >>= \case

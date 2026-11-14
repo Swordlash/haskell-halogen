@@ -22,7 +22,9 @@ browser's history), `net` (the browser's networking: `fetch`, a thin binding on
 WebSocket and server-sent events, whose events arrive through `Halogen.Subscription` emitters),
 `playwright` (`haskell-halogen-playwright`: tests from outside the page, natively: Chromium driven through a
 node child speaking a JSON-lines protocol of our own, every action waiting for the page's program to say it is idle
-through core's activity probe, with hspec integration and a static server for a built directory
+through core's activity probe, and for the page's next animation frame (a dialog's `close` comes with it) and a move
+through the history the page asked for, then for the program again, an action that waits for an event of the page's
+(`waitForEvent`), with hspec integration and a static server for a built directory
 (`Halogen.Playwright.Serve`); requests answered by the test's handlers (routes, a gate that holds `app.wasm`,
 either by resource type and method too; node asks, Haskell answers, each handler on a thread of its own, and a
 handler can fetch the server's response and pass it on), a context's exchanges recorded on request (every header

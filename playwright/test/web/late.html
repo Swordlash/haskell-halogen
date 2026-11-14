@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Late events</title></head>
+<body>
+  <!-- Events the browser dispatches later than the action that causes
+       them, met by a page that plays a program's side of the probe: its
+       handlers run a task after the event (as a WebAssembly program's do),
+       running until they have, and what it does on the late event takes
+       it a moment, running meanwhile, before it shows on the page. So a
+       read right after an action sees what the late event did only if the
+       action's settle waited for the event as well as for the program.
+
+       - a modal dialog: Escape closes it, and so does its button, whose
+         handler calls close(); its close event comes with the next
+         animation frame;
+       - history: a state the program pushes, and a Back the program asks
+         for with history.back(), whose popstate comes once the browser
+         has gone through the history, a moment later (and a Forward with
+         nowhere to go, which nothing follows);
+       - the page's own timers, with nothing running: what waitForEvent
+         is for. -->
+  <p id="closes">0</p>
+  <p id="state">0</p>
+  <p id="later-state">idle</p>
+  <button id="open">open</button>
+  <dialog id="modal"><p>modal</p><button id="dismiss">dismiss</button></dialog>
+  <button id="push">push</button>
+  <button id="back">back</button>
+  <button id="forward">forward</button>
+  <button id="later">later</button>
+  <button id="back-later">back later</button>
+  <button id="away">away</button>
+  <script>
+    window.fake = { trees: 1, running: 0, waiting: 0 };
+    if (globalThis.__halogenProbe) {
+      __halogenProbe.activity = async () => ({ trees: fake.trees, running: fake.running, waiting: fake.waiting });
+    }
+    const byId = (id) => document.getElementById(id);
+    // A handler of the program's: a task after the event, running until
+    // it has run.
+    function program(f) {
+      fake.running += 1;
+      setTimeout(() => {
+        f();
+        fake.running -= 1;
+      }, 0);
+    }
+    // Work of the program's that takes a moment before it shows.
+    function busy(f) {
+      fake.running += 1;
+      setTimeout(() => {
+        f();
+        fake.running -= 1;
+      }, 30);
+    }
+    const modal = byId("modal");
+    byId("open").addEventListener("click", () => program(() => modal.showModal()));
+    byId("dismiss").addEventListener("click", () => program(() => modal.close()));
+    modal.addEventListener("close", () =>
+      program(() => busy(() => (byId("closes").textContent = String(Number(byId("closes").textContent) + 1)))),
+    );
+    let pushed = 0;
+    byId("push").addEventListener("click", () =>
+      program(() => {
+        pushed += 1;
+        history.pushState({ n: pushed }, "", "?state=" + pushed);
+        byId("state").textContent = String(pushed);
+      }),
+    );
+    byId("back").addEventListener("click", () => program(() => history.back()));
+    byId("forward").addEventListener("click", () => program(() => history.forward()));
+    addEventListener("popstate", (event) => program(() => busy(() => (byId("state").textContent = String(event.state?.n ?? 0)))));
+    // The page's own timer: nothing runs meanwhile, so no settle waits for
+    // it.
+    byId("later").addEventListener("click", () =>
+      setTimeout(() => {
+        byId("later-state").textContent = "later";
+        byId("later").dispatchEvent(new CustomEvent("later"));
+        document.dispatchEvent(new CustomEvent("later"));
+      }, 200),
+    );
+    byId("back-later").addEventListener("click", () => setTimeout(() => history.back(), 200));
+    byId("away").addEventListener("click", () => setTimeout(() => (location.href = "second.html"), 100));
+  </script>
+</body>
+</html>
