@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+The in-memory DOM's handles answer for themselves when a program uses the
+`Web.*` types on them (haskell-halogen-jsbits' `answering`): a method that
+returns nothing or a property's assignment is noted on the node, and
+`Halogen.VDom.DOM.Monad.Native.performedOn` gives what was done to it, in
+order (`Called "focus"`, `Called "showModal"`, `Assigned "title" "Notes"`),
+so a native test sees that a component focused an element, opened a dialog
+or set the title. A checked cast on one asks what the node is, so
+`H.getHTMLElementRef` and `HTMLDialogElement.fromElement` find the element
+natively, where before they gave `Nothing`; `Halogen.VDom.Types.elementInstanceOf`
+is the table both this and haskell-halogen-remote answer from. The window's
+`document` field gives the in-memory document. Nothing is carried out: a read
+(`dialog.open`, `doc.activeElement`) keeps its inert answer.
+`HTMLElement.focusWithoutScrolling` and `Element.scrollIntoViewBlock` are,
+natively, `focus` and `scrollIntoView` with their options as JSON, for such
+a value.
+
 `HalogenSocket` has a fourth field, `activity`: what that tree alone is
 doing, as `Halogen.Activity.activity` reads every tree of the process (one
 tree until it is disposed of and none after, whether it is running, and its

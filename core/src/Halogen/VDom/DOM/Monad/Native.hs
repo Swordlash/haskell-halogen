@@ -40,6 +40,8 @@ module Halogen.VDom.DOM.Monad.Native
   , event
 
     -- * Inspection
+  , Performed (..)
+  , performedOn
   , childNodes
   , attributeList
   , propertyList
@@ -58,6 +60,7 @@ import Data.Text qualified as T
 import Data.Text.Lazy qualified as TL
 import Data.Text.Lazy.Builder qualified as TB
 import HPrelude
+import Halogen.JSBits (JSVal, NativeObject (..), answering, jsValText)
 import Halogen.JSBits.Native (Callback (..))
 import Halogen.VDom.DOM.Monad.Class
 import Halogen.VDom.DOM.Monad.Mem
@@ -99,7 +102,26 @@ data NativeNode = NativeNode
   , kids :: IORef [NativeNode]
   , parentRef :: IORef (Maybe NativeNode)
   , listeners :: IORef [Listener]
+  , performed :: IORef [Performed]
+  -- ^ What the program did to the node through the @Web.*@ types, last
+  -- first ('performedOn' gives them in order).
   }
+
+-- | What a program did to a node through the @Web.*@ types (the fields
+-- "Halogen.JSBits.Fields" writes), which a browser would have carried out:
+-- a method that returns nothing, called by its JavaScript name (@focus@,
+-- @showModal@, @scrollIntoView@), and a property assigned (the document's
+-- @title@), with the value as text (empty for one that is not). The
+-- in-memory DOM carries none of them out; it notes them, so that a test
+-- sees that a component focused an element or opened a dialog.
+data Performed
+  = Called Text
+  | Assigned Text Text
+  deriving (Eq, Show)
+
+-- | What the program did to the node through the @Web.*@ types, in order.
+performedOn :: NativeNode -> IO [Performed]
+performedOn node = reverse <$> readIORef node.performed
 
 instance Eq NativeNode where
   a == b = a.ident == b.ident
@@ -167,6 +189,29 @@ newNode k = do
     <*> newIORef []
     <*> newIORef Nothing
     <*> newIORef []
+    <*> newIORef []
+
+-- | The value every handle of a node holds: the node, answering for itself
+-- when the program uses a member of it through the @Web.*@ types, by
+-- noting what it did ('Performed'), giving the document's @document@ (the
+-- in-memory document is the window too), and saying which DOM classes it
+-- is an instance of, so that a checked cast
+-- ('Halogen.Query.getHTMLElementRef') finds an element.
+handleOf :: NativeNode -> JSVal
+handleOf node = answering object (toForeign node)
+  where
+    object =
+      NativeObject
+        { call = \name _ -> atomicModifyIORef' node.performed (\done -> (Called name : done, ()))
+        , set = \name value -> atomicModifyIORef' node.performed (\done -> (Assigned name (jsValText value) : done, ()))
+        , get = \name -> case node.kind of
+            DocumentNode | name == "document" -> Just (handleOf node)
+            _ -> Nothing
+        , instanceOf = \klass -> case node.kind of
+            ElementNode ns name -> elementInstanceOf ns name klass
+            TextNode -> klass `elem` ["EventTarget", "Node", "CharacterData", "Text"]
+            DocumentNode -> klass `elem` ["EventTarget", "Node", "Document", "HTMLDocument", "Window"]
+        }
 
 -- | The DOM's handles that stand for a node: each holds the 'NativeNode'
 -- in its value, so taking one apart finds the node it was made from, and a
@@ -178,31 +223,31 @@ class NodeHandle a where
 
 instance NodeHandle Node where
   toNative (Node value) = unsafeFromForeign value
-  fromNative = Node . toForeign
+  fromNative = Node . handleOf
 
 instance NodeHandle Element where
   toNative (Element value) = unsafeFromForeign value
-  fromNative = Element . toForeign
+  fromNative = Element . handleOf
 
 instance NodeHandle HTMLElement where
   toNative (HTMLElement value) = unsafeFromForeign value
-  fromNative = HTMLElement . toForeign
+  fromNative = HTMLElement . handleOf
 
 instance NodeHandle Document where
   toNative (Document value) = unsafeFromForeign value
-  fromNative = Document . toForeign
+  fromNative = Document . handleOf
 
 instance NodeHandle HTMLDocument where
   toNative (HTMLDocument value) = unsafeFromForeign value
-  fromNative = HTMLDocument . toForeign
+  fromNative = HTMLDocument . handleOf
 
 instance NodeHandle Window where
   toNative (Window value) = unsafeFromForeign value
-  fromNative = Window . toForeign
+  fromNative = Window . handleOf
 
 instance NodeHandle EventTypes.EventTarget where
   toNative (EventTypes.EventTarget value) = unsafeFromForeign value
-  fromNative = EventTypes.EventTarget . toForeign
+  fromNative = EventTypes.EventTarget . handleOf
 
 -- | @EventListener@ is the one DOM handle that does not hold a node: its
 -- callback's value holds the 'Listener', which is where its identity is.

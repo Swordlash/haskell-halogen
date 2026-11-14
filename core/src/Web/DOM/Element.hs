@@ -36,8 +36,10 @@ module Web.DOM.Element
   )
 where
 
+import Data.Aeson qualified as Aeson
+import Data.Foreign (toForeign)
 import HPrelude
-import Halogen.JSBits (JSText, JSVal, isNull, jsValText, toJSText)
+import Halogen.JSBits (JSText, JSVal, inBrowser, isNull, jsValText, nativeCall, toJSText)
 import Halogen.JSBits.Fields (inlineJS, jsCast, jsFieldFunctions)
 import Web.DOM.Internal.Types (Element (..))
 import Web.Event.Internal.Types (EventTarget (..))
@@ -77,8 +79,13 @@ data ScrollBlock = ToStart | ToCenter | ToEnd | ToNearest
 $(inlineJS "js_scroll_into_view_block" "$1.scrollIntoView({ block: $2 })" [t|Element -> JSText -> IO ()|])
 
 -- | 'scrollIntoView', saying where in the viewport the element goes.
+-- Natively it is @scrollIntoView@ with its options, @{block: ...}@ (as
+-- JSON), for an element that answers for itself
+-- ('Halogen.JSBits.Value.answering').
 scrollIntoViewBlock :: Element -> ScrollBlock -> IO ()
-scrollIntoViewBlock element block = js_scroll_into_view_block element (toJSText name)
+scrollIntoViewBlock element block
+  | inBrowser = js_scroll_into_view_block element (toJSText name)
+  | otherwise = nativeCall (coerce element) "scrollIntoView" [toForeign (Aeson.object ["block" Aeson..= name])]
   where
     name = case block of
       ToStart -> "start"
