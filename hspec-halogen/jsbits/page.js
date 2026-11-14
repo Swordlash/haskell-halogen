@@ -672,11 +672,21 @@ function halogen_test_moving() {
   return (globalThis[halogen_test_moves_key]?.pending.length ?? 0) > 0;
 }
 
-// Resolved once no move is under way: at once if none is.
-function halogen_test_moves_landed() {
+// Resolved once no move is under way (at once if none is), or after this
+// many milliseconds, what is left of settle's deadline: a page that never
+// stops moving (each popstate's listener asking for another move before
+// the last has been taken off) would otherwise keep settle from ever
+// looking at its clock.
+function halogen_test_moves_landed(within) {
   const moves = globalThis[halogen_test_moves_key];
   if (!moves || moves.pending.length === 0) return Promise.resolve();
-  return new Promise((resolve) => moves.waiters.push(resolve));
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, Math.max(0, within));
+    moves.waiters.push(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
 }
 
 function halogen_test_focus(element) {

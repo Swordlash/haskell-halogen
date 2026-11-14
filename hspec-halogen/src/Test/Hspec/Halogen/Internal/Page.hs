@@ -73,7 +73,7 @@ $( browserJS
      , ("js_frame", "halogen_test_frame", Safe, [t|Int -> IO (Promise JSVal)|])
      , ("js_watch_history", "halogen_test_watch_history", Safe, [t|IO ()|])
      , ("js_moving", "halogen_test_moving", Safe, [t|IO Bool|])
-     , ("js_moves_landed", "halogen_test_moves_landed", Safe, [t|IO (Promise JSVal)|])
+     , ("js_moves_landed", "halogen_test_moves_landed", Safe, [t|Int -> IO (Promise JSVal)|])
      , ("js_focus", "halogen_test_focus", Safe, [t|Element -> IO ()|])
      , ("js_blur", "halogen_test_blur", Safe, [t|Element -> IO ()|])
      , ("js_text_content", "halogen_test_text_content", Safe, [t|Element -> IO JSText|])
@@ -201,9 +201,10 @@ historyMoving :: IO Bool
 historyMoving = js_moving
 
 -- | Wait until no move through the history the page asked for is under way
--- (each is given up on after half a second).
-historyLanded :: IO ()
-historyLanded = awaitJS js_moves_landed
+-- (each is given up on after half a second), for this many milliseconds at
+-- most: a page that keeps asking for moves never has none.
+historyLanded :: Int -> IO ()
+historyLanded within = awaitJS (js_moves_landed within)
 
 textContentOf :: Element -> IO Text
 textContentOf element = fromJSText <$> js_text_content element

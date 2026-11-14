@@ -44,3 +44,43 @@ function halogen_frames_unwrap_back() {
 function halogen_frames_back_calls() {
   return globalThis.__halogenFramesBack?.calls ?? 0;
 }
+
+// A page that never stops moving through its history. It pushes four
+// entries and goes back twice from the last; each popstate then asks for
+// one more move, towards the third entry and away from it in turn, so that
+// as one move arrives another is already asked for: there is never a moment
+// with no move under way, and every move has somewhere to go.
+function halogen_frames_restless_start() {
+  for (let n = 1; n <= 4; n++) history.pushState({halogenRestless: n}, '');
+  // Where the moves asked for so far lead.
+  let heading = 2;
+  globalThis.halogenRestless = () => {
+    if (heading >= 3) {
+      heading--;
+      history.back();
+    } else {
+      heading++;
+      history.forward();
+    }
+  };
+  addEventListener('popstate', globalThis.halogenRestless);
+  history.back();
+  history.back();
+}
+
+// Stop it, let the moves it had asked for land, and go back to the entry
+// it started from.
+async function halogen_frames_restless_stop() {
+  if (!globalThis.halogenRestless) return;
+  removeEventListener('popstate', globalThis.halogenRestless);
+  delete globalThis.halogenRestless;
+  await new Promise((resolve) => setTimeout(resolve, 700));
+  const over = history.state?.halogenRestless ?? 0;
+  if (over > 0) {
+    await new Promise((resolve) => {
+      addEventListener('popstate', resolve, {once: true});
+      setTimeout(resolve, 700);
+      history.go(-over);
+    });
+  }
+}

@@ -732,9 +732,18 @@ settleUntil wanted ms = unsafeIOToPageM $ do
           overdue a False
           if quiet then Page.sleepMs 5 else Page.settleTasks
           untilDone
+      -- What is left of the deadline, in milliseconds.
+      left = do
+        now <- getMonotonicTime
+        pure (max 0 (ms - floor ((now - started) * 1000)))
       go = do
         untilDone
-        Page.historyLanded
+        -- For what is left of the deadline and no longer: a page that
+        -- never stops moving through its history fails like a program that
+        -- never goes idle, and a move does not outlast a shorter deadline.
+        Page.historyLanded =<< left
+        still <- Page.historyMoving
+        when still $ Activity.activity >>= \a -> overdue a True
         Page.nextFrame frameBoundMs
         a <- Activity.activity
         moving <- Page.historyMoving

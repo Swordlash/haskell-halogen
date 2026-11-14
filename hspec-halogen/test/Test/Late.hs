@@ -14,13 +14,18 @@ module Test.Late
 where
 
 import Control.Monad.UUID (MonadUUID)
+import Data.Text qualified as T
 import Example.Late qualified as Late
 import GHC.Clock (getMonotonicTime)
 import Halogen qualified as H
-import Halogen.JSBits (Safety (..), browserJS)
+import Halogen.JSBits (JSVal, Safety (..), browserJS)
+import Halogen.JSBits.Promise (Promise)
+import Halogen.JSBits.Promise qualified as Promise
 import Halogen.VDom.DOM.Monad (MonadBrowserDOM)
 import Protolude hiding (find)
+import Test.HUnit.Lang (FailureReason (..), HUnitFailure (..))
 import Test.Hspec (after_)
+import Test.Hspec qualified as Hspec
 import Test.Hspec.Halogen
 
 $( browserJS
@@ -32,6 +37,8 @@ $( browserJS
      , ("js_wrap_back", "halogen_frames_wrap_back", Safe, [t|IO ()|])
      , ("js_unwrap_back", "halogen_frames_unwrap_back", Safe, [t|IO ()|])
      , ("js_back_calls", "halogen_frames_back_calls", Safe, [t|IO Int|])
+     , ("js_restless_start", "halogen_frames_restless_start", Safe, [t|IO ()|])
+     , ("js_restless_stop", "halogen_frames_restless_stop", Safe, [t|IO (Promise JSVal)|])
      ]
  )
 
@@ -126,6 +133,24 @@ spec m = do
           click back
           textContent entry `shouldReturn` start
         unsafeIOToPageM js_back_calls `shouldReturn` 10
+
+  -- A page whose popstate listener asks for another move each time always
+  -- has a move under way: the wait for the moves is part of the deadline,
+  -- so the test fails then, saying so, rather than waiting for ever.
+  after_ (void (Promise.wait =<< js_restless_stop)) $
+    it "fails at its deadline, and does not hang, when the page never stops moving through its history" $ do
+      started <- getMonotonicTime
+      outcome <- try $ runPage $ do
+        unsafeIOToPageM js_restless_start
+        waitQuietWithin 400
+      took <- subtract started <$> getMonotonicTime
+      case outcome of
+        Left (HUnitFailure _ (Reason message)) -> do
+          take 1 (T.lines (toS message))
+            `Hspec.shouldBe` ["waitQuiet: the program was not quiet after 400 ms: 0 of 0 trees running or with work queued, 0 fibers waiting in liftIO, and a move through the history it asked for had not arrived."]
+          took `Hspec.shouldSatisfy` (< 2)
+        Left other -> Hspec.expectationFailure ("another failure: " <> show other)
+        Right () -> Hspec.expectationFailure "the wait ended"
 
   -- Forward from the last entry goes nowhere, and no popstate comes: it is
   -- not waited for (half a second, were it counted).
