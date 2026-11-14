@@ -368,10 +368,20 @@ A pause is the exception, on purpose. `H.delay` (`Hooks.delay`), which takes a `
 same suspension with a worker killed with its fiber, made by `Runtime.awaitUncounted`, which does not count it: while
 it sleeps the fiber is neither running nor waiting, and once it wakes its continuation is queued like any other. Only
 the application knows which pauses a test should wait for, so it says so by how it writes them: a pause before work
-a test waits for (a debounce before a request, an autosave) is `liftIO (threadDelay n)` and counted, so a quiet
-program means the request was answered; one that only takes something off the screen or ticks (a "Saved" notice, a
-clock, `forever (H.delay 1 >> tick)`) is `H.delay`, which `waitQuiet` does not wait for. A test of either kind is in
+a test waits for (a debounce before a request, an autosave) is `H.delayCounted` (`Hooks.delayCounted`; `liftIO
+(threadDelay n)` counts the same, on the real clock only) and counted, so a quiet program means the request was
+answered; one that only takes something off the screen or ticks (a "Saved" notice, a clock,
+`forever (H.delay 1 >> tick)`) is `H.delay`, which `waitQuiet` does not wait for. A test of either kind is in
 `core/test/Test/Activity.hs`.
+
+`Halogen.Activity.Control` is a native test's hold on a program: inside `withHeldWaits` a tree's `liftIO`s wait
+before their action until `release` (`pending` gives them, oldest first, once the trees are idle and every waiting
+fiber is held), and inside `withTestClock` its pauses sleep on a clock only `advance` moves (each due sleeper woken
+in turn, the trees let go idle after each). A bracket controls the trees its own thread mounts inside it: `mount`
+asks once (`Control.Internal.controlFor`, one read of an empty map otherwise) and keeps the answer in the tree's
+`control`. A held wait is its worker blocked before the action; a pause on a test clock has no worker but a
+`suspend` that `advance` wakes by posting to the loop, so a woken tree reads busy at once. Tests in
+`core/test/Test/Control.hs`.
 
 ### FFI per backend
 

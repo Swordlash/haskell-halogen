@@ -188,13 +188,13 @@ _ <- waitForWebSocket watcher (\f -> not f.sent && "\"subscribed\"" `Text.isInfi
 ### Pauses: what `waitQuiet` waits for is the program's to say
 
 `waitQuiet` waits for every fiber in a `liftIO`, and a timer written
-`liftIO (threadDelay n)` is one: it waits for the timer. A program says which
-of its pauses a test should wait for by how it writes them:
+`liftIO (threadDelay n)` or `H.delayCounted` is one: it waits for the timer. A
+program says which of its pauses a test should wait for by how it writes them:
 
 - a pause followed by work a test waits for (a debounce before a search
   request, a draft saved two seconds after the last key) is
-  `liftIO (threadDelay n)`, and `waitQuiet` after the typing returns once the
-  request has been answered;
+  `H.delayCounted` (`Hooks.delayCounted`), and `waitQuiet` after the typing
+  returns once the request has been answered;
 - a pause that only takes something off the screen or ticks (a "Saved" notice
   hidden after three seconds, a clock, a ticker while a model works) is
   `H.delay` (`Hooks.delay` in hooks, a `NominalDiffTime` in seconds), which the
@@ -206,7 +206,7 @@ of its pauses a test should wait for by how it writes them:
 A wait for a response (Playwright's `waitForResponse`) is not here, and
 `waitQuiet` is not always one. After a save that shows a "Saved" notice for
 three seconds, `waitQuiet` returns once the save has been answered only if the
-notice's timer is an `H.delay`; with `liftIO (threadDelay n)` it waits for the
+notice's timer is an `H.delay`; with `H.delayCounted` it waits for the
 notice to go too, and the notice is never seen. Where the program cannot be
 changed, check what the response did (the saved document, through the
 server's API) after `waitQuiet`, rather than the notice; or wait for the notice
