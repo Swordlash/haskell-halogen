@@ -305,6 +305,7 @@ operations sink ident kind self =
     , get = \name -> case kind of
         DocumentNode | name == "document" -> Just self
         _ -> Nothing
+    , live = \_ -> pure Nothing
     , instanceOf = \klass -> case kind of
         ElementNode ns name -> elementInstanceOf ns name klass
         TextNode -> klass `elem` ["EventTarget", "Node", "CharacterData", "Text"]

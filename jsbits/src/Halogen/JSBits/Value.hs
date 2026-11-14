@@ -37,6 +37,7 @@ module Halogen.JSBits.Value
   , nativeCall
   , nativeSet
   , nativeGet
+  , nativeRead
   , nativeInstanceOf
   , textValue
   , Inert (..)
@@ -92,6 +93,7 @@ withNativeObject :: NativeObject JSVal -> JSVal -> JSVal
 nativeCall :: JSVal -> Text -> [JSVal] -> IO ()
 nativeSet :: JSVal -> Text -> JSVal -> IO ()
 nativeGet :: JSVal -> Text -> Maybe JSVal
+nativeRead :: JSVal -> Text -> IO (Maybe JSVal)
 nativeInstanceOf :: JSVal -> Text -> Bool
 
 -- | Text as a value of any kind: a string in a browser ('toJSText'), the
@@ -315,6 +317,7 @@ withNativeObject _ value = value
 nativeCall _ _ _ = pure ()
 nativeSet _ _ _ = pure ()
 nativeGet _ _ = Nothing
+nativeRead _ _ = pure Nothing
 nativeInstanceOf _ _ = False
 textValue = toJSText
 
@@ -431,6 +434,7 @@ withNativeObject _ value = value
 nativeCall _ _ _ = pure ()
 nativeSet _ _ _ = pure ()
 nativeGet _ _ = Nothing
+nativeRead _ _ = pure Nothing
 nativeInstanceOf _ _ = False
 textValue = toJSText
 
@@ -463,6 +467,7 @@ withNativeObject object (JSVal held) = NativeValue held (Just object)
 nativeCall (NativeValue _ object) name arguments = maybe (pure ()) (\o -> o.call name arguments) object
 nativeSet (NativeValue _ object) name value = maybe (pure ()) (\o -> o.set name value) object
 nativeGet (NativeValue _ object) name = object >>= \o -> o.get name
+nativeRead (NativeValue _ object) name = maybe (pure Nothing) (\o -> o.live name) object
 nativeInstanceOf (NativeValue _ object) name = maybe False (\o -> o.instanceOf name) object
 textValue = JSVal . toDyn
 

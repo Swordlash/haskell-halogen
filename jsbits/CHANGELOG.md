@@ -16,6 +16,12 @@ member of a value that does not answer, which is every value made before
 this release. A backend that is not a browser makes its handles this way, so
 that what a program does to the page through the `Web.*` types reaches it.
 Nothing changes in the browsers, where `withNativeObject` gives the value itself.
+A `NativeObject` also has `live`, which answers a read of a changing member:
+natively a `Live` member, and a `Writable` one's read, whose type is a text,
+an object or `Maybe` of one ask the value for it (`nativeRead`), and keep their
+inert answer when it gives `Nothing`; a number or a boolean is not asked. That
+is how a backend that keeps a mirror of a page answers for its address
+(haskell-halogen-remote's `location.pathname`).
 `textValue` is a `Text` as a value of any kind. Natively `JSVal` is a data
 type with a pattern `JSVal`, which builds and takes apart a value as the
 newtype's constructor did.

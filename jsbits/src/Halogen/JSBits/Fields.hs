@@ -83,10 +83,14 @@
 -- * a 'Fixed' member whose type is an object (a newtype over a 'JSVal')
 --   asks it for the object, which it gives if it has it (the window's
 --   @document@);
+-- * a 'Live' member, or a 'Writable' one's read, whose type is a text, an
+--   object, or 'Maybe' one, asks it for the value, which it gives if it
+--   keeps it (haskell-halogen-remote's mirror of the page's address);
 -- * a 'jsCast' asks it whether it is an instance of the class.
 --
--- Everything else, and every member of a value that does not answer (a
--- number, an event made from JSON), has its inert answer, or what
+-- Everything else (a read the value does not keep, a number or a boolean
+-- read, a method with a result), and every member of a value that does not
+-- answer (a number, an event made from JSON), has its inert answer, or what
 -- 'Natively' gives it: a read a page across a wire would have to answer
 -- cannot be answered at once. A 'Natively' member keeps its expression,
 -- except for a 'Writable' member's assignment, which is still asked.
@@ -142,6 +146,7 @@ import Halogen.JSBits.Value
   , nativeCall
   , nativeGet
   , nativeInstanceOf
+  , nativeRead
   , nativeSet
   , textValue
   , toJSBool
@@ -269,13 +274,13 @@ member receiver native = \case
     result <- notIO js =<< toType quoted
     shape <- valueShape js result
     let ty = AppT (ConT ''IO) result
-    get <- browser (fromMaybe [|inert|] native) (readLive js shape result)
+    get <- browser (fromMaybe (nativeLive js shape) native) (readLive js shape result)
     pure (field js ty get)
   Writable js quoted -> do
     result <- notIO js =<< toType quoted
     shape <- valueShape js result
     let ty = AppT (ConT ''IO) result
-    get <- browser (fromMaybe [|inert|] native) (readLive js shape result)
+    get <- browser (fromMaybe (nativeLive js shape) native) (readLive js shape result)
     argument <- argumentShape js result
     -- A native 'Natively' expression is the read's: the assignment is the
     -- native object's to carry out, if the value is one.
@@ -314,6 +319,12 @@ member receiver native = \case
     self = ConT receiver
     typeName = nameBase receiver
     name js = [|Text.pack $(litE (stringL js))|]
+    -- A changing member's read, natively: the value's answer, if it keeps
+    -- the member and the member is a text or an object; inert otherwise.
+    nativeLive js shape
+      | shape `elem` [AsText, MaybeText, Plain, MaybeValue] =
+          [|\o -> nativeRead (coerce o) $(name js) >>= maybe inert (pure . $(nativeResult shape))|]
+      | otherwise = [|inert|]
     rawName kind js = newName ("js_" <> kind <> "_" <> typeName <> "_" <> js)
     readLive js shape result = do
       (raw, decls, guard) <- guarded "get" js ("$1." <> js) shape result [self]
@@ -446,6 +457,14 @@ pureResult = \case
   MaybeText -> [|\v -> if isNull v then Nothing else Just (jsValText v)|]
   MaybeValue -> [|\v -> if isNull v then Nothing else Just (coerce v)|]
   _ -> [|id|]
+
+-- From a value a native object gave to the field's value.
+nativeResult :: Shape -> Q Exp
+nativeResult = \case
+  AsText -> [|jsValText|]
+  MaybeText -> [|\v -> if isNull v then Nothing else Just (jsValText v)|]
+  MaybeValue -> [|\v -> if isNull v then Nothing else Just (coerce v)|]
+  _ -> [|coerce|]
 
 -- The import's call, as the field's IO action.
 ioFrom :: Shape -> Q Exp -> Q Exp
