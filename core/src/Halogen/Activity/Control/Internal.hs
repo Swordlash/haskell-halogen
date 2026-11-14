@@ -301,33 +301,55 @@ data FiberGone = FiberGone
 instance Exception FiberGone
 
 -- | For the body of a 'Halogen.Query.HalogenM.Unlift' in a controlled tree:
--- an action to run before each program the body hands to the loop, which
--- gives the one to run when that program has ended (on the loop, before the
--- body hears of it; it does nothing a second time).
+-- an action to run for each program the body hands to the loop, which
+-- gives two more: one to run once the program is queued, and one to run
+-- when it has ended (on the loop, before the body hears of it).
 --
 -- The body's worker is counted as waiting for as long as the body runs, and
 -- while it waits for a program of its own it can do nothing until that
 -- program ends: it is parked, like a held wait, or 'pending' would wait for
 -- ever for a worker that waits for a wait the test holds. It is parked
--- while any program it started is under way, and unparked on the loop as
--- the last one ends, before the body goes on, so that 'pending' does not
--- return between the program's end and what the body does next. (A body
--- that runs programs from several threads and does other work on one of
--- them while another's program is held is taken for parked meanwhile.)
-unliftedRuns :: Maybe TreeControl -> IO (IO (IO ()))
+-- while any program it started is under way, and:
+--
+-- * parked only once the program is queued, so that the loop is running,
+--   or the program's own wait is counted, by the time the worker reads as
+--   parked: parked first, the tree would read as having nothing to do
+--   between the two, and 'pending' would return without the program's wait;
+-- * unparked on the loop as the last program ends, before the body goes
+--   on, so that 'pending' does not return between the program's end and
+--   what the body does next.
+--
+-- A program may end before its caller is parked (it waited for nothing):
+-- then the caller is not parked for it at all. (A body that runs programs
+-- from several threads and does other work on one of them while another's
+-- program is held is taken for parked meanwhile.)
+unliftedRuns :: Maybe TreeControl -> IO (IO (IO (), IO ()))
 unliftedRuns = \case
-  Nothing -> pure (pure (pure ()))
+  Nothing -> pure (pure (pure (), pure ()))
   Just tc -> do
-    under <- newIORef (0 :: Int)
+    under <- newTVarIO (0 :: Int)
     pure $ do
-      before <- atomicModifyIORef' under (\n -> (n + 1, n))
-      when (before == 0) (atomically (park tc.parked 1))
-      ended <- newIORef False
-      pure $ do
-        again <- atomicModifyIORef' ended (True,)
-        unless again $ do
-          left <- atomicModifyIORef' under (\n -> (n - 1, n - 1))
-          when (left == 0) (atomically (park tc.parked (-1)))
+      state <- newTVarIO Queued
+      let parkNow = atomically $ do
+            st <- readTVar state
+            when (st == Queued) $ do
+              writeTVar state Waited
+              n <- readTVar under
+              writeTVar under (n + 1)
+              when (n == 0) (park tc.parked 1)
+          ended = atomically $ do
+            st <- readTVar state
+            writeTVar state Ended
+            when (st == Waited) $ do
+              n <- readTVar under
+              writeTVar under (n - 1)
+              when (n == 1) (park tc.parked (-1))
+      pure (parkNow, ended)
+
+-- | Where a program a body runs stands: handed to the loop, its caller
+-- parked for it, or over.
+data Run = Queued | Waited | Ended
+  deriving stock (Eq)
 
 ----------------------------------------------------------------------
 -- The test's clock

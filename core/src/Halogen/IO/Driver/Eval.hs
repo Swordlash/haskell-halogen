@@ -100,11 +100,16 @@ evalM var (HalogenM hm) = foldF go hm
         -- In a tree a test controls, the worker is parked while it waits
         -- for a program of its own ('unliftedRuns').
         started <- sync (unliftedRuns ds.tree.control)
-        awaitHeld ds.tree.control ds.tag $ q $ UnliftIO $ \program -> do
+        -- Masked from queuing the program, whose end unparks the worker,
+        -- until the worker is parked for it (none of it blocks): a worker
+        -- killed in between would otherwise be parked with nothing to
+        -- unpark it, or not at all. Only the wait is not masked.
+        awaitHeld ds.tree.control ds.tag $ q $ UnliftIO $ \program -> mask $ \restore -> do
           result <- newEmptyMVar
-          ended <- started
+          (parked, ended) <- started
           post ds.tree.loop $ launchOwned var False (const pass) (evalM var program) (\outcome -> ended >> putMVar result outcome)
-          takeMVar result `onException` ended >>= \case
+          parked
+          restore (takeMVar result) `onException` ended >>= \case
             Done a -> pure a
             Failed e -> throwIO e
             Cancelled -> throwIO ComponentGone
