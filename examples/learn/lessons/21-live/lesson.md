@@ -2,15 +2,15 @@ title: The DOM over a wire
 layers: live
 args: -package haskell-halogen-remote
 
-In every lesson so far the component's program and the page it draws were in one place: the program ran in the page and changed its DOM itself. Phoenix LiveView, in Elixir, splits them. The program runs on a server; what it does to its DOM goes over a WebSocket to a small script in the page, which does it; and what the reader does in the page comes back over the same socket to the program's handlers. The page holds no state and runs none of the program, so it has nothing to download but the script, and a server that holds the state can show the same state to every page at once.
+A component does not have to run in the browser that displays it. Phoenix LiveView uses a server-side program that sends DOM updates to a small browser client and receives events over a WebSocket. The browser needs the client script rather than a copy of the application, and the server can share application state across tabs.
 
-`haskell-halogen-remote` does that for Halogen. Compile the code, and under the list you see the wire: every message that crosses it, newest first. Here both ends are in this page, through `Halogen.Remote.Loopback`, so that the wire can be shown; what crosses is what would cross the network.
+`haskell-halogen-remote` provides this model for Halogen. Compile the lesson to see protocol messages below the list, newest first. `Halogen.Remote.Loopback` runs both ends in this page so you can inspect them. The messages are the same ones used over a network connection.
 
 ## The same component
 
-Nothing in the code knows about the wire. `component` is an ordinary component, polymorphic in its monad `m`, and the program around it mounts it in a monad of its own, `RemoteDOM`. That is one more backend of the reconciler you have been using all along, as the in-memory DOM that renders a page ahead of time is (lesson 12), and the canvas and the three-dimensional scene are (lessons 11 and 19). Its DOM is a mirror of what the page shows: each operation the reconciler makes changes the mirror, which answers what the reconciler reads back, and is recorded to be sent.
+The component remains polymorphic in its monad. The wrapper selects `RemoteDOM`, another reconciler backend like the in-memory DOM, Pixi and Three.js.
 
-The first message holds the first render, after a `["clear"]` that empties the page's element. Each operation is an array with its name first; among the first render's are
+`RemoteDOM` maintains a mirror of the page. Reconciler reads use that mirror; changes update it and are recorded for the client. The first render starts with `["clear"]`, then operations such as:
 
 ```
 ["create", 2, null, "div"]
@@ -20,18 +20,26 @@ The first message holds the first render, after a `["clear"]` that empties the p
 ["listen", 4, "click", 1]
 ```
 
-(The `attr` operations setting `data-learn-src` are this tutorial's: it marks each element of your code with the line that built it, for its Source button.) A node is a number both ends agree on: node 2 is the `div`, 3 the input. `insert` puts a child at an index among a parent's children, and `listen` asks the page to tell the program when the button, node 4, is clicked, for its listener 1. Click Add: a message goes the other way, `{"listener": 1, "node": 4, "type": "click", "event": {...}}`, the program runs the button's handler, and a render sends back only what changed. With nothing typed, nothing changes, and no message comes back at all.
+Both ends identify nodes by number: 2 is the div and 3 the input. `insert` places a child at an index in its parent. `listen` asks the client to report clicks on node 4 to listener 1. Source-mode marks appear as extra `attr` operations for `data-learn-src`.
+
+Clicking Add sends `{"listener": 1, "node": 4, "type": "click", "event": {...}}`. The program handles the event and sends only the resulting DOM changes. If nothing changes, there is no update batch.
 
 ## The exercise
 
-Type into the input and press Add: nothing is added. The input has no handler, so what is typed stays in the page, and `handleAction` finds `st.draft` empty. Give the input `HE.onValueInput Typed`, compile, and type again. Each key now sends an `input` event whose `target` and `currentTarget` carry the input's `value`, which `HE.onValueInput` reads as it would in a page; Add then sends a `create` and an `insert` for the new item, and a `prop` that empties the input.
+Typing and pressing Add currently adds nothing. Without an input handler, the text stays in the browser and `st.draft` remains empty.
 
-Then add a second button, `HH.button [HE.onClick (\_ -> Clear)] [HH.text "Clear"]`, with an action `Clear` that sets `items` to `[]`. Click it and look at the wire: one `remove` for each item. A node taken out and not put back by the end of the batch is forgotten at both ends, with everything under it and its listeners, so the batch says nothing of the text inside each item.
+Add `HE.onValueInput Typed`, compile and type again. Input events now carry `value` in their target snapshots, which the normal handler reads. Add creates and inserts an item, then sends a property update to clear the field.
+
+Add `HH.button [HE.onClick (\_ -> Clear)] [HH.text "Clear"]` and a `Clear` action that sets `items` to `[]`. Inspect the resulting batch: it removes each item. Nodes still detached at the end of a batch are forgotten with their descendants and listeners, so separate removals for their text are unnecessary.
 
 ## What cannot cross a wire
 
-The program is on one side and the page on the other, and the wire takes time. A ref, `H.getRef`, is a node of the mirror, not an element of the page: focusing it or measuring it does nothing useful. A handler hears of an event once the page has finished with it, too late to prevent its default, so what the page must do while it dispatches the event is declared as data that crosses the wire: `HE.preventingDefault (HE.matching (HE.keys ["/"]) (HE.onKeyDown (const Search)))` has the script prevent the slash, and send the program no other key. For a handler that declares nothing, the script prevents the default of a form's `submit` and of a plain click on a link, the two defaults a component that listens never wants, and of nothing else. And focus is the page's: the script sets an input's `value` only when it differs from what the input holds, so what the reader is typing is never undone.
+Refs point to mirror nodes, so they cannot provide browser layout measurements. Loopback also cannot perform ref-based focus calls; native remote sessions can forward supported operations such as focus to the client.
+
+Handlers receive events after browser dispatch. Calling `preventDefault` then is too late. Declare the required behaviour on the handler instead: `HE.preventingDefault (HE.matching (HE.keys ["/"]) (HE.onKeyDown (const Search)))` prevents slash input in the client and forwards only matching keys.
+
+Without declarations, the client prevents listened-for form submissions and plain same-tab link clicks. Other defaults remain browser behaviour. To preserve typing and selection, it assigns an input's value only when it differs from the current browser value.
 
 ## A server
 
-Natively, `Halogen.Remote.Server.serve` does the same over a WebSocket, a session and an instance of the component per page that connects, and serves the script beside it. The repository's `examples/live` serves a board this way: every tab that opens it shows one board, and a line posted in one shows up in all of them (`cabal run halogen-example-live-server`).
+`Halogen.Remote.Server.serve` runs the same pipeline natively over WebSockets and serves the client script. Each connection gets a session and component instance. The repository's `examples/live` keeps a shared board outside those instances so posting in one tab updates every tab. Run it with `cabal run halogen-example-live-server`.

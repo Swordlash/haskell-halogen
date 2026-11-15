@@ -32,7 +32,7 @@ template =
   T.unlines
     [ "{-# LANGUAGE OverloadedStrings #-}"
     , ""
-    , "-- The page mounts Lesson.component, with no input, into the result:"
+    , "-- Export component to display it in the result area. Its input is ():"
     , "-- component :: forall q o m. (MonadIO m) => H.Component q () o m"
     , "module Lesson (component) where"
     , ""

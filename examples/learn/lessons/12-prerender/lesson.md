@@ -1,10 +1,10 @@
 title: Prerendering and hydration
 
-A Halogen page is empty until its program has started. A prerendered page is not: the build renders the component to HTML ahead of time, and the program, once it runs, takes that HTML over instead of drawing its own. This tutorial is prerendered: `Prerender.hs`, in `examples/learn`, wrote this page.
+Prerendering puts component HTML in the page before its browser program starts. When the program loads, hydration adopts that HTML and attaches behaviour. The tutorial uses this approach: `examples/learn/Prerender.hs` generated the page you are reading.
 
 ## Rendering natively
 
-`Halogen.Static.renderToHtml` mounts a component, with the ordinary driver, into an in-memory document (`MemDOM`, which exists only natively), lets what it runs on arriving (its `H.onInitialize`) run to the end, and returns the HTML. For this lesson's `Start.hs`, a native program
+`Halogen.Static.renderToHtml` mounts a component in the in-memory DOM using the normal driver. It waits for initialization to finish and returns HTML. For this lesson's starting component, a native program
 
 ```haskell
 main = renderToHtml Lesson.component () >>= T.putStrLn
@@ -16,18 +16,22 @@ prints
 <div><p>Count: <!---->0</p><button>+</button></div>
 ```
 
-`Prerender.hs` does that for every route, and puts the HTML into the template's empty `<div id="app"></div>`. The build runs it as `halogen-example-learn-prerender`, compiled by the native GHC; `Main.hs` is compiled to WebAssembly.
+The tutorial's native prerender executable does this for every route and inserts the output into `<div id="app"></div>`. The browser entry point, `Main.hs`, is compiled to WebAssembly.
 
 ## Adopting the page
 
-In the browser, `Main.hs` calls `hydrateUI` where it would call `runUI`. The component's first render, from `initialState`, is matched with the page's HTML in order: an element with the same name is kept and gets its listeners and properties, a text node is kept and its text corrected. A node that does not match is built afresh in place of the page's. That is never an error, but it is work, and loses what the reader had selected there. Hence the rules:
+Use `hydrateUI` instead of `runUI` to adopt existing HTML. It compares the first render with the page in order, retains matching elements, attaches listeners and updates properties or text. Mismatched nodes are replaced.
 
-- The first render must be the page: `initialState` reads nothing the build did not have, and the render depends on the state alone.
-- Two text nodes side by side, `"Count: "` and the count, are written with `<!---->` between them, which the parser would merge otherwise.
-- What `H.onInitialize` runs comes after the adoption, and its renders patch the adopted nodes. But `renderToHtml` ran it too, before taking the HTML, so a state it sets is in the page and not in the client's first render.
+Repairs are allowed, but cost work and can lose the user's selection. To adopt the page cleanly:
 
-The program around your module does what `Main.hs` does: it puts the HTML above into the page, with a dashed outline on each element, and hydrates your component over it. The nodes it adopts keep their outlines: write `HH.h2_` for the `HH.p_`, and the heading, built afresh, has none.
+- Make the initial browser render match the prerendered HTML. Initial state must not depend on browser-only information, and rendering should depend on state alone.
+- Keep separators between adjacent text nodes. The renderer inserts `<!---->` so the HTML parser does not merge `"Count: "` and the count.
+- Remember that native prerendering waits for `H.onInitialize`, while browser initialization happens after adoption. Unconditional state changes during initialization can therefore make their initial HTML differ.
+
+The lesson wrapper inserts the HTML above and gives each element a dashed outline before hydration. Retained nodes keep their outlines. Replace `HH.p_` with `HH.h2_` to see a newly created heading without one.
 
 ## Exercise
 
-The button does nothing until the program runs, so the page should not offer it. Make the state `State {count, ready}`, with `ready = False`; render `HP.disabled (not st.ready)`, and `"Loading..."` until ready; give the component an `H.onInitialize` that sets `ready`, guarded by `when inBrowser` (from `Halogen.JSBits`), as the tutorial's own is. Without the guard the build would write a ready button. With it, the build writes `<button disabled>Loading...</button>` and only the browser makes it ready.
+Disable the button until the browser program is ready. Add `State {count, ready}` with `ready = False`. Use `HP.disabled (not st.ready)` and display `"Loading..."` while it is false.
+
+Add an `H.onInitialize` program that sets `ready` only `when inBrowser`, importing `inBrowser` from `Halogen.JSBits`. Without that guard, native prerendering would already enable the button. With it, the build produces `<button disabled>Loading...</button>`, and the browser enables it after adoption.

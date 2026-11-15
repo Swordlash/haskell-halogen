@@ -2,28 +2,28 @@ title: HTML and CSS templates
 layers: th
 args: -package haskell-halogen-th
 
-The `HH` functions of the earlier lessons are exact, but they do not look like HTML. `haskell-halogen-th` lets you write markup as markup: `hh`, from `Halogen.TH`, is a quasi-quoter (it needs `QuasiQuotes`) that reads HTML with Haskell inside and turns it, while the module compiles, into the `HH` calls you would have written. The types are those calls' types, so a handler of the wrong type, or an attribute an element does not have, is a type error at the quote.
+`haskell-halogen-th` lets you write HTML templates with embedded Haskell. Import `hh` from `Halogen.TH` and enable `QuasiQuotes`. At compile time, the quoter converts the markup into the same `HH` calls used in earlier lessons. Their types still apply, so invalid properties and incorrect handlers produce type errors.
 
 ## Haskell inside the HTML
 
-`{{ ... }}` holds a Haskell expression, read by GHC's own parser with the module's extensions (`OverloadedStrings`, `OverloadedRecordDot`). Where it stands decides what it must be:
+Put Haskell expressions inside `{{ ... }}`. GHC parses them with the module's extensions, including `OverloadedStrings` and `OverloadedRecordDot`. Their expected type depends on their position:
 
-- among an element's children, what to show: `Hello, {{ st.name }}`;
-- as an attribute's value, what the property takes: `title={{ "Written for " <> st.name }}` is a `Text`, `disabled={{ st.likes >= 3 }}` a `Bool`;
-- as a handler, a function from the event to an action: `onClick={{ \_ -> Like }}` is lesson 2's `onClick`.
+- Among children, they provide content: `Hello, {{ st.name }}`.
+- As attribute values, they match the property type: `title={{ "Written for " <> st.name }}` uses `Text`, while `disabled={{ st.likes >= 3 }}` uses `Bool`.
+- As event handlers, they convert an event into an action: `onClick={{ \_ -> Like }}`.
 
-`{% if ... %} ... {% end %}` decides whether something is there at all, even inside an attribute: `class="likes {% if st.likes > 0 %}liked{% end %}"`.
+Use `{% if ... %} ... {% end %}` for conditional content. It also works inside attributes: `class="likes {% if st.likes > 0 %}liked{% end %}"`.
 
-Whitespace follows JSX's rule: a line break next to a tag, with the spaces around it, is nothing, while spaces within a line are text, as in `{{ ... }} likes`. On a quote of one line the spaces around the element would be text too, and `hh` makes exactly one element: so the element goes on lines of its own.
+Whitespace follows JSX rules. Indentation and line breaks beside tags disappear, but spaces within a line remain, as in `{{ ... }} likes`. A single-line quote also preserves spaces around its element. Since `hh` must return exactly one element, put the element on its own lines or omit those surrounding spaces.
 
-The Haskell in a quote is read by the compiler's own parser, the one that reads the rest of the module. `haskell-halogen-th` is not for GHC's JavaScript backend, whose compiler links that parser into JavaScript to run a quote and needs more memory for it than most machines have; this page's compiler is the WebAssembly one.
+The quoter uses GHC's own parser. It supports the WebAssembly compiler running here. The JavaScript backend is unsupported because linking that parser for Template Haskell requires too much memory.
 
 ## CSS
 
-`clay` does the same for CSS: rules as written, blocks nested in blocks, `{{ ... }}` for values, and a value of Clay's `Css` type as the result. A `Css` among an element's children becomes a `<style>` element.
+`clay` converts CSS templates into Clay's `Css` type. Write rules and nested blocks normally, using `{{ ... }}` for Haskell values. Inserting a `Css` value among HTML children creates a `<style>` element.
 
 ## Exercise
 
-1. Show `st.items` in an `<ol class="items">` holding `{% for item in st.items %}`, `<li>{{ item }}</li>` and `{% end %}`, each on a line of its own. The `for` is a list comprehension written in the quote: its body is repeated for each item.
-2. Write `style :: Css` with `[clay| ... |]` (import `clay` beside `hh`, and `Clay (Css)`): a `.card` block holding `.liked { color: {{ accent }}; }` and rules for `.items`, with `accent = C.rgb 0xc0 0x30 0x60` (import `Clay qualified as C`).
-3. Put `{{ style }}` first in the card. Click Like, and the count turns red.
+1. Display `st.items` in `<ol class="items">`. Inside it, write `{% for item in st.items %}`, `<li>{{ item }}</li>` and `{% end %}` on separate lines. The loop repeats its body for each item.
+2. Import `clay` alongside `hh`, `Clay (Css)` and `Clay qualified as C`. Define `style :: Css` with a `[clay| ... |]` quote. Add a `.card` block containing `.liked { color: {{ accent }}; }` and styles for `.items`. Define `accent = C.rgb 0xc0 0x30 0x60`.
+3. Insert `{{ style }}` first inside the card. Compile and click Like: the count turns red.

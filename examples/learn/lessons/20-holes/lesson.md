@@ -1,17 +1,19 @@
 title: Ask the compiler
 args: -fdefer-typed-holes
 
-GHC knows the type of everything in your module, and you can ask it. The page asks all the time: a moment after you stop typing, it has GHC typecheck your code without running it, marks what GHC says in the editor, lists it under the editor, and says how long that took ("Checked in 0.4 s"). Compile still compiles and runs; the check only reads.
+GHC can help you discover the types your code needs. After you stop typing, the page typechecks the module, marks diagnostics and reports the check duration. Checking does not run the program; Compile does both.
 
 ## The types of your bindings
 
-Hover over `render` in the editor: a tooltip says `render :: State -> HH.HTML w Action`. There is no type signature for `render` in the code: that is the type GHC inferred. The `w` in it is a type variable, which says that `render` works whatever `w` is, and `H.component` picks the one it needs. `initialState` has no signature either, and GHC gives it the most general type its code allows, `Applicative f => p -> f State`: it ignores its argument, of any type `p`, and returns a `State` with `pure`, in any `Applicative` at all.
+Hover over `render`. GHC infers `render :: State -> HH.HTML w Action` even without an explicit signature. The variable `w` means the function works for any such widget type; `H.component` chooses the one it needs.
 
-Under the editor, "Top-level types" lists every binding of the module with its type, and a click on one takes you to its line. Only the module's top-level bindings are there, which is why this lesson's code has `render`, `handleAction` and the rest at the top level rather than under a `where` as the earlier lessons did: a binding under a `where` or a `let`, a name a module imports, such as `H.component`, and an instance's methods show no type here.
+GHC also infers `initialState :: Applicative f => p -> f State`. It ignores an input of any type `p` and returns state with `pure`, so any `Applicative f` works.
+
+The "Top-level types" list below the editor shows bindings and links to their source lines. This lesson defines its helpers at the top level so they appear there. Local `where` and `let` bindings, imported names such as `H.component`, and instance methods are not listed.
 
 ## Holes
 
-A hole is a question to the compiler: an underscore, `_`, where an expression goes. In `handleAction`, `Increment -> modify _` asks what `modify` needs, and the warning at that line answers:
+Write `_` in place of an expression to ask GHC what type belongs there. For `Increment -> modify _`, it reports:
 
 ```
 Found hole: _ :: State -> State
@@ -23,16 +25,20 @@ Found hole: _ :: State -> State
     id :: forall a. a -> a
 ```
 
-Read it from the top. The first line is the hole's type: `modify` changes the state with a function, so the hole is a function from a `State` to a `State`. "Relevant bindings" are what is in scope there and might help, with their types. "Valid hole fits" are the names in scope whose type fits the hole: `bump`, which adds one to the count, and `id`, which changes nothing. A fit has the right type; whether it does the right thing is for you to say, and here it is `bump`.
+The hole needs `State -> State`, because `modify` takes a state-update function. Relevant bindings show useful names in scope. Valid hole fits have compatible types: both `bump` and `id` fit, but only `bump` increments the count. Types narrow the choices; you still choose the intended behaviour.
 
-A hole can have a name, an underscore and then a word: `_rename` in `Rename new -> modify (_rename new)` is a hole too (GHC adds that it may be a misspelled name), and its message says `_rename :: Text -> State -> State`. Nothing in scope does that yet: `seq` fits, and so does `initialState`, by its type alone, which is exactly why a type cannot tell you what you meant. That type is what a function giving the state a new name has to be, so write one.
+Named holes start with an underscore. In `Rename new -> modify (_rename new)`, GHC reports `_rename :: Text -> State -> State` and may suggest a misspelling. Some existing functions fit by type alone without doing what you want. Write a function that actually updates the name.
 
-A type can have a hole as well. `label :: State -> _` leaves the result for GHC to fill, which it does with the `PartialTypeSignatures` extension the module turns on at its top, and says so: "Found type wildcard `_` standing for `Text`".
+Types can contain holes too. With `PartialTypeSignatures`, `label :: State -> _` lets GHC infer the result and report that the wildcard stands for `Text`.
 
 ## Why it runs
 
-A hole is normally an error: the program does not compile. This lesson's header passes GHC `-fdefer-typed-holes`, which makes each one a warning and compiles the rest, so that the component runs and the types of everything else are listed while you work on the holes. A hole the program reaches while it runs is then an error at that moment: press `+1` before you fill the first, and that action fails with the hole's message instead of counting.
+Expression holes normally prevent compilation. This lesson passes `-fdefer-typed-holes`, turning them into warnings so the rest of the component can run while you work.
+
+Evaluating an unfinished hole still fails at runtime. Pressing `+1` before filling its hole fails that action with the hole diagnostic.
 
 ## Exercise
 
-Fill the holes, with the types GHC gave you. Replace `modify _` with `modify bump`. Write `rename :: Text -> State -> State` at the top level, so that `rename new st` is `st` with `new` as its name (`st {name = new}`), and call it in place of `_rename`. Write `Text` for the `_` in `label`'s type. Each warning goes as you fix its hole, a moment after you stop typing, and `rename` arrives in the list of types. Then Compile: the button counts, and typing in the box renames.
+Replace `modify _` with `modify bump`. Define `rename :: Text -> State -> State` at the top level, with `rename new st = st {name = new}`, and use it instead of `_rename`. Replace the wildcard in `label`'s type with `Text`.
+
+Warnings disappear after the next live check, and `rename` appears in the type list. Compile: the button should increment the count, and the field should update the name.

@@ -2,34 +2,34 @@ title: Fetching data
 layers: net
 args: -package haskell-halogen-net
 
-A component that shows data from a server has to wait for it, and say something while it waits. This one fetches a list of quotes, `data/quotes.json`, which sits next to this page, with `Halogen.Net.Fetch`, the browser's `fetch`.
+A component fetching server data needs to display loading, success and failure states. This example uses `Halogen.Net.Fetch`, a wrapper around browser `fetch`, to load quotes from `data/quotes.json`.
 
 ## Three states
 
-Until the data arrives there is nothing to show, and it may never arrive. The state says which of the three it is:
+The state records whether the request is pending, succeeded or failed:
 
 ```haskell
 data State a = Loading | Done a | Failed Text
 ```
 
-`render` shows each one, and `handleAction` moves between them: `put Loading`, then the fetch, then `Done` with the quotes or `Failed` with the reason. `H.onInitialize (handleAction (Load "data/quotes.json"))` starts the first `Load` when the component is mounted: on arriving, it does what `handleAction` does for that action.
+`render` handles all three cases. `handleAction` first calls `put Loading`, fetches the data, then stores `Done` with the quotes or `Failed` with an explanation. `H.onInitialize (handleAction (Load "data/quotes.json"))` starts the initial request when the component mounts.
 
 ## Fetching
 
-`getQuotes` does the work, in `IO`:
+`getQuotes` performs the request in `IO`:
 
-1. `Fetch.request Fetch.GET url` describes the request. The address is relative, so it is read against the page's own.
-2. `Fetch.fetch` sends it and waits for the response's status and headers. What the browser refuses (no network, an address that is no address) comes back as a `Left`, never an exception, with the error's `name` and `message`.
-3. A 404 is still a response, a `Right`. Its fields are read with dot syntax (`OverloadedRecordDot`): `response.ok` says whether the status is a success, and `response.status` is the number.
-4. `Fetch.text` waits for the body, and `Aeson.eitherDecodeStrictText` reads the JSON into a list of `Quote`. Its `FromJSON` instance comes from `Generic`: the record's field names are the JSON's keys.
+1. `Fetch.request Fetch.GET url` constructs a request. Relative URLs resolve against the page's base URL.
+2. `Fetch.fetch` sends it and waits for status and headers. Browser failures, such as network errors, return `Left` with an error `name` and `message`.
+3. HTTP errors such as 404 still return `Right response`. With `OverloadedRecordDot`, read `response.ok` to check success and `response.status` for the numeric code.
+4. `Fetch.text` reads the body. `Aeson.eitherDecodeStrictText` decodes it into `[Quote]`. The generic `FromJSON` instance uses record field names as JSON keys.
 
 ## Waiting without stopping the page
 
-`handleAction` calls `getQuotes` through `liftIO`. A component's handler runs on the page's loop only up to its first wait: a `liftIO` runs on a thread of its own, so while the request is out, the page goes on rendering and answering clicks, and the handler takes up where it left off when the response arrives.
+`handleAction` calls `getQuotes` through `liftIO`. The request waits on a separate Haskell thread while the component loop keeps rendering and handling actions. Once the response arrives, the handler resumes.
 
 ## Exercise
 
-Add two buttons above the quotes, with `HE.onClick` as in lesson 2 (import `Halogen.HTML.Events qualified as HE`):
+Import `Halogen.HTML.Events qualified as HE` and add two buttons above the quotes:
 
-- **Reload**, whose click is `Load "data/quotes.json"`: the page shows Loading..., briefly, and the quotes again;
-- **Load a missing file**, whose click is `Load "data/missing.json"`, an address with nothing at it. The server answers 404, and the page shows `Failed` with the status.
+- Reload triggers `Load "data/quotes.json"`. It briefly shows Loading... before displaying the quotes again.
+- Load a missing file triggers `Load "data/missing.json"`. The server returns 404, and the component shows the failure status.

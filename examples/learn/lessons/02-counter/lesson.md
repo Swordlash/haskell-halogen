@@ -1,16 +1,18 @@
 title: State and actions
 
-A component's state is the value it keeps from one render to the next. Here it is an `Int`, a count, which `initialState` starts at `0`. Whenever the state changes, Halogen calls `render` with the new one and updates the page to match.
+State is the value a component keeps between renders. This counter stores an `Int`, initially `0`. Updating it makes Halogen call `render` again and update the page.
 
-The state changes only in answer to an action: a value of a type of your own, here `Action`, with a constructor for each thing that can happen, `Increment` and `Decrement`. Two pieces connect a click to a new state:
+In this example, button clicks produce values of the `Action` type: `Increment` or `Decrement`. Two parts connect those clicks to state changes:
 
-1. In `render`, `HE.onClick`, from `Halogen.HTML.Events`, turns a click on a button into an action. It is given a function from the click to the action; the click itself is not needed here, so `\_ -> Increment` ignores it. It goes in the list of properties, the first of the two lists `HH.button` takes.
-2. `handleAction` says what each action does, and `H.onAction handleAction`, in the component's list of handlers, hands it to Halogen. `modify`, from `Control.Monad.State`, changes the state by applying a function to it: `modify (+ 1)` adds one.
+1. `HE.onClick`, from `Halogen.HTML.Events`, converts a click into an action. It takes a function such as `\_ -> Increment`, which ignores the event and returns `Increment`. Put the handler in the first list passed to `HH.button`, its properties.
+2. `handleAction` defines what each action does. Register it with `H.onAction handleAction` in the component's handler list. `modify`, from `Control.Monad.State`, updates state by applying a function: `modify (+ 1)` increments it.
 
-Halogen then renders again by itself: `render` is never called by your code.
+Halogen renders after a state change. You do not call `render` yourself.
 
 ## Exercise
 
-The buttons in your code do nothing yet: compile it as it is and clicking them leaves the count at `0`, since nothing turns a click into an action. Give each one an `HE.onClick` with its action. Then write `handleAction`, which answers `Increment` with `modify (+ 1)` and `Decrement` with `modify (subtract 1)`, and hand it to Halogen: put `H.onAction handleAction` in the list of handlers, which is `[]` so far.
+Compile the starting code. Both buttons leave the count at `0` because neither has a click handler.
 
-Compile, and click: the count follows. Compiling again starts it over from `0`, since each compile mounts a new component with a new state.
+Add an `HE.onClick` handler to each button. Implement `handleAction` with `modify (+ 1)` for `Increment` and `modify (subtract 1)` for `Decrement`. Replace the empty handler list with `[H.onAction handleAction]`.
+
+Compile and try both buttons. Compiling again creates a new component, so its count starts at `0`.

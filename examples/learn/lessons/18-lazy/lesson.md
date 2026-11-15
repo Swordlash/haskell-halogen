@@ -2,24 +2,28 @@ title: A component that arrives later
 layers: lazy
 args: -package haskell-halogen-lazy -package haskell-halogen-lazy-demo
 
-Every component so far was part of the program from the start: compiled with it, and downloaded with it before anything showed. A large application may not want that for all of it. An editor few readers open, a settings page, a part with a large library of its own: each is code that every visit downloads, whether it is used or not. `haskell-halogen-lazy` lets a tree show a component it does not have yet. The component arrives later, when it is first shown, and the tree shows a placeholder until then, as React's `lazy` and `Suspense` do.
+Large applications can avoid loading features that a visitor may never use, such as an editor or settings screen. `haskell-halogen-lazy` shows a placeholder while a component loads, then mounts it. This is similar to React's `lazy` and `Suspense`.
 
 ## The wrapper
 
-`Lazy.lazy loading loadFeature` is a component that stands for the one it waits for. When it is mounted, it shows `Lazy.placeholder`, runs the loader `loadFeature`, and then shows the component the loader gave in its place; if the loader fails, it shows `Lazy.failed` with why. The loader is a program of the component's monad, here `BrowserDOM (Demo.Feature BrowserDOM)`, and it runs on a thread of its own, as `liftIO` does: the page goes on while it waits.
+`Lazy.lazy loading loadFeature` is a wrapper component. It shows `Lazy.placeholder`, runs `loadFeature`, then mounts the returned component. If loading fails, it shows `Lazy.failed` with the error.
 
-Once it is there, the feature is an ordinary child of the wrapper. It has the wrapper's input: type another name and it greets that one, since the wrapper hands every new input on. Its output is the wrapper's output, and the queries sent to the wrapper are sent on to it. So in the parent's `Slots` it is `H.Slot Demo.Query Demo.Output ()`, as a child that was there all along would be.
+The loader runs in the component's monad, here `BrowserDOM (Demo.Feature BrowserDOM)`, on a separate Haskell thread so the page can continue while it waits.
+
+Once loaded, the child receives the wrapper's inputs, forwards its outputs and answers queries through the wrapper. Changing the name therefore updates its greeting. The parent's slot type remains `H.Slot Demo.Query Demo.Output ()`, just like a directly mounted child.
 
 ## Where the code comes from
 
-`loadFeature` is `liftIO (Dyld.load library)`. `Dyld.library` names a shared library, `liblazy-demo.so`, and the function it exports, `Demo.entry`. `Dyld.load` has the page fetch the library, a file of compiled Haskell, and GHC's dynamic linker link it into the running program; then it calls the entry, which hands over the component with its type, and checks the type is the one asked for. Click Hide, then Show: the second time the library is not fetched again, since a library is linked once, but the entry is called again and the feature starts over.
+`loadFeature` calls `liftIO (Dyld.load library)`. `Dyld.library` specifies `liblazy-demo.so` and its exported entry point, `Demo.entry`. The page fetches the compiled library, GHC's dynamic linker links it, and the entry point returns the component. The loader checks that its type matches the requested type.
 
-The program and the library must agree on the component's type, every type in it: a type only the library defines is one the program cannot name. So `Demo.Query` and `Demo.Output` are in `haskell-halogen-lazy-demo`, a package both this lesson and the library are built against.
+Hide and show the feature. The library is linked only once, but its entry point runs again and a fresh component starts. Shared interface types, including `Demo.Query` and `Demo.Output`, live in `haskell-halogen-lazy-demo`, which both the lesson and library depend on.
 
-This works here because the tutorial's page already runs on GHC's dynamic linker: the compiler is a shared library itself, and your program runs inside it. An application of the usual kind is linked into one `app.wasm`, with no linker left in it to link more, and there `Dyld.load` fails, saying so; so it does on the JavaScript backend and natively. `Lazy.lazy` itself works on every backend, with any loader: a program that fetches what the component needs before it can show anything, or `pure` of a component the program has. An application built to load its parts this way ships every library it links against as a shared library too, rather than one file trimmed to what it uses: this tutorial's app is 2.5 MB as one file, while under your program here `haskell-halogen-core` and the libraries it needs beyond GHC's own are 84.5 MB of shared libraries, 7.2 MB compressed, and GHC's `ghc-internal` is another 25.7 MB. That pays for an application large enough that most of it is rarely needed; `lazy/README.md` in the repository says what it takes.
+Dynamic loading works here because the tutorial already runs GHC as a shared library under dyld. A normal standalone `app.wasm`, a JavaScript-backend program or a native program does not have that linker, so `Dyld.load` is unavailable. `Lazy.lazy` itself works everywhere with other loaders, including data-fetching actions or `pure` components.
+
+A dynamically linked application must ship shared dependencies too. For comparison, the tutorial app is 2.5 MB as one binary, while core and its dependencies beyond GHC occupy 84.5 MB as shared libraries, or 7.2 MB compressed. `ghc-internal` adds 25.7 MB. This tradeoff is most useful for large applications with rarely used features. See `lazy/README.md` for setup.
 
 ## Exercise
 
-1. Hear the feature. It raises `Demo.Waved` with how many times it has waved, which `HH.slot_` drops. Use `HH.slot "feature" () (Lazy.lazy loading loadFeature) state.name Heard` instead, with an action `Heard Demo.Output` that puts a sentence into a field `heard :: Text`, and show it under the feature. Press the feature's Wave button.
-2. Talk to it. Add a button "Wave at it", whose action sends `H.tell "feature" () Demo.Wave`, and a button "Ask it", whose action asks with `H.request "feature" () Demo.GetWaves`. Both go through the wrapper. A query that arrives before the feature is there is answered with nothing, as one sent to an empty slot is: `H.request` gives `Nothing` then.
-3. Load it once. Each time the feature is shown, a new wrapper runs the loader again. Make the loader in `initialState` with `Lazy.memo loadFeature`, keep it in a field `feature :: BrowserDOM (Demo.Feature BrowserDOM)`, and give `state.feature` to `Lazy.lazy`: the first wrapper loads, and every later one gets what that load gave, without loading again. A load that fails is not kept, so the next wrapper tries again.
+1. Handle the feature's outputs. Replace `HH.slot_` with `HH.slot "feature" () (Lazy.lazy loading loadFeature) state.name Heard`. Add `Heard Demo.Output` and a `heard :: Text` field. When `Demo.Waved` arrives, display its wave count below the feature.
+2. Add "Wave at it" and "Ask it" buttons. Use `H.tell "feature" () Demo.Wave` and `H.request "feature" () Demo.GetWaves`. Queries pass through the wrapper; requests made before loading finishes return `Nothing`.
+3. Cache the loader with `Lazy.memo loadFeature` in `initialState`. Store it as `feature :: BrowserDOM (Demo.Feature BrowserDOM)` and pass `state.feature` to `Lazy.lazy`. Later mounts reuse the loaded component definition instead of calling the loader again. Failed loads are not cached and can be retried.

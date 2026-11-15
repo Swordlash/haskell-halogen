@@ -354,7 +354,7 @@ component =
         edited <- gets (.edited)
         sure <-
           if edited
-            then H.liftEffect (liftIO (Browser.confirm "Replace your code with the lesson's solution? Your code is not kept."))
+            then H.liftEffect (liftIO (Browser.confirm "Replace your code with the lesson's solution? Your current edits will be lost."))
             else pure True
         when sure $ H.liftEffect (liftIO (Browser.setEditorText editor solution))
       -- The lesson's code, as the reader has it, with what it compiles
@@ -671,13 +671,13 @@ component =
         [ HH.h1_ [HH.text "Learn Halogen"]
         , HH.p_
             [ HH.text
-                "A tutorial for haskell-halogen, the Haskell port of PureScript's Halogen. Each lesson has a short text, code to change, and a Compile button: GHC itself runs in this page, compiled to WebAssembly, and compiles your code into a component that runs beside the lesson. Nothing is sent to a server."
+                "Learn haskell-halogen, the Haskell port of PureScript's Halogen. Read each lesson, edit its code and press Compile to see the result beside it. GHC runs in your browser using WebAssembly. Your code stays in the browser."
             ]
         , HH.p_ [HH.text (downloadNote st)]
         , HH.p_
             [ HH.text "Just want to write code? The "
             , link st Playground [HP.class_ (HH.ClassName "learn-to-playground")] [HH.text "playground"]
-            , HH.text " is the same compiler with no lesson around it: pick the layers your code needs."
+            , HH.text " lets you use the compiler on its own. Choose the libraries you need and try your own components."
             ]
         , HH.ol
             [HP.class_ (HH.ClassName "learn-lessons")]
@@ -720,14 +720,14 @@ component =
             [ HH.h1_ [HH.text "Playground"]
             , HH.p_
                 [ HH.text
-                    "The lessons' compiler with no lesson around it: GHC compiles your module Lesson in this page, and nothing is sent anywhere. Pick the layers your code needs, and the page passes GHC their packages."
+                    "Write a Lesson module that exports component, then press Compile to run it here. Choose library layers below to make their packages available. Your code is compiled in your browser and is not sent to a server."
                 ]
             , HH.fieldset
                 [HP.class_ (HH.ClassName "learn-layers")]
                 ( HH.legend_ [HH.text "Layers"]
                     : case st.sizes of
                       Just sizes -> [HH.ul_ (map (layerChoice st) sizes.layers)]
-                      Nothing -> [HH.p [HP.class_ (HH.ClassName "learn-note")] [HH.text "The layers are listed once the page has read what the compiler is made of."]]
+                      Nothing -> [HH.p [HP.class_ (HH.ClassName "learn-note")] [HH.text "Loading the list of available libraries…"]]
                 )
             , HH.p
                 [HP.class_ (HH.ClassName "learn-extra")]
@@ -742,7 +742,7 @@ component =
                     , HE.onValueInput SetExtraArgs
                     ]
                 ]
-            , HH.p [HP.class_ (HH.ClassName "learn-note")] [HH.text "Your code, the layers and the arguments are kept in this browser for your next visit. Reset puts the example back."]
+            , HH.p [HP.class_ (HH.ClassName "learn-note")] [HH.text "Your browser saves your code, selected layers and compiler arguments for your next visit when storage is available. Reset restores the example code."]
             , HH.nav
                 [HP.class_ (HH.ClassName "learn-pager learn-pager-bottom")]
                 [link st Home [HP.class_ (HH.ClassName "learn-to-lessons")] [HH.text "Lessons"]]
@@ -792,7 +792,7 @@ component =
                         , HH.button
                             [ HP.class_ (HH.ClassName "learn-open-playground")
                             , HP.disabled (isNothing st.editor)
-                            , HP.title "Your code, in the playground, with this lesson's layers"
+                            , HP.title "Open your code in the playground with this lesson's libraries"
                             , HE.onClick (const OpenInPlayground)
                             ]
                             [HH.text "Open in playground"]
@@ -867,7 +867,7 @@ component =
                     [ HP.class_ (HH.ClassName "learn-source")
                     , HP.disabled (not (canSource st))
                     , HP.attr (H.AttrName "aria-pressed") (if isJust st.source then "true" else "false")
-                    , HP.title "Point at an element of the result to see the line of code that made it"
+                    , HP.title "Hover over a result element to find its source code"
                     , HE.onClick (const ToggleSource)
                     ]
                     [HH.text "Source"]
@@ -877,7 +877,7 @@ component =
             <> [ ( "source"
                  , HH.p
                      [HP.class_ (HH.ClassName "learn-note")]
-                     [HH.text "Point at an element to see the line that made it; click it to go there (the program does not get the click). The editor's cursor outlines the element its line made."]
+                     [HH.text "Hover over an element to see its source line. Click to jump to that line without triggering the component. Moving the editor cursor also highlights the matching element."]
                  )
                | isJust st.source
                ]
@@ -908,7 +908,7 @@ component =
         ( case st.compiler of
             NotLoaded
               | st.narrow ->
-                  [ HH.p_ [HH.text ("On a small screen the compiler is not loaded by itself: " <> sizeOf st <> " to download, and over a gigabyte of memory once it runs, more than most phones give a page. The lesson and its code are all here to read.")]
+                  [ HH.p_ [HH.text ("The compiler does not load automatically on small screens. It requires " <> sizeOf st <> " to download and over a gigabyte of memory to run. You can still read the lesson and its code without loading it.")]
                   , HH.button [HP.class_ (HH.ClassName "learn-load"), HE.onClick (const LoadCompiler)] [HH.text "Load the compiler anyway"]
                   ]
               | otherwise -> [HH.p_ [HH.text "The compiler loads once the page has started."]]
@@ -954,13 +954,13 @@ component =
     outcome st = case st.run of
       NotRun
         | isLoaded st.compiler -> "Press Compile to run your code here."
-        | otherwise -> "Your code's component will show here."
+        | otherwise -> "Your component will appear here after compilation."
       Compiling -> "Compiling…"
       Unrun message -> "The compiler could not run: " <> message
       Ran result
         | result.ok -> "Compiled and ran in " <> seconds result.ms <> "."
-        | result.compiled -> "It compiled, and then stopped: " <> fromMaybe "" result.failure
-        | st.mounted -> "It did not compile; what is below is from the last time it did."
+        | result.compiled -> "Compilation succeeded, but the program stopped: " <> fromMaybe "" result.failure
+        | st.mounted -> "It did not compile. The previous result is still shown below."
         | otherwise -> "It did not compile."
 
     statusLine st = case st.compiler of
@@ -978,9 +978,9 @@ component =
       _ -> "GHC"
 
     downloadNote st =
-      "The compiler is "
+      "The compiler download is "
         <> sizeOf st
-        <> " to download, once: your browser keeps it for the next visit. Running, it takes over a gigabyte of memory, so on a screen narrower than 900 pixels it loads only when you ask."
+        <> ". Your browser caches it for future visits. Running it needs over a gigabyte of memory, so screens narrower than 900 pixels load it only on request."
 
     sizeOf st = case (.base) =<< st.sizes of
       Just bytes -> megabytes bytes <> " MB"

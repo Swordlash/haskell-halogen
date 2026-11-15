@@ -2,32 +2,32 @@ title: Routing
 layers: router
 args: -package haskell-halogen-router
 
-A page with several views gives each one an address. `haskell-halogen-router` does it in three parts: a type of routes, a codec between routes and addresses, and a router that watches the address.
+Routing gives each view its own URL. `haskell-halogen-router` uses three parts: a route type, a codec that converts between routes and URLs, and a router that tracks navigation.
 
 ## Routes and their codec
 
-`Route` is an ordinary type with a constructor per view, deriving `Generic`. `route` is its codec: one value that both reads an address into a `Route` and writes a `Route` as an address.
+`Route` has one constructor per view and derives `Generic`. Its codec, `route`, both parses URLs into `Route` values and prints routes as URLs.
 
-- `RD.sum` takes a record of a codec for each constructor, under the constructor's name: `(#Home .== RD.noArgs) .+ (#About .== RD.path "about" RD.noArgs)`. It is a row-types record: `.==` makes a field and `.+` joins two records (both from `Data.Row`); a label such as `#Home` needs `OverloadedLabels`.
-- `RD.noArgs` is a constructor with no arguments, and `RD.path "about"` puts a segment before it: `/about`.
-- `RD.root` says the address starts with `/`.
+- `RD.sum` takes a row-types record with a codec for each constructor: `(#Home .== RD.noArgs) .+ (#About .== RD.path "about" RD.noArgs)`. From `Data.Row`, `.==` creates a field and `.+` combines records. Labels such as `#Home` require `OverloadedLabels`.
+- `RD.noArgs` handles constructors without arguments. `RD.path "about"` adds the `/about` segment.
+- `RD.root` requires a leading `/`.
 
-`Halogen.Router.Duplex` and `Halogen.Router.Duplex.Generic`, which has `sum`, are both imported as `RD`: two modules can share a name when their exports do not clash.
+Both `Halogen.Router.Duplex` and `Halogen.Router.Duplex.Generic` are imported as `RD`. They can share an alias because the names used here do not clash.
 
 ## The router
 
-The component gets a `Router.Router Route` as its input and keeps it in its state. `initialState` is given that input, and asks it where the page is, with `Router.current`. Once the component is on the page, `watchRoutes`, its `H.onInitialize`, has `H.subscribe` turn `Router.changes` into an `Arrived` action for every route the page goes to from then on.
+The component receives a `Router.Router Route` as input and keeps it in state. `initialState` reads the current route with `Router.current`. On initialization, `watchRoutes` subscribes to `Router.changes`, producing an `Arrived` action for each new route.
 
-`Router.link` makes an `<a>` whose `href` is the route's address, and hands a plain click on it to the component as `Go`. `Router.follow` goes there without loading a page, and `Router.changes` brings the new route back.
+`Router.link` builds an anchor with the route's URL and converts a plain click into `Go`. `Router.follow` updates the address without loading another page. The resulting `Router.changes` event updates the component.
 
-The program around your module makes the router, with `Router.newHashRouter Home route`. The tutorial has a router of its own, which reads the path (`/06-router/` is this lesson), and two routers reading the path would fight over it. A hash router keeps its route after the `#` instead (`#/about`). Before the next compile runs, the program calls `Router.stop`, so that the old router stops listening.
+The lesson wrapper creates the router with `Router.newHashRouter Home route`. It uses the fragment, such as `#/about`, because the tutorial already uses the path `/06-router/` for its own routing. Cleanup calls `Router.stop` before the next run.
 
 ## Exercise
 
-Add a route with a number in it, `Post Int`, at `/post/1`, `/post/2` and so on:
+Add numbered posts at `/post/1`, `/post/2` and so on:
 
-1. a constructor `Post Int` in `Route`;
-2. its codec in the record: `.+ (#Post .== RD.path "post" (RD.int RD.segment))`. `RD.segment` reads a segment, and `RD.int` reads it as an `Int`. Without the codec, GHC says which constructor has none;
-3. two links, `link (Post 1) "Post 1"` and `link (Post 2) "Post 2"`.
+1. Add `Post Int` to `Route`.
+2. Add `.+ (#Post .== RD.path "post" (RD.int RD.segment))` to the codec record. `RD.segment` reads a segment and `RD.int` converts it to `Int`. GHC reports constructors missing from the codec.
+3. Add links with `link (Post 1) "Post 1"` and `link (Post 2) "Post 2"`.
 
-Compile and click them: the address ends in `#/post/1`, and the page says where you are. The browser's Back button then returns to the route before, through the lesson's own router, and the tutorial stays on this lesson.
+Compile and follow the links. The address ends in `#/post/1` or `#/post/2`. Back returns to the previous lesson route without leaving this tutorial page.

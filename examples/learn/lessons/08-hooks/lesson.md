@@ -2,25 +2,25 @@ title: Hooks
 layers: hooks
 args: -package haskell-halogen-hooks
 
-`haskell-halogen-hooks` writes a component as one function from its input to its HTML. What it needs on the way, state or an effect, it asks for where it needs it, rather than in an initial state, a render and a list of handlers kept apart. This is lesson 2's counter, written that way.
+`haskell-halogen-hooks` lets you write a component as one function from input to HTML. The function requests state and effects through hooks. This lesson rewrites the counter from lesson 2 that way.
 
 ## A component made of hooks
 
-`Hooks.component` turns the function into an `H.Component`; `@Empty` (from `Data.Row`) says it has no child components. The body is a `Hooks.do` block, which needs `QualifiedDo`, and ends with `Hooks.pure` and the HTML:
+`Hooks.component` creates an `H.Component`. `@Empty`, from `Data.Row`, declares that it has no child slots. The body uses `Hooks.do`, which requires `QualifiedDo`, and returns HTML with `Hooks.pure`.
 
-- `Hooks.useState initial` gives this render's value and a handle for changing it, `countId`. A click handler is a `Hooks.HookM` program: `Hooks.modify_ countId (+ 1)` changes the count, and the component renders again.
-- `Hooks.useLifecycleEffect` runs its program once, after the first render. This one starts a `ticker` with `Hooks.fork`: a loop that waits a second (`Hooks.delay 1`, in seconds) and adds one to `seconds`. What it returns, `Just (Hooks.kill ticker)`, runs when the component goes away (when you compile again, say) and stops the loop.
+- `Hooks.useState initial` returns the current value and a state handle, here `countId`. Event handlers run in `Hooks.HookM`. `Hooks.modify_ countId (+ 1)` updates the count and triggers a render.
+- `Hooks.useLifecycleEffect` runs after the first render. This effect starts a `ticker` with `Hooks.fork`, waits one second with `Hooks.delay 1`, and increments `seconds` repeatedly. Its returned `Just (Hooks.kill ticker)` is the cleanup action, run when the component is removed.
 
-`Hooks.delay` waits as lesson 5's `liftIO (threadDelay 2000000)` does, except that Halogen does not count the pause as work under way: a test that waits for the program to finish waits for what a `liftIO` waits for, a request say, but not for a clock's next tick, which would keep it waiting for ever. So a pause that only ticks, or takes something off the screen, is written with `Hooks.delay`, and one before work a test waits for, a debounce before a request say, with `Hooks.delayCounted`, which is counted as a `liftIO` is. Both sleep on a test's own clock when a test has one (`Halogen.Activity.Control`), so the test moves them on instead of waiting.
+`Hooks.delay` takes seconds and does not count as pending work. Tests waiting for a quiet program can therefore finish between clock ticks. Use it for repeating timers and temporary notices. Use `Hooks.delayCounted` for a delay before work that tests should await, such as a debounced request. Counted delays behave like `liftIO` waits for activity tracking. Both delay functions support the test clock from `Halogen.Activity.Control`.
 
 ## A hook of your own
 
-A hook is an ordinary function. `useCounter` holds the count and hands back a `Counter`: the value, and the handlers `increment` and `decrement`, so its caller cannot change the count any other way. The component uses it like the library's hooks: `counter <- useCounter 0`, then `counter.count` and `counter.increment`.
+`useCounter` is an ordinary function that owns the count and returns a `Counter` record. The record exposes the value and its `increment` and `decrement` handlers. The caller uses `counter <- useCounter 0`, then reads `counter.count` or attaches `counter.increment` to a button.
 
-Its type names the hooks it uses. A `Hooks.Hook` is indexed by a type-level list of the hooks it runs, in order (`UseCounter hooks` is `Hooks.UseState Int` in front of whatever the caller runs after it), so every path through a component must run the same list. A hook inside an `if` would make its two branches different lists, a type error, which is how the rules of hooks (the same hooks, in the same order, on every render) are checked when the code compiles rather than when it runs.
+A hook's type lists the hooks it uses in order. `UseCounter hooks` prepends `Hooks.UseState Int` to the caller's remaining hooks. Every branch must use the same list, so conditionally adding a hook produces a type error. GHC enforces consistent hook order at compile time.
 
 ## Exercise
 
-Give the counter a step size: a second `Hooks.useState 1` in `useCounter`, whose value `step` replaces the `1` in `increment` and `decrement`. Add `step` and `setStep = Hooks.put stepId` to `Counter`, and two buttons that set the step to 1 and to 10.
+Add `Hooks.useState 1` inside `useCounter` for a step size. Use its value, `step`, in place of `1` in the increment and decrement handlers. Add `step` and `setStep = Hooks.put stepId` to `Counter`, then add buttons that set the step to 1 and 10.
 
-Compile it before you change `UseCounter`: GHC refuses, because `useCounter` now uses two hooks and its type says one. Add a second `Hooks.UseState Int` to the list, and it compiles.
+Compile before updating `UseCounter`. GHC reports that the implementation now uses two hooks while its type declares one. Add another `Hooks.UseState Int` to the type-level list and compile again.
