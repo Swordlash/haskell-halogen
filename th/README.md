@@ -1,10 +1,6 @@
 # haskell-halogen-th
 
-HTML and CSS as they are written, with Haskell inside, for
-[haskell-halogen](https://github.com/Swordlash/haskell-halogen) and
-[Clay](https://hackage.haskell.org/package/clay): quasi-quoters, `hh` for
-a Halogen `HTML w i` (SVG inside it included, or on its own with `svg`)
-and `clay` for a `Css`.
+Write HTML and CSS templates with embedded Haskell for [haskell-halogen](https://github.com/Swordlash/haskell-halogen) and [Clay](https://hackage.haskell.org/package/clay). The `hh` quasi-quoter produces `HTML w i`, including embedded SVG. Use `svg` for standalone SVG and `clay` for `Css`.
 
 ```haskell
 {-# LANGUAGE QuasiQuotes #-}
@@ -36,31 +32,19 @@ style = [clay|
 |]
 ```
 
-The result is what the same markup written with `Halogen.HTML` and Clay by
-hand would be: `<div class="x">` is `HH.div [HP.class_ "x"]`, `onClick={{ … }}`
-is `HE.onClick`, `.a { color: red }` is `".a" ? ("color" -: "red")`. The
-types are those functions' types, so an attribute on the wrong element or a
-handler of the wrong type is a type error, at the line of the quote.
+Quotes generate the same calls you would write by hand. `<div class="x">` becomes `HH.div [HP.class_ "x"]`, `onClick={{ … }}` uses `HE.onClick`, and `.a { color: red }` uses `".a" ? ("color" -: "red")`. Those functions' types still apply, so unsupported attributes and incorrect handlers produce type errors.
 
 ## The Haskell inside
 
-`{{ expression }}` is any Haskell expression. It is parsed by GHC's own
-parser, the `ghc` library of the compiler that compiles the module (GHC 9.10
-to 9.14), with the extensions of the module the quote is in: a hole is read
-exactly as the module around it, so `OverloadedRecordDot`, `LambdaCase`, `BlockArguments` and the
-rest work as they do in that module. (It is not `haskell-src-meta`'s parser,
-`haskell-src-exts`, which has none of those extensions, nor `ghc-hs-meta`,
-which translates GHC's tree as this package does but covers a part of the
-expression language, with no `case`, `do`, `let`, comprehension or record
-update, and stops at GHC 9.12.) A parse error names the file, the line
-and the column (in the file: `hh: Mod.hs:12: column 31: …`). GHC still
-reports it, and a type error in a hole, at the quote; the GHC plugin of
-`haskell-halogen-th-plugin` (`-fplugin=Halogen.TH.Plugin`) expands the
-quotes as the module is parsed, so the compiler and a language server
-report each error where it is, in the hole. Two things cannot be inside a quote: another quasi-quote
-(`|]` would end the outer one) and a splice.
+Put Haskell expressions inside `{{ expression }}`. The quoter uses the compiling GHC's own parser and the surrounding module's extensions, including `OverloadedRecordDot`, `LambdaCase` and `BlockArguments`. Supported compiler versions are GHC 9.10 through 9.14.
 
-What a value may be depends on where it stands:
+Using GHC's parser avoids the extension gaps in `haskell-src-meta` and `haskell-src-exts`. The package also translates forms that `ghc-hs-meta` does not cover, including `case`, `do`, `let`, comprehensions and record updates, and supports GHC beyond that library's 9.12 limit.
+
+Parse error messages include the original file, line and column, such as `hh: Mod.hs:12: column 31: …`. By default, GHC attaches diagnostics to the quote itself. Enable `haskell-halogen-th-plugin` with `-fplugin=Halogen.TH.Plugin` to place parser and type-checker errors directly on the embedded expression, including in a language server.
+
+Nested quasi-quotes and splices are unsupported. In particular, `|]` would close the outer quote.
+
+The expected type depends on where the expression appears:
 
 | Where | What |
 | --- | --- |
@@ -73,55 +57,27 @@ What a value may be depends on where it stands:
 | a selector, `{{ s }} { … }` | a `Selector`; in text, `.size-{{ n }} { … }`, a `Text` |
 | among the rules, `.a { {{ mixin }} color: red }` | a `Css` |
 
-Statements shape the sequence they stand in: the children of an element,
-its attributes, the text of an attribute (`class="item {% if done %}done{% end %}"`)
-or the rules of a block alike:
+Template statements work in child lists, attribute lists, attribute text and CSS rule blocks. For example, a class can be conditional: `class="item {% if done %}done{% end %}"`. Supported statements are:
 
 - `{% if c %} … {% elif c %} … {% else %} … {% end %}`
 - `{% for pattern in list %} … {% end %}`, with any pattern: `{% for (i, x) in zip [1 ..] xs %}`
 - `{% let pattern = e %}`, which binds for the rest of its sequence
 - `{# a comment #}`
 
-A statement is closed in the sequence it opened: a `{% for %}` among the
-children of one element ends among them. `{% end %}`, `{% endif %}` and
-`{% endfor %}` are the same.
+Close each statement within the sequence where it started. For example, a loop over an element's children must end inside that element. `{% end %}`, `{% endif %}` and `{% endfor %}` are interchangeable.
 
 ## HTML
 
-`hh` makes one element. For a list of nodes, or a statement at the top,
-`hhs` makes an `[HTML w i]`.
+`hh` produces one element. Use `hhs` to produce `[HTML w i]`, including when a template starts with a statement.
 
-- An element is its function from `Halogen.HTML.Elements`, with the
-  children it takes; a name without one (`<my-widget>`) is `HH.element`.
-  Void elements (`<br>`, `<input>`, …) take no end tag, and tolerate one.
-  Every other tag must be closed, in order, or the quote fails with the line.
-- An attribute is its function from `Halogen.HTML.Properties`, by name in
-  any case (`colspan`, `colSpan`), a handler one from `Halogen.HTML.Events`
-  (`onClick`, `onclick`). A name without one (`data-x`, `aria-label`, `role`)
-  is `HP.attr`. A boolean attribute stands alone (`<input disabled>`) or
-  takes a `Bool`; a number is written as a number. A property of its own type
-  (`type`, `value`, `step`, `width`) takes its Haskell value, or, written as
-  text, is set as the attribute.
-- `style="…"` is `HP.styleText`; `style={{ x }}` takes Clay's `Css` or a `Text` (the `Styled` class). A `Css` among the children, `{{ style }}`, is a `<style>` element with it.
-- Text follows JSX: a line break between two words is one space, and a
-  line break next to a tag, a `{{ }}` or a `{% %}`, with the spaces around
-  it, is nothing. So indentation never becomes a text node, `{{ a }}` and
-  `{{ b }}` on lines of their own have nothing between them, and neither do
-  `Hello,` and a `{{ name }}` on the next line. A space that must be there
-  goes on one line with what it separates (`Hello, {{ name }}`), or in a
-  hole of its own, `{{ " " :: Text }}`, as JSX's `{' '}`. Text on one line
-  is kept as it is, spaces and all. Precisely: a tag, a `{{ }}` or a
-  `{% %}` ends a text; a text over several lines loses the leading spaces
-  of every line but its first and the trailing spaces of every line but its
-  last, its lines left empty are dropped, and the rest are joined by one
-  space. Only ASCII whitespace is trimmed, never a `&nbsp;`. Entities
-  are decoded, `<!-- -->` is dropped.
+- Known tags call `Halogen.HTML.Elements` functions. Unknown tags such as `<my-widget>` use `HH.element`. Void tags such as `<br>` and `<input>` do not require closing tags, though they are accepted. Other tags must close in the correct order; errors report their line.
+- Attributes map case-insensitively to `Halogen.HTML.Properties`; handlers map to `Halogen.HTML.Events`. Thus `colspan` and `colSpan`, or `onclick` and `onClick`, are equivalent. Unknown names such as `data-x`, `aria-label` and `role` use `HP.attr`. Boolean attributes can stand alone or take a `Bool`; numeric values can be written directly. Typed properties such as `type`, `value`, `step` and `width` accept Haskell values. Writing those values as text sets an attribute instead.
+- `style="…"` uses `HP.styleText`. `style={{ x }}` accepts `Css` or `Text` through `Styled`. A `Css` value among children becomes a `<style>` element.
+- Whitespace follows JSX rules. Single-line text keeps its spaces. For multiline text, leading whitespace is trimmed except on the first line, trailing whitespace except on the last, empty lines are removed, and remaining lines join with one space. Tags, expressions and statements separate text segments, so indentation around them does not create spaces. Put required spaces on the same line, as in `Hello, {{ name }}`, or insert `{{ " " :: Text }}`. Only ASCII whitespace is trimmed; `&nbsp;` remains. Entities are decoded and HTML comments are removed.
 
 ## SVG
 
-An `<svg>` in an `hh` quote, and everything in it, is SVG; so is a whole
-`svg` quote (one element) or `svgs` quote (a list), for SVG written apart
-from its `<svg>`.
+Inside an `hh` quote, `<svg>` switches its contents to the SVG namespace. Use `svg` for one standalone SVG element or `svgs` for a list of SVG elements.
 
 ```haskell
 board :: [(Double, Double)] -> [PathCommand] -> HTML w Action
@@ -133,53 +89,22 @@ board towns road = [hh|
 |]
 ```
 
-- An element is its function from `Halogen.Svg.Elements`, in SVG's
-  namespace; a name without one (`<stop>`, `<linearGradient>`) is
-  `Halogen.Svg.Elements.element`, in the namespace too, and takes its
-  attributes as text, but for `class`, `style`, `ref` and handlers. Names keep their case (`foreignObject`, `viewBox`). A
-  `<foreignObject>` holds HTML again.
-- An attribute is its function from `Halogen.Svg.Attributes`, by its SVG
-  name (`stroke-width`) or its function's (`strokeWidth`): a number
-  (`x`, `r`, `stroke-width`) is written as one or takes a `Double`; `d`
-  takes a `[PathCommand]`, `fill` and `stroke` a `Color`, `transform` a
-  `[Transform]`, `viewBox` a tuple of four `Double`s; each of these written
-  as text is set as the attribute. `class` is an attribute, not the
-  `className` property, which an SVG element does not let anyone set.
-  Handlers are those of HTML.
-- A tag may close itself, `<path d={{ p }}/>`.
+- Known SVG tags call `Halogen.Svg.Elements` functions in the SVG namespace. Unknown tags such as `<stop>` and `<linearGradient>` use `Halogen.Svg.Elements.element`. Their attributes are text except for class, style, refs and handlers. Names preserve SVG casing, including `foreignObject` and `viewBox`. Inside `<foreignObject>`, content switches back to HTML.
+- Attributes accept either SVG names, such as `stroke-width`, or Haskell names, such as `strokeWidth`. Numeric values accept literals or `Double`. `d` takes `[PathCommand]`, `fill` and `stroke` take `Color`, `transform` takes `[Transform]`, and `viewBox` takes four `Double`s. Text values set attributes directly. `class` uses the attribute because SVG's `className` is not writable. Event handlers are the same as HTML handlers.
+- SVG tags can close themselves, as in `<path d={{ p }}/>` .
 
 ## CSS
 
-`clay` makes a `Css`: rules, or declarations alone (a mixin). The style
-rendered is the one written.
+`clay` produces `Css` from complete rules or a group of declarations used as a mixin. The output preserves the CSS you wrote.
 
-- A declaration is `key` over the property and the value as text: Clay's
-  typed functions are not used, so a vendor prefix is written, not added,
-  and `!important`, `calc()`, `var()` and custom properties pass through.
-- A selector is `element` over its text, nested with `?`; a list is
-  combined. `&:hover`, `&.open`, `&[attr]`, `&::before` refine the enclosing
-  selector (Clay's `&`); `> .child` is a child (`<?`); `& .deep` a
-  descendant.
-- `@media [not | only] [type] [and (feature[: value])]…` is `query`,
-  `queryNot` or `queryOnly`, nested in a rule or not. `@keyframes name { from
-  … 50% … to … }`, `@font-face { … }` and `@import "file";` are Clay's.
-  Other at-rules are refused, since Clay has no rule for them.
+- Declarations use Clay's `key` with textual property names and values. Typed property functions are not involved, so vendor prefixes are written explicitly and `!important`, `calc()`, `var()` and custom properties pass through.
+- Selectors use `element` and nest with `?`. Selector lists are combined. `&:hover`, `&.open`, `&[attr]` and `&::before` refine the parent through Clay's `&`; `> .child` uses `<?`, and `& .deep` selects descendants.
+- Media queries map to `query`, `queryNot` or `queryOnly` and can appear inside rules. `@keyframes`, `@font-face` and `@import` use Clay's corresponding operations. Other at-rules are rejected because Clay cannot represent them.
 
 ## In this repository
 
-The package is `th/`. Its tests run natively (`cabal test th-test
---builddir=dist-newstyle/native`); each one compares a quote with the same
-markup or style written by hand.
+The package lives in `th/`. Run its native tests with `cabal test th-test --builddir=dist-newstyle/native`. Each test compares a quote with equivalent HTML or CSS built by hand.
 
-Building a quote on the WebAssembly backend needs Template Haskell there,
-that is `shared: True` in the wasm project (as the jsbits already do): the
-quoter runs in the wasm interpreter, which loads the cross compiler's own
-`libHSghc` for the parser. There is nothing to compile for it, the library
-being the compiler's.
+WebAssembly quotes require `shared: True` in the Cabal project, as jsbits does. The wasm Template Haskell interpreter loads the cross-compiler's `libHSghc` to parse expressions; you do not need to build another copy.
 
-The JavaScript backend is not a target. The package itself builds there,
-but a quote does not: that backend runs Template Haskell in node, after
-linking everything the splice depends on into JavaScript inside the
-compiler, and with this package that is the `ghc` library, 1.7 GB of
-objects. The example's module of five quotes took two minutes and 12.7 GB
-to compile, and the tests' module of 45 quotes was killed past 17 GB.
+The JavaScript backend is unsupported because expanding quotes requires too much memory. Its Template Haskell runner links all splice dependencies into JavaScript, including 1.7 GB of `ghc` library objects. The example with five quotes took two minutes and 12.7 GB to compile; the 45-quote test module was killed after exceeding 17 GB. The package itself can compile there, but using its quotes is impractical.

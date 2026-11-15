@@ -1,45 +1,20 @@
 # haskell-halogen-th-plugin
 
-GHC runs a quasi-quoter in the type checker and reports whatever goes wrong
-inside an `[hh| … |]`, `[hhs| … |]` or `[clay| … |]` quote at the quote. This
-plugin does the quoter's work as the module is parsed instead: each quote
-of the three quoters becomes the code its quoter makes, with the Haskell of
-every hole parsed by GHC itself at its place in the file. So
+Normally, GHC expands quasi-quotes during type checking and reports errors at the start of the quote. This plugin expands `[hh| … |]`, `[hhs| … |]` and `[clay| … |]` while parsing the module instead. GHC parses the Haskell expressions inside each quote at their actual positions in the source file.
 
-- a parse error in a hole is the parser's own, at its line and column;
-- a type error in a hole is the type checker's, at the hole (a handler of
-  the wrong type under `onClick`, a child no element can hold, a `for`
-  pattern that does not fit the list);
-- what the template itself gets wrong (an unclosed hole, an element that
-  takes no children) is reported at its line.
+As a result, parse errors point to the expression's line and column, and type errors point to the expression that caused them. This includes incorrect handlers, unsupported child values and mismatched loop patterns. Template errors, such as unclosed expressions or children inside a void element, also point to the relevant line.
 
-The quoter never runs for a quote the plugin has expanded, and the code is
-the same: the th package's own tests, compiled with the plugin
-(`parity-test`, over `test/parity`, which links to `th/test`), build the
-same HTML and CSS. What the quoter
-would refuse in a hole (a splice, an arrow) the plugin refuses too, so a
-module builds the same with the plugin and without it. Each hole is parsed
-once: haskell-halogen-th parses with the compiler's own parser, and gives
-the plugin GHC's tree together with the quoter's verdict on it. The
-import that brings the quoter stays used.
+The plugin generates the same code as the quasi-quoters. Once it expands a quote, the quoter does not run again. The `parity-test` suite in `test/parity` reuses `th/test` to check that both approaches produce the same HTML and CSS.
+
+Both approaches also reject the same unsupported expressions, such as splices and arrows. Each expression is parsed once: `haskell-halogen-th` passes the GHC syntax tree and its validation result to the plugin. Imports of the quasi-quoters still count as used.
 
 ```cabal
 build-depends: haskell-halogen-th, haskell-halogen-th-plugin
 ghc-options:   -fplugin=Halogen.TH.Plugin
 ```
 
-or, in one module, `{-# OPTIONS_GHC -fplugin=Halogen.TH.Plugin #-}`. A
-language server that builds on GHC shows the errors there too, and hover
-and go-to-definition work inside the holes.
+To enable the plugin for a single module, add `{-# OPTIONS_GHC -fplugin=Halogen.TH.Plugin #-}`. GHC-based language servers can then show errors, hover information and go-to-definition targets inside quoted expressions.
 
-A plugin runs inside the compiler, so there is none for the WebAssembly or
-JavaScript targets: put the flag in a native build only (a cabal flag, or a
-`cabal.project` the cross builds do not import); there the quoters run as
-before and make the same code. The quoters are known by their names, so
-another `hh` in scope would be read as this one.
+The plugin runs inside the compiler and is available only for native builds. Put its flag behind a Cabal flag or in a project file that cross builds do not import. WebAssembly and JavaScript builds use the ordinary quasi-quoters and generate the same code. The plugin identifies quoters by name, so another quoter named `hh` would be treated as this package's `hh`.
 
-`test/run.sh` runs the plugin on a compiler, after `cabal build all`: a
-module with every kind of broken quote (each error at its place), one with
-good quotes, one whose quotes do not type check (each type error at its
-hole), one with a hole no element can hold and one with a hole the quoter
-would refuse.
+`test/run.sh` tests the plugin after `cabal build all`. It compiles valid quotes and checks the locations of syntax errors, type errors, unsupported child values and expressions rejected by the quoter.

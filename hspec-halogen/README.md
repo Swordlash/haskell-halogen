@@ -1,15 +1,8 @@
 # hspec-halogen
 
-Test [haskell-halogen](https://github.com/Swordlash/haskell-halogen)
-components in a real browser, with hspec.
+Test [haskell-halogen](https://github.com/Swordlash/haskell-halogen) components in a real browser, with hspec.
 
-A test mounts a component into a page in Chromium, finds its elements by CSS
-selector, clicks and types into them as a user would, and checks what it reads
-back. The test suite runs inside the page, so a test holds the component
-itself: it can query it and see what it raised, not only the markup it
-rendered. Clicks and keystrokes are real input, performed by
-[Playwright](https://playwright.dev) on elements it has checked are visible,
-enabled and not covered.
+A test mounts a component in Chromium, finds elements by CSS selector, interacts with them and checks the result. The suite runs inside the page, so it can also query the component and inspect its outputs. [Playwright](https://playwright.dev) supplies real clicks and keystrokes after checking that the target is visible, enabled and unobstructed.
 
 ```haskell
 spec :: forall m -> (MonadBrowserTest m) => Spec
@@ -21,33 +14,18 @@ spec m = describe "counter" $
     query ui (H.mkRequest Counter.GetCount) `shouldReturn` Just 1
 ```
 
-To test from outside the page instead (a built program, several pages,
-navigation, a server whose component is not in the page at all), use
-[haskell-halogen-playwright](../playwright/): a native hspec suite drives
-Chromium, and waits after each action for the page's program to say it is
-idle. Inside the page is for one component, quickly, with its state and
-outputs in reach; outside is for the program as a user meets it.
+Use [haskell-halogen-playwright](../playwright/) for tests that run outside the page: built applications, navigation, multiple tabs or remotely rendered components. It runs as a native hspec suite and waits for the page to become idle after each action. Use this package for focused component tests that need direct access to queries and outputs.
 
-Suites run on GHC's WebAssembly backend or its JavaScript backend. You write no
-JavaScript: the `hspec-halogen` executable, used as cabal's test wrapper,
-starts the browser, serves the suite to it and relays the report.
+Suites support both GHC browser backends: WebAssembly and JavaScript. The native `hspec-halogen` executable acts as Cabal's test wrapper, starts Chromium, serves the suite and relays the test report. You do not need to write JavaScript.
 
 ## What you need
 
 - **A GHC for the browser**, 9.10 or newer:
-  - the WebAssembly toolchain
-    ([ghc-wasm-meta](https://gitlab.haskell.org/haskell-wasm/ghc-wasm-meta)).
-    The executable calls `wasm32-wasi-ghc --print-libdir` to find the
-    post-linker; set `HSPEC_HALOGEN_WASM_GHC` if your wasm GHC has another
-    name;
+  - the WebAssembly toolchain ([ghc-wasm-meta](https://gitlab.haskell.org/haskell-wasm/ghc-wasm-meta)). The executable calls `wasm32-wasi-ghc --print-libdir` to find the post-linker; set `HSPEC_HALOGEN_WASM_GHC` if your wasm GHC has another name;
   - or the JavaScript backend (`javascript-unknown-ghcjs-ghc`).
-- **A host GHC**, to build the `hspec-halogen` executable. It is a native
-  program, like `hspec-discover`.
-- **Node.js 24 or newer** on `PATH`, or named by `HSPEC_HALOGEN_NODE`.
-  ghc-wasm-meta installs one.
-- **npm packages in your project**, found from the directory the suite runs in
-  upwards, as Node finds packages. You need `playwright`, plus
-  `@bjorn3/browser_wasi_shim` for WebAssembly or `esbuild` for JavaScript:
+- **A host GHC**, to build the `hspec-halogen` executable. It is a native program, like `hspec-discover`.
+- **Node.js 24 or newer** on `PATH`, or named by `HSPEC_HALOGEN_NODE`. ghc-wasm-meta installs one.
+- **npm packages in your project**, found from the directory the suite runs in upwards, as Node finds packages. You need `playwright`, plus `@bjorn3/browser_wasi_shim` for WebAssembly or `esbuild` for JavaScript:
 
   ```sh
   npm install --save-dev playwright @bjorn3/browser_wasi_shim   # WebAssembly
@@ -62,9 +40,7 @@ starts the browser, serves the suite to it and relays the report.
   npx playwright install --with-deps --only-shell chromium
   ```
 
-Install the executable with the **host** compiler, not the wasm one. If your
-shell has sourced `~/.ghc-wasm/env`, clear the cross-compiler variables it
-exports first:
+Install the executable with the **host** compiler, not the wasm one. If your shell has sourced `~/.ghc-wasm/env`, clear the cross-compiler variables it exports first:
 
 ```sh
 env -u CC -u CXX -u LD -u AR cabal install hspec-halogen:exe:hspec-halogen
@@ -72,9 +48,7 @@ env -u CC -u CXX -u LD -u AR cabal install hspec-halogen:exe:hspec-halogen
 
 ## Setting up a test suite
 
-On WebAssembly, a browser suite is a *reactor*: its entry point, `hs_start`, is
-called by the page once it has loaded. Build it that way on wasm only. On the
-JavaScript backend it is an ordinary test program, and needs nothing extra:
+A WebAssembly browser suite must be built as a reactor with an exported `hs_start` entry point. The page calls it after loading. Apply these options only on wasm; JavaScript-backend suites are ordinary test programs:
 
 ```cabal
 test-suite browser-test
@@ -90,8 +64,7 @@ test-suite browser-test
             "-optl-Wl,--export=hs_start"
 ```
 
-`main` runs the specs with `runBrowserTests` and chooses the monad the
-components run in. The specs themselves name none:
+`main` calls `runBrowserTests` and chooses the component monad. Specs remain polymorphic:
 
 ```haskell
 {-# LANGUAGE CPP #-}
@@ -109,28 +82,18 @@ foreign export javascript "hs_start" main :: IO ()
 #endif
 ```
 
-Import `BrowserDOM` without its constructor, as above. `spec BrowserDOM` then
-passes the type, not the constructor.
+Import `BrowserDOM` without its constructor, as above. `spec BrowserDOM` then passes the type, not the constructor.
 
-The library also builds natively, so the language server can load your suite.
-Run natively, or run without the executable (a JavaScript-backend suite is a
-Node script), `runBrowserTests` prints that it skipped the suite and succeeds.
+The library also builds natively so a language server can check your suite. Native runs report a skip and succeed. The same happens if a JavaScript suite runs under Node without the browser runner.
 
-On the JavaScript backend, the executable bundles the suite with esbuild before
-serving it, so your `js-sources` may `import` npm packages. The few functions
-that hspec needs there and GHC's JavaScript runtime lacks (from `unix` and
-`splitmix`) come with `haskell-halogen-core`, so a suite doesn't carry its own.
+For JavaScript builds, the executable bundles the suite with esbuild before serving it, allowing `js-sources` to import npm packages. Core supplies the `unix` and `splitmix` functions that hspec needs but GHC's JavaScript runtime lacks.
 
 ### Your page's scripts and styles
 
-The suite runs in an otherwise empty page. Whatever your components need
-loaded first goes in `test/web/`, beside the suite's package:
+Tests start in an otherwise empty page. Put any required scripts, styles and assets in the package's `test/web/` directory:
 
-- every `.css` and `.js` file there is loaded before the suite starts, and
-  anything else there is served too;
-- if `test/web/bundle.sh` exists, it runs first with an empty directory as its
-  argument, and what it writes there is loaded the same way. Use it to build
-  your stylesheet or bundle your JavaScript.
+- every `.css` and `.js` file there is loaded before the suite starts, and anything else there is served too;
+- if `test/web/bundle.sh` exists, it runs first with an empty directory as its argument, and what it writes there is loaded the same way. Use it to build your stylesheet or bundle your JavaScript.
 
 ## Running
 
@@ -149,17 +112,11 @@ cabal test browser-test \
   --test-wrapper="$(command -v hspec-halogen)"
 ```
 
-(`wasm32-wasi-cabal test --test-wrapper=…` does the same, if ghc-wasm-meta
-installed that wrapper.)
+(`wasm32-wasi-cabal test --test-wrapper=…` does the same, if ghc-wasm-meta installed that wrapper.)
 
-hspec's options pass through as usual, e.g.
-`--test-options='--match "/counter/"'`. The wrapper also runs suites that are
-not browser suites, under Node, so one wrapper serves a whole project.
+hspec's options pass through as usual, e.g. `--test-options='--match "/counter/"'`. The wrapper also runs suites that are not browser suites, under Node, so one wrapper serves a whole project.
 
-If cabal complains of a version mismatch between `ghc` and `ghc-pkg`, it has
-cached the host compiler from an earlier build in the same build directory.
-Delete `dist-newstyle/cache/compiler`, or use a build directory of its own for
-wasm (`--builddir=dist-newstyle/wasm`).
+If cabal complains of a version mismatch between `ghc` and `ghc-pkg`, it has cached the host compiler from an earlier build in the same build directory. Delete `dist-newstyle/cache/compiler`, or use a build directory of its own for wasm (`--builddir=dist-newstyle/wasm`).
 
 | Environment variable | Effect |
 |---|---|
@@ -173,17 +130,9 @@ wasm (`--builddir=dist-newstyle/wasm`).
 
 ## Writing tests
 
-The package's own test suite doubles as a set of worked examples. Each
-component in [`test/Example`](test/Example) has a spec beside it in
-[`test/Test`](test/Test). They start with the counter above and a couple of
-small forms, and go on to a todo list with keyed rows, a parent adding and
-removing child components, and components that load in a forked action or tick
-from a subscription. `Reconcile` checks what a render keeps, patches and
-replaces in the page.
+The package's own test suite doubles as a set of worked examples. Each component in [`test/Example`](test/Example) has a spec beside it in [`test/Test`](test/Test). They start with the counter above and a couple of small forms, and go on to a todo list with keyed rows, a parent adding and removing child components, and components that load in a forked action or tick from a subscription. `Reconcile` checks what a render keeps, patches and replaces in the page.
 
-Import `Test.Hspec.Halogen` instead of `Test.Hspec`. It re-exports `Spec`,
-`describe`, `it` and the other names a spec is built from, and has its own
-expectations under hspec's names.
+Import `Test.Hspec.Halogen` instead of `Test.Hspec`. It re-exports `Spec`, `describe`, `it` and the other names a spec is built from, and has its own expectations under hspec's names.
 
 Each test is a `PageM s` action, run in a page of its own by `runPage`:
 
@@ -193,106 +142,52 @@ it "…" $ runPage $ do
   …
 ```
 
-`runPage` gives the test a container at the end of the body (or of the
-element `runBrowserTestsIn` was given). When the test ends, pass or fail, it
-unmounts everything mounted there.
+`runPage` gives the test a container at the end of the body (or of the element `runBrowserTestsIn` was given). When the test ends, pass or fail, it unmounts everything mounted there.
 
-`runPage` is to `PageM` what `runST` is to `ST`. The `s` in `Mounted s …` and
-`Element s` keeps what a test mounted and found from being used outside it.
-`PageM` has no `MonadIO`, so a test cannot open a page inside its own. For
-other `IO`, there is `unsafeIOToPageM`, unsafe in the same way as
-`unsafeIOToSTM`.
+`runPage` is to `PageM` what `runST` is to `ST`. The `s` in `Mounted s …` and `Element s` keeps what a test mounted and found from being used outside it. `PageM` has no `MonadIO`, so a test cannot open a page inside its own. For other `IO`, there is `unsafeIOToPageM`, unsafe in the same way as `unsafeIOToSTM`.
 
 ### Mounting and talking to the component
 
-- `mount m component input`: mount into the page. The component has
-  rendered and run its initialisers up to their first wait when this
-  returns; what they load in a `liftIO` may still be on its way, which
-  `waitQuiet` waits for.
-- `htmlContainer "<p>…</p>"` and `hydrate m container component input`: a
-  container holding HTML the browser parsed, as a prerendered page holds a
-  component's, and the component mounted into it with `hydrateUI`, adopting
-  that HTML. Find elements in the container with `findIn` before hydrating,
-  and `shouldBeSameElement` tells which of them the component kept.
-- `unmount ui`: take it down before the test ends, running its finalisers.
-- `query ui q`: send a query, as a parent would.
-- `outputs ui`: everything the component has raised, oldest first.
+- `mount m component input` renders the component and runs initialization up to its first wait. Use `waitQuiet` if the assertion depends on asynchronous initialization.
+- `htmlContainer "<p>…</p>"` creates a container from parsed HTML. `hydrate m container component input` adopts it with `hydrateUI`. Find nodes before hydration with `findIn`, then use `shouldBeSameElement` to verify that they were retained.
+- `unmount ui` disposes the component and runs finalizers before the test ends.
+- `query ui q` sends a component query.
+- `outputs ui` returns all component outputs, oldest first.
 
 ### Finding elements
 
-- `find ui "selector"`: the first match in the component. It waits for one to
-  appear, and fails with the component's markup if none does.
+- `find ui "selector"`: the first match in the component. It waits for one to appear, and fails with the component's markup if none does.
 - `findAll ui "selector"`: every match, as the page is now.
-- `findIn element "selector"` and `findAllIn element "selector"`: the same,
-  within one element.
+- `findIn element "selector"` and `findAllIn element "selector"`: the same, within one element.
 
 ### Acting
 
-- `click`, `typeText element "text"` and `clear` go through Playwright:
-  trusted events, to an element it has checked it can reach.
-- `dragTo source target` drags one element onto another with Playwright's
-  mouse: the page sees pointer and mouse events on the way, and Chromium's
-  HTML5 `dragstart`, `dragover` and `drop`, so it tests either kind of drag.
-  A pointer drag should not select text (`user-select: none`), or the next
-  press on the selection drags the text and cancels the pointer, as it would
-  for a user.
-- `press "Enter"` presses a key on the focused element. Key names are
-  Playwright's (`Backspace`, `ArrowDown`, `Shift+Tab`, …).
+- `click`, `typeText element "text"` and `clear` go through Playwright: trusted events, to an element it has checked it can reach.
+- `dragTo source target` drags one element onto another with Playwright's mouse: the page sees pointer and mouse events on the way, and Chromium's HTML5 `dragstart`, `dragover` and `drop`, so it tests either kind of drag. A pointer drag should not select text (`user-select: none`), or the next press on the selection drags the text and cancels the pointer, as it would for a user.
+- `press "Enter"` presses a key on the focused element. Key names are Playwright's (`Backspace`, `ArrowDown`, `Shift+Tab`, …).
 - `focus` and `blur`.
 
-Every action returns once the program has finished reacting (`settle`, below),
-so a synchronous `handleAction` has rendered by then, and so has what the
-page fired a moment later because of it.
+Actions return after `settle` confirms that the program has finished reacting. Synchronous handlers have rendered by then, including handlers for browser events triggered shortly after the original action.
 
 ### Waiting for the program
 
-The suite and the components are one program in the page, and core's
-`Halogen.Activity` says whether its trees are busy. Every action ends with
-`settle`, which waits, in this order, until a round finds nothing left:
+The suite and its components share one program. `Halogen.Activity` reports whether any component tree is busy. Every action calls `settle`, which repeats the following sequence until the program remains idle:
 
-1. a task of the page's at background priority (on WebAssembly an event's
-   handler runs in a task of its own, after the event);
-2. the program idle: no tree running a piece of work or with work queued;
-3. a move through the history a handler asked for (`history.back()`,
-   `forward()`, `go(n)`), until its `popstate` has come, for at most half a
-   second; a move with nowhere to go (back from the first entry) is not
-   waited for;
-4. the page's next animation frame and a task after it: the browser
-   dispatches some events with a frame (a dialog's `close`, after Escape or
-   `close()`; `resize`; a `ResizeObserver`'s callback); a hidden page is not
-   waited for, and a page whose frame does not come within 100 ms is waited
-   for at most 20 ms from then on, until one comes;
-5. the program again: if that event's handler made it busy, round again.
+1. Wait for a background-priority browser task, allowing WebAssembly event handlers to start.
+2. Wait until no component tree is running or has queued work.
+3. Wait for pending history navigation requested by a handler, such as `history.back()`, `forward()` or `go(n)`. This waits up to half a second for `popstate`; navigation with no destination is skipped.
+4. Wait for the next animation frame and a task after it. Events such as dialog `close`, `resize` and `ResizeObserver` callbacks can arrive here. Hidden pages are skipped. If a frame takes more than 100 ms, later attempts wait at most 20 ms until frames resume.
+5. Check the program again and repeat if those events made it busy.
 
-So one read after an action sees what the program did, late events
-included. Call `settle` yourself after acting on the page another way (an
-`unsafeIOToPageM` that dispatches an event). It costs an action about one
-frame, 17 ms at 60 frames a second. Every wait in it is a promise of the
-page's, never a loop, so the page has its turns meanwhile; a program still
-busy five seconds after the action fails the test, saying how many trees
-were running, followed by what the trees did.
+After an action, one read is enough to inspect its rendered result. Call `settle` explicitly after custom actions, such as an `unsafeIOToPageM` operation that dispatches an event. Settling usually costs one frame, about 17 ms at 60 Hz. It waits through browser promises, allowing the page to continue running. If the program is still busy after five seconds, the test fails with activity counts and a trace.
 
-What a component's fiber waits for in a `liftIO` (a request, a debounce
-written `H.delayCounted`) is not part of `settle`:
+`settle` does not wait for fibers suspended in `liftIO`, such as a request or a counted debounce. Use these APIs when the result depends on them:
 
-- `waitQuiet`: `settle`, and until no fiber is waiting in a `liftIO` either,
-  then the page settled again, so one read sees what came back. It fails
-  after five seconds, saying how many trees were running and how many
-  fibers waited; `waitQuietWithin ms` takes another deadline, for a request
-  or a debounce that can take longer.
-- A pause written with `H.delay` (`Hooks.delay`) is not waited for, on
-  purpose: the program says which of its pauses a test waits for by how it
-  writes them. A pause before work a test waits for (a debounce before a
-  request, an autosave) is `H.delayCounted` (or `liftIO (threadDelay n)`,
-  which counts the same but a test's clock cannot move); one that only takes
-  something off the screen or ticks (a "Saved" notice, a clock) is
-  `H.delay`, so a test can see the notice before it goes, and a ticker does
-  not keep the program from ever being quiet.
-- `activity`: the reading itself (trees, running, waiting), for a test that
-  checks it; its fields are core's (`import Halogen.Activity (Activity (..))`).
+- `waitQuiet` settles the page, waits until no fibers remain in `liftIO`, then settles again. It has a five-second deadline; `waitQuietWithin ms` overrides it. Failures report running trees and waiting fibers.
+- `H.delay` and `Hooks.delay` are excluded intentionally. Use them for transient notices and repeating timers. Use `H.delayCounted` for delays before observable work, such as debounced requests or autosaves. `liftIO (threadDelay n)` also counts, but a test clock cannot advance it.
+- `activity` returns the raw reading: trees, running trees and waiting fibers. Import its fields from `Halogen.Activity (Activity (..))`.
 
-These are `haskell-halogen-playwright`'s names for the same waits, so a test
-reads the same on either harness.
+These are `haskell-halogen-playwright`'s names for the same waits, so a test reads the same on either harness.
 
 ```haskell
 find ui "button.save" >>= click
@@ -302,96 +197,31 @@ find ui ".status" >>= textContent >>= (`shouldBe` "Saved")
 
 ### Without the runner
 
-A suite can also run in a page with no Playwright behind it: one opened by
-hand, or one that compiles and runs a suite itself, as the haskell-halogen
-tutorial does with the GHC it runs in the page. There the page performs the
-actions itself, with synthetic events (`jsbits/page.js`, its in-page mode):
+Suites can also run in pages without Playwright, including the tutorial's in-browser compiler. In this mode, `jsbits/page.js` performs actions with synthetic events:
 
-- `click`: `pointerdown`, `mousedown`, the focus a press gives (unless
-  `mousedown`'s default was prevented: to the element or the focusable one
-  around it, or, pressing plain text, away from whatever had it),
-  `pointerup`, `mouseup`, then the
-  element's `click()`, which dispatches `click` with its default action (a
-  checkbox toggles, a link is followed, a form's button submits it).
-- `typeText`: the element focused, then for each character `keydown`,
-  `keypress`, `beforeinput`, the field edited, `input` and `keyup`, after
-  what the field holds (an element edited in place, `contenteditable`, is
-  edited at its end with the browser's own editing commands). A number
-  field keeps the text typed so far apart from its value, as a browser
-  does, so `-42` arrives whole although its value is empty after the `-`.
-  `clear` selects everything and deletes it, with `beforeinput` and
-  `input`; as Playwright's, it fails at once on an element that is not a
-  text field or edited in place, and waits for a read-only one to become
-  editable.
-- `press`: the modifiers' and the key's `keydown` and `keyup` on the focused
-  element, and when `keydown`'s default is not prevented (when it is,
-  nothing more, not even the `Space` that would press a button), the
-  commonest of what the browser would do: a character typed into a text field,
-  `Backspace` and `Delete` (a whole character as the reader sees it, a
-  grapheme cluster such as an emoji, never half of one), `Enter` on a
-  button or a link (a click), in a text input of a form (HTML's implicit
-  submission: the form's first submit button is clicked, so its handlers
-  run, and nothing happens when it is disabled; a form with no submit
-  button is submitted only when it has a single text-like field) and in a
-  text area, `Space` on a button or a checkbox, and `Tab` and `Shift+Tab`
-  moving the focus in a browser's order (positive `tabindex` first, by it,
-  then the rest in document order, past disabled, hidden and
-  `tabindex="-1"` elements). Key names are Playwright's, `Space`, `KeyA`
-  and `Digit1` included. Any other key, and a printable one on an element
-  that is not a field, only sends its events: the arrow keys do not move
-  the caret or change a `select`'s choice, which is not supported.
-- `dragTo`: pointer events from one element to the other, then HTML5 drag
-  and drop's, sharing one `DataTransfer`.
+- `click` dispatches pointer-down and mouse-down events, applies focus unless prevented, then dispatches pointer-up and mouse-up and calls the element's `click()`. Native click defaults can toggle a checkbox, follow a link or submit a form.
+- `typeText` focuses the element and sends keydown, keypress, beforeinput, input and keyup for each character, editing between beforeinput and input. Contenteditable text is inserted at the end using browser editing commands. Number inputs track typed text separately so intermediate values such as the minus sign in `-42` are preserved. `clear` selects and deletes contents with beforeinput/input events. It rejects non-editable element types and waits for read-only fields to become editable.
+- `press` sends key and modifier events to the focused element. When not prevented, it handles character insertion, grapheme-aware Backspace/Delete, Enter, Space and Tab. Enter activates buttons and links, inserts a newline in textareas, and performs form implicit submission: it clicks the first submit button unless disabled, or submits a buttonless form only if it has one text-like field. Tab follows positive tabindex order, then document order, skipping disabled, hidden and negative-tabindex targets. Key names follow Playwright, including `Space`, `KeyA` and `Digit1`. Other keys only dispatch events; arrow-key caret movement and select changes are unsupported.
+- `dragTo` sends pointer events followed by HTML5 drag events, sharing one `DataTransfer`.
 
-What a page's handlers decide is honoured as a browser honours it: a
-`keydown` whose default is prevented sends nothing more (no `keypress`,
-no edit, no activation on the `keyup`); a prevented `keypress` keeps the
-character out and Enter from acting; a prevented `beforeinput` leaves the
-field as it was. So is what the field says of itself: a `readOnly` input or
-text area takes the key events (and the focus and the selection) but is not
-edited, and `maxlength` caps what is inserted, not what is deleted, in
-UTF-16 code units as Chromium counts it, leaving out a whole character
-that does not fit (an emoji goes into no field with room for one unit).
+Synthetic input respects event cancellation. Preventing `keydown` stops later keypress, editing and activation behaviour. Preventing `keypress` suppresses character insertion and Enter's default action. Preventing `beforeinput` leaves the field unchanged.
 
-Each waits up to five seconds for its element to be in the page, visible and
-enabled, as Playwright does, and fails the test if it is not, with
-Playwright's "Timeout 5000ms exceeded" in the message (a `dragTo` waits so
-for both elements). Visible is Playwright's sense: an element with a box,
-not `display: none` or `visibility: hidden` itself or by what holds it;
-opacity is not looked at. A disabled element is not enabled, and cannot be
-focused for `press` either. It does not
-check that nothing covers the element. The events are untrusted
-(`isTrusted` is false), which Halogen's handlers do not look at, and what
-else the browser does by itself (a caret moved with the arrow keys, text
-selected with the mouse, the focus a label gives) does not happen. So a
-suite that passes here passes under the runner, as a rule, but not
-necessarily the other way round: the runner is the one to trust.
+Read-only inputs still receive key events, focus and selection, but their contents do not change. `maxlength` limits insertion using Chromium's UTF-16 code-unit count. A character that does not fit is omitted completely, so an emoji is not split to fill one remaining unit.
 
-`runBrowserTestsIn element spec` runs a suite with every test's page inside
-`element` rather than at the end of the body, for a page that has other
-things on it; the report is printed as ever, and there is no runner to tell
-how it went.
+Each synthetic action waits up to five seconds for an attached, visible and enabled target. `dragTo` checks both elements. Timeout failures include `Timeout 5000ms exceeded`. Visibility follows Playwright's definition: the element needs a layout box and must not be hidden by `display` or `visibility`; opacity does not matter. Covered elements are not detected, and disabled elements cannot receive focus for `press`.
+
+These events have `isTrusted = false`. Synthetic actions do not reproduce every browser behaviour, such as arrow-key caret movement, mouse text selection or label-driven focus. Passing here does not replace testing under the real runner.
+
+`runBrowserTestsIn element spec` places each test container inside the supplied element instead of at the end of the body. This is useful on pages with other content. The suite still prints its report, but no external runner receives the result.
 
 ### Reading and checking
 
-- `textContent`, `getProperty element "value"` (as JavaScript's `String()`
-  renders it), `getAttribute`, `classes`, `outerHTML` and `isVisible`, which
-  is visible in Playwright's sense above, the same the actions wait for.
-- `isAttached`: whether the element is still in the page. Elements compare
-  with `==` as JavaScript's `===` does, and `shouldBeSameElement` checks that
-  a render kept an element rather than replacing it.
-- `shouldBe`, `shouldNotBe`, `shouldSatisfy`, `shouldContain`, `shouldReturn`
-  and `expectationFailure` work as hspec's do, in `PageM`. A failure points at
-  the test's line.
-- `shouldHaveClass`, `shouldNotHaveClass`, `shouldHaveText`, `shouldBeVisible`
-  and `shouldBeHidden` retry for up to two seconds before they fail.
-- A pattern that does not match, such as `[a, b] <- findAll ui "li"` finding
-  three, fails the test.
-- `eventually` gives any expectation the same retrying, for what the page
-  does that the program does not know of: a JavaScript widget's own timer, a
-  CSS transition, a real connection's events. What the program does in
-  response to an action is `settle`'s and `waitQuiet`'s, which need no
-  retrying.
+- `textContent`, `getProperty element "value"` (as JavaScript's `String()` renders it), `getAttribute`, `classes`, `outerHTML` and `isVisible`, which is visible in Playwright's sense above, the same the actions wait for.
+- `isAttached`: whether the element is still in the page. Elements compare with `==` as JavaScript's `===` does, and `shouldBeSameElement` checks that a render kept an element rather than replacing it.
+- `shouldBe`, `shouldNotBe`, `shouldSatisfy`, `shouldContain`, `shouldReturn` and `expectationFailure` work as hspec's do, in `PageM`. A failure points at the test's line.
+- `shouldHaveClass`, `shouldNotHaveClass`, `shouldHaveText`, `shouldBeVisible` and `shouldBeHidden` retry for up to two seconds before they fail.
+- A pattern that does not match, such as `[a, b] <- findAll ui "li"` finding three, fails the test.
+- `eventually` gives any expectation the same retrying, for what the page does that the program does not know of: a JavaScript widget's own timer, a CSS transition, a real connection's events. What the program does in response to an action is `settle`'s and `waitQuiet`'s, which need no retrying.
 
   ```haskell
   eventually $ getProperty input "value" `shouldReturn` "saved"
@@ -399,11 +229,7 @@ how it went.
 
 ### What the tree did
 
-While a test runs, its page keeps the last 50 events of core's trace
-(`Halogen.Trace`): what the components it mounted did, from their mounting
-on. A test that fails prints them after its own message, oldest first, with
-the time since the test started, the component's label (its state's type,
-or what `H.named` called it) and id, and what happened:
+Each test retains the last 50 `Halogen.Trace` events from its mounted components. On failure, it prints them in chronological order with elapsed time, component label and ID, and the event description:
 
 ```
 expected text "2", found "1"
@@ -417,15 +243,11 @@ What the tree did (the last 50 events, oldest first):
    13.0 ms  Counter#7  rendered in 0.4 ms
 ```
 
-So a failure says whether the click arrived, whether the state changed and
-whether the change rendered, not only what was expected. A failure of the
-`shouldBe` kind prints the section before what was expected and what came.
-Nothing is kept for a passing test, and nothing at all while no test runs.
+The trace helps distinguish a missing click, an unchanged state and a missing render. For `shouldBe` failures it appears before the expected and actual values. Passing tests discard their trace, and no events are retained outside tests.
 
 ### Parallel tests
 
-Mark independent examples with hspec's `parallel` and set the number of
-browser contexts in the runner:
+Mark independent examples with hspec's `parallel` and set the number of browser contexts in the runner:
 
 ```haskell
 spec m = parallel $ do
@@ -439,34 +261,15 @@ spec m = parallel $ do
 HSPEC_HALOGEN_JOBS=2 npm run test-wasm
 ```
 
-The default is one context and preserves the usual single-page run. With
-multiple contexts, unmarked and `sequential` examples finish first on one
-page. The runner then starts the parallel examples on separate pages, each
-in its own browser context, with its own focus, keyboard, mouse, storage and
-Haskell heap. Within each page, `runPage` still admits one example at a time.
-Web Workers cannot provide this isolation because they have no DOM, but they
-can run the examples that need none; see below.
+The default is one context and preserves the usual single-page run. With multiple contexts, unmarked and `sequential` examples finish first on one page. The runner then starts the parallel examples on separate pages, each in its own browser context, with its own focus, keyboard, mouse, storage and Haskell heap. Within each page, `runPage` still admits one example at a time. Web Workers cannot provide this isolation because they have no DOM, but they can run the examples that need none; see below.
 
-The spec must enumerate the same examples in each context. Every example
-is then assigned to exactly one page. Normal hspec filters and
-focused examples still apply. Each context runs its own hooks and has its
-own in-memory fixtures: a `beforeAll` value is not shared between pages.
-External servers and files remain shared; their fixtures must support
-concurrent tests. Browser GHCi and suites run without the executable keep
-running one page at a time.
+The spec must enumerate the same examples in each context. Every example is then assigned to exactly one page. Normal hspec filters and focused examples still apply. Each context runs its own hooks and has its own in-memory fixtures: a `beforeAll` value is not shared between pages. External servers and files remain shared; their fixtures must support concurrent tests. Browser GHCi and suites run without the executable keep running one page at a time.
 
-With multiple contexts, each page's report is buffered and printed together
-so concurrent reports do not interleave. A failure, page exception, missing result or timeout in
-any context fails the command. More contexts load more copies of the suite;
-start with two and measure before increasing the count.
+With multiple contexts, each page's report is buffered and printed together so concurrent reports do not interleave. A failure, page exception, missing result or timeout in any context fails the command. More contexts load more copies of the suite; start with two and measure before increasing the count.
 
 #### Examples that need no page
 
-An example that never calls `runPage` (a pure check, a computation, a
-parser fed a fixture, anything that does not mount a component) does not
-need a page at all. Mark it with `inWorker`, and the runner can run it in a
-Web Worker, a copy of the suite with a thread of its own, on another core,
-while the pages go on with the rest:
+Mark tests that never call `runPage` with `inWorker`. These can run in Web Workers alongside the page tests, using separate threads and heaps. Suitable examples include pure checks, parsers and computations:
 
 ```haskell
 spec m = do
@@ -478,61 +281,38 @@ spec m = do
     find ui ".total" >>= (`shouldHaveText` "12.35")
 ```
 
-Such an example is plain `IO`, so its expectations are those of
-`Test.Hspec` (imported qualified, as `Hspec` here, beside this module's).
+Such an example is plain `IO`, so its expectations are those of `Test.Hspec` (imported qualified, as `Hspec` here, beside this module's).
 
 ```sh
 HSPEC_HALOGEN_JOBS=2 HSPEC_HALOGEN_WORKERS=2 npm run test-wasm
 ```
 
-`HSPEC_HALOGEN_WORKERS=<m>` (0 by default) starts `m` workers, all in one
-browser context of their own, together with the parallel pages, once the
-unmarked examples have run. The examples marked `inWorker` are divided
-between the workers, whether or not they are also marked `parallel`, and the
-pages leave them out; each worker's report is printed on its own, as
-`Browser shard worker/<i>/<m>`, and a failure, an exception the program did
-not catch, a missing result or a timeout in any worker fails the command, as
-on a page. Without workers (the default, browser GHCi, a page with no
-runner, natively) `inWorker` changes nothing: its examples run on the pages
-like any other.
+`HSPEC_HALOGEN_WORKERS=<m>` starts `m` workers in a separate browser context after unmarked tests finish, alongside the parallel pages. The default is 0. Tests marked `inWorker` are divided among workers even without `parallel`, and are excluded from page shards.
 
-A worker has no document, so `runPage` there fails the example with
-`this example runs in a worker, which has no page: take it out of inWorker`,
-rather than skipping it, so that an example marked by mistake is seen. What
-a worker does have is the program itself: Haskell threads, `threadDelay`, the
-JavaScript FFI for whatever a worker's global scope offers (`fetch`, timers,
-promises awaited with `Halogen.JSBits.Promise`), and the suite's hooks, which
-run in each worker as in each page. Your page's scripts and styles
-(`test/web/`) are not loaded there.
+Each worker prints its own report as `Browser shard worker/<i>/<m>`. Failures, uncaught exceptions, missing results and timeouts fail the command. When workers are disabled, including in browser GHCi, native runs and pages without a runner, `inWorker` leaves execution unchanged.
 
-Each worker is one more copy of the suite in memory, in the same browser as
-the pages: count them with the pages when choosing the numbers.
+Calling `runPage` inside a worker fails the test with `this example runs in a worker, which has no page: take it out of inWorker`. This catches incorrectly marked tests instead of silently skipping them.
+
+Workers support Haskell threads, `threadDelay`, suite hooks and browser APIs available in worker scope, including fetch, timers and promises. Hooks run separately in each worker. The runner does not load `test/web/` scripts or styles into workers.
+
+Each worker is one more copy of the suite in memory, in the same browser as the pages: count them with the pages when choosing the numbers.
 
 ### Your own monad
 
-Components are mounted in any monad with a `MonadBrowserTest` instance.
-`BrowserDOM` has one. Your application's monad needs the instances `runUI`
-asks for (`MonadUnliftIO`, `MonadFork`, `MonadKill`, `MonadParallel`,
-`MonadMask`, `MonadUUID`), and then only has to say how to run it. The default
-`mountInto` works for any monad with the browser's DOM (`MonadBrowserDOM`):
+Components can use any monad with a `MonadBrowserTest` instance; `BrowserDOM` already has one. A custom monad needs the classes required by `runUI`: `MonadUnliftIO`, `MonadFork`, `MonadKill`, `MonadParallel`, `MonadMask` and `MonadUUID`. Implement `runTest` to run it. The default `mountInto` works with `MonadBrowserDOM`:
 
 ```haskell
 instance MonadBrowserTest App where
   runTest = runApp testEnv
 ```
 
-and pass it as `spec App`.
+Then pass the type to your spec as `spec App`.
 
 ## Rerunning on every save
 
-A suite can also run in browser GHCi. This works only on WebAssembly, since
-browser GHCi exists only there. The code runs in a page, so your
-components render in a window you can watch and open devtools on, and
-[ghciwatch](https://github.com/MercuryTechnologies/ghciwatch) reruns the suite
-whenever you save.
+A suite can also run in browser GHCi. This works only on WebAssembly, since browser GHCi exists only there. The code runs in a page, so your components render in a window you can watch and open devtools on, and [ghciwatch](https://github.com/MercuryTechnologies/ghciwatch) reruns the suite whenever you save.
 
-1. Give the suite a flag that drops the reactor options and the export, since
-   GHCi loads it as ordinary modules:
+1. Give the suite a flag that drops the reactor options and the export, since GHCi loads it as ordinary modules:
 
    ```cabal
    flag interactive
@@ -549,8 +329,7 @@ whenever you save.
 
    and guard the export with `#if defined(wasm32_HOST_ARCH) && !defined(INTERACTIVE)`.
 
-2. Make a page for GHCi to boot. It is an `index.html` in a directory of its
-   own, loading your `test/web` scripts and styles and then GHCi's script:
+2. Make a page for GHCi to boot. It is an `index.html` in a directory of its own, loading your `test/web` scripts and styles and then GHCi's script:
 
    ```html
    <link rel="stylesheet" href="./app.css">
@@ -558,8 +337,7 @@ whenever you save.
    <script type="module" src="../main.js"></script>
    ```
 
-3. Start GHCi with the browser interpreter, giving it that directory as an
-   absolute path. cabal starts GHCi in the package's directory:
+3. Start GHCi with the browser interpreter, giving it that directory as an absolute path. cabal starts GHCi in the package's directory:
 
    ```sh
    cabal repl browser-test --enable-shared --constraint='my-package +interactive' \
@@ -567,9 +345,7 @@ whenever you save.
      --repl-options="-fghci-browser -fghci-browser-port=8080 -fghci-browser-assets-dir=$PWD/page"
    ```
 
-4. Open the page with the executable, not your desktop browser, so the suite's
-   clicks and keystrokes are real input. The executable also prints the suite's
-   report, which browser GHCi sends to the page's console:
+4. Open the page with the executable, not your desktop browser, so the suite's clicks and keystrokes are real input. The executable also prints the suite's report, which browser GHCi sends to the page's console:
 
    ```sh
    hspec-halogen open http://127.0.0.1:8080/assets/index.html

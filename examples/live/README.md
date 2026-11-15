@@ -1,22 +1,13 @@
 # halogen-example-live
 
-A board everyone who has it open writes on, sent over a wire with
-[haskell-halogen-remote](../../remote): the component (`src/Example/Live.hs`) is an ordinary one,
-and only its entry points say where its DOM is.
+A shared board built with [haskell-halogen-remote](../../remote). The component in `src/Example/Live.hs` is an ordinary Halogen component; its entry points choose whether to serve it over a WebSocket or run it in browser loopback mode.
 
-**Served natively.** One program holds the board and serves it to every page that opens it, a
-session per tab, over a WebSocket; a line posted in one tab shows up in every other. From the
-repository's root (the page's path is relative to it):
+**Native server.** One process stores the board and creates a session for each browser tab. Posting a line in one tab updates all others. Run from the repository root so the server can find the page:
 
 ```sh
 cabal run halogen-example-live-server --builddir=dist-newstyle/native
 ```
 
-and open <http://localhost:8081/> in two tabs. The server serves `web/live.html`, the client
-script at `/live.js`, and the socket at `/live`; the page needs nothing else.
+Open <http://localhost:8081/> in two tabs. The server provides `web/live.html`, the client at `/live.js` and the WebSocket at `/live`. No additional page assets are needed.
 
-**Looped back in a page.** `npm run serve-wasm -- live` builds `Main.hs` and serves it on :8080:
-the same component, mounted in `RemoteDOM` with `Halogen.Remote.Loopback`, its operations going to
-a client in the page and the page's events coming back, with every message shown beside it as it
-crosses (`src/Example/Live/Wire.hs`). The tutorial's lesson 21 does the same with a component of
-the reader's.
+**Browser loopback.** Run `npm run serve-wasm -- live` to build `Main.hs` and serve it on port 8080. `Halogen.Remote.Loopback` mounts the same component in `RemoteDOM` and exchanges messages with a client in the page. `src/Example/Live/Wire.hs` displays the traffic beside it. Tutorial lesson 21 uses the same approach for the reader's component.

@@ -1,23 +1,16 @@
 # haskell-halogen-tauri
 
-[Tauri](https://tauri.app) v2's IPC for a [haskell-halogen](https://github.com/Swordlash/haskell-halogen)
-app that runs in a Tauri webview: the app's Rust commands, its events, and the current window's
-own events. Everything goes through Tauri's global API, `window.__TAURI__`, so the app sets
-`app.withGlobalTauri` in its `tauri.conf.json`:
+Use [Tauri](https://tauri.app) v2 IPC from a [haskell-halogen](https://github.com/Swordlash/haskell-halogen) app in a Tauri webview. The package supports Rust commands, application events and current-window events through `window.__TAURI__`. Enable that global API in `tauri.conf.json`:
 
 ```json
 { "app": { "withGlobalTauri": true } }
 ```
 
-The same program runs in a plain browser too. There `isTauri` is `False`, every command gives
-`Left NotInTauri`, an emitter never fires and `emit` does nothing; natively the same.
+The same program can run in a plain browser or natively. In those environments, `isTauri` returns `False`, commands return `Left NotInTauri`, event emitters never fire and `emit` does nothing.
 
 ## One `Main` for the browser and the webview
 
-The webview loads the same `index.html` and `app.wasm` a browser does, out of the `dist/` that
-`frontendDist` names, so nothing about the build changes. A component that should behave
-differently in a browser (no save button, say, or one that downloads instead) asks `isTauri`,
-or is told by `Main`:
+The webview loads the same `index.html` and `app.wasm` as a browser, from the `dist/` directory specified by `frontendDist`. You do not need a separate frontend build. Use `isTauri` to choose platform-specific behaviour, such as hiding a save button or downloading a file instead. You can check it in the component or pass the result from `Main`:
 
 ```haskell
 module Main (main) where
@@ -56,26 +49,17 @@ handleAction = \case
     modify $ \st' -> st' {saved = outcome}
 ```
 
-`invoke` encodes the arguments with aeson and decodes the result with aeson, as the Rust side
-uses serde. The arguments are one JSON object keyed by the command's parameters, which Tauri
-renames to camelCase by default (`note_id` is `noteId`): a Haskell record's fields are camelCase
-already, so a plain `Generic` `ToJSON` instance with the default options gives the keys Tauri
-expects. A command declared with `#[tauri::command(rename_all = "snake_case")]` wants
-`defaultOptions {fieldLabelModifier = camelTo2 '_'}` instead. Only the parameters are renamed: a
-struct passed as one, or returned, is (de)serialised by serde as the struct says. `encodeArgs`
-shows the JSON a record encodes to; `noArgs` is the arguments of a command without parameters;
-`invoke_` calls one whose result does not matter (Rust's `()` is `null`, which aeson's `()`
-does not read).
+`invoke` uses aeson to encode arguments and decode results. The Rust side uses serde. Arguments must be a JSON object whose keys match the command parameters. Tauri converts parameter names to camelCase by default, so Rust's `note_id` becomes `noteId`. A Haskell record with camelCase fields and a generic `ToJSON` instance produces the expected keys.
 
-A failure is a value: `NotInTauri` outside Tauri, `Rejected JSError` for an `Err` of the
-command or a refusal of Tauri's (a command that does not exist, or that the window's capabilities
-do not allow), with a string error as its `message` and any other error as its JSON, and
-`BadResult` with aeson's message for a result that does not decode.
+For a command declared with `#[tauri::command(rename_all = "snake_case")]`, use `defaultOptions {fieldLabelModifier = camelTo2 '_'}`. This renaming applies only to command parameters. Structs passed as arguments or returned as results follow their own serde settings.
 
-`invoke` waits, so it belongs in `lift`. A command that must be sent inside an event's dispatch
-is sent with `start` in `H.liftEffect`, and its `result` waited for in `lift`. Tauri has no way to
-cancel a command: killing the wait (a component that goes away) stops the wait, the Rust function
-runs to its end, and its result is dropped.
+Use `encodeArgs` to inspect the generated JSON and `noArgs` for commands without parameters. Use `invoke_` when you do not need the result. This also handles Rust's `()` result, which becomes JSON `null` and cannot be decoded as aeson's `()`.
+
+Failures are returned as values. `NotInTauri` means the program is running outside Tauri. `Rejected JSError` means the command returned `Err` or Tauri refused the call, for example because the command does not exist or the window lacks permission. String errors become the error message; other errors are represented as JSON. `BadResult` contains aeson's error message when the result cannot be decoded.
+
+`invoke` waits for the result, so call it through `lift`. To send a command during an event's dispatch, call `start` through `H.liftEffect`, then wait for its `result` through `lift`.
+
+Tauri cannot cancel commands. If the waiting component is removed, its wait ends, but the Rust function continues and its result is discarded.
 
 ## Events
 
@@ -86,28 +70,14 @@ handleAction = \case
   Done file -> emit "download-done" file
 ```
 
-`listen name` is an emitter, as `H.subscribe` takes it; each subscription is a listener of its
-own, and unsubscribing (or the component going away) unlistens it. A payload that does not
-decode is reported to the console and not delivered; `listenEither` delivers aeson's message
-instead. `emit` and `emitTo` (a target label) send an event without waiting.
+`listen name` returns an emitter for `H.subscribe`. Each subscription creates its own listener, which is removed when you unsubscribe or the component is disposed. Invalid payloads are logged to the console and skipped; use `listenEither` to receive the aeson decoding error instead. `emit` broadcasts an event, and `emitTo` sends it to a target label. Neither waits.
 
-`Halogen.Tauri.Window` has the current window's own events, listened to on the window:
-`closeRequested`, `focused`, `blurred`, `resized`, `moved` and `themeChanged`. While anything
-listens to `closeRequested`, Tauri leaves the window open and the program closes it with
-`destroy` (which needs `core:window:allow-destroy` in the window's capability), as Tauri's own
-`onCloseRequested` does.
+`Halogen.Tauri.Window` provides events for the current window: `closeRequested`, `focused`, `blurred`, `resized`, `moved` and `themeChanged`. While a `closeRequested` listener exists, Tauri keeps the window open until your program calls `destroy`. This matches Tauri's `onCloseRequested` behaviour and requires `core:window:allow-destroy` in the window's capabilities.
 
 ## Prerendered pages
 
-A Tauri app's `dist/` is a static site like any other, so `Halogen.Static` can write its
-`index.html` with the component already rendered into it, and `Main` mount it with `hydrateUI`
-instead of `runUI`, which adopts that HTML, as the `vanilla` example does. Nothing here is
-needed for that, and `isTauri` is `False` natively, where the page is rendered.
+A Tauri app serves static files from `dist/`, so you can prerender `index.html` with `Halogen.Static` and adopt it with `hydrateUI` in `Main`. The `vanilla` example demonstrates this. Prerendering needs no Tauri-specific support; `isTauri` returns `False` during native rendering.
 
 ## Tests
 
-`Halogen-tauri-test` checks the encoding of arguments and what everything does outside Tauri, on
-every backend. `Halogen-tauri-browser-test` runs in headless Chromium through the
-`hspec-halogen` runner against `test/web/tauri-double.js`, a stand-in for `window.__TAURI__`
-with a table of commands and an event bus. There is no Tauri in CI, so the package is tested
-against that double, written from Tauri v2's documented API, and not against Tauri itself.
+`Halogen-tauri-test` checks argument encoding and behaviour outside Tauri on every backend. `Halogen-tauri-browser-test` uses `hspec-halogen` to run in headless Chromium. It tests against `test/web/tauri-double.js`, which implements a command table and event bus based on Tauri v2's documented API. CI does not run Tauri itself.

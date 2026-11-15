@@ -1,9 +1,6 @@
 # haskell-halogen-three
 
-A three-dimensional scene for a Halogen component, rendered with
-[Three.js](https://threejs.org): meshes and lights described as HTML is,
-and reconciled by the same machinery that reconciles HTML and the PixiJS
-canvas of `haskell-halogen-pixi`.
+Render three-dimensional scenes in Halogen with [Three.js](https://threejs.org). Describe meshes and lights using an API similar to Halogen HTML. The same reconciler updates HTML, PixiJS canvases and these scenes.
 
 ```haskell
 import Halogen.Three qualified as Three
@@ -25,98 +22,48 @@ scene lit =
 render lit = HH.div [HP.style (C.width (C.px 400) >> C.height (C.px 300))] [HH.slot "scene" () Three.component (scene lit) Scene]
 ```
 
-`Three.component` is an ordinary child component whose input is the scene
-(core's `Halogen.Canvas.component` over this package's renderer). It owns a
-`<canvas>` that follows its parent's size.
+`Three.component` is a child component that takes a scene as input and owns a `<canvas>` sized to its parent. It uses core's `Halogen.Canvas.component` with this package's renderer.
 
 ## The scene
 
-A `Three.View` is a camera, a background (`Nothing`: the page shows
-through), how the reader may move the camera, and the nodes:
+A `Three.View` contains the camera, background, interaction settings and scene nodes. Set the background to `Nothing` to let the page show through.
 
-- `TE.group`, `TE.group_` and `TE.keyedGroup` move, turn and scale objects
-  together; a keyed group's children keep their objects when reordered.
-- `TE.mesh geometry material props` is a shape (`Box`, `Sphere`, `Plane`,
-  `Cylinder`, `Torus`) made of a material (`Basic`, unlit; `Standard`, lit
-  physically, with metalness and roughness; `Phong`, with a highlight;
-  `Three.basic`, `Three.standard` and `Three.phong` make one of a colour).
-- `TE.ambientLight`, `TE.directionalLight` and `TE.pointLight` light the
-  scene: a `Standard` or `Phong` mesh without light is black. Three.js's
-  lighting is physically correct, so a point light falls off with the square
-  of the distance and needs an intensity of tens a few units away.
+- `TE.group`, `TE.group_` and `TE.keyedGroup` move, turn and scale objects together; a keyed group's children keep their objects when reordered.
+- `TE.mesh geometry material props` is a shape (`Box`, `Sphere`, `Plane`, `Cylinder`, `Torus`) made of a material (`Basic`, unlit; `Standard`, lit physically, with metalness and roughness; `Phong`, with a highlight; `Three.basic`, `Three.standard` and `Three.phong` make one of a colour).
+- `TE.ambientLight`, `TE.directionalLight` and `TE.pointLight` light the scene: a `Standard` or `Phong` mesh without light is black. Three.js's lighting is physically correct, so a point light falls off with the square of the distance and needs an intensity of tens a few units away.
 - `TE.axes` draws the axes, for finding one's way while writing a scene.
-- `TE.memoized` and `TE.lazy` skip a part of the scene while its input is
-  the same, as `Halogen.Canvas.Elements` does.
+- `TE.memoized` and `TE.lazy` skip a part of the scene while its input is the same, as `Halogen.Canvas.Elements` does.
 
-`TP.position`, `TP.rotation` (an `Euler`, radians), `TP.scale`,
-`TP.visible` and `TP.name` place and name an object. Each prop undoes itself
-when a render drops it.
+`TP.position`, `TP.rotation`, `TP.scale`, `TP.visible` and `TP.name` control an object's placement, visibility and name. Rotation uses an `Euler` value in radians. Removing a prop restores its default behaviour.
 
-The geometry and the material are props of the mesh's node, not nodes of
-their own. A material whose colour, opacity or another field changed is
-patched in place; one of another kind replaces it. A geometry that changed
-is replaced. Whatever is replaced, and whatever a removed object had, is
-disposed of: Three.js keeps a geometry's buffers and a material's program on
-the GPU until told to let them go. When the component goes, everything left
-in the scene is disposed of, and the renderer with its WebGL context.
+Geometry and material are properties of a mesh node. Changing a material's colour, opacity or other fields updates it in place. Changing its kind replaces it, and changing geometry replaces the geometry. The renderer disposes replaced resources and resources belonging to removed objects, releasing their GPU allocations. Removing the component disposes the entire scene, renderer and WebGL context.
 
 ## Pointer events
 
-Three.js has no events of its own. The renderer listens on the canvas, casts
-a ray from the pointer into the scene (`THREE.Raycaster`) and hands the
-event to the nearest visible mesh the ray meets, or to the nearest of its
-ancestors listening for it: `TP.onClick`, `TP.onPointerDown`,
-`TP.onPointerUp`, `TP.onPointerOver`, `TP.onPointerOut`. A handler gets a
-`ThreeEvent`: `Three.hitPoint` (where the ray met the mesh, in the scene's
-coordinates), `Three.hitName` (the mesh's name), `Three.button` and
-`Three.modifiers`. Its action is raised as `Three.Fired`.
+The renderer handles pointer events by listening on the canvas and casting a ray into the scene with `THREE.Raycaster`. It delivers each event to the nearest visible mesh hit by the ray, or to its nearest ancestor listening for that event. Supported handlers are `TP.onClick`, `TP.onPointerDown`, `TP.onPointerUp`, `TP.onPointerOver` and `TP.onPointerOut`. A handler receives a `ThreeEvent` with `Three.hitPoint` in scene coordinates, `Three.hitName`, `Three.button` and `Three.modifiers`. The component emits its action as `Three.Fired`.
 
-A click is a press and a release on the same listener without turning the
-camera in between: the release of a drag is no click.
+A click requires a press and release on the same listener without a camera drag in between. Releasing after a drag does not trigger a click.
 
 ## The camera
 
-`Three.defaultCamera` is a perspective camera at (4, 3, 6) looking at the
-origin. With `Three.defaultInteraction` a drag turns the camera about its
-target (a drag across the canvas's height is a full turn) and the wheel
-brings it nearer or takes it further, between 1 and 50 units;
-`Three.noInteraction` keeps it where the view puts it. The component raises
-`Three.CameraMoved` once a drag ends and once the wheel stops: feed it back
-as the next view's camera to keep the camera in the application's state. A
-view whose camera is the same as the last view's leaves the camera on screen
-where the reader put it, so a view rendered mid-drag for another reason does
-not put it back. `Halogen.Three.Camera` has the same orbit and zoom as
-functions, for moving the camera from keys or a timer.
+`Three.defaultCamera` places a perspective camera at (4, 3, 6), looking at the origin. With `Three.defaultInteraction`, dragging orbits the target, and scrolling zooms between 1 and 50 units away. A drag across the canvas's full height makes one complete turn. `Three.noInteraction` disables these controls.
+
+The component emits `Three.CameraMoved` after a drag or wheel gesture ends. Feed that value into the next view to keep the camera in application state. If a new view has the same camera value as the previous view, the renderer preserves the user's current position. This prevents unrelated renders from resetting an ongoing drag. `Halogen.Three.Camera` also exposes orbit and zoom functions for keyboard or timer controls.
 
 ## Drawing
 
-The scene is drawn on demand, not in a loop: once in the frame after a
-view or the camera changed, however many changes came before it, and at
-once when the canvas changes size. A scene that moves on every frame is one
-whose view changes on every frame (`Halogen.Query.Event.Window.animationFrame`).
+The renderer schedules one draw in the next frame after a view or camera change, combining changes that happen before that frame. Resizing the canvas draws immediately. To animate continuously, update the view on each `Halogen.Query.Event.Window.animationFrame` event.
 
 ## Loading Three.js
 
-`Three.component` imports Three.js when a scene mounts, from jsDelivr by
-default: `defaultConfig`'s `moduleUrl` is the single-file ES module build of
-a pinned version (`https://cdn.jsdelivr.net/npm/three@0.186.1/+esm`).
-Three.js's own `build/three.module.js` imports `three.core.js` beside it, so a
-self-hosted copy is either both files or one bundled module:
+`Three.component` loads Three.js when mounted. By default, `defaultConfig.moduleUrl` points to the pinned, single-file ES module at `https://cdn.jsdelivr.net/npm/three@0.186.1/+esm`. To host Three.js yourself, either serve both `build/three.module.js` and its `three.core.js` dependency, or bundle them:
 
 ```sh
 esbuild node_modules/three/build/three.module.js --bundle --format=esm --minify --outfile=public/three.mjs
 ```
 
-and `Three.componentWith (Three.Config {moduleUrl = "/three.mjs"})`. The test
-suite does exactly that (`test/web/bundle.sh`), so it needs no network.
+Then use `Three.componentWith (Three.Config {moduleUrl = "/three.mjs"})`. The test suite uses this approach in `test/web/bundle.sh`, so it needs no network access.
 
 ## Tests
 
-`Halogen-three-test` runs natively and under Node on both browser backends:
-the camera's orbit and zoom, and the VDom the elements build.
-`Halogen-three-browser-test` mounts a scene in headless Chromium (WebGL
-through SwiftShader, so no GPU is needed): the canvas and the first frame,
-a click on the mesh heard by the parent, a drag that turns the camera and is
-no click, a colour patched into the material, and the disposal of a removed
-mesh and of everything when the component goes, counted by wrapping Three.js's
-`dispose`.
+`Halogen-three-test` checks camera orbit, zoom and generated VDom natively and under Node on both browser backends. `Halogen-three-browser-test` runs in headless Chromium with SwiftShader, so no GPU is required. It checks the first frame, mesh clicks, camera dragging without accidental clicks, material updates and resource disposal. Disposal checks wrap Three.js's `dispose` methods to count calls.

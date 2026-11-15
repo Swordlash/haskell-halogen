@@ -1,149 +1,40 @@
 # examples/learn: the tutorial
 
-A tutorial for haskell-halogen whose code compiles in the browser. Each lesson
-is a page with its text, a code editor and a Compile button; GHC itself,
-compiled to WebAssembly (the playground of [`learn/`](../../learn/README.md)),
-compiles the reader's module in the page and mounts the component it defines
-beside the text, with no server behind it. Its playground, `/playground/`, is
-the same compiler with no lesson around it.
+Learn haskell-halogen in the browser. Each lesson has an explanation, a code editor and a Compile button. GHC runs as WebAssembly in the page, compiles your module and mounts its component beside the lesson. No compilation server is needed. The compiler comes from [`learn/`](../../learn/README.md). Use `/playground/` to write code without a lesson.
 
 ## How it works
 
-The page is a Halogen application (`src/Learn/App.hs`) with a route per
-lesson and one for the playground, through `haskell-halogen-router`. The build renders every route's page
-natively (`Prerender.hs`, under the site's base path), so a lesson's text is on
-the page before any WebAssembly has arrived; `app.wasm` then adopts that page
-(`hydrateUI`) and starts the compiler in the background. The compiler is the
-rootfs that `toolchain/build-learn-rootfs.sh` builds, which the page looks for
-in `rootfs/` under its base: `js/playground.js` downloads it (through the
-Cache API, so a second visit does not), extracts it with `bsdtar.wasm` into an
-in-memory file system and starts `libplayground.so` with GHC's `dyld.mjs`. The
-editor is CodeMirror 6 (`js/editor.js`). Both are bundled by `bundle.sh` into
-`learn.js`, which publishes them for the app's bindings
-(`jsbits/learn.js`, `Learn.Browser`). A compile writes the reader's code to
-`/tmp/Lesson.hs` and the lesson's wrapper to `/tmp/Main.hs` and runs
-`Main.main` in GHC's interpreter; the wrapper mounts `Lesson.component` into
-`#learn-result`, an element the app renders once per lesson and never patches
-inside. GHC's errors come back on stderr; `Learn.Diagnostics` reads their
-locations, which the page lists under the editor and marks in it.
+The tutorial is a Halogen app in `src/Learn/App.hs`, with one route per lesson and one for the playground. `Prerender.hs` renders each route natively under the site's base path. Readers can therefore see the lesson before WebAssembly loads. `app.wasm` adopts the HTML with `hydrateUI` and starts the compiler in the background.
 
-**The live check.** As the reader types, the page has GHC typecheck the code
-without running it: 1.2 s after the last change (`checkDelay` in
-`Learn.App`), once the compiler and the lesson's layers are there and no
-compile is under way, it hands the same two modules and arguments to
-`js/playground.js`'s `check`, which runs the playground with
-`--learn-check` (`learn/Playground.hs` then compiles with `-fno-code` and
-runs nothing). Its diagnostics replace the ones in the editor and under it,
-and a line under the editor says how long it took ("Checked in 0.4 s: it
-compiles."); the result's panel is a compile's alone. The first check runs
-when the compiler is ready, so a lesson opened fresh is checked with no key
-pressed. One check runs at a time, in the page's one queue of runs with the
-compiles (a check waits for a compile under way, and a compile pressed
-meanwhile for the check), and a check's result is dropped when the code has
-changed since it started or a compile has started since: the compile,
-later, says it all again. A change while a check waits out its delay starts
-the delay again.
+`js/playground.js` downloads the compiler rootfs from `rootfs/`, caching archives with the Cache API. It extracts them into an in-memory file system with `bsdtar.wasm` and starts `libplayground.so` through GHC's `dyld.mjs`. `js/editor.js` provides the CodeMirror 6 editor. `bundle.sh` bundles both into `learn.js` for the bindings in `jsbits/learn.js` and `Learn.Browser`.
 
-**The types.** Every run that typechecks the program, a compile or a check,
-writes a line to stdout for each top-level binding of `Lesson` before what
-the program writes there: `learn-type`, the line and column it is bound at,
-its name and its type as GHCi's `:type` prints it, with the names the module
-imports as it writes them (`H.Component`), separated by tabs
-(`learn/README.md` says how the playground finds them). `Learn.Types` takes
-those lines out of stdout (`Learn.Browser` does, as it reads a run's result)
-and the page shows them twice: in the editor, a tooltip over a name the
-module binds at the top level gives its type (`js/editor.js`'s
-`showTypes`), and under the editor, "Top-level types" lists them, each going
-to its line when clicked. When the code stops typechecking, the last ones
-stay, said to be from the last time it compiled. What they know is the
-module's top-level bindings and nothing else: not a binding under a `where`
-or a `let` (so a lesson that wants its pieces listed binds them at the top
-level, as lesson 20 does), not a name the module imports, not a
-constructor, a record field, a class's or an instance's methods. A name
-right after a dot, qualified or a record's field, shows no tooltip, and a
-local name that is also a top-level one shows the top-level one's type.
+Compilation writes the reader's code to `/tmp/Lesson.hs` and the lesson wrapper to `/tmp/Main.hs`, then runs `Main.main` in GHC's interpreter. The wrapper mounts `Lesson.component` in `#learn-result`. The app creates this container once per lesson and never patches its contents. `Learn.Diagnostics` parses GHC's stderr to show errors below the editor and mark their locations.
 
-**Source.** Every compile and check passes the playground `--learn-spans`
-(`js/playground.js`), so every element the reader's code builds carries
-`data-learn-src="<line>:<column>"`, where in `Lesson.hs` the element
-function was applied (`learn/README.md` says how the parser plugin does
-it). The Source toggle above the result, enabled once a compile has mounted
-something, reads them back (`js/source.js`): while it is on, the element
-under the pointer is outlined by a box fixed over its rectangle, labelled
-with its position, and its line is marked in the editor (`js/editor.js`'s
-`showSource`); a click on it moves the editor's cursor there, and is stopped
-in the capture phase, so the program does not see it; and the editor tells
-the app where its cursor is (`setSourceMode`, a `cursor` event sent only
-while Source is on), which outlines the element whose position that is, or
-the one that starts last on the cursor's line before it. A new compile
-leaves Source on, over the new elements. Positions follow the reader's edits
-until the next compile: the marks are where the code was when it compiled,
-and the editor keeps that text and every change since (`compileText`, and
-`compiled` once the compile has mounted), so a mark is labelled, marked and
-gone to where its code is now (two lines added at the top move the button's
-line two down), the cursor's position is taken back to the compiled code
-before an element is matched to it, and an element whose code has been
-deleted since says so on its label and has no line. GHC's messages quote
-the code they compiled, marks and all; `Learn.Diagnostics.withoutMarks`
-takes the marks out of a run's stderr before the page reads it. What gets a
-mark: every application of an element function of `Halogen.HTML.Elements` or
-`Halogen.Svg.Elements`, qualified or not as the module imports it, to all
-the arguments its type takes, however its properties are written (`HH.div
-[HP.id "x"] [...]`, `HH.div props kids`, `HH.p_ [...]`, a leaf such as
-`HH.input []` or `HH.br_`, `HH.element`, `HH.withKeys`, `SE.circle [...]`),
-the last argument given with `$` too (`HH.ul_ $ map item items`, and each
-element along `HH.div_ $ pure $ HH.p [] $ xs <> ys`). The
-plugin wraps the application in `Halogen.HTML.Core.withProps`, which adds
-the mark to the element it built, before the element's own properties, so a
-`data-learn-src` of the reader's own wins. An element applied to fewer
-arguments than it takes is still a function, which cannot be wrapped; when
-its first argument is a literal list of properties (`map (HH.li [HP.class_
-c]) groups`), the mark goes at the head of that list instead. What gets
-none: such an element with no list written out (`map HH.li_ items` marks
-no `li`; write the element out, `map (\i -> HH.li_ [...]) items`, for each
-to be marked), and what an `hh` quasi-quote makes; pointing
-at one of those outlines the nearest marked element around it. The marks are
-ordinary attributes, there whether or not Source is on: a test that lists an
-element's attributes sees them, lesson 12's hydration patches them onto the
-prerendered HTML, and lesson 21's wire carries them as `attr` operations.
+**Live checking.** After 1.2 seconds without an edit, the page asks GHC to typecheck the code. `checkDelay` in `Learn.App` controls this delay. Checking starts only when the compiler and layers are ready and no compile is running. It uses the same modules and arguments as compilation, with `--learn-check` selecting `-fno-code` and skipping execution.
 
-**The playground.** `/playground/` (`Learn.Route`'s `Playground`, which no
-lesson can shadow: a lesson's slug starts with its two digits) is the same
-page with the lesson's text replaced by a narrow panel: a checkbox for each
-layer of the manifest (its name, its packages, and what it downloads, or
-"loaded"), a field for extra GHC arguments, and a link back to the lessons.
-The code is a module `Lesson` as a lesson's is, mounted by the default
-wrapper; Reset puts back its template (`Learn.Playground.template`, a
-counter). A compile passes `-package` for each package of each layer checked
-(the manifest's `packages`, which `js/playground.js`'s `describe` hands the
-app, but for the base layer's), then the extra arguments; checking a layer
-loads it as a lesson's are loaded on arrival, with the same progress line.
-The code, the layers and the arguments are kept in `localStorage`
-(`learn:playground:code`, `learn:playground:layers`,
-`learn:playground:args`) on every change, and the code's entry is removed
-once it is the template again. Every lesson's toolbar has **Open in
-playground**, which hands the editor's text, the lesson's layers and its
-arguments to the playground and goes there; the hand-off is held in the
-app's state, not the browser's storage, since the playground is entered
-without a page load and a store may refuse a write (full, or denied). The
-playground opens with a hand-off before what it kept
-(`Learn.Playground.opening`), takes it, puts its code in the editor as it is
-and keeps it as the reader's as far as the browser lets it, checks its
-layers, and puts its arguments but the `-package` flags (which name the
-layers' packages, as a lesson's header must) in the extra field: lesson
-20's `-fdefer-typed-holes`.
-What does not come with it is a lesson's own `Main.hs` (lessons 6, 12 to 17
-and 21): the playground mounts `component` with the default wrapper, so a
-component that needs the program around it (lesson 15's store, lesson 17's
-pool, lesson 6's router as its input) does not compile there as it is, and
-a lesson's spec (13) or page (14, 16, 21) is not run.
-The introduction links it above the list of lessons, every lesson's bottom
-pager has a Playground link between Previous and Next, and the playground's
-has one back to the lessons.
+Check results update diagnostics and display timing, such as "Checked in 0.4 s: it compiles." They do not replace the mounted result. The first check runs automatically when the compiler becomes ready. Checks and compiles share one queue. Edits restart the debounce timer, and stale check results are discarded if the code changed or a compile started afterward.
 
-On a screen under 900 pixels wide the compiler is not loaded by itself (it is
-a 63 MB download and takes 1.2 GB of memory once running): the lesson and its
-code are there to read, and a button loads the compiler anyway.
+**Type information.** Compiles and checks report top-level `Lesson` bindings on stdout before program output. Each tab-separated line contains `learn-type`, source line, column, name and a type formatted like GHCi's `:type`, using the module's imported names. `Learn.Types` removes these lines from displayed stdout through `Learn.Browser`.
+
+The editor shows types on hover, and "Top-level types" lists clickable entries below it. If checking fails, the previous types remain marked as coming from the last successful compile. Only top-level bindings are included: local `where` and `let` bindings, imports, constructors, fields and methods are not. Names following a dot have no tooltip. A local name shadowing a top-level name may show the top-level type.
+
+**Source navigation.** Every compile and check enables `--learn-spans`. The parser plugin marks supported elements with `data-learn-src="<line>:<column>"`, identifying their constructor's position in `Lesson.hs`. Source mode, implemented in `js/source.js`, outlines the element under the pointer and marks its source line. Clicking moves the editor cursor there and stops the click in capture phase, so the lesson does not handle it.
+
+Cursor changes also select elements: the app matches the exact source position or the latest element constructor before the cursor on that line. Source mode stays enabled across compiles. The editor retains the compiled text and later edits so source positions track inserted and deleted lines. Elements whose source was deleted show that status without linking to a line. `Learn.Diagnostics.withoutMarks` removes generated wrappers from code quoted in diagnostics.
+
+The plugin marks fully applied functions from `Halogen.HTML.Elements` and `Halogen.Svg.Elements`, qualified or unqualified. This includes ordinary elements, `_` variants, leaves, `HH.element`, `HH.withKeys` and applications using `$`, including chains. It wraps the result with `Halogen.HTML.Core.withProps`, placing the source attribute before user properties so a user-provided attribute wins.
+
+Partially applied constructors cannot be wrapped. If their first argument is a literal property list, as in `map (HH.li [HP.class_ c]) groups`, the mark is inserted there. Expressions such as `map HH.li_ items` and generated `hh` markup receive no mark; Source mode uses the nearest marked ancestor. Write out the element in a lambda when each result needs a mark.
+
+These are ordinary DOM attributes, present even when Source mode is off. Attribute-inspection tests see them, lesson 12 adds them during hydration, and lesson 21 sends them as remote `attr` operations.
+
+**The playground.** `/playground/` replaces lesson text with layer checkboxes, extra GHC arguments and a link back to the lessons. Lesson slugs start with digits, so they cannot conflict with this route. Each checkbox shows the layer's packages and download size or loaded status. Selecting it loads the layer and adds its packages to subsequent compiles. Extra arguments follow those package flags.
+
+Code is a `Lesson` module mounted with the default wrapper. Reset restores `Learn.Playground.template`, a counter. Code, selected layers and arguments are saved in `localStorage` as best effort. "Open in playground" transfers the current lesson code through app state, so it also works when storage writes fail. It selects the lesson's layers and copies non-package arguments, such as lesson 20's `-fdefer-typed-holes`.
+
+Custom lesson wrappers are not transferred. Lessons 6, 12–17 and 21 rely on their own `Main.hs` for routers, stores, pools, tests or surrounding UI; their code may need adaptation to the playground's default wrapper. Links to the playground appear in the introduction and lesson pager.
+
+Below 900 pixels wide, the compiler does not load automatically. Readers can view lessons and code and explicitly request the compiler. This avoids an automatic download of roughly 63 MB and runtime memory use of about 1.2 GB.
 
 ## Build, run, test
 
@@ -154,128 +45,36 @@ python3 -m http.server -d dist-newstyle/wasm/public/learn 8080
 npm run test-learn                          # headless Chromium: the checks below
 ```
 
-`bundle.sh` copies the rootfs directory (`LEARN_ROOTFS_DIR`, default
-`dist-newstyle/wasm/learn`, but for `learn/`'s own `index.html` and
-`index.js`) to `rootfs/` in the output, where the page looks for it, so
-`dist-newstyle/wasm/public/learn` is the whole site. Without a rootfs it says
-so and goes on, and the page then says the compiler did not load. Rebuild the
-rootfs (`npm run build-rootfs`) after changing a library a lesson uses: the
-rootfs has its own copies of them, and the app's build does not look at it.
+`bundle.sh` copies the compiler rootfs from `LEARN_ROOTFS_DIR`, defaulting to `dist-newstyle/wasm/learn`, into the output's `rootfs/`. It excludes the standalone playground page files. The resulting `dist-newstyle/wasm/public/learn` contains the complete site. If the rootfs is missing, bundling continues with a warning and the page reports a compiler-load failure. Rebuild it with `npm run build-rootfs` after changing a library used by lessons; rebuilding the app alone does not update those copies.
 
-**Deploy.** GitHub Pages serves `dist-newstyle/wasm/public/learn` and nothing
-else, at <https://swordlash.github.io/haskell-halogen/>. CI's deploy
-(`.github/workflows/build-deploy.yml`) builds the rootfs (or restores it from
-its cache, keyed by everything it is made from:
-`toolchain/build-learn-rootfs.sh --key`), runs `npm run build-wasm-all` with
-`HALOGEN_BASE_PATH=/haskell-halogen/` (the prerender writes it into every
-page's `<base href>`, and the page finds `rootfs/` under it), runs
-`npm run test-learn` on that tree under the same base path, and uploads it.
-The build workflow's `learn-wasm` job does the same on every push and pull
-request, and runs `npm run test-playground` (`playground-test/`, a native
-suite through `haskell-halogen-playwright`) on the rootfs and
-`npm run test-worker` as well. To try the deployed form
-locally:
+**Deployment.** GitHub Pages serves `dist-newstyle/wasm/public/learn` at <https://swordlash.github.io/haskell-halogen/>. `.github/workflows/build-deploy.yml` builds or restores the rootfs using the key from `toolchain/build-learn-rootfs.sh --key`, then runs `npm run build-wasm-all` with `HALOGEN_BASE_PATH=/haskell-halogen/`. That base is written into each page's `<base href>`.
+
+Deployment runs `npm run test-learn` against the same output and base path before uploading. The build workflow's `learn-wasm` job performs the same checks on pushes and pull requests, plus `npm run test-playground` and `npm run test-worker`. To reproduce the deployed layout locally:
 
 ```sh
 HALOGEN_BASE_PATH=/haskell-halogen/ npm run build-wasm-all
 HALOGEN_BASE_PATH=/haskell-halogen/ npm run test-learn
 ```
 
-`npm run test-learn` (`browser-test/`, a native Haskell suite through
-`haskell-halogen-playwright`, run by `toolchain/test-example.sh learn`)
-builds nothing but itself: it serves
-`dist-newstyle/wasm/public/learn` as Pages would, the rootfs in it, under
-`HALOGEN_BASE_PATH` (default `/`; it must be the one the pages were built
-for), and checks that every lesson's page arrives with its heading in it,
-that every page is adopted by the program with nothing repaired
-(`shouldAdoptCleanly`'s check, on a narrow screen, leaving out the parts the
-app's `Initialize` fills in), that the compiler loads (printing how long each step
-took) with no `HEAD` request, the manifest giving the version and the sizes,
-that the first two lessons do what their text says (and lesson 15's
-connected views render again only for their own part of the store), that
-Source on lesson 2 outlines the button under the pointer at the position it
-was built at, marks its line, goes there on a click the counter does not
-count, outlines what the editor's cursor is on, does all that at the line
-the code has moved to when two lines are added above it and taken out
-again, gives an element whose code is deleted no line, and once off lets a
-click count again, that the playground's page is prerendered and linked from the
-introduction, that lesson 2's Open in playground arrives there with its code
-when `localStorage` refuses every write,
-which compiles and counts, with Source working there too, that the template
-compiles and counts, with each of its elements marked and its `HH.p_`
-paragraph outlined by Source at its line and column, that a paragraph built
-inside a chain of `$` with another operator in it is marked where its `HH.p`
-is, that checking `store` shows the progress line and then
-"loaded" by its checkbox and lets a program importing `Halogen.Store`
-compile, and that the code, the layer and the arguments are there and compile
-on a second visit, that a type error is
-listed at its line with the last result still mounted, that **every lesson's
-`Start.hs` compiles and its `Solution.hs` compiles with no diagnostic and
-shows something** (two lessons at a time, on two pages, the second in a
-browser context of its own that loads the compiler for itself; one line per
-lesson; for lesson 13, whose program runs a
-spec, hspec's report under the editor: one failure for `Start.hs`, none for
-`Solution.hs`, and nothing left in the result; for lesson 14, whose program
-puts a page of its own around the lesson's custom element, that the element
-and the page's buttons do what the text says, before the exercise and after
-it; for lesson 16, whose program opens `Halogen.DevTools`' panel under the
-component, that the panel lists the component and counts a click, and that
-its count of renders climbs every second for `Start.hs` and not for
-`Solution.hs`; for lesson 17, whose program runs its jobs through
-`Halogen.Worker`, that the component says jobs run in a Web Worker, and
-that each counts the primes right, `Start.hs` in its handler, drawing no frame
-meanwhile and starting no worker, and `Solution.hs` through `Worker.run` in
-the pool's worker, a second compiler (its first job, which waits for that
-worker to start, and a second one, the times printed), the page drawing
-throughout; for lesson 18, whose component comes from a shared library
-the program links while it runs, that the library's component greets the
-name and waves, and for `Solution.hs` that the parent hears it, tells it to
-wave and asks it how often, and that hidden and shown again it starts over; for lesson 19,
-whose scene is drawn with Three.js, that its canvas is there and that a click at its centre, on the
-sphere, changes the colour the text under it names; for lesson 20, that the component counts and
-renames; for lesson 21, whose component is sent over a wire to a client in the page, that the
-client fills the result (`data-halogen-remote`) and the wire shows the first render's operations,
-that `Start.hs`'s Add adds nothing however much is typed, and that `Solution.hs`'s input events
-carry what is typed, Add adds it, and Clear sends `remove`s), that the page checks the code as the reader types (on lesson 20, whose
-`Start.hs` has three holes: with no Compile, its holes' warnings and the types of its
-bindings are listed, a tooltip over `render` gives its type, a click in the list goes
-to the binding's line, an error typed is marked within the check's delay and goes when
-undone, and a check under way when Compile is pressed is not reported over the
-compile), that back, forward, a second visit
-(from the cache) and Reset work, that a narrow screen downloads nothing large
-until asked, that a failed load can be retried and loads from a manifest
-without a version or sizes too, and that nothing is logged as an error.
-`LEARN_ROOTFS_DIR` serves that rootfs directory at `rootfs/` in place of the
-tree's own; `LEARN_DEBUG=1` prints everything the pages log, as it arrives;
-`LEARN_TIMEOUT` is the seconds a load, a compile or a check may take (300).
-It waits on the programs rather than the clock: a compile, a check and the
-compiler's load are fibers of the app waiting in a `liftIO`, and a compiled
-lesson's own waits are counted by its runtime, so after a click it waits
-for the page's programs to be quiet and reads what they show once
-(`browser-test/Tutorial/Site.hs` says which waits are conditions instead,
-and why). A timer in a lesson that only ticks is therefore written with
-`H.delay` or `Hooks.delay` (lesson 8's clock), which a quiet program does not
-wait for.
+`npm run test-learn` runs the native suite in `browser-test/` through `haskell-halogen-playwright` and `toolchain/test-example.sh learn`. It builds the tests, but not the app or rootfs. It serves `dist-newstyle/wasm/public/learn` under `HALOGEN_BASE_PATH`, which must match the build.
 
-`npm run dev -- learn` runs the app in browser GHCi, as for every example;
-`bundle.sh` copies the rootfs beside its page too, so the compiler loads
-there as well.
+The suite checks prerendered headings, clean hydration on narrow screens, compiler startup without metadata `HEAD` requests, routing, caching, Reset, load retries and older manifest formats. It checks initial lesson behaviour, selector-specific updates in lesson 15, and no large downloads on narrow screens until requested.
+
+Source tests cover pointer outlines, editor marks, click navigation without triggering the component, cursor selection, inserted and removed lines, deleted source, `$` chains and returning to normal interaction. Playground tests cover prerendering, navigation from lessons even when storage writes fail, template compilation, Source mode, layer loading and persistence of code, layers and arguments.
+
+Every lesson's `Start.hs` must compile. Every `Solution.hs` must compile without diagnostics and produce visible content or output. Two lessons run concurrently in separate browser contexts. Additional checks cover lesson 13's expected failing/passing test reports; lesson 14's custom elements; lesson 16's devtools counts; lesson 17's worker results and frame responsiveness; lesson 18's dynamic component, queries, outputs and remounts; lesson 19's Three.js interaction; lesson 20's count and rename actions; and lesson 21's remote input, add and clear operations.
+
+Live-check tests verify typed-hole warnings, top-level types, hover information, source navigation, edited errors and stale-result suppression when Compile is pressed. A compilation error must leave the previous result mounted. Browser console errors fail the checks.
+
+`LEARN_ROOTFS_DIR` overrides the served rootfs. `LEARN_DEBUG=1` streams page logs, and `LEARN_TIMEOUT` sets the load, compile and check deadline in seconds, defaulting to 300. Tests wait for program activity rather than arbitrary delays: the app counts compiler work in `liftIO`, and compiled lessons expose their own activity. `browser-test/Tutorial/Site.hs` documents conditions that require separate waits. Repeating lesson timers use `H.delay` or `Hooks.delay`, as lesson 8 does, so they do not prevent quiet waits from completing.
+
+`npm run dev -- learn` runs the app in browser GHCi, as for every example; `bundle.sh` copies the rootfs beside its page too, so the compiler loads there as well.
 
 ## Writing a lesson
 
-A lesson is a directory of `lessons/`, named `NN-slug`: two digits, its
-number, and a slug of lower-case letters, digits and hyphens, which is its
-address (`/03-components/`) and the key the reader's code is kept under in
-the browser. Lessons are numbered from 01 with no gaps, and **listed in
-`lessons/index.txt`**, one directory per line in order: the build reads only
-what the index lists (and fails for a lesson directory it leaves out),
-because a new file is something cabal does not notice even when it matches
-the package's `extra-source-files`, while an edited index is; an edited
-lesson file it does notice. That holds for a lesson's optional `Main.hs`
-too: one added to a lesson that had none goes unseen until the index is
-edited (a blank line will do, or a comment, a line starting with `#`). The files are embedded into the app at compile time
-(`Learn.Lessons`); a lesson that cannot be read fails the build with what is
-wrong with it.
+Create a lesson directory under `lessons/` named `NN-slug`, with a two-digit number and a lowercase slug containing letters, digits or hyphens. The name determines its URL, such as `/03-components/`, and its browser-storage key. Number lessons from 01 without gaps and list every directory in `lessons/index.txt` in order.
+
+The build embeds these files through `Learn.Lessons` and fails on invalid lessons or unlisted directories. Cabal notices edits to existing files but may miss newly added files, including an optional `Main.hs`. Edit the index whenever adding one; a blank line or `#` comment is enough to trigger rebuilding.
 
 | File | What |
 | --- | --- |
@@ -284,9 +83,7 @@ wrong with it.
 | `Solution.hs` | The answer, which the Solution button loads. It must compile with no warning and show something (a component, or what the program prints): the test checks both. |
 | `Main.hs` | Optional: the program around the lesson's module, in place of the default one below. |
 
-Run `sh toolchain/build-wasm.sh learn` and `npm run test-learn` to check a
-lesson: the test compiles every lesson's `Start.hs` and `Solution.hs` in the
-browser.
+Run `sh toolchain/build-wasm.sh learn` and `npm run test-learn` to check a lesson: the test compiles every lesson's `Start.hs` and `Solution.hs` in the browser.
 
 ### The header
 
@@ -298,76 +95,34 @@ layers: hooks
 args: -package haskell-halogen-hooks
 ```
 
-- `title` (required): the lesson's name, its page's heading (as
-  "2. State and actions") and its title in the list of lessons.
-- `layers` (optional): the rootfs layers its code needs beside the base one,
-  separated by spaces or commas. The page extracts a layer the first time a
-  lesson needs it and passes its package database to GHC (`-package-db`).
-  The rootfs has `hooks`, `router`, `net`, `material`, `pixi`, `three`, `th`
-  and `store`, one per package of the same name (`haskell-halogen-hooks`, ...),
-  `elements`, for `haskell-halogen-custom-element`, `devtools`, for
-  `haskell-halogen-devtools`, `worker`, for `haskell-halogen-worker`,
-  `hspec`, for `hspec-halogen`, `lazy`, for `haskell-halogen-lazy` and
-  `haskell-halogen-lazy-demo`, and `live`, for `haskell-halogen-remote` (see
-  `learn/README.md`, "Layers").
-  `lazy` also has a library of its own beside the archive,
-  `rootfs/layers/lazy/liblazy-demo.so`, which lesson 18's program fetches
-  and links into itself while it runs, with `Halogen.Lazy.Dyld`: the page
-  hands its dyld over for that (`js/playground.js` sets
-  `globalThis.halogenDyld`).
-- `args` (optional): further GHC arguments, separated by spaces, after the
-  ones every compile has (`-package haskell-halogen-core
-  -Wno-missed-extra-shared-lib -i/tmp`). A layer's package still has to be
-  named here with `-package`, as above. The live check passes them too.
-  Lesson 20's are `-fdefer-typed-holes`, which makes its `Start.hs`'s holes
-  warnings, so that it compiles as a start must.
+- `title` (required): the lesson's name, its page's heading (as "2. State and actions") and its title in the list of lessons.
+- `layers` (optional): the rootfs layers its code needs beside the base one, separated by spaces or commas. The page extracts a layer the first time a lesson needs it and passes its package database to GHC (`-package-db`). The rootfs has `hooks`, `router`, `net`, `material`, `pixi`, `three`, `th` and `store`, one per package of the same name (`haskell-halogen-hooks`, ...), `elements`, for `haskell-halogen-custom-element`, `devtools`, for `haskell-halogen-devtools`, `worker`, for `haskell-halogen-worker`, `hspec`, for `hspec-halogen`, `lazy`, for `haskell-halogen-lazy` and `haskell-halogen-lazy-demo`, and `live`, for `haskell-halogen-remote` (see `learn/README.md`, "Layers"). `lazy` also has a library of its own beside the archive, `rootfs/layers/lazy/liblazy-demo.so`, which lesson 18's program fetches and links into itself while it runs, with `Halogen.Lazy.Dyld`: the page hands its dyld over for that (`js/playground.js` sets `globalThis.halogenDyld`).
+- `args` (optional): further GHC arguments, separated by spaces, after the ones every compile has (`-package haskell-halogen-core -Wno-missed-extra-shared-lib -i/tmp`). A layer's package still has to be named here with `-package`, as above. The live check passes them too. Lesson 20's are `-fdefer-typed-holes`, which makes its `Start.hs`'s holes warnings, so that it compiles as a start must.
 
 ### The text
 
 The text is Markdown, of which the page reads this much (`Learn.Markdown`):
 
-- headings `##` and `###` (the title is the page's only `#`, so a `#` heading
-  in the text is an error);
+- headings `##` and `###` (the title is the page's only `#`, so a `#` heading in the text is an error);
 - paragraphs: lines that follow one another, up to a blank line;
-- fenced code blocks between lines of three backticks; ` ```haskell ` marks
-  one as Haskell (the `<code>` gets `class="language-haskell"`);
-- unordered lists (`- ` or `* ` at the start of a line) and ordered lists
-  (`1. `, which start at their first item's number); an item can go on over
-  lines indented under it, but cannot hold blocks of its own; blank lines
-  between items do not end a list; lists do not nest, and an indented item
-  is a build error;
+- fenced code blocks between lines of three backticks; ` ```haskell ` marks one as Haskell (the `<code>` gets `class="language-haskell"`);
+- unordered lists (`- ` or `* ` at the start of a line) and ordered lists (`1. `, which start at their first item's number); an item can go on over lines indented under it, but cannot hold blocks of its own; blank lines between items do not end a list; lists do not nest, and an indented item is a build error;
 - blockquotes: lines starting with `>`, whose content is read as blocks;
-- inline, anywhere: `` `code` ``, `**bold**`, `*italic*` or `_italic_` (an
-  underscore inside a word, as in `handle_action`, is just an underscore, and
-  so is a `*` before a space or another `*`), `[text](address)` (the text
-  ends at the first `]`, and the address at the `)` that closes its `(`, so
-  it may hold parentheses that balance), and `\` before a character to
-  write it as it is.
+- inline, anywhere: `` `code` ``, `**bold**`, `*italic*` or `_italic_` (an underscore inside a word, as in `handle_action`, is just an underscore, and so is a `*` before a space or another `*`), `[text](address)` (the text ends at the first `]`, and the address at the `)` that closes its `(`, so it may hold parentheses that balance), and `\` before a character to write it as it is.
 
-Everything else is text as written. Something opened and not closed (a code
-block, a backtick, a `**`, a link) is a build error naming the line.
+Everything else is text as written. Something opened and not closed (a code block, a backtick, a `**`, a link) is a build error naming the line.
 
-Keep a lesson's text to what its code shows: every identifier it names
-should appear in `Start.hs` or `Solution.hs`, so the reader can find it.
+Keep a lesson's text to what its code shows: every identifier it names should appear in `Start.hs` or `Solution.hs`, so the reader can find it.
 
 ### The code: the `Lesson` module
 
-`Start.hs` and `Solution.hs` are the module `Lesson`, which exports
-`component`. With the default wrapper its type is
+`Start.hs` and `Solution.hs` are the module `Lesson`, which exports `component`. With the default wrapper its type is
 
 ```haskell
 component :: forall q o m. (MonadIO m) => H.Component q () o m
 ```
 
-or anything that can be used at that type with `m` the browser's own monad,
-`BrowserDOM` (`H.Component q () o BrowserDOM` itself, for a hooks component,
-say): the wrapper mounts it with no input, whatever its queries and outputs.
-A lesson builds it as lesson 1 teaches, `H.component initialState render
-[...]`, and the later lessons say what it does in that list of handlers
-(`H.onAction`, `H.onQuery`, `H.onInitialize`, `H.onFinalize`). The language
-is GHC2021; anything else (`OverloadedStrings` for `HH.text "..."`,
-`QualifiedDo` for hooks) is a `LANGUAGE` pragma in the file, as it would be
-in a project of the reader's own.
+A component specialised to `BrowserDOM` also works. The default wrapper supplies `()` input and accepts any query and output types. Use `H.component initialState render [...]` with lifecycle and action handlers as taught in the lessons. Files use GHC2021; declare additional extensions such as `OverloadedStrings` or `QualifiedDo` with normal `LANGUAGE` pragmas.
 
 The default wrapper (`Learn.Lesson.defaultMain`) is
 
@@ -380,115 +135,34 @@ main = runBrowserDOM $ do
   HA.keepForNextRun socket.dispose
 ```
 
-It ends what the last compile mounted (`Halogen.IO.Util`: the compiler's
-session keeps `haskell-halogen-core` loaded, so the reference that
-`keepForNextRun` keeps survives from one run to the next), mounts the
-component and keeps how to end it. Write a `Main.hs` of your own when the
-lesson needs something else around its component: an input, the component's
-output messages printed with `putStrLn` (the page shows what the program
-writes to stdout while the compile runs, a line at a time, as the playground
-makes stdout line-buffered and flushes it when a run ends: so what the previous
-run's `H.onFinalize` prints, which the next compile's `HA.endPreviousRun`
-runs, shows under the editor, and a click handler's output does not), two
-components, a router, a store (lesson 15's runs the tree through
-`Store.runStoreT` before `runUI`). It is the module `Main`, imports
-`Lesson`, and must do the same three things: `HA.endPreviousRun` first, mount
-into `#learn-result`, and `HA.keepForNextRun` with whatever ends what it
-started. Lesson 14's puts plain HTML and a script into `#learn-result`
-rather than mount there, defines a custom element over it from the
-`definition` its `Lesson` exports beside `component`, and keeps the
-registration's `dispose` and the HTML's removal. Lesson 16's puts two
-elements into `#learn-result`, opens `Halogen.DevTools`' panel in the second
-(after `DevTools.showing @State`, which is why its `Lesson` exports `State`
-beside `component`) and then mounts the component in the first, and keeps
-both sockets' `dispose` and the elements' removal. Lesson 17's is the
-program an application with Web Workers ships: `Worker.program` (a worker
-finds the lesson's jobs, static pointers, by their keys, so there is no table
-to hand it) around the rest, which makes
-a pool and mounts `component pool`, and keeps the socket's `dispose` and
-`Worker.terminate pool`. The interpreted program has no binary for a worker
-to load, so before every compile the page names `lesson-worker.js` (bundled
-beside `learn.js` from `js/lesson-worker.js`) as `halogenWorker.script`, with
-the compile's request: a worker the pool starts boots a second compiler from
-the same rootfs, compiles the same `Lesson.hs` and `Main.hs` with the same
-flags, so that the static pointers' keys are the page's, and runs that `main`,
-whose `Worker.program` serves. The first job after a compile waits for that. Lesson 21's mounts a page component of its own into `#learn-result`, which mounts
-`component` in `RemoteDOM` with `Halogen.Remote.Loopback.mountIn` into an element of its own (the
-component's operations go to a client there as JSON, the page's events come back) and shows the
-messages as they cross in a `<pre>` under it, newest first; it keeps the page component's `dispose`,
-whose finalizer disposes of the loopback. A `Main.hs` may also run a
-spec of the lesson's instead, as lesson 13's does: `Lesson` exports `spec` beside `component`, and `main` is
-`HA.endPreviousRun` then `runBrowserTestsIn result (spec BrowserDOM)`
-(`hspec-halogen`'s `Test.Hspec.Halogen`), which runs each test in a page of
-its own inside `#learn-result` and prints hspec's report to stdout, which
-the page shows. There is no Playwright in the page, so the harness clicks
-and types with synthetic events of its own (`hspec-halogen/README.md`,
-"Without the runner"). Each test takes down what it mounted, so the run
-leaves `#learn-result` empty and keeps nothing for the next. (The page ends the last run itself when the reader leaves a lesson,
-by compiling a `Main` of its own whose `main` is `HA.endPreviousRun`, so that
-nothing a lesson started goes on against an element that is gone.)
+The wrapper disposes the previous run, mounts the new component and registers its cleanup. Core stays loaded across interpreter runs, so the cleanup reference survives between compiles.
 
-What the code can use: GHC's boot libraries (`base`, `text`, `containers`,
-`mtl`, `transformers`, `bytestring`, `template-haskell` and the rest, but not
-`Cabal`), `haskell-halogen-core`, `haskell-halogen-jsbits` and everything they
-depend on (`aeson`, `vector`, `clay`, `row-types`, `unliftio`, `protolude`,
-...), and the packages of the layers the header names (the `hspec` layer's
-`hspec-halogen` brings `hspec`, `hspec-core` and `HUnit` with it, and the
-`lazy` layer's `haskell-halogen-lazy-demo` the types lesson 18's library
-shares with the program). Template Haskell
-works. A `foreign import javascript` of the lesson's own does not (GHC would
-need clang in the page, `learn/README.md`): JavaScript is reached through the
-libraries' bindings.
+Provide `Main.hs` when a lesson needs custom input, output logging, multiple components, a router or a store. It must import `Lesson`, call `HA.endPreviousRun`, mount into `#learn-result`, and register all cleanup with `HA.keepForNextRun`. Stdout is shown while a compile runs, including previous-run finalizers; output from later click handlers is not included in that report.
+
+Existing custom wrappers provide useful examples. Lesson 15 runs `Store.runStoreT` before mounting. Lesson 14 installs a custom element into plain HTML and cleans up both registration and markup. Lesson 16 creates containers for the component and devtools, registers `DevTools.showing @State`, and disposes both sockets and containers.
+
+Lesson 17 wraps startup in `Worker.program`, creates a pool, mounts `component pool`, and registers pool termination. Before compiling, the page configures `lesson-worker.js` as `halogenWorker.script` with the compile request. Each worker starts another compiler from the same rootfs, compiles identical modules and flags to preserve static keys, and runs the same `main`. Its first job waits for this startup.
+
+Lesson 21 mounts a page component that runs the lesson through `Halogen.Remote.Loopback` and shows its JSON traffic in a `<pre>`, newest first. Its finalizer disposes the loopback.
+
+Lesson 13 runs `runBrowserTestsIn result (spec BrowserDOM)` instead of mounting a result component. The harness uses synthetic input because there is no Playwright runner in the page. Each test cleans up its container, and the stdout report appears under the editor. See `hspec-halogen/README.md`, "Without the runner".
+
+When leaving a lesson, the app compiles a small `Main` that calls `HA.endPreviousRun`, ensuring the old program stops before its result container disappears.
+
+Lessons can use GHC boot libraries except trimmed packages such as Cabal, `haskell-halogen-core`, `haskell-halogen-jsbits`, their dependencies and packages from selected layers. The `hspec` layer includes hspec and HUnit; `lazy` includes the shared demo types. Template Haskell works. Lesson-defined `foreign import javascript` declarations do not, because compiling them would require clang in the browser. Use library-provided bindings instead; see `learn/README.md`.
 
 ## The rootfs, and what a deploy needs
 
-The page loads `rootfs/rootfs.json` relative to its `<base href>` (the
-prerender writes `HALOGEN_BASE_PATH` into it), and from it the base archive's
-parts, a layer's when a lesson names it, `bsdtar.wasm` and `dyld.mjs` with the
-two modules it imports. The manifest is described in
-[`learn/README.md`, "The manifest"](../../learn/README.md#the-manifest-rootfsjson);
-what `js/playground.js` reads of it beyond what dyld and GHC are given:
+The page resolves `rootfs/rootfs.json` against its `<base href>`, supplied by prerendering from `HALOGEN_BASE_PATH`. The manifest identifies archives, layers, `bsdtar.wasm`, `dyld.mjs` and its imports. See [`learn/README.md`, "The manifest"](../../learn/README.md#the-manifest-rootfsjson) for the format. `js/playground.js` also uses these fields for caching and UI:
 
-- `version`: the archives are kept in the Cache API under it, each by its
-  `archive` name, so a new rootfs is never taken for the old one; once a new
-  version is downloaded, whatever the cache holds under another is deleted.
-- each archive's `parts`, fetched one after the other and joined, and its
-  `compressedSize`, what the introduction and a lesson's heading say it
-  downloads and what the progress bar counts towards.
-- a layer's `assets`, added to the page once each when the layer has been
-  extracted and before it is reported ready: a `kind: "script"` as a
-  `<script src>`, a `kind: "stylesheet"` as a `<link rel=stylesheet>`, their
-  paths relative to `rootfs/`. Only `material` has any (`material.js`, which
-  its components call, and `material.css`, without which they are
-  unstyled).
-- a layer's `external` entries are what its code loads from elsewhere at run
-  time, which the page does not provide and the reader's browser must reach:
-  PixiJS from jsDelivr for `pixi` (when a canvas mounts), Three.js from
-  jsDelivr for `three` (when a scene mounts) and the Material
-  Icons font from fonts.gstatic.com for `material` (named by `material.css`,
-  fetched only when an icon shows). The page reads nothing from them; a
-  lesson using those layers should say it needs the network for them.
+- `version`: the archives are kept in the Cache API under it, each by its `archive` name, so a new rootfs is never taken for the old one; once a new version is downloaded, whatever the cache holds under another is deleted.
+- each archive's `parts`, fetched one after the other and joined, and its `compressedSize`, what the introduction and a lesson's heading say it downloads and what the progress bar counts towards.
+- a layer's `assets`, added to the page once each when the layer has been extracted and before it is reported ready: a `kind: "script"` as a `<script src>`, a `kind: "stylesheet"` as a `<link rel=stylesheet>`, their paths relative to `rootfs/`. Only `material` has any (`material.js`, which its components call, and `material.css`, without which they are unstyled).
+- a layer's `external` entries are what its code loads from elsewhere at run time, which the page does not provide and the reader's browser must reach: PixiJS from jsDelivr for `pixi` (when a canvas mounts), Three.js from jsDelivr for `three` (when a scene mounts) and the Material Icons font from fonts.gstatic.com for `material` (named by `material.css`, fetched only when an icon shows). The page reads nothing from them; a lesson using those layers should say it needs the network for them.
 
-For a manifest without `version`, `parts` or `compressedSize` (an older
-build's, or one written by hand) the page asks the server with a `HEAD`
-request per part and uses its `ETag` (or `Last-Modified`) as the version and
-its `Content-Length` as the size, which works on GitHub Pages and any
-ordinary static server, at the cost of a request per part on every visit.
+For a manifest without `version`, `parts` or `compressedSize` (an older build's, or one written by hand) the page asks the server with a `HEAD` request per part and uses its `ETag` (or `Last-Modified`) as the version and its `Content-Length` as the size, which works on GitHub Pages and any ordinary static server, at the cost of a request per part on every visit.
 
 ## Notes
 
-- The compiler's `browser_wasi_shim` is the rootfs' `browser_wasi_shim.js`, a
-  copy of haskell-wasm's fork kept in `learn/vendor/`, which the rootfs build
-  also points its `dyld.mjs` at, since the page must share dyld's copy
-  (`learn/README.md`). The app's own `index.js` uses
-  `@bjorn3/browser_wasi_shim` 0.3.0, bundled in from `node_modules` by
-  `bundle.sh` (every other example's imports it from jsDelivr); the two do not
-  meet. So the page loads nothing from another site but a layer's `external`
-  dependencies, which `npm run test-learn` checks.
-- The app and the compiled program are two Haskell programs in one page, each
-  with its own runtime. Both load `haskell-halogen-core`'s JavaScript, which
-  `Halogen.JSBits.wasmJS` keeps on `globalThis` under a key made of the
-  package, the module and the splice's position, so the second one loaded may
-  replace the first one's functions with the same functions. That is harmless as long as those files keep no state of their
-  own (only `core/jsbits/indexeddb.js` does, and the app does not use
-  IndexedDB).
+- The compiler's `browser_wasi_shim` is the rootfs' `browser_wasi_shim.js`, a copy of haskell-wasm's fork kept in `learn/vendor/`, which the rootfs build also points its `dyld.mjs` at, since the page must share dyld's copy (`learn/README.md`). The app's own `index.js` uses `@bjorn3/browser_wasi_shim` 0.3.0, bundled in from `node_modules` by `bundle.sh` (every other example's imports it from jsDelivr); the two do not meet. So the page loads nothing from another site but a layer's `external` dependencies, which `npm run test-learn` checks.
+- The app and the compiled program are two Haskell programs in one page, each with its own runtime. Both load `haskell-halogen-core`'s JavaScript, which `Halogen.JSBits.wasmJS` keeps on `globalThis` under a key made of the package, the module and the splice's position, so the second one loaded may replace the first one's functions with the same functions. That is harmless as long as those files keep no state of their own (only `core/jsbits/indexeddb.js` does, and the app does not use IndexedDB).

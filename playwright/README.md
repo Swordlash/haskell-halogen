@@ -1,12 +1,6 @@
 # haskell-halogen-playwright
 
-Test a built program from outside the page, in Haskell. A native hspec suite
-drives Chromium through [Playwright](https://playwright.dev): it opens pages,
-navigates, finds elements, clicks and types, and checks what it reads. After
-every action it waits for the page's
-[haskell-halogen](https://github.com/Swordlash/haskell-halogen) program to
-say it has finished reacting, so a test reads what a click rendered at once,
-without sleeping and without retrying.
+Test built applications from a native Haskell hspec suite. [Playwright](https://playwright.dev) drives Chromium to open pages, navigate, click, type and inspect results. After each action, the driver waits for the [haskell-halogen](https://github.com/Swordlash/haskell-halogen) program to finish reacting. Tests can then read the rendered result without sleeps or polling.
 
 ```haskell
 import Halogen.Playwright
@@ -28,41 +22,22 @@ main = hspec $ playwright $ describe "the counter" $ do
 
 ## Inside the page, or outside it
 
-[hspec-halogen](../hspec-halogen/) runs the spec *inside* the page: it mounts
-one component, holds it, queries it and sees its outputs, and is fast. It
-cannot navigate, hold two pages, or test a program whose component is not in
-the page at all.
+[hspec-halogen](../hspec-halogen/) runs tests inside the page, where they can mount components, query them and inspect outputs directly. Use it for focused component tests. It cannot navigate between documents, control several pages or test components running outside the browser.
 
-This package runs the spec *outside*: the test is a native process and the
-page is the program as it is built and served, prerendered page and all. Use
-it for what a user meets: a built example or application, several tabs of
-one, history, storage, a server whose component is drawn in the page over a
-wire ([haskell-halogen-remote](../remote/), whose `Halogen-remote-live-test`
-uses this package).
+This package runs tests in a native process against the application as built and served, including prerendered HTML. Use it for navigation, storage, multiple tabs and remotely rendered applications. [haskell-halogen-remote](../remote/) uses it in `Halogen-remote-live-test`.
 
 ## Setup
 
-It runs `node` with the npm package `playwright`, looked up from the working
-directory upwards and then in `NODE_PATH`, as the project's own:
+Install Node and the npm `playwright` package. The driver resolves packages from the working directory and its parents, then from `NODE_PATH`:
 
 ```sh
 npm install --save-dev playwright
 npx playwright install chromium
 ```
 
-Without either, `withPlaywright` fails with a `PlaywrightError` that says
-which is missing and how to install it. The package is native only (it does
-not build for the browser backends) and depends on none of the
-haskell-halogen packages: it drives any page, and speaks to a Halogen program
-only through the probe below.
+`withPlaywright` reports a `PlaywrightError` with installation instructions if a dependency is missing. The package is native-only and has no dependencies on other Halogen packages. It can drive any page; integration with Halogen uses the activity probe described below.
 
-The driver's JavaScript is compiled into the library and written to a
-temporary directory when it starts. It speaks a small protocol of JSON lines
-on node's stdin and stdout (see `js/driver.mjs`); node's stderr is relayed to
-the test's, each line prefixed with `[playwright]`. node ends itself, closing
-Chromium first, when its stdin ends, which happens however the test process
-ends, `kill -9` included; `withPlaywright` also stops it when its scope ends
-for any reason.
+The library embeds its JavaScript driver and writes it to a temporary directory at startup. Haskell and Node exchange JSON lines over stdin and stdout; see `js/driver.mjs`. Node's stderr is forwarded with a `[playwright]` prefix. `withPlaywright` closes the driver when its scope ends. If the Haskell process exits, even through `kill -9`, Node detects the closed stdin, closes Chromium and exits.
 
 `optionsFromEnvironment` (which `playwright` uses) reads:
 
@@ -77,108 +52,34 @@ for any reason.
 | `HALOGEN_PLAYWRIGHT_THROTTLE` | slow every page's processor down by this factor (`4`: four times as slow), popups too |
 | `HALOGEN_PLAYWRIGHT_ARGS` | more arguments for Chromium, separated by blanks |
 
-A run with `HALOGEN_PLAYWRIGHT_THROTTLE=6` is a run of the same tests on a slow
-machine: a test that only passed because the program was quick enough
-fails there, so races are found on purpose rather than in CI. `Options` also
-has `browserArgs`, Chromium's command-line switches (a
-`--host-resolver-rules` that sends a made-up host name to the loopback, say).
+`HALOGEN_PLAYWRIGHT_THROTTLE=6` slows browser execution to expose timing assumptions and races. `Options.browserArgs` accepts additional Chromium switches, such as `--host-resolver-rules` to map a test hostname to loopback.
 
-Chromium turns some of its behaviour on by machine, so a test can pass on one
-and fail on another with the same browser. One that has mattered here: whether
-a navigation gives the frame a new host (its `RenderDocument` feature), under
-which the last requests of the document that goes (a beacon sent in `pagehide`)
-are sent and reported to nobody. `HALOGEN_PLAYWRIGHT_ARGS` runs the tests the
-other way: `--enable-features=RenderDocument:level/all-frames`, or
-`--disable-features=RenderDocument`.
+Chromium can enable different features on different machines. For example, `RenderDocument` can replace a frame's host during navigation, causing final requests such as `pagehide` beacons to be sent without appearing in request logs. Test both configurations through `HALOGEN_PLAYWRIGHT_ARGS`: `--enable-features=RenderDocument:level/all-frames` or `--disable-features=RenderDocument`.
 
 ## The waits
 
-- **`settle page`** waits for a task of the page's at background priority (a
-  browser event reaches a WebAssembly program as a task of its own, so its
-  handler may not have started when Playwright's click returns), then asks
-  the page's program until it is idle, a background task between asks. Then
-  it waits for a move through the history the page asked for and the browser
-  has not made yet (a handler's `history.back()`, whose `popstate` comes a
-  moment later), for the page's next animation frame and a task after it
-  (the browser dispatches some events with the frame: a dialog's `close`
-  after Escape or `close()`, `resize`, a `ResizeObserver`'s callback), and
-  asks the program again, starting over if the event made it busy. Every
-  action (`click`, `fill`, `typeText`, `press`, `goto`, ...) ends with it. A
-  navigation that takes the document away is not an error. An action on an
-  element in a frame (`inFrame`, `frameAt`) settles the frame's document
-  first, which has a program of its own, and then the page's. On a page with no
-  Halogen program it waits for the task, the move and the frame. A document
-  that may not run scripts (a frame sandboxed without `allow-scripts`, as
-  untrusted markup is shown) is left alone: nothing of the driver's runs in
-  it, since the browser would refuse and write an error to the page's
-  console each time, and an action in it settles at once. A hidden
-  page draws no frames and is not waited for; a page whose frame does not
-  come within 100 ms is waited for 20 ms at most from then on, until it
-  draws one. The frame
-  costs an action about a dozen milliseconds. To know of a move through the
-  history as the page asks for it, the driver's init script wraps
-  `History.prototype.back`, `forward` and `go` in every page: they call the
-  page's own and keep their names and lengths, and their `toString()` is no
-  longer native code's. JavaScript the test runs in the
-  page (`evaluate`, `evaluateWith`, `evaluateOn`, `evaluateAll`) and `cdp` are
-  not actions and do not settle: after one that dispatches an event to the
-  program (a `blur`, a `mouseup`, a link clicked from script), call `settle`.
-  Each fails after the timeout if its promise never settles.
-- **`waitStarted page`** waits until a program in the page has mounted a
-  tree and is idle: the prerendered page has been adopted and every
-  `Initialize` has run its synchronous part. `visit` is `goto` and then this.
-  It fails after the timeout on a page where no program answers.
-- **`waitQuiet page`** waits for idle and for every fiber waiting in a
-  `liftIO` to come back (a save's request, say), but not for one pausing in
-  `H.delay` (below). Its timeout says how many were still waiting.
-- **`activity page`** is the program's answer itself, `Nothing` where there
-  is none.
+`settle page` waits for browser events and the work they trigger. It first yields to a background-priority task so WebAssembly handlers can start, then queries the activity probe until the program is idle. It also waits for pending history navigation, the next animation frame and a following task, then checks activity again. This catches delayed events such as dialog `close`, `resize` and `ResizeObserver` callbacks. Every normal action ends with this sequence.
 
-What these do not cover is what is not the program's yet: a timer that has
-not fired, a message on its way over a WebSocket, an animation, a Web Worker
-starting or ending. For those the `should` expectations retry until the
-timeout, `eventually page` retries any expectation, and
-`waitForFunction page expression` polls a JavaScript expression in the page,
-at its animation frames, until it holds (`waitForFunctionWith page function
-argument` takes the value as an argument rather than spliced into the
-JavaScript). `awaitText locator test` reads an element's text once it
-satisfies a test, and its failure says what the text last was.
-`waitForURL page address` waits for the page's address (exactly, or a glob)
-after a link the program follows, and settles. `waitForEvent target type
-action` runs an action and waits until the target (`OnWindow page`,
-`OnDocument page` or `OnElement locator`) has heard an event of the type,
-then settles: for an event the page causes later by itself (a timer of its
-own that goes back, a worker's `message`). Its listener is added in the page
-before the action and after the page's own; none within the timeout is a
-`TimeoutError` naming the event, and a document that goes first is an error
-named `NavigatedAway`.
+Actions inside frames settle the frame first, then the page. Navigating away during an action is allowed. Pages without Halogen still wait for browser tasks, history and frames. Script-disabled sandbox frames settle immediately because the driver cannot run code there. Hidden pages do not wait for frames. After a frame timeout of 100 ms, later attempts wait at most 20 ms until frames resume. A normal settle adds roughly one frame of latency.
+
+The init script tracks navigation by wrapping `History.prototype.back`, `forward` and `go`. These wrappers preserve names and argument counts but no longer stringify as native functions. `evaluate`, `evaluateWith`, `evaluateOn`, `evaluateAll` and `cdp` do not settle automatically. Call `settle` after using them to dispatch events. Unresolved promises fail at the configured timeout.
+
+`waitStarted page` waits for a mounted, idle tree, including the synchronous parts of initialization. `visit` combines `goto` and `waitStarted`. It times out if no program answers.
+
+`waitQuiet page` also waits for fibers suspended in `liftIO`, but excludes `H.delay`. Timeout messages report the remaining waiters. `activity page` returns the raw activity reading, or `Nothing` if no program provides one.
+
+Activity waits do not cover external events that have not reached the program, such as timers, incoming WebSocket messages, animations or worker startup. Use retrying `should` expectations or `eventually page` for those conditions. `waitForFunction` polls a JavaScript expression at animation frames; `waitForFunctionWith` passes an argument separately. `awaitText` waits for matching text and reports the last value on failure. `waitForURL` accepts an exact address or glob and settles after navigation.
+
+`waitForEvent target type action` installs a listener, runs the action, waits for the event and then settles. Targets are `OnWindow page`, `OnDocument page` and `OnElement locator`. The listener is installed before the action but after the page's own listeners. Missing events fail with `TimeoutError`; navigating away first fails with `NavigatedAway`. This is useful when the page schedules later work itself:
 
 ```haskell
 waitForEvent (OnWindow page) "popstate" (click (byRoleNamed page "button" "Back in a moment"))
 ```
- `waitForConsole page test` is
-the first console message, from the page's start, that satisfies a test,
-waiting for one if there is none yet: one written before the call counts, so
-the message an action caused cannot be missed. A `ConsoleMessage` has the
-address it was written at (`url`, a frame's for a message one of the page's
-frames wrote) and its `line`, so a test can leave out what an interactive
-frame's sandbox refuses: `not (maybe False ("?interactive" `Text.isInfixOf`) m.url)`.
+`waitForConsole page test` returns the first matching console message since page startup, waiting if necessary. Earlier messages are retained, so it cannot miss one produced before the call. `ConsoleMessage.url` and `.line` identify its source, including frames. For example, filter an interactive frame with `not (maybe False ("?interactive" `Text.isInfixOf`) m.url)`.
 
-Every wait works on a page sent with a Content Security Policy that refuses
-`eval` (`script-src 'self'`, no `'unsafe-eval'`), as a real server's pages
-are. Playwright's own `waitForFunction` compiles its expression in the page
-with `eval`, which such a policy refuses (an uncaught `EvalError`, and a wait
-that never ends); this package's compiles the expression together with the loop
-that polls it, through the DevTools protocol, which the page's policy does not
-govern. The probe is an init script, which the policy does not govern either,
-and `evaluate` and its kin go through the protocol too.
+Waits work under Content Security Policies that disallow `eval`. Unlike Playwright's own `waitForFunction`, this implementation compiles and polls expressions through the DevTools protocol. The probe runs as an init script, and `evaluate` also uses DevTools. These operations are not blocked by the page's `script-src` policy.
 
-`waitForWebSocket page test` is the same for the frames of the page's
-WebSockets, which are kept as they cross, both ways (`webSocketFrames page`):
-the first, from the page's start, that satisfies a test, so the server's
-answer to a subscription the page made while it loaded is found however early
-it came. A test that wants a later one tells it apart by its payload. On
-timeout it lists the last frames that crossed.
+`waitForWebSocket page test` returns the first matching WebSocket frame since page startup. Both incoming and outgoing frames are retained and available through `webSocketFrames page`. Match payloads to distinguish later messages. On timeout, the error includes recent frames.
 
 ```haskell
 -- The second tab has subscribed: a comment made in the first is pushed to it.
@@ -187,35 +88,14 @@ _ <- waitForWebSocket watcher (\f -> not f.sent && "\"subscribed\"" `Text.isInfi
 
 ### Pauses: what `waitQuiet` waits for is the program's to say
 
-`waitQuiet` waits for every fiber in a `liftIO`, and a timer written
-`liftIO (threadDelay n)` or `H.delayCounted` is one: it waits for the timer. A
-program says which of its pauses a test should wait for by how it writes them:
+`waitQuiet` includes timers written with `liftIO (threadDelay n)` or `H.delayCounted`. Choose the delay API according to what the timer represents:
 
-- a pause followed by work a test waits for (a debounce before a search
-  request, a draft saved two seconds after the last key) is
-  `H.delayCounted` (`Hooks.delayCounted`), and `waitQuiet` after the typing
-  returns once the request has been answered;
-- a pause that only takes something off the screen or ticks (a "Saved" notice
-  hidden after three seconds, a clock, a ticker while a model works) is
-  `H.delay` (`Hooks.delay` in hooks, a `NominalDiffTime` in seconds), which the
-  probe does not count: `waitQuiet` returns while the notice is still shown,
-  so the test can read it, and a `forever` ticker leaves the page quiet
-  between ticks. Written with `liftIO`, the notice is gone by the time
-  `waitQuiet` returns, and a ticker keeps it from ever returning.
+- Use `H.delayCounted` or `Hooks.delayCounted` for delays before work that tests should await, such as a debounced search or autosave. `waitQuiet` then includes both the delay and the resulting request.
+- Use `H.delay` or `Hooks.delay` for transient notices and repeating UI timers. These take seconds as `NominalDiffTime` and do not keep the program busy. Tests can inspect a notice before it disappears, and clocks remain quiet between ticks. Using a counted delay for a perpetual ticker would prevent `waitQuiet` from returning.
 
-A wait for a response (Playwright's `waitForResponse`) is not here, and
-`waitQuiet` is not always one. After a save that shows a "Saved" notice for
-three seconds, `waitQuiet` returns once the save has been answered only if the
-notice's timer is an `H.delay`; with `H.delayCounted` it waits for the
-notice to go too, and the notice is never seen. Where the program cannot be
-changed, check what the response did (the saved document, through the
-server's API) after `waitQuiet`, rather than the notice; or wait for the notice
-itself with `awaitText`, after the action's `settle`.
+There is no direct equivalent of Playwright's `waitForResponse`. `waitQuiet` waits for all counted work, which may include a notice's dismissal timer. If a "Saved" notice uses `H.delayCounted`, it will be gone by the time `waitQuiet` returns; use `H.delay` for that timer. If you cannot change the program, use `awaitText` to observe the notice after settling, or check the saved data through the server API after `waitQuiet`.
 
-Every call has the timeout of the options (`HALOGEN_PLAYWRIGHT_TIMEOUT`, five
-seconds). `withTimeout ms page` is the same page with another, for its calls
-and those of the locators made from it, `settle` and the retrying
-expectations included: for the one call that takes longer than the rest.
+Calls use `HALOGEN_PLAYWRIGHT_TIMEOUT`, five seconds by default. `withTimeout ms page` returns a page handle with a different timeout, also used by locators created from it, settling and retrying expectations:
 
 ```haskell
 visit (withTimeout 30000 page) address      -- a program of megabytes loading
@@ -225,75 +105,39 @@ waitQuiet (withTimeout 60000 page)          -- a job of seconds in a Web Worker
 
 ## The probe
 
-Every page the driver opens has `globalThis.__halogenProbe = {}` before its
-own scripts run. A program built with a haskell-halogen-core that has
-`Halogen.Activity` gives it, when it mounts its first tree,
+Every page the driver opens has `globalThis.__halogenProbe = {}` before its own scripts run. A program built with a haskell-halogen-core that has `Halogen.Activity` gives it, when it mounts its first tree,
 
 ```js
 await __halogenProbe.activity()   // {trees, running, waiting}
 ```
 
-`trees` is the trees mounted and not disposed of, `running` those running or
-with work queued, `waiting` the fibers waiting in a `liftIO` (not those
-pausing in `H.delay`). Idle is
-`running == 0`; the answer reads the program's loops when asked, so it is
-exact. Any tool can set the probe up and ask it; see `Halogen.Activity`'s
-documentation for the contract.
+`trees` counts mounted trees, `running` counts trees executing or holding queued work, and `waiting` counts fibers suspended in `liftIO`. `H.delay` does not contribute to `waiting`. The program is idle when `running == 0`. Each reading inspects the current loops directly. Any tool can install and query this probe; see `Halogen.Activity` for its contract.
 
-A component need not be in the page for this: `haskell-halogen-remote`'s
-`Halogen.Remote.Test` mounts a component in the test's own process, natively,
-and shows it in a page through its client, which forwards the probe's question
-to the component's session over the wire. The same driver then tests a
-component that runs in the test's process, settling every action on that
-component alone; see remote's README, "Testing a component in a real page".
+`Halogen.Remote.Test` supports the same probe for components running in the native test process. Its browser client forwards activity queries to the component's remote session. Actions then settle against that session alone. See remote's README, "Testing a component in a real page".
 
 ## Serving a built directory
 
-`Halogen.Playwright.Serve` serves a directory on a free port for a test's
-duration, as a static host does: a directory's address serves its
-`index.html` (without its last slash, it is redirected to the address with
-one), files go with their media types (`application/wasm` among them, which
-`WebAssembly.instantiateStreaming` insists on), `HEAD` gets what `GET`
-would, and nothing else is sent: no cross-origin isolation, no caching
-headers.
+`Halogen.Playwright.Serve` serves a directory on a free port for the duration of a test. Directory URLs serve `index.html` and redirect to a trailing slash when needed. Files use their proper media types, including `application/wasm` for streaming compilation. `HEAD` uses the same metadata as `GET`. The server adds no cache or cross-origin isolation headers.
 
 ```haskell
 main = serveDirectory "dist-newstyle/wasm/public/vanilla" $ \base ->
   hspec $ playwright $ it "starts" $ inPage $ \page -> visit page base
 ```
 
-`serveDirectoryWith` takes a base path to serve it under (as GitHub Pages
-serves a project's site, outside of which there is nothing), a `404.html` to
-serve for an address with no file, and other directories mounted under the
-base.
+`serveDirectoryWith` takes a base path to serve it under (as GitHub Pages serves a project's site, outside of which there is nothing), a `404.html` to serve for an address with no file, and other directories mounted under the base.
 
 ## A prerendered page, adopted
 
-A page rendered ahead of time (`Halogen.Static`) is adopted by its program
-(`hydrateUI`): the program takes the nodes the server sent as its own. If
-the prerender got something wrong, the program repairs it, and the reader
-sees the page change as it starts. `shouldAdoptCleanly page address` checks
-that it does not:
+`hydrateUI` adopts the nodes generated by `Halogen.Static`. If the initial render differs from that HTML, hydration repairs the page and can cause visible changes. `shouldAdoptCleanly page address` checks that no repairs occur:
 
 ```haskell
 it "adopts the prerendered page with nothing repaired" $ inPage $ \page ->
   shouldAdoptCleanly page base
 ```
 
-It holds the program's request (`**/app.wasm`), goes to the address, marks
-every node under `#app` as the server sent it (its text, or its attributes),
-lets the program go, waits for it to start (`waitStarted`: the adopting
-render and every `Initialize`'s synchronous part have run), and compares.
-The gate stays, released: the program's own requests start as it does, and
-taking a route away while a page's requests are under way can leave them
-stalled.
-`adopt` and `adoptWith` give what changed as data, a `Repair` for each:
-`Replaced` (a node gone, another where it was), `Removed`, `Built` (the
-outermost of what went or was built), `TextChanged` and `AttributeChanged`,
-each with a path to the node (`#app > div.learn > p:nth-child(2) > text()`)
-and its HTML or text; `describeRepair` makes one a line of a report. The
-space between tags and the comments that keep two texts apart, which the
-HTML parser makes and a render does not, are not repairs.
+The check holds `**/app.wasm`, opens the page and records every node under `#app`, including text and attributes. It then releases the program, waits for startup and compares the DOM. The released gate stays installed because removing routes while requests are active can stall them.
+
+`adopt` and `adoptWith` return repairs as data: `Replaced`, `Removed`, `Built`, `TextChanged` and `AttributeChanged`. Structural repairs report the outermost affected node. Each includes a path such as `#app > div.learn > p:nth-child(2) > text()` and the relevant HTML or text. `describeRepair` formats it for reports. Parser-created whitespace and comments separating text nodes are ignored.
 
 `AdoptionOptions` say where to look and what to leave alone:
 
@@ -307,16 +151,9 @@ defaultAdoptionOptions
   }
 ```
 
-What the program changes once it has started (a timer's render, a
-response's) is not compared. What its `Initialize` changes at once is: a part
-it fills on purpose (an editor in an empty element, a status line) goes in
-`leaveOut`, which is then not looked at at all, or in `leaveOutContents`,
-whose element must still be the one the server sent, with its attributes,
-whatever is in it. `adoptWith` leaves its released gate on the page, so a
-test that adopts many addresses on one page holds one gate of its own and
-arms it again for each (`rearm`), around the two halves, which are also for
-a test with more to do between marking and comparing (looking at what the
-server sent, holding an API as well):
+The comparison includes synchronous `Initialize` changes but excludes later timer and response updates. Use `leaveOut` for areas intentionally filled at initialization, such as an editor. `leaveOutContents` ignores contents while still checking the element's identity and attributes.
+
+For several adoption checks on one page, reuse one gate and call `rearm` before each navigation. The lower-level functions also let you inspect prerendered content or hold an API request between marking and comparing:
 
 ```haskell
 gate <- hold page "**/app.wasm"
@@ -331,27 +168,11 @@ repairsSinceMarked page >>= shouldHaveNoRepairs
 
 ## Contexts: init scripts, requests and pages
 
-`addInitScript context js` runs a script of the test's own in every page of
-the context before the page's own scripts, after the probe: to stand in for
-something the page would find (a `Worker` that refuses to start, say).
-`requests context` is what the context's pages and their Web Workers have
-asked the network for so far (address, method, resource type), kept as they
-are made: a service worker's requests are its context's and no page's, which
-is why it is asked of the context. `workers page` is how many dedicated Web
-Workers the page has alive.
+`addInitScript context js` runs after the probe but before application scripts in every page of the context. Use it to replace browser features for a test. `requests context` records network requests from pages and workers with their URL, method and resource type. It belongs to the context because service-worker requests may have no page. `workers page` counts live dedicated workers.
 
-Each `Request` also says who asked: `page` (a page's `pageNumber`;
-`requestedBy page request` compares), `document`, the identity of the
-document that asked, and `documentUrl`, its address. A document's identity
-is the browser's (the DevTools protocol's loader id): new for every document
-a frame loads, the same across a state the page pushed or a fragment. A
-navigation's own request is the document it loads; a frame's requests are its
-own document's; a request the document made before the page went elsewhere
-stays the document's however late it is reported. `currentDocument page` is
-the document the page shows now and `documents page` its frames' too, and
-`requestsOf page` is the requests of the documents the page shows now: on a
-page shared between examples, what the document a test went to asked for,
-without going to `about:blank` first.
+Each `Request` includes the requesting `page`, `document` and `documentUrl`. Compare the page with `requestedBy page request`. Document identity uses the browser's loader ID: it changes for new documents but stays stable across history-state and fragment changes. Navigation requests belong to the document they load, and frame requests belong to the frame's document.
+
+`currentDocument page` returns the main document, and `documents page` includes frame documents. `requestsOf page` filters requests to currently displayed documents. This lets tests sharing one page inspect the current navigation without first visiting `about:blank`.
 
 ```haskell
 goto page (base <> "no-picture.html")
@@ -359,33 +180,13 @@ fonts <- filter (\r -> r.resourceType == "font") <$> requestsOf page
 fonts `shouldBe` []
 ```
 
-How sure that is: the driver matches each request Playwright reports with the
-browser's own report of it on a session of the page's (the same address and
-method, both the main frame's or neither, both a navigation's own request or
-neither, and never a report by a document that was not yet its frame's when
-the request was heard; first come first matched), which names the document
-exactly. What the
-page's session does not report keeps the document its frame had when the
-driver heard of it: a dedicated worker's requests (right unless the worker
-asked just before its document went), and a frame's in another process (a
-cross-site `iframe`). A service worker's requests have no page and no
-document. And what a document asks for as it goes (a beacon sent in
-`pagehide`) may be in no log at all: when a navigation gives the frame a new
-host, which Chromium does on some machines and not on others, the browser
-sends such a request and reports it to nobody.
+The driver matches Playwright requests to DevTools reports by URL, method, frame kind and navigation status, in arrival order. It excludes documents that were not yet active when the request arrived. Matched reports provide an exact document ID.
 
-A context opened with `recordExchanges = Just limit` also keeps each request,
-once it has ended, with what was sent and what came back: `exchanges context`.
-An `Exchange` has the request's address, method, resource type, page and
-document, every header
-it was sent with (`cookie` among them, which a page's script never sees), its
-body, and the response's status, headers (a `set-cookie` that came twice is
-there twice) and body, kept when it is at most `limit` bytes; or why it failed.
-It is opt-in because it costs the driver two more questions to the browser per
-request and the memory of what it keeps. `waitForExchange context test` is the
-first that satisfies a test, from the context's start, waiting for one if there
-is none yet: an exchange is kept a moment after the page has its response, once
-its body has been read, so the one an action caused is waited for, not read.
+Requests without a matching report use the frame's document at observation time. This applies to dedicated workers and out-of-process cross-site frames, and can misattribute a worker request around navigation. Service-worker requests have no page or document. Chromium may also send unload beacons without reporting them when it replaces a frame host.
+
+Set `recordExchanges = Just limit` to retain completed requests and responses. `exchanges context` includes the URL, method, resource type, page, document, complete request headers including cookies, request body, response status and headers, and either the response body or failure reason. Repeated headers such as `set-cookie` remain separate. Response bodies are retained only up to `limit` bytes.
+
+Recording is opt-in because it adds two browser queries per request and uses memory. Use `waitForExchange context test` to wait for a match, including exchanges recorded before the call. Recording finishes after the response body is read, slightly later than the page receives the response.
 
 ```haskell
 withContext pw defaultContextOptions {recordExchanges = Just 65536} $ \ctx -> do
@@ -397,15 +198,7 @@ withContext pw defaultContextOptions {recordExchanges = Just 65536} $ \ctx -> do
   (decodeStrict =<< saved.responseBody) `shouldBe` Just (object ["saved" .= True])
 ```
 
-`pages context` lists the context's pages, those its pages opened among them.
-`waitForPopup page action` runs an action that opens a page (`window.open`, a
-link to a new tab, a sign-in window) and gives the page it opened, once it has
-loaded and settled. The wait is armed before the action, so the popup cannot be
-missed. A popup is a page of the context like any other: it has the probe and
-the context's init scripts, routes and exposed functions, the options'
-throttle, a console of its own, and it closes with the context. A page that
-closes itself as a click is handled (a sign-in window that posts back to its
-opener) is no error for the click.
+`pages context` includes popups. `waitForPopup page action` arms its listener before the action and returns the opened page after load and settling. Popups inherit the context's probe, init scripts, routes, exposed functions and CPU throttle, have their own console log, and close with the context. A popup closing itself while handling a click does not make that click fail.
 
 ```haskell
 (_, signIn) <- waitForPopup page (click (byRoleNamed page "button" "Sign in"))
@@ -416,9 +209,7 @@ locator page "#user" `shouldHaveText` "ada"
 
 ## Requests answered by the test
 
-`route page glob handler` (or `route context glob handler`) hands each
-request whose address matches a glob (Playwright's: `**` any characters, `*`
-any but `/`) to a handler of the test's, which says what becomes of it:
+`route page glob handler` (or `route context glob handler`) hands each request whose address matches a glob (Playwright's: `**` any characters, `*` any but `/`) to a handler of the test's, which says what becomes of it:
 
 ```haskell
 -- Another site's photograph answered here, so that the test needs no network.
@@ -433,18 +224,9 @@ unreachable <- route ctx (origin <> "/**") (\_ -> pure (Abort "connectionrefused
 unroute unreachable
 ```
 
-`Continue` lets the request go on (to the route added before, or the
-network), `Fulfill response` answers it, `Abort code` fails it with
-Playwright's error code. The handler is given the address, the method, the
-resource type, the headers (`allHeaders` has every one the browser sends,
-cookies included) and the body, so watching what was asked while letting it
-through is a handler that records and continues.
+`Continue` passes the request to an earlier route or the network. `Fulfill response` supplies a response, and `Abort code` fails it with a Playwright error code. Handlers receive the URL, method, resource type, headers and body; `allHeaders` includes cookies. To observe requests without changing them, record the data and return `Continue`.
 
-To see what the server answered, a handler sends the request on and is given
-the response, `fetchResponse request`: its status, its headers and its body (as
-the page would read it, decoded, so without the headers that described the
-bytes on the wire), to look at or to change before it answers `Fulfill` with
-it. `passThrough` is the handler that only looks:
+`fetchResponse request` forwards the request and returns the server's status, headers and decoded body. Inspect or modify the response, then return `Fulfill`. Headers describing the original wire encoding are removed because the body is already decoded. Use `passThrough` to observe responses without modifying them:
 
 ```haskell
 -- The server's settings, with the dark theme on.
@@ -457,28 +239,16 @@ _ <- route page "**/api/**" $ passThrough $ \request response ->
   atomicModifyIORef' answers (\as -> (as <> [(request.url, response.status, response.body)], ()))
 ```
 
-`routeWith` and `holdWith` take a `RouteFilter`: a glob, and, when they are not
-empty, the resource types (`fetch`, `image`, `document`, ...) and the methods
-it takes. The driver decides them before the test is asked, so a request they
-leave out costs nothing and goes on as if the route were not there. A gate on
-an API's `fetch` requests holds them while the page's images under the same
-path load, and `goto`, which waits for the page's `load`, returns:
+`routeWith` and `holdWith` accept a `RouteFilter` with a URL glob and optional resource-type and method lists. The driver filters before calling Haskell, so excluded requests continue without a handler call. For example, hold API fetches while allowing images at the same path to load:
 
 ```haskell
 gate <- holdWith page (routeFilter "**/api/**") {resourceTypes = ["fetch"]}
 _ <- routeWith page (routeFilter "**/api/**") {methods = ["POST"]} (\_ -> pure (fulfill 503 Nothing ""))
 ```
 
-Each request's handler runs on a thread of its own, so a handler may block:
-wait for the test to let it go, or for a moment. A handler that throws aborts
-its request; what it threw is written to stderr and kept, and an `inPage`
-failure lists it with the context's requests that failed. When the route is
-taken away (`unroute`), or its page or context closes, or the driver ends,
-the handlers still under way are killed and their requests go on as if the
-route had not been there: the driver lets them go before Playwright's route is
-removed, so nothing waits on a handler that will not answer. A request a
-service worker makes, or answers from its cache, passes no page's route: open
-a context with `serviceWorkers = False` when that matters.
+Each handler runs on its own Haskell thread and may block. If it throws, its request is aborted; the exception is logged to stderr and included in `inPage` failure diagnostics.
+
+Removing a route, closing its page or context, or stopping the driver cancels active handlers. Their requests are released before Playwright removes the route so they do not remain stuck. Service-worker requests and cached responses bypass page routes; use `serviceWorkers = False` when interception must cover them.
 
 A gate is a route whose handler waits:
 
@@ -491,30 +261,13 @@ release gate                  -- held requests go on, later ones pass straight t
 waitStarted page
 ```
 
-`heldCount gate` is how many requests it holds now; `waitHeld` fails after
-the page's timeout if none comes. One gate serves a walk that holds every
-load: `rearm gate` before the next `goto` or `reload` holds again, and
-`closeGate gate` takes the route away at the end (what it holds goes on), so
-released routes do not pile up.
+`heldCount gate` reports the current number of held requests. `waitHeld` waits for one using the page's timeout. Reuse a gate across navigations with `rearm` before `goto` or `reload`. `closeGate` removes the route and releases outstanding requests.
 
-On the wire this is the protocol's third kind of message: node asks
-(`{"ask": 12, "route": 3, "request": {...}}`) and Haskell answers
-(`{"answer": 12, "action": "fulfill", ...}`), bodies as base64; see the top of
-`js/driver.mjs`. The thread that reads node's output never runs a handler and
-never writes.
+Route handlers use request/reply messages between Node and Haskell: `{"ask": 12, "route": 3, "request": {...}}` and `{"answer": 12, "action": "fulfill", ...}`. Bodies are base64-encoded; see `js/driver.mjs`. The Node-output reader never runs handlers or writes replies itself.
 
 ## Functions the page calls
 
-`exposeFunction page name f` (or on a context, for all its pages) gives the page
-`window[name]`, a function of the test's: the page calls it with one argument and
-gets a promise of the result, both JSON, as a page calls a native app's bridge or
-reports to a test harness. It is an ask too (`{"ask": 13, "exposed": 5,
-"argument": ...}`), so each call runs on a thread of its own and may block while
-others are answered. What the function throws (an argument that does not decode
-too) rejects the page's promise with its message, is written to stderr and kept,
-and an `inPage` failure lists it under "Exposed functions that failed". It is
-there for every document the page loads after, until the page or the context
-closes.
+`exposeFunction page name f` installs `window[name]` as a function accepting one JSON argument and returning a promise of a JSON result. Context-level registration applies to all its pages. Calls run on separate Haskell threads and may block independently. Decode errors and exceptions reject the page's promise, are logged to stderr and appear under "Exposed functions that failed" in failure reports. The function remains available across document loads until the page or context closes.
 
 ```haskell
 exposeFunction page "reportScore" $ \(score :: Int) -> writeIORef best score
@@ -523,13 +276,7 @@ exposeFunction page "reportScore" $ \(score :: Int) -> writeIORef best score
 
 ## Files
 
-`download page action` runs an action that downloads a file (a click on an
-export button, or a `goto` to an address that is a download, which then does
-not fail) and gives the download once it is saved whole: its suggested file
-name, its address, `downloadBytes` and `saveDownload`. The wait for it is armed
-before the action, so the event cannot be missed. `setInputFiles locator`
-chooses the files of a file input, from disk (`UploadFile path`) or from
-bytes the test made (`UploadBytes {name, mimeType, bytes}`).
+`download page action` waits for a download triggered by an action, including navigation to a download URL. It registers before the action and returns after the file is fully saved. The result exposes its suggested filename, URL, `downloadBytes` and `saveDownload`. `setInputFiles` sets a file input from `UploadFile path` or in-memory `UploadBytes {name, mimeType, bytes}`.
 
 ```haskell
 exported <- download page (click (locator page ".demo-export"))
@@ -540,78 +287,40 @@ setInputFiles (locator page ".demo-import input")
 
 ## A context's state, and what the page is made to see
 
-`cookies ctx`, `addCookies ctx` and `clearCookies ctx` are the context's
-session; `cookie name value url` makes one for a site, so handing a session
-to a fresh context is `addCookies fresh [cookie "wiki_session" token origin]`.
-`setOffline ctx True` takes the context off the network (its pages hear
-`offline`, and are settled). `emulateMedia page Print`, `Screen` or
-`Scheme Dark` changes what media queries see, and settles once the page has
-heard the change; `pdf page` prints the page with its CSS's page size.
-`ContextOptions` have `permissions` (`["clipboard-read", "clipboard-write"]`),
-`isMobile` and `hasTouch` for a phone (and `tap locator` there), and
-`acceptDialogs`: every dialog a page opens is answered at once (dismissed, as
-Playwright does, unless this says accept, which a `beforeunload` asking
-whether to leave needs) and kept, `dialogs page`.
+Manage cookies with `cookies`, `addCookies` and `clearCookies`. `cookie name value url` constructs one; for example, `addCookies fresh [cookie "wiki_session" token origin]` installs a session in a new context.
+
+`setOffline ctx True` disables networking, delivers `offline` and settles the pages. `emulateMedia page Print`, `Screen` or `Scheme Dark` changes media-query results and settles. `pdf page` prints using the page size from CSS.
+
+`ContextOptions` controls permissions, mobile emulation and touch support; use `tap` for touch input. Dialogs are answered immediately and recorded by `dialogs page`. They are dismissed by default; `acceptDialogs` accepts them, including `beforeunload` prompts.
 
 ## Navigating, and pictures
 
-`goBack page` and `goForward page` go one entry through the page's history and
-return for every kind of entry, then settle: another document (once it has
-loaded, as `goto`), a state the page pushed or a fragment (the same document,
-which has had its `popstate` or `hashchange`), or a frame's own navigation
-(Back undoes it in the frame alone, and the page does not load). No entry to go
-to is a `PlaywrightError` named `NoHistoryEntry`.
+`goBack` and `goForward` navigate one history entry and settle afterward. They support full document loads, pushed states, fragments and frame-only navigation. With no destination they throw `PlaywrightError` named `NoHistoryEntry`.
 
-`gotoStatus page address` is `goto` and the status of the response the
-navigation ended with: `Just 404` for a server's not-found page, `Just 401`
-for a page that is not the visitor's, `Nothing` for a navigation within the
-document or an address that became a download. It works with JavaScript off.
+`gotoStatus` navigates and returns the final HTTP status, such as `Just 404` or `Just 401`. It returns `Nothing` for same-document navigation or downloads, and works with JavaScript disabled.
 
-`screenshot page path` is the whole page; `screenshotWith page
-defaultScreenshotOptions {fullPage = False} path` is the window, the size of
-the context's `viewport`. Neither settles. `reducedMotion = True` in the
-context's options makes `prefers-reduced-motion: reduce` match, so a page that
-animates only when it may shows its end state in the picture.
+`screenshot page path` captures the full page. Use `screenshotWith page defaultScreenshotOptions {fullPage = False} path` for the viewport. Screenshots do not settle automatically. Set `reducedMotion = True` in context options to activate `prefers-reduced-motion: reduce`.
 
 ## Keys, the mouse and where things are
 
-`typeKeys page text` types where the focus is (after a key that opened a
-search box), `insertText page text` puts text there as a paste would.
-`mouseMove page x y` and `mouseClick page x y` act at a point of the viewport,
-`boundingBox locator` is where an element is drawn and `viewportSize page` the
-viewport: a canvas, which no locator sees into, is clicked at a point of its
-box. Each settles.
+`typeKeys page text` types into the focused element. `insertText` inserts text as a paste would. `mouseMove` and `mouseClick` use viewport coordinates; `boundingBox` and `viewportSize` help calculate them, for example to click inside a canvas. Input actions settle afterward.
 
 ## Frames
 
-`inFrame scope css` is a locator step into the frame an `iframe` element shows;
-`frameAt page glob` starts in the frame whose address matches, wherever it has
-navigated since. The steps after either are taken in the frame's document,
-and every reading and action works there:
+`inFrame scope css` is a locator step into the frame an `iframe` element shows; `frameAt page glob` starts in the frame whose address matches, wherever it has navigated since. The steps after either are taken in the frame's document, and every reading and action works there:
 
 ```haskell
 locator (inFrame page "iframe.wiki-svg[title='Where the time goes']") "#status" `shouldHaveText` "ready"
 innerText (locator (frameAt page "**/api/v1/session") "body")
 ```
 
-`frames page` lists the frames' addresses, the page's own first.
-`evaluateOn locator function argument` calls a function with the locator's
-element, in its frame if it is in one.
+`frames page` lists the frames' addresses, the page's own first. `evaluateOn locator function argument` calls a function with the locator's element, in its frame if it is in one.
 
 ## The Chrome DevTools Protocol
 
-`cdp page method params` calls a method of the page's DevTools session (made on
-first use, one per page) and decodes its result, for what Playwright has no call
-for: a virtual authenticator for passkeys, Chromium's installability check, an
-element's event listeners. `throttleCPU page rate` slows the page's processor
-down, as the `throttle` option does for every page. Like `evaluate`, `cdp`
-does not settle.
+`cdp page method params` calls the Chrome DevTools Protocol and decodes its result. The driver creates one session per page on first use. Use it for APIs outside the wrapper, such as WebAuthn authenticators, installability checks or event-listener inspection. `throttleCPU page rate` changes that page's CPU throttle. Like `evaluate`, `cdp` does not settle.
 
-Its events are kept as the console is: `listenCDP page event` keeps every
-occurrence from then on (on the same session, so the domain is enabled with a
-`cdp` call), `cdpEvents page event` is their parameters so far, and
-`waitForCDP page event test` the first that satisfies a test, waiting for one if
-there is none yet.
+`listenCDP page event` starts recording an event on the same DevTools session. Enable its domain separately with `cdp`. `cdpEvents` returns recorded parameters, and `waitForCDP page event test` waits for the first matching event, including earlier recorded events.
 
 ```haskell
 listenCDP page "Network.webSocketFrameReceived"
@@ -626,13 +335,7 @@ Authenticator {authenticatorId} <- cdp page "WebAuthn.addVirtualAuthenticator" (
 
 ## What the browser costs
 
-`browserProcesses page` is the processes of the browser the page is in, every
-page's: each one's `kind` (Chromium's `--type`: `renderer`, `gpu-process`,
-`utility`, `zygote`, or `browser` for its own), the bytes it has resident
-(`rss`) and the most it has had (`peak`), read from `/proc` (on Linux; none
-elsewhere). A page cannot see this from inside, and for a page that compiles
-in the browser it is what the machine must have: the playground's test prints
-its renderer's, which go into the tutorial's measurements.
+`browserProcesses page` reports all processes in the page's browser. Each has a Chromium process `kind`, current resident bytes (`rss`) and peak resident bytes (`peak`). On Linux these come from `/proc`; other platforms return no entries. The playground test uses renderer memory to measure the cost of compiling in the browser.
 
 ```haskell
 renderers <- filter (\p -> p.kind == "renderer") <$> browserProcesses page
@@ -640,31 +343,13 @@ renderers <- filter (\p -> p.kind == "renderer") <$> browserProcesses page
 
 ## Locators
 
-A `Locator` is a value: a page and the steps to an element, sent with each
-call, so making one does nothing and it finds the element afresh each time.
-`locator page css`, `byRole page role`, `byRoleNamed page role name`,
-`byText page text`, `byLabel page label`; then `nth i`, `first`, `lastOf`,
-`withText t` (contains it, ignoring case) and `withTextExact t` (the whole
-text, exactly: `Version 2` and not `Version 2 (current)` or `Version 12`). Each of the first five starts from a page or from another
-locator, as Playwright's do: `locator (locator page ".card") "button"` is the
-buttons inside the cards. As in Playwright, an action on a locator that matches more than
-one element fails. `evaluateAll locator function argument` calls a JavaScript
-function in the page with every element the locator matches, and
-`allTextContents locator` is their texts; like `count`, neither waits.
-`isDisabled` is `isEnabled`'s opposite. There is no filter by another
-locator (Playwright's `has`): the one script that uses it filters by a text
-inside, which `withText` does.
+A `Locator` stores a page and a sequence of lookup steps. Creating it does not query the DOM; each operation resolves it again. Start with `locator`, `byRole`, `byRoleNamed`, `byText` or `byLabel`, then narrow with `nth`, `first`, `lastOf`, `withText` or `withTextExact`. The first five can also start from another locator to search inside it. Actions fail if more than one element matches.
+
+`withText` performs a case-insensitive substring match. `withTextExact` matches the entire text exactly. `evaluateAll` passes all matching elements to a JavaScript function; `allTextContents` returns their text. Neither waits, and neither does `count`. `isDisabled` is the opposite of `isEnabled`. Filtering by another locator, Playwright's `has`, is not implemented.
 
 ## In hspec
 
-`playwright :: SpecWith Playwright -> Spec` starts one node and Chromium for
-a group; `inPage :: (Page -> IO a) -> Playwright -> IO a` gives each example
-a fresh context and page. When an example fails, `inPage` adds to the failure
-the page's address, its console errors, its uncaught errors, its context's
-route handlers that failed and requests that failed, and saves a screenshot
-under `HALOGEN_PLAYWRIGHT_ARTIFACTS` if it is set. A failed action (a
-`PlaywrightError`, such as a click that timed out) becomes a failure the same
-way, with Playwright's message, which names the locator.
+`playwright :: SpecWith Playwright -> Spec` starts one node and Chromium for a group; `inPage :: (Page -> IO a) -> Playwright -> IO a` gives each example a fresh context and page. When an example fails, `inPage` adds to the failure the page's address, its console errors, its uncaught errors, its context's route handlers that failed and requests that failed, and saves a screenshot under `HALOGEN_PLAYWRIGHT_ARTIFACTS` if it is set. A failed action (a `PlaywrightError`, such as a click that timed out) becomes a failure the same way, with Playwright's message, which names the locator.
 
 A test that is one long walk shares a page across its examples:
 
@@ -674,31 +359,14 @@ describe "the walk" $ onOnePage defaultContextOptions (\page -> addInitScript (p
   it "counts" $ \page -> click (locator page "#count")   -- on the page "starts" left
 ```
 
-The setup runs once with the page fresh; each example's failure says what the
-page said; one example cannot run alone with `--match`. `pageContext page` is
-the page's context, for what is the context's.
+`onOnePage` runs setup once and preserves the page between examples. Failures still include page diagnostics. These examples depend on earlier steps and cannot be run individually with `--match`. Use `pageContext page` for context-level operations.
 
-`Halogen.Playwright.Hspec` also exports the part of hspec a suite is written
-with (`hspec`, `describe`, `it`, `shouldBe`, `shouldReturn` and the rest), as
-hspec-halogen does, so a suite imports the two modules and nothing of
-hspec's: hspec's own `focus` would otherwise meet the page's.
+`Halogen.Playwright.Hspec` also exports the part of hspec a suite is written with (`hspec`, `describe`, `it`, `shouldBe`, `shouldReturn` and the rest), as hspec-halogen does, so a suite imports the two modules and nothing of hspec's: hspec's own `focus` would otherwise meet the page's.
 
 ## Not here
 
-Written against the smoke tests it is to run, it leaves out what they do not
-use, and some of what they do: traces, video and other browsers; a wait for a
-response of the page's own (see the pauses above; `waitForExchange` is one
-after the fact); taking an exposed function away; and the mouse's buttons
-pressed and released apart.
+The wrapper currently omits tracing, video, other browsers, direct response waits, removing exposed functions, and separate mouse-button press/release operations. `waitForExchange` can inspect completed network exchanges; see the pause discussion for response-wait alternatives.
 
 ## Its own tests
 
-`Halogen-playwright-test` drives pages in `test/web/` served by the suite;
-`Halogen-playwright-example-test` drives a built WebAssembly example
-(`dist-newstyle/wasm/public/vanilla`, or `HALOGEN_EXAMPLE_DIR`), and is
-pending when it is not built. `npm run test-example` at the repository's root
-runs it with the build required. The same pattern tests real programs in
-`examples/worker/test` (`npm run test-worker`): jobs in Web Workers that are
-copies of the page's binary; and in `examples/learn/playground-test`
-(`npm run test-playground`): GHC compiling a program in the page and
-mounting it, for every layer of the tutorial's rootfs.
+`Halogen-playwright-test` drives pages in `test/web/` served by the suite; `Halogen-playwright-example-test` drives a built WebAssembly example (`dist-newstyle/wasm/public/vanilla`, or `HALOGEN_EXAMPLE_DIR`), and is pending when it is not built. `npm run test-example` at the repository's root runs it with the build required. The same pattern tests real programs in `examples/worker/test` (`npm run test-worker`): jobs in Web Workers that are copies of the page's binary; and in `examples/learn/playground-test` (`npm run test-playground`): GHC compiling a program in the page and mounting it, for every layer of the tutorial's rootfs.

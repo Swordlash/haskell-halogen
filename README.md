@@ -2,19 +2,13 @@
 
 [![CI Build](https://github.com/Swordlash/haskell-halogen/actions/workflows/build.yml/badge.svg)](https://github.com/Swordlash/haskell-halogen/actions/workflows/build.yml)
 
-A port of [purescript-halogen](https://github.com/purescript-halogen/purescript-halogen/) to GHC
-Haskell, plus the component and rendering libraries built on top of it.
+A port of [purescript-halogen](https://github.com/purescript-halogen/purescript-halogen/) to GHC Haskell, plus the component and rendering libraries built on top of it.
 
-[The tutorial](https://swordlash.github.io/haskell-halogen/) teaches it in the browser: each lesson
-is a page with its text, an editor and a Compile button, and GHC itself, compiled to WebAssembly,
-compiles your code in the page and mounts the component beside the text, with no server behind it.
-Its playground is the same compiler with no lesson around it, and its Source button shows which
-line of your code made the element under the pointer.
-The tutorial is a Halogen app too ([examples/learn](examples/learn/README.md)).
+[The tutorial](https://swordlash.github.io/haskell-halogen/) lets you learn Halogen directly in the browser. Each lesson includes an explanation, an editor and a Compile button. GHC runs as WebAssembly in the page, compiles your code and mounts the component beside the lesson. No compilation server is needed.
+
+Use the playground to write code without a lesson. Its Source button shows which line created the element under your pointer. The tutorial is itself a Halogen app; see [examples/learn](examples/learn/README.md).
 
 AI usage disclaimer: All code until tag `0.9.0` was hand-written. Any later commits might have used Codex or Claude.
-
-![image](screenshot.png)
 
 ## Packages
 
@@ -23,60 +17,49 @@ AI usage disclaimer: All code until tag `0.9.0` was hand-written. Any later comm
 | [core/](core/) | `haskell-halogen-core` | The Halogen port itself: components, VDom, events, SVG, layouts. |
 | [hooks/](hooks/) | `haskell-halogen-hooks` | A port of `purescript-halogen-hooks`: a component as one function. |
 | [store/](store/) | `haskell-halogen-store` | Global state: a port of `purescript-halogen-store`, one store changed by a pure reducer and components connected to the part they need. |
-| [lazy/](lazy/) | `haskell-halogen-lazy` | A component that arrives later: a placeholder until a loader hands the component over, which then mounts in its place, as React's `lazy`; on WebAssembly under GHC's dynamic linker, a loader that links a shared library into the running program. |
-| [remote/](remote/) | `haskell-halogen-remote` | A component's DOM over a wire, as Phoenix LiveView: the program runs natively (or anywhere), its DOM operations go to a thin JavaScript client in the page as JSON, and the page's events come back to its handlers; a WebSocket server, and a loopback that shows the wire inside one page. |
+| [lazy/](lazy/) | `haskell-halogen-lazy` | Load components on demand with a placeholder. Supports shared libraries on WebAssembly under GHC's dynamic linker. |
+| [remote/](remote/) | `haskell-halogen-remote` | Run components remotely and send DOM updates to a browser client, similar to Phoenix LiveView. Includes a WebSocket server and an in-page loopback. |
 | [router/](router/) | `haskell-halogen-router` | Routing by the page's address: a port of `purescript-routing-duplex`, joined to the browser's history. |
 | [net/](net/) | `haskell-halogen-net` | The browser's `fetch`: a request as a value, its response and body as values, aborted when the component waiting for it goes away. |
 | [custom-element/](custom-element/) | `haskell-halogen-custom-element` | A component as a custom element (a Web Component) for any page, React's, Vue's or plain HTML: attributes and properties are its input, outputs are `CustomEvent`s, queries are methods. |
-| [devtools/](devtools/) | `haskell-halogen-devtools` | A panel over the page that shows what the components do as they do it: their tree, counts of renders, actions and state changes, a log of events, the hovered component outlined, and earlier states put back. |
-| [worker/](worker/) | `haskell-halogen-worker` | Heavy work off the page's thread: a program's functions run by name in Web Workers that are copies of its own binary, arguments and results as JSON, and in the program itself where no worker can be made. |
+| [devtools/](devtools/) | `haskell-halogen-devtools` | Inspect the component tree, render counts and event log. Outline components and restore earlier states. |
+| [worker/](worker/) | `haskell-halogen-worker` | Run expensive functions in Web Workers using static pointers and binary-encoded arguments and results. Falls back to local execution when workers are unavailable. |
 | [tauri/](tauri/) | `haskell-halogen-tauri` | Tauri v2's IPC for an app in a Tauri webview: Rust commands with aeson JSON, events as emitters, the window's own events; inert in a plain browser. |
 | [material/](material/) | `haskell-halogen-material` | Google Material Components bindings. |
 | [pixi/](pixi/) | `haskell-halogen-pixi` | A PixiJS v8 canvas rendering backend. |
-| [three/](three/) | `haskell-halogen-three` | Three-dimensional scenes with Three.js, reconciled as HTML is: meshes and lights, a camera the reader orbits, clicks on what the pointer is over. |
+| [three/](three/) | `haskell-halogen-three` | Describe Three.js scenes with meshes, lights, camera controls and pointer events, using Halogen's reconciler. |
 | [jsbits/](jsbits/) | `haskell-halogen-jsbits` | Compile-time embedding of shared browser JavaScript into WASM FFI. |
 | [sound/](sound/) | `haskell-halogen-sound` | Music and sound effects for a page: a theme to loop, a shuffled album fetched ahead, effects on top. |
 | [hspec-halogen/](hspec-halogen/) | `hspec-halogen` | Test components in a real browser with hspec: mount, click, type, check. |
 | [playwright/](playwright/) | `haskell-halogen-playwright` | Test a built program from outside the page, in Haskell: Chromium driven through Playwright, every action waiting on the program's own "idle". |
 | [th/](th/) | `haskell-halogen-th` | HTML and CSS as written, with Haskell inside: the `hh` and `clay` quasi-quoters. |
-| [th-plugin/](th-plugin/) | `haskell-halogen-th-plugin` | A GHC plugin that expands the quotes as a module is parsed, so every error, type errors included, is at its place in the file. |
+| [th-plugin/](th-plugin/) | `haskell-halogen-th-plugin` | Expand quasi-quotes during parsing so syntax and type errors point to the correct source location. |
 | [examples/](examples/) | `halogen-example-*` | One runnable browser app per library, and `learn`, the tutorial, whose code compiles in the page. |
 
-`hooks`, `store`, `router`, `material`, `pixi`, `three`, `hspec-halogen`, `th`, `custom-element`, `devtools`, `lazy` and `remote`
-depend on `core`, and `tauri` on `core` for its emitters; `net`, `sound` and `worker` are independent of those runtime libraries, and so is
-`playwright`, a native package that speaks to `core`'s activity probe only through the page. WASM backends also use the `jsbits`
-compile-time helper. `th` builds natively and for WebAssembly, not with the JavaScript
-backend, whose compiler runs out of memory linking the `ghc` library for a quote. Every package builds from the one `cabal.project` at the
-repository root, so a change to
-`core` is type-checked against every dependent and every example in the same build.
+All packages build from the root `cabal.project`, so a change to `core` is checked against its dependents and every example in the same build.
+
+`hooks`, `store`, `router`, `material`, `pixi`, `three`, `hspec-halogen`, `th`, `custom-element`, `devtools`, `lazy` and `remote` depend on `core`. `tauri` uses core's subscription emitters. `sound` and `worker` use `jsbits` without depending on core, and `playwright` is an independent native package that communicates with Halogen through the page's activity probe. Browser packages share JavaScript bindings through `jsbits`.
+
+`th` supports native GHC and WebAssembly. It is disabled on the JavaScript backend because linking the `ghc` library for a quasi-quote exceeds the build's memory budget.
 
 ## The monad a component runs in
 
-A component evaluates in the same monad the DOM is spoken in. Each backend is a newtype over `IO` —
-`BrowserDOM`, `MemDOM`, `PixiDOM` in `haskell-halogen-pixi` and `ThreeDOM` in `haskell-halogen-three` — so more than one can exist in a
-single build and each can say, through associated type families, what its tree is made of.
+A component runs in the monad provided by its DOM backend. Each backend wraps `IO`: `BrowserDOM`, `MemDOM`, `PixiDOM` in `haskell-halogen-pixi`, or `ThreeDOM` in `haskell-halogen-three`. Multiple backends can coexist in one build. Associated type families define each backend's node and element types.
 
-An application with effects of its own stacks them on a backend and derives the classes through:
+To add application-specific effects, wrap a backend in your own monad and derive the DOM classes:
 
 ```haskell
 newtype AppM a = AppM (ReaderT Config BrowserDOM a)
   deriving newtype (Functor, Applicative, Monad, MonadIO, PrimMonad, MonadDOM, MonadAttributes, MonadBrowserDOM)
 ```
 
-The class methods have lifted defaults, so a transformer instance is only as long as its associated
-types plus `mkEventListener`. `ReaderT` and `IdentityT` come with the library; `StateT` and friends
-are deliberately absent, because the DOM calls a listener back and `mkEventListener` has to *run*
-the transformer rather than lift it — a state update made inside a callback has nowhere to go.
+Class methods have lifted defaults, so transformer instances usually need only associated types and `mkEventListener`. The library provides `ReaderT` and `IdentityT` instances. It deliberately omits `StateT` and similar transformers: a DOM callback must run the transformer, and there is no caller to receive state changes made inside that callback.
 
-The interface is split by what a backend actually has. `MonadDOM` is the mutable tree and its
-listeners, and is all the reconciler uses. `MonadAttributes` adds named attributes and properties,
-which only an HTML backend has. `MonadBrowserDOM` adds document splicing and the window globals,
-and carries the equalities back to the concrete `Node` and `Element` as superclasses.
+The classes describe backend capabilities. `MonadDOM` provides mutable nodes and event listeners, which are all the reconciler needs. `MonadAttributes` adds HTML attributes and properties. `MonadBrowserDOM` adds document operations and window globals, with superclass constraints tying its node types to the concrete browser `Node` and `Element` types.
 
 ## Building
 
-Every package compiles natively under any GHC from 9.10 to 9.14; CI builds and tests on 9.10.3,
-9.12.4 and 9.14.1. The browser targets need a cross-compiler.
+Every package compiles natively under any GHC from 9.10 to 9.14; CI builds and tests on 9.10.3, 9.12.4 and 9.14.1. The browser targets need a cross-compiler.
 
 ```sh
 npm install                  # once, for esbuild, sass and Material Components
@@ -84,15 +67,11 @@ npm run build-native         # every package, host GHC
 npm run test                 # test suites across native, JavaScript and wasm
 ```
 
-The cross-backend test scripts use Node 24 or later. They give each run a
-temporary Web Storage file so storage tests exercise the browser FFI as well
-as the native backend, without sharing a store between runs.
+The cross-backend test scripts use Node 24 or later. They give each run a temporary Web Storage file so storage tests exercise the browser FFI as well as the native backend, without sharing a store between runs.
 
 ### WebAssembly
 
-The default browser and deployment target. It requires the
-[ghc-wasm-meta](https://gitlab.haskell.org/haskell-wasm/ghc-wasm-meta) toolchain to be bootstrapped
-first — the build scripts source `~/.ghc-wasm/env` and will fail without it:
+WebAssembly is the default browser and deployment target. First install the [ghc-wasm-meta](https://gitlab.haskell.org/haskell-wasm/ghc-wasm-meta) toolchain. The build scripts source `~/.ghc-wasm/env` and require it to exist:
 
 ```sh
 cd
@@ -104,9 +83,7 @@ source ~/.ghc-wasm/env
 ghcup -s "file://$HOME/ghc-wasm-meta/ghcup-wasm-0.0.9.yaml" install ghc "wasm32-wasi-9.14.1.20260731" --set -- $CONFIGURE_ARGS
 ```
 
-That installs `wasm32-wasi-ghc` and friends under `~/.ghc-wasm`. The exact GHC version this
-repository builds against is pinned in `cabal-wasm.project`, and `.github/workflows/build.yml`
-pins the ghc-wasm-meta revision CI bootstraps from — keep the two in step when bumping either.
+That installs `wasm32-wasi-ghc` and friends under `~/.ghc-wasm`. The exact GHC version this repository builds against is pinned in `cabal-wasm.project`, and `.github/workflows/build.yml` pins the ghc-wasm-meta revision CI bootstraps from — keep the two in step when bumping either.
 
 NOTE: use `cabal` version `3.16.1` on this repository.
 
@@ -119,34 +96,21 @@ npm run build-wasm-all            # every example, size-optimised with wasm-opt,
 npm run test-learn                # drive the built tutorial in headless Chromium, every lesson compiled
 ```
 
-The tutorial, `examples/learn`, is what GitHub Pages serves: a page per lesson and one for the
-playground, switched by the URL's path (`/02-counter/`, `/playground/`) through
-`haskell-halogen-router`, with GHC in `rootfs/` beside it. The
-build writes an `index.html` for every route, each with its lesson already rendered into it, so the
-back button, reloads and deep links work on a static host with no 404 fallback.
-[examples/learn/README.md](examples/learn/README.md) says how it is built, tested and deployed, and
-how to write a lesson; [learn/README.md](learn/README.md) how GHC runs in the page.
-`test-learn` is a native Haskell suite (`examples/learn/browser-test`, through
-`haskell-halogen-playwright`), so it needs the host GHC, and a Chromium that Playwright can launch
-(`npx playwright install chromium`).
+GitHub Pages serves `examples/learn`, with a separate prerendered `index.html` for each lesson and the playground. `haskell-halogen-router` handles paths such as `/02-counter/` and `/playground/`, and the compiler lives beside the app in `rootfs/`. Each route already contains its lesson HTML, so reloads, deep links and Back work on a static host without a 404 fallback.
 
-`serve-wasm` opens <http://127.0.0.1:8080> automatically. Set `PORT` to choose another port, or
-`NO_OPEN=1` to suppress opening the browser (for example in CI).
+[examples/learn/README.md](examples/learn/README.md) explains how to build, test and deploy the tutorial and add lessons. [learn/README.md](learn/README.md) explains how GHC runs in the browser. `test-learn` is a native suite in `examples/learn/browser-test`, using `haskell-halogen-playwright`. It requires host GHC and Playwright's Chromium (`npx playwright install chromium`).
 
-To work on an example with GHCi rather than a build per change, install
-[ghciwatch](https://mercurytechnologies.github.io/ghciwatch/) and run `npm run dev -- <example>`
-(`vanilla`, `hooks`, `pixi`, `material`, `th` or `learn`). It loads the example into wasm browser
-GHCi, opens its page at <http://127.0.0.1:8080/assets/index.html> (`PORT` changes the port), and
-reloads the example and reruns `main` whenever you save one of its modules; a change to a library,
-a cabal file or the example's `web/` restarts GHCi, which opens a new page. The page is the
-example's own `web/index.html`, loading GHCi's script in place of `index.js`. GHCi's interpreter
-runs in it, so reloading the page ends the session until GHCi is restarted. `npm run dev -- --repl
-<example>` starts plain GHCi instead, for running `:main` yourself, and works without ghciwatch.
+`serve-wasm` opens <http://127.0.0.1:8080> automatically. Set `PORT` to choose another port, or `NO_OPEN=1` to suppress opening the browser (for example in CI).
+
+For automatic reloads, install [ghciwatch](https://mercurytechnologies.github.io/ghciwatch/) and run `npm run dev -- <example>`, for example `vanilla`, `hooks`, `pixi`, `material`, `th` or `learn`. This loads the example in WebAssembly browser GHCi and opens <http://127.0.0.1:8080/assets/index.html>. Set `PORT` to use another port.
+
+Saving an example module reloads it and reruns `main`. Changes to a library, Cabal file or the example's `web/` directory restart GHCi and open a new page. The page uses the example's `web/index.html`, with GHCi's script replacing `index.js`. Because the interpreter lives in that page, manually reloading it ends the session until GHCi restarts.
+
+Use `npm run dev -- --repl <example>` to run GHCi without ghciwatch and call `:main` yourself.
 
 ### JavaScript backend
 
-Needs a `javascript-unknown-ghcjs-ghc` cross-compiler; the easiest way to get one is the `ghcup`
-precompiled binaries described [here](https://www.haskell.org/ghcup/guide/#cross-support).
+Needs a `javascript-unknown-ghcjs-ghc` cross-compiler; the easiest way to get one is the `ghcup` precompiled binaries described [here](https://www.haskell.org/ghcup/guide/#cross-support).
 
 ```sh
 npm run serve-ghcjs -- vanilla    # cabal build + http-server
@@ -154,43 +118,23 @@ npm run build-js                  # material example, bundled into dist/ with es
 npm run build-js-dev              # the same, without minification or brotli
 ```
 
-Build artifacts are kept in `dist-newstyle/native`, `dist-newstyle/javascript`,
-`dist-newstyle/wasm` and `dist-newstyle/wasm-dev` respectively.
+Build artifacts are kept in `dist-newstyle/native`, `dist-newstyle/javascript`, `dist-newstyle/wasm` and `dist-newstyle/wasm-dev` respectively.
 
 ## Adding an example
 
-Create `examples/<name>/` with a `halogen-example-<name>.cabal` (executable named
-`halogen-example-<name>`), a `Main.hs`, and a `web/` directory holding `index.html` and an
-`index.js` that fetches `./app.wasm`. `index.html` has an empty `<div id="app"></div>`, which
-`Main.hs` finds with `selectElement` and mounts the component into. The `examples/*` glob in
-`cabal.project` picks the package up, and `toolchain/build-wasm-all.sh` picks up the directory. If
-the example needs bundling, add a `bundle.sh` beside it and the build script will run it, passing
-the output directory as its argument.
+Create `examples/<name>/` with a `halogen-example-<name>.cabal` file, an executable named `halogen-example-<name>`, `Main.hs` and a `web/` directory. Put `index.html` and `index.js` in `web/`. The script should fetch `./app.wasm`, and the HTML should contain an empty `<div id="app"></div>` for `Main.hs` to find with `selectElement` and mount into.
 
-For `npm run dev`, give the executable the `interactive` flag the other examples have, which
-compiles the example's modules into it (GHCi reloads only those of the target it loaded) and drops
-the wasm reactor options and the `hs_start` export, and have `main` start with
-`Halogen.IO.Util.endPreviousRun` and pass how to end what it starts (its socket's `dispose`, and
-`Halogen.Router.stop` for a router) to `keepForNextRun`: GHCi keeps the page between runs of
-`:main`, and these end the last run's component before the next one mounts. `examples/vanilla` has
-both, and `examples/learn` a router as well.
+The `examples/*` glob in `cabal.project` includes the package automatically, and `toolchain/build-wasm-all.sh` discovers its directory. If the example needs bundling, add a `bundle.sh` beside the Cabal file. The build script calls it with the output directory as its argument.
 
-The page can arrive with the component already in it, before `app.wasm` has loaded. Add a native
-executable `halogen-example-<name>-prerender` (not buildable on the browser backends) that renders
-the component with `Halogen.Static.renderToHtml` and writes `index.html` with the HTML in `#app`:
-`build-wasm.sh` builds it with the host GHC and runs it as `<exe> examples/<name>/web/index.html
-<output dir>`. `examples/vanilla/Prerender.hs` is the smallest one; `examples/learn/Prerender.hs`
-writes one page per route, under the base path in `HALOGEN_BASE_PATH` (`/` by default; the Pages
-deploy sets it to the site's). Its `Main.hs` then mounts the component with `hydrateUI` rather than
-`runUI`: the component adopts the prerendered HTML, attaching its listeners, instead of rendering
-over it.
+For `npm run dev`, copy the `interactive` flag used by the existing examples. It compiles the example's modules into the executable target so GHCi can reload them, and removes the reactor options and `hs_start` export.
 
-For a build that has only the wasm toolchain, `Halogen.Static` also works as
-a standalone WASI command. Enable `wasi` in **both** `haskell-halogen-core`
-and `haskell-halogen-jsbits`, as `cabal-wasi.project` does. This selects
-MemDOM and inert browser bindings; it does not need JSFFI glue or a JavaScript
-engine at runtime. The vanilla example enables its prerenderer with the same
-flag:
+Start `main` with `Halogen.IO.Util.endPreviousRun`, then register cleanup with `keepForNextRun`: usually the socket's `dispose` and, if applicable, `Halogen.Router.stop`. GHCi reuses the page between `:main` calls, so cleanup must remove the previous component before the next run mounts. See `examples/vanilla` for a basic setup and `examples/learn` for one with a router.
+
+To show content before `app.wasm` loads, add a native executable named `halogen-example-<name>-prerender` and disable it for browser backends. Use `Halogen.Static.renderToHtml` to render the component into `#app` in `index.html`. `build-wasm.sh` builds this executable with host GHC and runs it as `<exe> examples/<name>/web/index.html <output dir>`.
+
+`examples/vanilla/Prerender.hs` is a minimal example. `examples/learn/Prerender.hs` writes one page per route, using `HALOGEN_BASE_PATH` as the base path (`/` by default). In the browser, call `hydrateUI` instead of `runUI` to adopt the existing HTML and attach listeners.
+
+For a build that has only the wasm toolchain, `Halogen.Static` also works as a standalone WASI command. Enable `wasi` in **both** `haskell-halogen-core` and `haskell-halogen-jsbits`, as `cabal-wasi.project` does. This selects MemDOM and inert browser bindings; it does not need JSFFI glue or a JavaScript engine at runtime. The vanilla example enables its prerenderer with the same flag:
 
 ```sh
 mkdir -p dist-newstyle/wasi/prerender
@@ -198,29 +142,15 @@ sh toolchain/run-wasi.sh halogen-example-vanilla:exe:halogen-example-vanilla-pre
   examples/vanilla/web/index.html dist-newstyle/wasi/prerender
 ```
 
-The script builds with the wasm compiler and runs the result through
-`wasmtime`, granting access to the repository directory. To use it for another
-project, enable its prerender executable on wasm, copy the two package flag
-settings, and use a separate build directory. Browser and WASI builds have
-different value representations and cannot share compiled core/jsbits modules.
-A component that needs a browser binding during initialization must provide a
-non-browser path, just as for native rendering (`inBrowser` is false).
+The script builds with the wasm compiler and runs the result through `wasmtime`, granting access to the repository directory. To use it for another project, enable its prerender executable on wasm, copy the two package flag settings, and use a separate build directory. Browser and WASI builds have different value representations and cannot share compiled core/jsbits modules. A component that needs a browser binding during initialization must provide a non-browser path, just as for native rendering (`inBrowser` is false).
 
-WASI replaces the native prerender executable, not the need to compile the
-prerender's dependency closure: its MemDOM build remains separate from the
-browser build. It is useful on machines without native GHC; when both builds
-are already cached, measure the complete pipeline before switching for speed.
-The existing browser build script still uses its native prerender by default.
-`npm run test-wasi` checks the renderer and driver under standalone WASI.
+WASI replaces the native prerender executable, not the need to compile the prerender's dependency closure: its MemDOM build remains separate from the browser build. It is useful on machines without native GHC; when both builds are already cached, measure the complete pipeline before switching for speed. The existing browser build script still uses its native prerender by default. `npm run test-wasi` checks the renderer and driver under standalone WASI.
 
-Put its component in a library module (`src/Example/<Name>.hs`, as the existing examples do, with
-`Main.hs` only starting it). GitHub Pages serves only the tutorial, so an example reaches readers
-through a lesson in `examples/learn`; [its README](examples/learn/README.md) says how to write one.
+Keep the example's component in `src/Example/<Name>.hs`, with `Main.hs` responsible only for starting it. GitHub Pages deploys the tutorial, so add a lesson in `examples/learn` to make the example available there. [Its README](examples/learn/README.md) explains how.
 
 ## Routing
 
-`haskell-halogen-router` is a port of `purescript-routing-duplex`: a route codec both parses an
-address and prints it, and the codec of a sum type is derived from one codec per constructor:
+`haskell-halogen-router` ports `purescript-routing-duplex`. A route codec parses URLs and prints routes back as URLs. For a sum type, combine one codec per constructor:
 
 ```haskell
 data Route = Home | Post Int deriving stock (Generic)
@@ -229,19 +159,13 @@ route :: RouteDuplex' Route
 route = root $ sum $ #Home .== noArgs .+ #Post .== path "post" (int segment)
 ```
 
-`Halogen.Router` joins it to the browser's history: `newRouter base fallback route` (a base path
-such as `/project/`, which `pageBase` reads from the page's `<base href>`), `current`, `navigate`,
-`redirect`, a `changes` emitter fed by those and by `popstate`, and `link`/`follow` for links a
-component follows without loading a page. `newHashRouter` routes by fragment instead. Natively the
-address is kept in memory, so `Halogen.Static` can render a page for each route, as the tutorial's
-prerender does.
+`Halogen.Router` connects the codec to browser history. Create a router with `newRouter base fallback route`; `pageBase` reads the base path from `<base href>`. Use `current` to read the route, `navigate` to push an entry and `redirect` to replace one. The `changes` emitter reports these changes and Back/Forward navigation through `popstate`. `link` and `follow` handle links without reloading the page.
+
+Use `newHashRouter` for fragment-based routing. On the native backend, the URL is stored in memory so `Halogen.Static` can render each route, as the tutorial's prerenderer does.
 
 ## Global state
 
-`haskell-halogen-store` is a port of `purescript-halogen-store`: one store for the application,
-changed only by actions through a pure reducer, and components that follow the part of it they
-need. A component asks for the store with a constraint, changes it with `updateStore`, and is
-connected to a part of it by a selector, which renders it again only when that part changes:
+`haskell-halogen-store` ports `purescript-halogen-store`. The application has one store, updated by actions through a pure reducer. Components declare a `MonadStore` constraint, call `updateStore` to dispatch actions, and use selectors to subscribe to specific values. A connected component renders again only when its selected value changes:
 
 ```haskell
 data Store = Store {count :: Int, name :: Text}
@@ -255,48 +179,31 @@ main = runBrowserDOM $ do
   ...
 ```
 
-The tree runs in `StoreT`, which `runStoreT` hoists away before `runUI`; `Store.subscribe` turns a
-part's changes into a component's actions. `HalogenM` reaches the store through `H.liftEffect`, so
-an update is made, and heard by the tree, inside the action that made it. See
-[store/README.md](store/README.md), and lesson 15 of the tutorial.
+The component tree uses `StoreT`, which `runStoreT` removes before `runUI` mounts it. `Store.subscribe` converts selected value changes into component actions. Store operations use `H.liftEffect`, so updates and notifications happen within the action that triggered them. See [store/README.md](store/README.md) and tutorial lesson 15.
 
 ## Components that arrive later
 
-`haskell-halogen-lazy` shows a component the page has not got yet: `Lazy.lazy loading loader` stands
-in a slot for the component the loader gives, shows `loading.placeholder` until it is there, and is
-then that component, with its input, output and queries, as React's `lazy` and `Suspense` are.
-`Lazy.memo` shares one load between every mount.
+`haskell-halogen-lazy` displays a placeholder while a component loads. Put `Lazy.lazy loading loader` in a slot: it shows `loading.placeholder`, runs the loader, then mounts the loaded component with its normal input, outputs and queries. This is similar to React's `lazy` and `Suspense`. Use `Lazy.memo` to share one load across mounts.
 
 ```haskell
 HH.slot "editor" () (Lazy.lazy Lazy.defaultLoading loadEditor) state.document Edited
 ```
 
-On WebAssembly, in a program GHC's dynamic linker started, `Halogen.Lazy.Dyld.load` is such a
-loader: the page fetches a shared library and dyld links it into the running program, whose entry
-hands the component over. The tutorial runs on dyld, so its lesson 18 shows it; what an application
-needs to run that way, and what it costs, is in [lazy/README.md](lazy/README.md).
+`Halogen.Lazy.Dyld.load` can load a component from a shared library when the WebAssembly program was started with GHC's dynamic linker. The page fetches the library, dyld links it, and the entry point returns the component. Tutorial lesson 18 demonstrates this. [lazy/README.md](lazy/README.md) explains the setup and its costs.
 
 ## The DOM over a wire
 
-`haskell-halogen-remote` runs a component somewhere other than the page that shows it, as Phoenix
-LiveView does. `RemoteDOM` is one more backend of the reconciler: it keeps a mirror of the page and
-records what the component does to it, a session sends that as JSON to a thin client in the page
-(`remote/jsbits/remote.js`), and the page's events come back to the component's handlers. The
-component does not change; only its entry point names `RemoteDOM`.
+`haskell-halogen-remote` runs components outside the page that displays them, similar to Phoenix LiveView. Its `RemoteDOM` backend mirrors the page and records DOM operations. A session sends those operations as JSON to `remote/jsbits/remote.js`, and the client sends browser events back to the component. Existing polymorphic components work unchanged; the entry point chooses `RemoteDOM`.
 
 ```haskell
 Server.serve Server.defaultSettings {Server.pages = [("/", "web/live.html", "text/html")]} board ()
 ```
 
-Natively `Halogen.Remote.Server` serves a component over WebSockets, a session per page; in a page
-`Halogen.Remote.Loopback` runs the same pipeline with the wire in view, which the tutorial's lesson
-21 shows. [remote/README.md](remote/README.md) has the protocol and what cannot cross a wire (refs,
-a `preventDefault` in time, focus), and `examples/live` is a board every tab shares.
+`Halogen.Remote.Server` serves components over WebSockets, with one session per page. `Halogen.Remote.Loopback` runs the same pipeline inside one page and exposes the messages for inspection, as tutorial lesson 21 demonstrates. [remote/README.md](remote/README.md) describes the protocol, supported DOM operations and limitations. `examples/live` implements a board shared across tabs.
 
 ## Fetching
 
-`haskell-halogen-net`'s `Halogen.Net.Fetch` is the browser's `fetch`. A component waits for a
-response in `lift`, and the request is aborted if the component goes away first:
+`haskell-halogen-net`'s `Halogen.Net.Fetch` is the browser's `fetch`. A component waits for a response in `lift`, and the request is aborted if the component goes away first:
 
 ```haskell
 Load -> do
@@ -304,14 +211,11 @@ Load -> do
   modify $ \st -> st {notes = outcome}
 ```
 
-`start` begins a request inside an event's dispatch (`H.liftEffect`) and gives a handle to wait
-for or abort later. A rejection (no response, or an abort) is a `Left JSError`; an HTTP error
-status is a response whose `ok` is `False`.
+`start` begins a request inside an event's dispatch (`H.liftEffect`) and gives a handle to wait for or abort later. A rejection (no response, or an abort) is a `Left JSError`; an HTTP error status is a response whose `ok` is `False`.
 
 ## Custom elements
 
-`haskell-halogen-custom-element` makes a component a custom element, which a page that is not a
-Halogen app uses as it uses any element: plain HTML, React, Vue, Svelte, Astro, HTMX.
+`haskell-halogen-custom-element` makes a component a custom element, which a page that is not a Halogen app uses as it uses any element: plain HTML, React, Vue, Svelte, Astro, HTMX.
 
 ```haskell
 registration <-
@@ -326,31 +230,19 @@ registration <-
 HA.keepForNextRun registration.dispose
 ```
 
-Every `<x-counter>` then mounts the component in its shadow root. A change to an observed
-attribute or property reaches the component as `Receive`, as from a Halogen parent; what it
-raises is dispatched as a `CustomEvent`; `counter.reset()` sends it a query. An element disposes
-of its component when it is removed, not when it is moved, and defining the name again swaps the
-component of every element of it. `CE.onEvent` reads the `detail` of another library's element's
-events. `examples/custom-element` is a plain page driving two such elements from JavaScript.
+Each `<x-counter>` mounts the component in its own shadow root. Changes to observed attributes or properties arrive through `H.onReceive`. Component outputs become `CustomEvent`s, and `counter.reset()` sends a query.
+
+Removing the element disposes its component; moving it preserves state. Defining the same name again replaces the component in every matching element. Use `CE.onEvent` to decode the `detail` of events from other custom elements. `examples/custom-element` shows a plain JavaScript page controlling two Halogen elements.
 
 ## Watching a program: the trace and the panel
 
-Every component tree reports what it does to `Halogen.Trace` (in `core`) once something listens:
-components mounted and gone, renders and how long they took, actions, state changes, queries,
-outputs, subscriptions and forks, each tagged with the component's id, its parent's id and a label,
-the name of its state's type unless `H.named` gave it another. With nothing listening the driver
-builds no event at all.
+When a listener subscribes to `Halogen.Trace`, component trees report mounts, disposal, render timings, actions, state changes, queries, outputs, subscriptions and forks. Each event includes the component ID, parent ID and label. The default label is the state type's name; override it with `H.named`. Without listeners, the driver does not construct trace events.
 
 ```haskell
 stop <- Trace.subscribe $ \event -> putStrLn (show event.tag.id <> " " <> Trace.summary event.what)
 ```
 
-`haskell-halogen-devtools` is a listener with a face: `DevTools.open` puts a panel over the page
-with the tree of components and their counts of renders, actions and state changes, a log of the
-last events, the component under the mouse outlined on the page, and, for a state type the program
-names with `DevTools.showing @State`, each state shown with a button that puts it back
-(`Trace.restoreState`). `hspec-halogen` listens too: a failing test prints what the tree did up to
-the failure. Lesson 16 of the tutorial opens the panel beside the reader's component.
+`haskell-halogen-devtools` displays the trace in a panel. `DevTools.open` shows the component tree, counters and recent events. Hovering a row outlines its component on the page. Register a state type with `DevTools.showing @State` to display its values and restore earlier states with `Trace.restoreState`. `hspec-halogen` also uses the trace to explain test failures. Tutorial lesson 16 opens the panel beside the reader's component.
 
 ```haskell
 main = runBrowserDOM $ do
@@ -363,12 +255,7 @@ main = runBrowserDOM $ do
 
 ## Work off the page's thread
 
-A computation of seconds takes those seconds from the page: GHC's WebAssembly has no threads
-that share memory, so the runtime's threads take turns on the page's one, and while one computes
-the page draws nothing. `haskell-halogen-worker` runs it in a Web Worker instead, a second copy
-of the program loaded from the same `app.wasm`, which finds the function the page asks for by
-its static pointer (GHC's `StaticPointers`), with arguments and results as `Data.Binary` bytes
-in transferred `ArrayBuffer`s:
+A long calculation can freeze the page because GHC's WebAssembly threads share its JavaScript thread. `haskell-halogen-worker` moves the calculation to a Web Worker running another copy of the program. The worker finds the job by its GHC static pointer. Arguments and results are encoded with `Data.Binary` and sent in transferred `ArrayBuffer`s:
 
 ```haskell
 primes :: StaticPtr (Worker.Job Int Int)
@@ -383,22 +270,15 @@ main = Worker.program $ runBrowserDOM $ do
   counts <- liftIO (mapConcurrently (Worker.start pool primesBetween) parts)
 ```
 
-`Worker.program` serves the jobs in a worker and goes on to the UI on the page. The page's
-loader names the program's files in `globalThis.halogenWorker` before starting it (see
-[worker/README.md](worker/README.md)); where nothing names them, natively, or in GHCi,
-the job runs in the program itself, through the same bytes. A job is stopped with `Worker.cancel`
-(at its next `Worker.checkpoint`) or `Worker.kill` (its worker ended), and `Worker.run` cancels its
-job when its wait is interrupted. `Halogen.Worker.Par` sends a computation's independent tasks to
-the pool's workers in batches (`runPar pool (traverse (task primesBetween) parts)`). `examples/worker`
-counts primes on the page, in a worker, in both of its pool's workers and in sixteen tasks beside a
-spinner the component turns, cancels, kills and races counts,
-and lesson 17 of the tutorial teaches the API (in the tutorial's interpreter, without a worker).
+`Worker.program` handles jobs inside a worker and starts the UI on the page. Configure the program's files in `globalThis.halogenWorker` before startup; see [worker/README.md](worker/README.md). Without that configuration, on native GHC or in GHCi, jobs run inside the current program using the same encoding.
+
+Use `Worker.cancel` to stop a job at its next `Worker.checkpoint`, or `Worker.kill` to terminate its worker immediately. `Worker.run` cancels its job if its wait is interrupted. For many independent tasks, `Halogen.Worker.Par` batches them across the pool: `runPar pool (traverse (task primesBetween) parts)`.
+
+`examples/worker` compares prime counting on the page, in one worker, across two workers and as sixteen batched tasks. It also demonstrates cancellation, termination and races while a spinner shows UI responsiveness. Tutorial lesson 17 teaches the API.
 
 ## Tauri
 
-`haskell-halogen-tauri` is for an app that runs in a [Tauri](https://tauri.app) v2 webview (with
-`app.withGlobalTauri`): `invoke` calls a Rust command with aeson-encoded arguments and decodes
-its result, `listen` is an emitter of an event's payloads for `H.subscribe`, and `emit` sends one.
+`haskell-halogen-tauri` is for an app that runs in a [Tauri](https://tauri.app) v2 webview (with `app.withGlobalTauri`): `invoke` calls a Rust command with aeson-encoded arguments and decodes its result, `listen` is an emitter of an event's payloads for `H.subscribe`, and `emit` sends one.
 
 ```haskell
 Initialize -> void (H.subscribe (Progress <$> listen "download-progress"))
@@ -407,14 +287,11 @@ Save -> do
   modify $ \st -> st {saved = outcome}
 ```
 
-In a plain browser `isTauri` is `False`, a command gives `Left NotInTauri` and an emitter never
-fires, so one program runs in both.
+In a plain browser `isTauri` is `False`, a command gives `Left NotInTauri` and an emitter never fires, so one program runs in both.
 
 ## Hooks
 
-`haskell-halogen-hooks` writes a component as one function from its input to its HTML, asking for
-state, effects, memoised values and a query handler as it goes, instead of spreading them across
-`initialState`, `render` and `handleAction`:
+`haskell-halogen-hooks` writes a component as one function from its input to its HTML, asking for state, effects, memoised values and a query handler as it goes, instead of spreading them across `initialState`, `render` and `handleAction`:
 
 ```haskell
 counter :: H.Component H.VoidF () Void BrowserDOM
@@ -432,90 +309,43 @@ counter = Hooks.component @Empty $ \_input -> Hooks.do
       ]
 ```
 
-`Hooks.do` is `QualifiedDo`, because a hook program is an indexed monad indexed by the list of
-hooks it uses. That is what enforces the rules of hooks — the same hooks in the same order on
-every render, since the interpreter walks a store of cells in step with the program — and it
-enforces them at compile time: a `useState` inside an `if` does not type-check. A composite hook
-is a parameterised type synonym over the same list:
+`Hooks.do` uses `QualifiedDo` because hook programs are indexed by a type-level list of their hooks. This enforces consistent hook order at compile time: putting `useState` inside a conditional does not type-check. The interpreter uses the same list to access its state cells. Define a composite hook as a type synonym over that list:
 
 ```haskell
 type UseCounter hooks = UseState Int : UseEffect Int : hooks
 ```
 
-`Halogen.Hooks.Extra.Hooks` ports
-[purescript-halogen-hooks-extra](https://github.com/JordanMartinez/purescript-halogen-hooks-extra)
-into the same package rather than a second one: `useDebouncer`, `useThrottle`, `useGet`,
-`useEvent`, the `useStateFn` family, and `preventDefault` and friends for handlers that have to
-stop the browser handling the same event. `usePrevious` and the `useLocalStorage` family come
-from that library's own examples. Storage is a `MonadBrowserDOM` operation, so the in-memory
-backend has it too and what a page persists can be tested without a browser; a store holds one
-prefixed entry per key, with a base64 value, and `Web.Storage.Serialize` says how a value becomes bytes — JSON by
-default, for any type with aeson instances. None of them is primitive — each is written with the hooks
-above and nothing else, and each is worth reading as an example of a composite hook.
-[examples/hooks/](examples/hooks/) is a page that uses every one of them.
+`Halogen.Hooks.Extra.Hooks` includes [purescript-halogen-hooks-extra](https://github.com/JordanMartinez/purescript-halogen-hooks-extra) in the same package. It provides `useDebouncer`, `useThrottle`, `useGet`, `useEvent`, the `useStateFn` family and event helpers such as `preventDefault`. `usePrevious` and the `useLocalStorage` family come from the original library's examples.
 
-The PureScript original has to do several of these things at runtime, and GHC's type system means
-this port does not. The hook list is a type-level list rather than a chain of newtypes; the cell
-store is indexed by it, so a cell is read back at the type it was written rather than coerced out
-of an array; a state handle is branded with the component that owns it, the way `ST` brands an
-`STRef`, so it cannot be raised as an output or stashed somewhere that outlives its component;
-effect and memo dependencies are an ordinary value compared with `==` (or with a comparison of
-your own, through `useTickEffectBy` and `useMemoBy`), so
-`Hooks.captures {x, y} Hooks.useTickEffect` becomes `Hooks.useTickEffect (x, y)`; and a
-component's query algebra is part of its hook program's type, so there is no `componentWithQuery`
-and no tokens to pass around.
+Storage uses `MonadBrowserDOM`, so the in-memory backend supports it too. Each key has a prefixed entry containing a base64 value. `Web.Storage.Serialize` defines how values become bytes, using JSON by default for types with aeson instances. Each extra hook is composed from the basic hooks and can serve as an implementation example. [examples/hooks/](examples/hooks/) demonstrates all of them.
+
+This port uses GHC's type system for several guarantees that the PureScript original handles at runtime. The hook list and cell store share a type-level index, so cells are read at their original types without coercion. State handles are tied to their owning component, much like `STRef` values are tied to an `ST` region, and cannot escape through outputs or longer-lived storage.
+
+Effect and memo dependencies are ordinary values compared with `==`. Use `useTickEffectBy` or `useMemoBy` for a custom comparison. For example, `Hooks.captures {x, y} Hooks.useTickEffect` becomes `Hooks.useTickEffect (x, y)`. The query algebra is also part of the hook program's type, so there is no separate `componentWithQuery` or query token.
 
 ## Canvas rendering
 
-`Halogen.Canvas` (in `core`) is a component that owns a canvas DOM node and delegates to a
-`Renderer` record, which a backend implements by supplying `mount`, `update` and `destroy`.
+`Halogen.Canvas` (in `core`) is a component that owns a canvas DOM node and delegates to a `Renderer` record, which a backend implements by supplying `mount`, `update` and `destroy`.
 
-A scene is described in `Halogen.Canvas.Elements` and `Halogen.Canvas.Properties` (both in `core`),
-which read like `Halogen.HTML.Elements` and `Halogen.HTML.Properties`: `group`, `line`, `rectangle`,
-`circle`, `ellipse`, `arc`, the Bézier curves, `path`, `text` and `sprite`, each taking a list of
-props, with a `_` variant for the styling-free case. `path` takes the same commands as an `<svg>`
-`d` attribute, from `Halogen.Svg.Attributes`, so one drawing serves both. Props carry the transform, the cursor, the hit area and
-pointer handlers — `onClick`, `onPointerDown`, `onPointerUp`, `onPointerOver`, `onPointerOut` and
-`onPointerMove`. `outline` frames an element with a border the backend measures, which is the only
-way to get one that is right: nothing writing a scene can know a label's extent, or a sprite's
-before its texture has loaded. It is measured against the same bounds the backend hit-tests, so it
-also shows exactly what is clickable. Higher-level drawings such as grids are ordinary Haskell composition rather than
-renderer primitives. Handler actions are raised as typed component outputs; camera changes are
-reported separately.
+Describe scenes with `Halogen.Canvas.Elements` and `Halogen.Canvas.Properties`. Their API resembles Halogen HTML: elements include `group`, `line`, `rectangle`, `circle`, `ellipse`, `arc`, Bézier curves, `path`, `text` and `sprite`. Each takes properties and has a `_` variant without styling. Paths use the same commands from `Halogen.Svg.Attributes` as an SVG `d` attribute.
 
-The vocabulary the scene is written in (`Halogen.Canvas.Types`) is backend-neutral, and a scene is an
-ordinary `VDom`, so it reconciles through `Halogen.VDom.DOM.buildVDom` — the same machinery that
-reconciles HTML. `haskell-halogen-pixi` supplies a PixiJS v8 interpretation of it: a `MonadDOM`
-instance whose nodes are Pixi display objects, plus a prop applicator that paints them.
+Properties control transforms, cursors, hit areas and pointer handlers: `onClick`, `onPointerDown`, `onPointerUp`, `onPointerOver`, `onPointerOut` and `onPointerMove`. `outline` draws a border using the backend's measured hit-test bounds. This lets it size labels and sprites correctly, including after textures load, and shows the clickable area.
 
-Give stable scene items keys with `keyedGroup` or `withKeys`. Subsequent `View` inputs reconcile
-those keys, retain their display objects and listeners, and only repaint what changed; removed keys
-are destroyed. Unkeyed siblings are matched by position, so explicit keys are only needed when
-identity must survive insertion, removal or reordering. Camera transforms operate directly on the
-retained scene. Pan changes are reported when the gesture ends, while wheel changes are coalesced
-until the wheel burst has been idle for 120 ms.
+Build higher-level drawings such as grids with ordinary Haskell functions. Handler actions become typed component outputs; camera changes are reported separately.
 
-Each mounted canvas owns its own Pixi `Application`, renderer, stage, event system and GPU canvas
-context. Browsers cache evaluation of the dynamically imported Pixi module by URL, so multiple
-canvases reuse the same module and Pixi asset cache rather than downloading and evaluating Pixi
-repeatedly.
+The vocabulary the scene is written in (`Halogen.Canvas.Types`) is backend-neutral, and a scene is an ordinary `VDom`, so it reconciles through `Halogen.VDom.DOM.buildVDom` — the same machinery that reconciles HTML. `haskell-halogen-pixi` supplies a PixiJS v8 interpretation of it: a `MonadDOM` instance whose nodes are Pixi display objects, plus a prop applicator that paints them.
 
-The default renderer loads its pinned PixiJS module from jsDelivr when mounted, so applications need
-no Pixi JavaScript shim or global — but the example does need network access when opened. Use
-`componentWith (Config { moduleUrl = ... })` to load a self-hosted or bundled PixiJS v8 module
-instead.
+Give stable scene items keys with `keyedGroup` or `withKeys`. Subsequent `View` inputs reconcile those keys, retain their display objects and listeners, and only repaint what changed; removed keys are destroyed. Unkeyed siblings are matched by position, so explicit keys are only needed when identity must survive insertion, removal or reordering. Camera transforms operate directly on the retained scene. Pan changes are reported when the gesture ends, while wheel changes are coalesced until the wheel burst has been idle for 120 ms.
+
+Each mounted canvas owns its own Pixi `Application`, renderer, stage, event system and GPU canvas context. Browsers cache evaluation of the dynamically imported Pixi module by URL, so multiple canvases reuse the same module and Pixi asset cache rather than downloading and evaluating Pixi repeatedly.
+
+The default renderer loads its pinned PixiJS module from jsDelivr when mounted, so applications need no Pixi JavaScript shim or global — but the example does need network access when opened. Use `componentWith (Config { moduleUrl = ... })` to load a self-hosted or bundled PixiJS v8 module instead.
 
 ### In three dimensions
 
-`haskell-halogen-three` does the same for a three-dimensional scene, with Three.js. Its vocabulary
-is its own (`Halogen.Three.Elements`, `Halogen.Three.Properties`): groups, meshes of a geometry and
-a material, lights, and handlers for clicks and the pointer coming over or leaving an object, which
-the renderer raycasts from the canvas, since Three.js has no events of its own. A mesh's geometry and
-material are props of its node, so a change of colour patches its material and a change of shape
-gives it a new geometry, the old one disposed of (Three.js keeps a geometry's buffers on the GPU until
-told). `Halogen.Three.component` is core's `Halogen.Canvas.component` over this renderer; a drag
-turns the camera about its target and the wheel brings it nearer, and `CameraMoved` reports where it
-went. The scene is drawn on demand, in the frame after a change, not in a loop.
+`haskell-halogen-three` renders three-dimensional scenes with Three.js. `Halogen.Three.Elements` and `Halogen.Three.Properties` describe groups, meshes, materials, lights and pointer handlers. The renderer uses raycasting to find the object under the pointer.
+
+Geometry and material are mesh properties. Colour changes update the material; shape changes replace and dispose the geometry. `Halogen.Three.component` uses core's canvas component with this renderer. Dragging orbits the camera, scrolling zooms, and `CameraMoved` reports the resulting position. The renderer draws once in the frame after a change.
 
 ```haskell
 scene :: Three.View ()
@@ -527,21 +357,14 @@ scene =
     ]
 ```
 
-Like the Pixi renderer it imports a pinned Three.js from jsDelivr when a scene mounts; give
-`componentWith` a `Config` to load it from elsewhere. Lesson 19 of the tutorial is a scene.
+Like the Pixi renderer it imports a pinned Three.js from jsDelivr when a scene mounts; give `componentWith` a `Config` to load it from elsewhere. Lesson 19 of the tutorial is a scene.
 
 ## Releases
 
-One repository, one tag namespace: releases are tagged with a package prefix, such as `core-v0.10.0`
-or `material-v0.2.0`. Each package keeps its own `CHANGELOG.md` and uploads to Hackage separately.
+One repository, one tag namespace: releases are tagged with a package prefix, such as `core-v0.10.0` or `material-v0.2.0`. Each package keeps its own `CHANGELOG.md` and uploads to Hackage separately.
 
 ### Shared browser JavaScript
 
-Both browser backends use the same files under each package's `jsbits/`. The
-JavaScript backend links them with `js-sources`; WASM embeds them at compile time
-with [Halogen.JSBits](jsbits/README.md), leaving only callback and representation
-adapters specific to the backend. Material keeps its existing bundled JS module.
+Both browser backends use the same files under each package's `jsbits/`. The JavaScript backend links them with `js-sources`; WASM embeds them at compile time with [Halogen.JSBits](jsbits/README.md), leaving only callback and representation adapters specific to the backend. Material keeps its existing bundled JS module.
 
-WASM consumers must set `shared: True` in their Cabal project so Template Haskell
-can load its dependencies. When using a Git source dependency, include `jsbits`
-alongside the requested packages in `subdir`. No runtime asset loading is added.
+WASM consumers must set `shared: True` in their Cabal project so Template Haskell can load its dependencies. When using a Git source dependency, include `jsbits` alongside the requested packages in `subdir`. No runtime asset loading is added.

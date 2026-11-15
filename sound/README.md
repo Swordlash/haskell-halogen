@@ -1,9 +1,8 @@
 # haskell-halogen-sound
 
-Music and sound effects for a page: a theme to loop, an album played in a
-shuffled order with the next track fetched ahead, and effects on top.
+Play looping themes, shuffled albums and sound effects in the browser. The player preloads upcoming tracks and can play effects over the current music.
 
-The sounds are an enumeration of the application's:
+Define your application's sounds as an enumeration:
 
 ```haskell
 data Sfx = MenuTheme | Campaign1 | Campaign2 | Campaign3 | Dice | Battle
@@ -27,34 +26,16 @@ setMusicVolume player 0.2                           -- a slider each: reaches th
 setEffectsVolume player 0.8
 ```
 
-- A type whose sounds are not all known in advance (an album read from a
-  server) is not an enumeration: it says `persistentSounds` itself.
-- There is one piece of music at a time; `playTheme`, `playAlbum` and
-  `stopMusic` replace it at once, from any thread.
-- An album plays every track once a round, each round shuffled, never the
-  same track twice in a row, with `gap` seconds of silence before each.
-- While a track plays, the next `bufferAhead` are fetched. Files that are not
-  persistent are let go, least recently used first, beyond `cacheSize`
-  (besides those playing or buffered), so an album is never held whole.
-- The music and the effects each have a volume, from 0 to 1 (the initial
-  ones in `Config`). A change reaches the music playing at once. At zero
-  music volume, playback stops and the music makes no further track
-  requests until the volume is raised; persistent sounds continue to
-  preload and remain cached. Effects at 0 are not played.
-- `browser` fetches whole files at low priority into blob URLs and plays them
-  with HTML audio. A page may not play before its first click or key; a voice
-  started earlier waits for one. Natively it plays nothing.
-- The logic runs over a `Backend` record, so a test can hand in one that
-  only writes down what it was asked (see `test/Test/Player.hs`).
+For sound collections discovered at runtime, such as an album fetched from a server, implement `persistentSounds` directly instead of relying on an enumeration.
 
-To carry music across a reload, save `musicPosition player` and
-`musicPaused player`. On the new player, call `pauseMusic` first if the
-music was held, then `playAlbumFrom player tracks track seconds`. The
-current track resumes immediately at that position; the rest of the
-album gets a new shuffle, with each track still played once per round.
-If the saved track is no longer in the album, an ordinary album starts.
-Custom backends must honor `Voicing.offset` before the voice is heard.
+Only one music track plays at a time. `playTheme`, `playAlbum` and `stopMusic` replace it immediately and can be called from any thread. Albums play every track once per shuffled round, avoid consecutive repeats and insert `gap` seconds of silence before each track.
 
-`node sound/test/browser-offset.cjs` checks metadata, seeking and held
-voices in both browser implementations; the player tests run through
-`cabal test haskell-halogen-sound` on all three backends.
+While a track plays, the player fetches the next `bufferAhead` tracks. Non-persistent files beyond `cacheSize` are evicted in least-recently-used order, except those currently playing or buffered. The player does not retain the entire album.
+
+Music and effects have separate volumes between 0 and 1, initially set in `Config`. Changes apply immediately. Zero music volume stops playback and further music requests until raised again, while persistent sounds continue preloading and stay cached. Effects at zero volume are skipped.
+
+The browser backend fetches complete files at low priority, creates blob URLs and plays them through HTML audio. If playback requires user interaction, voices wait for the first click or key. Native playback is inert. The player logic uses a `Backend` record, so tests can supply a recording implementation; see `test/Test/Player.hs`.
+
+To restore music after a reload, save `musicPosition player` and `musicPaused player`. Create a new player, call `pauseMusic` first if playback was paused, then call `playAlbumFrom player tracks track seconds`. The saved track resumes at that position. The remaining tracks are shuffled, with each track still played once per round. If the saved track is no longer present, playback starts as a new album. Custom backends must apply `Voicing.offset` before the sound becomes audible.
+
+`node sound/test/browser-offset.cjs` checks metadata, seeking and paused voices in both browser implementations. Run the player tests with `cabal test haskell-halogen-sound` on each backend.

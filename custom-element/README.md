@@ -1,9 +1,6 @@
 # haskell-halogen-custom-element
 
-A [haskell-halogen](https://github.com/Swordlash/haskell-halogen) component as a custom element
-(a Web Component), for any page to use as it uses a built-in element: from plain HTML, React,
-Vue, Svelte, Astro or HTMX, none of which needs to know that Halogen is behind it. And the other
-way, what a Halogen component needs to use custom elements made elsewhere.
+Expose a [haskell-halogen](https://github.com/Swordlash/haskell-halogen) component as a custom element that any page can use. Plain HTML, React, Vue, Svelte, Astro and HTMX can treat it like a built-in element. The package also provides helpers for using other libraries' custom elements in Halogen.
 
 ```haskell
 import Halogen.CustomElement (Definition (..), Registration (..))
@@ -25,30 +22,14 @@ main = runBrowserDOM $ do
   HA.keepForNextRun registration.dispose
 ```
 
-`define` takes the element's name, which must contain a hyphen, its `Definition`, and the
-component. From then on every element of the name mounts a tree of its own with the component
-in it, whether the element was in the page's HTML, was inserted by a script or rendered by a
-framework:
+`define` takes an element name, a `Definition` and a component. The name must contain a hyphen. Every matching element gets its own component tree, whether it came from the initial HTML, JavaScript or another framework:
 
-- **`input`** makes the component's input from the element's `Props`: `CE.attr` reads an
-  attribute, as text; `CE.prop` a property set from JavaScript, decoded from JSON.
-- **`observed`** names what `input` reads. Each name is watched as an attribute and is a
-  property of the element too (unless `HTMLElement` has it already, as `title` or `hidden`).
-  When one changes, `input` is asked again and the component hears the new input through
-  `H.onReceive`, exactly as under a Halogen parent that rendered it with a new input: the
-  element mounts a small parent around the component that does just that.
-- **`output`** turns what the component raises into a `CustomEvent`, with a name and a JSON
-  `detail`. It bubbles and is `composed`, so it leaves the shadow root and can be listened for
-  anywhere above the element.
-- **`methods`** are the element's methods, each a query: `CE.method` a request, whose promise
-  resolves with the answer as JSON (`null` when the component does not answer), and
-  `CE.tellMethod` a tell, whose promise resolves with `null`. No argument is passed as `[]`,
-  one as itself and several as an array, so a method of `()` takes none and one of a pair two.
-  Arguments that do not decode, or a query that fails, reject the promise.
-- **`shadow`** is where the component renders: `OpenShadow` (the default), `ClosedShadow`, or
-  `NoShadow`, into the element itself, among the page's elements and styled by its CSS.
-- **`styles`** is CSS adopted into the shadow root: it styles the component and nothing else,
-  and the page's CSS does not reach in.
+- **`input`** converts the element's `Props` into component input. `CE.attr` reads a text attribute, and `CE.prop` decodes a JavaScript property from JSON.
+- **`observed`** lists the names to watch. Each is observed as an attribute and exposed as a property unless `HTMLElement` already defines it, as with `title` or `hidden`. Changes recompute `input` and deliver it through `H.onReceive`, using a small parent component around your component.
+- **`output`** converts component outputs into named `CustomEvent`s with JSON `detail`. Events bubble and are `composed`, so listeners outside the shadow root can receive them.
+- **`methods`** exposes queries as JavaScript methods. `CE.method` returns a promise of the JSON answer, or `null` if unanswered. `CE.tellMethod` returns a promise resolving to `null`. No arguments are encoded as `[]`, one argument as its value, and several as an array. A `()` method therefore takes no arguments, and a pair takes two. Decoding errors and failed queries reject the promise.
+- **`shadow`** chooses where to render: `OpenShadow` by default, `ClosedShadow`, or `NoShadow` to render directly inside the element under the page's CSS.
+- **`styles`** supplies CSS for the shadow root. It affects only the component, and page styles do not reach inside.
 
 ## From the page
 
@@ -66,15 +47,13 @@ Plain HTML and JavaScript:
 </script>
 ```
 
-React 19 sets a property for anything that is not a string, and listens to custom events with
-`on` and the event's name:
+React 19 sets a property for anything that is not a string, and listens to custom events with `on` and the event's name:
 
 ```jsx
 <x-counter start={5} oncount={(event) => setCount(event.detail)} />
 ```
 
-Vue does the same with its own syntax (tell it the name is a custom element with
-`compilerOptions.isCustomElement`, and use `.prop` to force a property):
+Vue does the same with its own syntax (tell it the name is a custom element with `compilerOptions.isCustomElement`, and use `.prop` to force a property):
 
 ```vue
 <x-counter :start.prop="5" @count="(event) => count = event.detail" />
@@ -82,33 +61,19 @@ Vue does the same with its own syntax (tell it the name is a custom element with
 
 ## An element's life
 
-- An element mounts its component when it is connected to the document, and disposes of it
-  (its finalizers run, its subscriptions and forks end) when it is removed. The removal is acted
-  on after the code that removed it has run, in a microtask, and not at all if that code put the
-  element back: an element moved from one place to another, as frameworks move the items of a
-  list, keeps its component and its state.
-- A property set on an element before its name was defined (React and Vue set them as soon as
-  they create an element) is taken over when the element mounts.
-- `customElements.define` is forever: a page cannot take a name back or give it another class.
-  `define` can be called again for the same name, though, with another definition and another
-  component, and every element of the name already in the page disposes of its component and
-  mounts the new one. That is what a program run again in the same page needs: browser GHCi's
-  `:main` (`npm run dev`), or the tutorial's next compile.
-- `Registration`'s `dispose` disposes of every element's component and leaves the name inert,
-  its elements rendering nothing (and their methods resolving `null`), until it is defined
-  again. It is what `Halogen.IO.Util.keepForNextRun` wants.
-- An element keeps the shadow root it was first given, so a definition that comes later with
-  another `shadow` renders there all the same.
-- What the page does to an element reaches Haskell through the same synchronous callbacks as
-  the browser's events, so Haskell has seen it by the time the page's code goes on; what the
-  component does about it may come later. A page that sets an attribute and then calls a method
-  has the method answered with the new input.
+The element mounts its component when connected to the document. Removing it runs finalizers and ends subscriptions and forks. Cleanup happens in a microtask; if the element has already been reinserted, cleanup is skipped. Moving an element therefore preserves its component and state.
+
+Properties assigned before registration are picked up when the element mounts. This supports frameworks that assign properties as soon as they create an element.
+
+The browser cannot unregister a custom element name, but you can call this package's `define` again. Existing elements dispose their old components and mount the new definition. This supports rerunning `:main` in browser GHCi and recompiling tutorial programs.
+
+`Registration.dispose` removes every mounted component and leaves the name inactive until redefined. Elements render nothing and their methods resolve to `null`. Register this cleanup with `Halogen.IO.Util.keepForNextRun`.
+
+An element retains its original shadow root even if a later definition requests another `shadow` mode. Attribute and property changes enter Haskell through synchronous callbacks. The component's response may run later, but a method called after an attribute update sees the new input.
 
 ## Using others' custom elements
 
-An element made elsewhere is an element like any other: `HH.element (HH.ElemName "x-picker")`,
-`HP.attr` for its attributes and `HP.prop` for its properties. `CE.onEvent` handles an event with
-a `detail`, decoded from JSON:
+Use `HH.element (HH.ElemName "x-picker")` for another library's custom element, with `HP.attr` for attributes and `HP.prop` for properties. `CE.onEvent` decodes an event's JSON `detail`:
 
 ```haskell
 HH.element (HH.ElemName "x-colour-picker")
@@ -116,10 +81,8 @@ HH.element (HH.ElemName "x-colour-picker")
   []
 ```
 
-An event whose detail does not decode as the type asked for makes no action.
+If the event detail cannot be decoded as the requested type, no action is produced.
 
 ## Natively
 
-There is no page natively: `define` checks the name and returns a registration whose `dispose`
-does nothing, and no element ever mounts. The package builds on every backend, so a program using
-it type-checks natively.
+On the native backend, `define` validates the name and returns a registration with a no-op `dispose`. No component mounts. The package still builds, allowing native type checking of programs that use it.
