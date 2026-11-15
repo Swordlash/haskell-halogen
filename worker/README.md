@@ -1,19 +1,14 @@
 # haskell-halogen-worker
 
-Run expensive Haskell functions in Web Workers. The browser can keep drawing
-and handling input while a worker computes the result.
+Run expensive Haskell functions in Web Workers so the browser can keep drawing and handling input while a worker computes the result.
 
-`forkIO` and a component's `liftIO` let other Haskell threads run, but browser
-Haskell still shares the page's JavaScript thread. A long calculation on that
-thread can freeze the UI. A Web Worker runs on another browser thread and has
-its own Haskell heap.
+`forkIO` and a component's `liftIO` let other Haskell threads run, but those threads still share the page's JavaScript thread. A long calculation can therefore freeze the UI. A Web Worker runs on a separate browser thread with its own Haskell heap.
 
 ## Define a job and run it
 
-A job is a function from an argument to a result, both with `Binary` instances
-(`Data.Binary`; derive one with `deriving anyclass (Binary)` and `Generic`, and
-use a tuple or a record for several arguments). Make it with `Worker.job` under
-`static`, from GHC's `StaticPointers` extension:
+A job wraps a function that takes one argument and returns its result in `IO`. Use a tuple or a record if you need several arguments. The page and the worker communicate through `postMessage`, and this library uses `Data.Binary` to encode the values they exchange. Both the argument and the result must therefore have `Binary` instances. You can derive these with `Generic` and `deriving anyclass (Binary)`.
+
+Create the job with `Worker.job`, then use `static` to give it a static pointer. This requires GHC's `StaticPointers` extension:
 
 ```haskell
 {-# LANGUAGE StaticPointers #-}
@@ -25,8 +20,7 @@ primes :: StaticPtr (Worker.Job Int Int)
 primes = static (Worker.job (\n -> pure (countPrimes n)))
 ```
 
-`main` starts with `Worker.program`; then create a pool and pass it to the
-components that need it:
+Wrap your `main` in `Worker.program`. Inside it, create a pool and pass it to the components that need workers:
 
 ```haskell
 main :: IO ()
@@ -37,7 +31,7 @@ main = Worker.program $ runBrowserDOM $ do
   HA.keepForNextRun (socket.dispose >> Worker.terminate pool)
 ```
 
-Call the job from a component:
+A component can now run the job and use its result:
 
 ```haskell
 handleAction Count = do
@@ -45,51 +39,31 @@ handleAction Count = do
   modify (\st -> st {primes = Just n})
 ```
 
-`run` waits for the result. `start` gives a `Halogen.JSBits.Promise` of it at
-once instead, so several jobs can be given to the pool before anything waits,
-and the pool's workers compute them side by side. `Halogen.JSBits.Promise`'s
-vocabulary then says how to wait:
+`run` submits a job and waits for its result. `start` submits a job and immediately returns a `Halogen.JSBits.Promise`. This lets you submit several jobs before waiting, so the pool can run them in parallel. Use the functions from `Halogen.JSBits.Promise` to wait for their results:
 
 ```haskell
 counts <- liftIO (mapConcurrently (Worker.start pool primesBetween) parts)
 ```
 
-`mapConcurrently` gives the results in the order of `parts`, whichever worker
-finished first. Two consecutive `run`s in one `do` block wait for one another.
+`mapConcurrently` returns results in the same order as `parts`, regardless of which worker finishes first. By contrast, two consecutive `run` calls in a `do` block run sequentially: the second is submitted only after the first returns.
 
 ### Why a static pointer
 
-The worker loads another copy of the same program and calls `main`.
-`Worker.program` detects that it is running in a worker, answers the page's
-requests and skips the UI code; on the page it starts the UI. A function cannot
-be sent to the worker: it is a closure, code with whatever it captured, and what
-it captured is in the page's heap. What the two copies share is the code, and
-`static e` names a piece of it with a key that is the same in every copy of the
-binary. The page sends that key; the worker finds the job in GHC's static
-pointer table. There is no table of jobs to register or keep in step.
+Each worker loads a copy of the same program and calls `main`. `Worker.program` checks where it is running. On the page, it starts your UI. In a worker, it handles job requests and skips the UI code.
 
-`static e` requires `e` to be closed: it may name top-level functions and
-values, but no variable bound by a lambda, a `do` or a function's argument. The
-compiler rejects anything else, so a job cannot depend on component state,
-IORefs or other values that only exist on the page. Pass everything the
-calculation needs as its argument. `Worker.job` resolves the `Binary` instances
-where it is written and keeps the codecs inside the job, so the static value
-carries everything needed to encode the argument and decode the result.
+The page cannot send a Haskell function directly to a worker. A function can capture values from the page's heap, which the worker cannot access. Instead, `static e` gives an expression a key that is the same in every copy of the binary. The page sends this key, and the worker uses GHC's static pointer table to find the job. You do not need to register jobs manually.
 
-Export every binding that holds a static from its module. GHC before 10.0
-([issue #24773](https://gitlab.haskell.org/ghc/ghc/-/issues/24773)) can fail to
-link a module whose static binding is not exported and is used more than once:
-with optimisation the binding stays internal to the module, and the module's
-static pointer table refers to a symbol that is not there (an undefined
-reference to the binding's closure).
+The expression inside `static` can refer to top-level functions and values, but it cannot capture local variables, such as a function argument or a value bound in a `do` block. GHC checks this at compile time. Pass component state and any other data the calculation needs as the job's argument. A worker cannot access the page's IORefs or other values in its heap.
 
-A job can call `Worker.whichWorker` to learn which of its pool's workers runs
-it (`Just 0`, `Just 1`, ...), or `Nothing` when it runs on the page.
+`Worker.job` also stores the `Binary` codecs in the job. Both copies of the program therefore have the code needed to encode and decode its arguments and results.
+
+Export each static pointer binding from its module. GHC versions before 10.0 have a linker bug that can affect unexported static bindings used more than once. With optimisation enabled, the static pointer table may refer to a missing closure symbol. See [GHC issue #24773](https://gitlab.haskell.org/ghc/ghc/-/issues/24773).
+
+Inside a job, `Worker.whichWorker` returns the worker's index in the pool, such as `Just 0` or `Just 1`. It returns `Nothing` if the job is running on the page.
 
 ## Configure the loader
 
-Before starting the Haskell program, set the URLs of the files a worker must
-load. For WebAssembly:
+Before starting the Haskell program, configure the URLs that workers use to load it. For WebAssembly:
 
 ```js
 globalThis.halogenWorker = {
@@ -99,10 +73,7 @@ globalThis.halogenWorker = {
 };
 ```
 
-`wasi.js` must export `@bjorn3/browser_wasi_shim` as an ES module. The binary
-must export `hs_start`, as the repository's examples do. Workers are module
-workers created from a Blob; the site's content security policy must allow
-them. See `examples/worker` for a complete loader and bundle script.
+`wasi.js` must export `@bjorn3/browser_wasi_shim` as an ES module, and the binary must export `hs_start`. These workers are module workers created from a Blob, so the site's Content Security Policy must allow them. `examples/worker` includes a complete loader and bundle script.
 
 For the GHC JavaScript backend:
 
@@ -112,10 +83,9 @@ globalThis.halogenWorker = {
 };
 ```
 
-These are classic workers that load the program with `importScripts`.
+This configuration creates classic workers that load the program with `importScripts`.
 
-A program that is not a binary the standard script could load names a module
-script of its own instead, for either backend:
+If your program needs a custom loader, provide your own module script. This works with either backend:
 
 ```js
 globalThis.halogenWorker = {
@@ -124,98 +94,68 @@ globalThis.halogenWorker = {
 };
 ```
 
-The worker imports the script once `globalThis.halogenWorker` there says which
-worker it is (`worker`, a number) and holds a copy of `data`, if the page gave
-one. The script loads the program however it likes and runs its `main`, which
-must call `Worker.serve` (as `Worker.program` does) before the script's import
-ends; a script that throws, or a `main` that did not serve, fails the worker's
-jobs with a `WorkerError`. `script` wins when it is given beside `wasm` or
-`js`. The tutorial is the program this is for: it runs a lesson in GHC's
-interpreter, so its script boots a second copy of the compiler in the worker,
-compiles the same lesson there and runs its `main`. `examples/worker`'s
-`?workers=script` loads its own `app.wasm` through `web/worker-script.js`, to
-test the form without the tutorial.
+Before importing your script, the worker sets `globalThis.halogenWorker.worker` to its worker index and copies the optional `data` value into `globalThis.halogenWorker.data`. Your script then loads the program and runs its `main`. The program must call `Worker.serve`, either directly or through `Worker.program`, before the script finishes importing. If the script throws or the program does not call `serve` in time, the worker's jobs fail with a `WorkerError`. When `script` is set, it takes precedence over `wasm` and `js`.
+
+The tutorial uses this option because it runs lessons in GHC's interpreter. Its worker script starts a second compiler, compiles the same lesson and runs its `main`. You can also try a custom loader in `examples/worker`: open it with `?workers=script` to load `app.wasm` through `web/worker-script.js`.
 
 ## Lifetime, failures and fallback
 
-- `newPool n` creates a pool with at least one worker. Each worker starts on
-  its first job. Startup loads and initializes a complete copy of the program;
-  a pool of four workers has four additional Haskell heaps.
-- `start pool job argument` and `run pool job argument` give the job to the
-  next worker in round-robin order.
-- Failures take two shapes. `run` throws `WorkerError {job, message}`, where
-  `job` is where the job's `static` is (`Module:line:column`). The promise from
-  `start` is rejected with a `JSError` whose `name` is `"WorkerError"` and whose
-  `message` is that `WorkerError`'s text (`the job at Module:line:column failed:
-  ...`), since a `Promise` is rejected with a `JSError`; `wait` throws it and
-  `waitCatch` returns it. Both cover the job's own exception (one raised while
-  its lazy result is encoded included), an argument the worker cannot decode, a
-  result the page cannot decode, a key the worker's program does not have, a
-  worker that did not start and a pool terminated while the job ran. In the
-  worker the job's exception is caught and sent back; it does not stop the
-  worker. A job stopped with `cancel` or `kill` is rejected with a `JSError`
-  named `"Cancelled"` or `"Killed"` (and `run` throws a `WorkerError` with that
-  message).
-- `terminate pool` stops all workers, and the jobs the pool runs in the program
-  itself, and fails outstanding requests. The next job starts workers again.
-- `available` reports whether workers can be used. Without the loader
-  configuration, outside a browser, in GHCi or inside a worker, `start` runs the
-  job on a thread it forks, through the same encoding. This fallback keeps the
-  API usable, but does not prevent a long calculation from blocking the page:
-  the thread holds the page's thread between its waits and checkpoints.
+`newPool n` creates a pool with at least one worker. Each worker starts when it receives its first job and loads a complete copy of the program. A pool of four workers therefore uses four additional Haskell heaps. `start` and `run` assign jobs to workers in round-robin order.
+
+`terminate pool` stops all workers, stops any fallback jobs running in the current program, and fails all outstanding requests. The pool can be reused: submitting another job starts workers again.
+
+### Failures
+
+`run` throws `WorkerError {job, message}` when a job fails. The `job` field identifies the location of its `static` expression as `Module:line:column`, and `message` explains the failure.
+
+`start` reports failures through its promise. The promise is rejected with a `JSError` whose `name` is `"WorkerError"` and whose `message` contains the formatted error: `the job at Module:line:column failed: ...`. Calling `wait` throws this error; `waitCatch` returns it.
+
+Both APIs report exceptions from the job, including exceptions raised while encoding a lazy result. They also report decoding failures, missing static keys, worker startup failures and pool termination. An exception in a job does not stop its worker: the worker catches it and sends the error back to the page.
+
+Cancellation rejects the promise with a `JSError` named `"Cancelled"` or `"Killed"`. If you used `run`, it throws a `WorkerError` with that message instead.
+
+### Fallback
+
+`available` reports whether Web Workers can be used. Without loader configuration, outside a browser, in GHCi or inside a worker, the library runs jobs on a Haskell thread in the current program. This fallback uses the same encoding and decoding as a real worker.
+
+The fallback lets you use the API in these environments, but it does not move computation off the page's JavaScript thread. A long calculation can still block the UI between waits and checkpoints.
 
 ## Stop a job
 
+Keep the promise returned by `start` if you want to stop the job later:
+
 ```haskell
 p <- liftIO (Worker.start pool primesSlowly 6000000)
--- later, from another action:
-Worker.cancel pool p   -- the job stops at its next checkpoint
-Worker.kill pool p     -- the job's worker is ended, now
+-- Later, from another action:
+Worker.cancel pool p   -- Stop the job at its next checkpoint.
+Worker.kill pool p     -- Terminate the job's worker immediately.
 ```
 
-- `cancel pool promise` rejects the promise at once and tells the worker. A job
-  the worker has not begun is never run. A running job learns of the cancel at
-  its next `checkpoint`, which throws `Cancelled` there, and the worker is then
-  free for its next job.
-- `checkpoint` is what a job calls between pieces of its work. A worker has one
-  thread, which a computation keeps until it waits, so a cancel the page sends
-  arrives only when the job hands the worker's event loop a turn: `checkpoint`
-  does that (a `setTimeout` of 0, a macrotask) and then checks. Call it once per
-  chunk of work, not per element. A job that never calls it cannot be
-  cancelled; it runs to the end, holding its worker.
-- `kill pool promise` ends the worker that runs the job, at once, whatever the
-  job is doing. The other requests that worker had are sent again, in order,
-  to a new worker in its place, so only the killed job is lost; the page keeps a
-  copy of every request's bytes until it is answered for this. The new worker
-  loads the program again (the binary from the browser's cache, `main` run up
-  to `serve`), which is what makes `kill` the dearer way to stop a job.
-- `run` cancels its job when its wait is interrupted: a component's fiber that
-  is killed, the losing side of `race` and a `timeout` stop the job instead of
-  leaving it to finish unread. Waiting for `start`'s promise does not: a promise
-  can have several waiters or none, so stopping its job is `cancel`'s business.
-- A promise the pool did not start, or one that has settled, is left alone by
-  both.
-- Where no worker can be made, `cancel` and `kill` kill the job's thread, which
-  stops at its next wait or checkpoint.
+`cancel pool promise` rejects the promise immediately and sends a cancellation request to the worker. If the job has not started, the worker skips it. If it is already running, its next call to `checkpoint` throws `Cancelled`. The worker can then process its next job.
 
-`serve` is the lower-level entry point used by `program`. It returns `False`
-after installing a worker's message handler, or `True` when the caller should
-start the UI.
+Call `checkpoint` between chunks of work. A calculation occupies the worker's thread, so the worker cannot receive cancellation messages until the calculation yields to its event loop. `checkpoint` yields with `setTimeout(0)` and then checks for cancellation. Call it once per chunk, rather than once per element. A job that never calls it runs to completion even if you call `cancel`.
+
+`kill pool promise` terminates the worker immediately, even if the job never calls `checkpoint`. The pool creates a replacement worker and resubmits that worker's other outstanding requests in their original order. To make this possible, the page keeps a copy of each request's bytes until it receives a reply. Killing a job costs more than cancelling it because the replacement worker must load and initialise the program again. The binary can come from the browser's cache, but `main` still has to run up to `serve`.
+
+`run` automatically cancels its job if the wait is interrupted. This includes killing the component's fiber, losing a `race`, or reaching a `timeout`. Waiting on a promise returned by `start` does not have this behaviour: a promise can have several waiters, so you must cancel its job explicitly.
+
+Both `cancel` and `kill` do nothing if the promise has already settled or was not created by that pool. In fallback mode, both stop the job's Haskell thread at its next wait or checkpoint.
+
+`serve` is the lower-level entry point used by `program`. In a worker, it installs the message handler and returns `False`. On the page, it returns `True` to tell the caller to start the UI.
 
 ## Many tasks at once: `Halogen.Worker.Par`
 
-For a computation that calls jobs at many independent points, `Par` collects
-the calls and sends them to the pool's workers in batches:
+Use `Par` when a computation needs to call many jobs. It collects independent calls and sends them to the pool in batches:
 
 ```haskell
 {-# LANGUAGE ApplicativeDo #-}
 
 import Halogen.Worker.Par (runPar, task)
 
--- a job mapped over a list, on every worker, the results in the list's order
+-- Run a job for each list element and return results in the same order.
 counts <- liftIO (runPar pool (traverse (task primesBetween) parts))
 
--- independent tasks sent together, a dependent one after them
+-- Run a and b together, then use their results to run c.
 (a, b, c) <- liftIO $ runPar pool $ do
   a <- task primes 1000000
   b <- task primes 2000000
@@ -223,68 +163,41 @@ counts <- liftIO (runPar pool (traverse (task primesBetween) parts))
   pure (a, b, c)
 ```
 
-- `task job argument` is one call of the job. `Par`'s `<*>` runs both sides
-  before anything is sent, so their tasks go out together; `>>=` waits for the
-  left side's tasks before it runs the right. With `ApplicativeDo` a `do` block
-  is taken apart where its statements do not depend on one another. There is
-  no cache: the same task twice is two calls.
-- `runPar pool computation` runs the computation until all of it waits for
-  tasks, then sends that round's calls: grouped by job, each job's cut into
-  batches (four for each worker, or fewer for fewer calls) that are each one
-  request, handed out from a queue to whichever worker has answered its last
-  batch. So a worker that drew the quick calls takes more batches while another
-  is still at slow ones. Then it goes on with the next round.
-- A failing call fails the whole `runPar` with a `WorkerError` naming the job,
-  whose message gives the call's index among that job's calls in the round (for
-  a `traverse`, the list's index): `its call at index 5: ...`. The batches still
-  running are cancelled, as they are when `runPar`'s thread is interrupted.
-  A worker stops a batch at its first failing call.
-- Where no worker can be made, the batches run here, one after the other, each
-  as a job of the pool's own on a thread of its own (as `start`'s fallback
-  does), through the same codecs: `terminate` ends them as it ends any job run
-  here, and an interrupted `runPar` cancels the one running.
+`task job argument` describes one job call. Applicative composition (`<*>`) collects independent tasks so they can be submitted together. Monadic composition (`>>=`) waits for earlier results before creating dependent tasks. With `ApplicativeDo`, GHC can group independent statements in a `do` block automatically. Results are not cached: requesting the same task twice runs it twice.
 
-A batch is worth sending when its calls add up to seconds of work: the calls in
-a batch run one after another in one worker.
+`runPar pool computation` executes the computation in rounds. In each round, it collects the tasks that are ready to run, groups them by job, and splits each group into batches. It creates up to four batches per worker for each job, with fewer batches when there are fewer calls. Each batch is one request, and its calls run sequentially inside a worker.
+
+Workers take batches from a shared queue. When a worker finishes a batch, it takes the next one, so workers with faster calls can process more batches. Once a round finishes, `runPar` uses its results to continue the computation and collect the next round of tasks.
+
+If any call fails, the whole `runPar` fails with a `WorkerError`, and the remaining batches are cancelled. The error identifies the job and the failed call's index among that job's calls in the round, for example `its call at index 5: ...`. For a `traverse` over one job, this is the list index. Each worker stops its batch at the first failure. Interrupting the thread running `runPar` also cancels its outstanding batches.
+
+When workers are unavailable, batches run sequentially in the current program. Each batch uses the pool's fallback mechanism, including encoding and decoding, and runs on its own Haskell thread. `terminate` stops these jobs too, and interrupting `runPar` cancels the current batch.
+
+Batching is most useful when the calls in each batch add up to seconds of work, enough to justify the cost of sending the request.
 
 ## Data on the wire
 
-The argument and the result are encoded with `Data.Binary`. The page sends the
-job's static key and the argument's bytes in an `ArrayBuffer`, which is
-transferred to the worker rather than copied, and the worker answers with the
-result's bytes the same way. A request holds a list of arguments and a reply the
-list of results, up to the first call that failed and that call's failure, which
-is how `Par` sends a batch as one request. A job is worth sending when it is seconds of work:
-each call still encodes on one side and decodes on the other, and the bytes are
-copied between each Haskell heap and its `ArrayBuffer`.
+The library encodes arguments and results with `Data.Binary`. A request contains the job's static key and a list of encoded arguments. The page sends it in an `ArrayBuffer` and transfers ownership of that buffer to the worker, avoiding a copy during `postMessage`. The worker sends the encoded results back the same way.
+
+A reply contains the results up to the first failed call, followed by the failure if there was one. This lets `Par` send several calls in a single request.
+
+Transferring the buffer does not remove all overhead. Values still need to be encoded and decoded, and bytes are copied between each Haskell heap and its `ArrayBuffer`. Workers are most useful for calculations that take seconds, where this cost is small compared with the work itself.
 
 ## Browser tests need pages
 
-A [Web Worker](https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Using_web_workers)
-has no DOM, focused element or browser input. It can test a pure
-calculation, but cannot run an hspec-halogen component test. Moving the DOM
-through `Halogen.Remote` would test another backend and would still require
-pages for real browser behavior. Use hspec-halogen's isolated browser contexts
-for parallel UI tests; reserve this package for the calculations those
-components call.
+[Web Workers](https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Using_web_workers) have no DOM, focused element or browser input. They can test calculations, but they cannot run hspec-halogen component tests. Using `Halogen.Remote` to access a DOM would test a different backend and would still require a page for real browser behaviour.
+
+Use hspec-halogen's isolated browser contexts to run UI tests in parallel. Use this package for the calculations those components call.
 
 ## Tests
 
-`Halogen-worker-test` checks encoding, decoding, the lookup by static key,
-failures, `start`'s promises, stopping jobs, `Par`'s planner and `runPar` and
-the fallback natively and under Node on both browser backends. Real workers are
-checked in Chromium through `examples/worker`, by its native suite
-(`examples/worker/test`, driven by haskell-halogen-playwright):
+`Halogen-worker-test` covers encoding, decoding, static key lookup, errors, promises, cancellation, the `Par` planner, `runPar` and fallback execution. It runs natively and under Node on both browser backends.
+
+The native test suite in `examples/worker/test` uses haskell-halogen-playwright to test real workers in Chromium. Build the example and run it with:
 
 ```sh
 sh toolchain/build-wasm.sh worker
 npm run test-worker
 ```
 
-That test checks results, UI responsiveness during a calculation, a range
-counted in parts by both workers through `start` and `mapConcurrently` and in
-sixteen tasks through `runPar`,
-cancelling a job that checkpoints, killing one that does not, a race whose
-loser is cancelled, failures, termination, a loader that names a worker
-script of its own (`?workers=script`) and the fallback without loader
-configuration.
+The browser suite checks results and UI responsiveness during calculations. It exercises parallel calls through `start` and `mapConcurrently`, as well as sixteen tasks submitted through `runPar`. It also covers cancellation at checkpoints, killing jobs without checkpoints, cancellation of a losing `race`, failures, pool termination, the custom script loader (`?workers=script`) and fallback execution without loader configuration.
