@@ -291,13 +291,17 @@ slowSync :: IO ()
 slowSync = withLogging $ \acts _ _ -> do
   let slow = round Trace.slowSyncThreshold + 30
   heard <- slowSyncs (HS.notify acts (Busy slow))
+  -- A timer may fire a little early, so the time is compared with the
+  -- threshold, not with the pause.
   case heard of
-    [took] -> assertWith ("took at least " <> show slow <> " ms: " <> show took) (took >= fromIntegral slow)
+    [took] -> assertWith ("took longer than the threshold: " <> show took) (took > Trace.slowSyncThreshold)
     _ -> assertWith ("one slow sync, heard " <> show heard) False
 
 fastSync :: IO ()
 fastSync = withLogging $ \acts _ _ -> do
-  heard <- slowSyncs (HS.notify acts (Busy 0))
+  -- A bump's note is a sync with no pause in it. A pause of no time still
+  -- waits for a timer, which a busy machine can make late.
+  heard <- slowSyncs (HS.notify acts Bump)
   assertEqual "nothing reported" [] heard
 
 unheardSync :: IO ()
