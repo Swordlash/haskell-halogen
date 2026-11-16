@@ -137,6 +137,7 @@ module Halogen.Activity
 
     -- * Waiting
   , waitActivity
+  , waitActivityWith
   , waitIdle
   , waitQuiet
   , ActivityEnded (..)
@@ -158,6 +159,17 @@ import Halogen.Activity.Internal
 -- predicate to wait for.
 waitActivity :: (Activity -> Bool) -> IO ()
 waitActivity = waitReading (pure ()) ((,False) <$> activity)
+
+-- | 'waitActivity' with a predicate that also sees a value of the test's
+-- own, read in 'STM': for a test that holds some of what the program waits
+-- for, and counts what it holds. Return once the predicate holds for the
+-- reading and the value together.
+--
+-- No change is missed. The value is read before and after the trees, and
+-- the predicate judges it only when it did not change in between. Any
+-- change of the value or of the trees after that wakes the wait.
+waitActivityWith :: (Eq s) => STM s -> (Activity -> s -> Bool) -> IO ()
+waitActivityWith extra = waitReadingWith extra ((,False) <$> activity)
 
 -- | @'waitActivity' 'idle'@: no tree is running work or has work queued.
 -- After an action has been delivered, the program has done what it does at
