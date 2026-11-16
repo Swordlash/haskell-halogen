@@ -22,9 +22,11 @@
 --   It is written against 'Halogen.Sync.MonadSync', so the compiler checks
 --   that it cannot suspend.
 --
--- * An ask ('Ask'): work that takes time, such as a request. The work
---   starts in the step. Its answer comes back later as an event, and the
---   step handles it like any other event. A failure is an answer too.
+-- * An ask ('Ask'): work that takes time, such as a request, a child's
+--   answer or a timer. The work starts in the step. Its answer comes back
+--   later as an event, and the step handles it like any other event. A
+--   failure is an answer too. The work can only wait and answer: it cannot
+--   change the component's state, raise or send ('Work').
 --
 -- A handler written by hand can break the promise. One effect that waits in
 -- the middle of the list is enough: the effects after it run after later
@@ -38,10 +40,18 @@
 -- A new draft cancels the preview still out for the old one. The preview
 -- goes to a child, and each page shown is raised to the parent.
 --
+-- > import Control.Exception (SomeException, displayException)
+-- > import Data.Text (Text)
+-- > import Data.Text qualified as Text
 -- > import Halogen qualified as H
 -- > import Halogen.Latest (Ask, Asks, newAsk, noAsks, supersede, takes)
 -- > import Halogen.Machine qualified as M
 -- > import Halogen.Sync qualified as Sync
+-- >
+-- > -- What the view asks of its monad.
+-- > class (Monad m) => Pages m where
+-- >   fetchPage :: Text -> m Text
+-- >   renderPreview :: Text -> m Text
 -- >
 -- > -- The model and its step. Plain Haskell.
 -- > data Model = Model {slug :: Text, page :: Maybe Text, loads :: Asks}
@@ -63,10 +73,10 @@
 -- >   Loaded ticket answer -> case takes ticket model.loads of
 -- >     Nothing -> (model, [])
 -- >     Just loads ->
--- >       let page = either (Text.pack . displayException) identity answer
+-- >       let page = either (Text.pack . displayException) id answer
 -- >        in (model {page = Just page, loads}, [Announce model.slug])
 -- >   Typed draft -> (model, [StopPreview, Preview draft])
--- >   Previewed answer -> (model, [Display (either (const "") identity answer)])
+-- >   Previewed answer -> (model, [Display (either (const "") id answer)])
 -- >
 -- > -- The component. It keeps the machine in its state.
 -- > data Key = Previewing
@@ -74,11 +84,11 @@
 -- >
 -- > newtype State = State {machine :: M.Machine Key Event Model}
 -- >
--- > data Action = Type Text
+-- > newtype Action = Type Text
 -- >
--- > type Slots = ("preview" .== H.Slot Preview.Query Void ())
+-- > type Slots = ("preview" .== H.Slot PreviewQuery Void ())
 -- >
--- > pageView :: (MonadIO m) => H.Component q Text Text m
+-- > pageView :: (Pages m) => H.Component q Text Text m
 -- > pageView =
 -- >   H.component
 -- >     (\slug -> pure State {machine = M.new Model {slug, page = Nothing, loads = noAsks}})
@@ -88,22 +98,32 @@
 -- >     , H.onAction (\(Type draft) -> happen (Typed draft))
 -- >     ]
 -- >   where
--- >     happen = M.happen M.Spec {step, carry, get = (.machine), set = \machine s -> s {machine}}
+-- >     happen = M.happen M.Spec {M.step = step, M.carry = carry, M.get = (.machine), M.set = \machine s -> s {machine}}
 -- >     carry = \case
--- >       Load ticket slug -> M.Ask (H.async (liftIO (fetchPage slug))) (Loaded ticket)
--- >       Preview draft -> M.AskUnder Previewing (H.async (liftIO (renderPreview draft))) Previewed
+-- >       Load ticket slug -> M.Ask (M.run (fetchPage slug)) (Loaded ticket)
+-- >       Preview draft -> M.AskUnder Previewing (M.run (renderPreview draft)) Previewed
 -- >       StopPreview -> M.Cancel Previewing
--- >       Display shown -> M.Now (Sync.send "preview" () (Preview.Show shown))
+-- >       Display shown -> M.Now (Sync.send "preview" () (ShowPreview shown))
 -- >       Announce slug -> M.Now (Sync.raise slug)
+--
+-- @render@ draws the page, an input whose @Type@ action brings each draft,
+-- and a slot for @previewer@: a child that shows the text its query
+-- @ShowPreview@ gives it.
 --
 -- The runner does not know tickets. The effect carries the ticket, and the
 -- answer's event carries it back: @Load ticket slug@ becomes
 -- @M.Ask … (Loaded ticket)@. Render with @M.current state.machine@.
 --
 -- An ask of a child is an ask like any other: its work is
--- @H.request "editor" () Editor.GetText@, and its answer is the child's
+-- @M.child "editor" () Editor.GetText@, and its answer is the child's
 -- 'Maybe'. A send to a child does not wait, so it is done in place:
 -- @M.Now (Sync.send "editor" () Editor.Save)@.
+--
+-- A timer is an ask too. A debounce asks for a pause under a key, and
+-- cancels the key when the reader types again:
+--
+-- > Debounce -> M.AskUnder Debouncing (M.delayCounted 0.3) (const Fire)
+-- > StopDebounce -> M.Cancel Debouncing
 --
 -- = Resources with a lifetime
 --
@@ -147,6 +167,13 @@ module Halogen.Machine
     -- * Running it
   , Spec (..)
   , Carry (..)
+
+    -- * What an ask waits for
+  , Work
+  , run
+  , child
+  , delay
+  , delayCounted
   , happen
   , finish
   )
@@ -155,10 +182,15 @@ where
 import Control.Monad.Catch (throwM)
 import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict qualified as Map
+import Data.Row (HasType)
 import Data.Sequence (ViewL (..), viewl, (|>))
 import Data.Sequence qualified as Seq
+import Data.Time (NominalDiffTime)
 import HPrelude hiding (async, catch, finally, get, try)
-import Halogen.Query.HalogenM (ForkId, HalogenM, fork, kill, try)
+import Halogen.Data.Slot (Slot)
+import Halogen.Query (Request, request)
+import Halogen.Query.HalogenM (ForkId, HalogenM, async, fork, kill, try)
+import Halogen.Query.HalogenM qualified as HM
 import Halogen.Sync (MonadSync)
 
 -- | What a component keeps in its state for one machine: the model, and
@@ -198,21 +230,64 @@ data Carry key st act slots out m ev where
   -- ('Halogen.Sync.sync').
   Now :: (forall h. (MonadSync st act slots out m h) => h ()) -> Carry key st act slots out m ev
   -- | Started now, in a fork; its answer is stepped later, as the event the
-  -- function makes. The work is a program of the component: @H.async io@
-  -- for an action of the component's monad, or @H.request@ for a child.
-  -- What the work throws is the answer too, as 'Left'. Nothing cancels this
-  -- ask: a write cannot be taken back, so its answer always comes. Only the
-  -- component going away stops it.
-  Ask :: HalogenM st act slots out m a -> (Either SomeException a -> ev) -> Carry key st act slots out m ev
+  -- function makes. What the work throws is the answer too, as 'Left'.
+  -- Nothing cancels this ask: a write cannot be taken back, so its answer
+  -- always comes. Only the component going away stops it.
+  Ask :: Work slots m a -> (Either SomeException a -> ev) -> Carry key st act slots out m ev
   -- | 'Ask', under a key, so that 'Cancel' can stop it. Several asks can be
   -- out under one key. A new ask does not stop the older ones: the step
   -- decides, with 'Cancel', or with tickets ("Halogen.Latest").
-  AskUnder :: key -> HalogenM st act slots out m a -> (Either SomeException a -> ev) -> Carry key st act slots out m ev
+  AskUnder :: key -> Work slots m a -> (Either SomeException a -> ev) -> Carry key st act slots out m ev
   -- | Stop every ask out under this key. Their work is killed, and their
   -- answers are never stepped, even an answer that has come but has not
   -- been stepped yet. An ask whose answer is being stepped is not out any
   -- more, so a step can cancel its own key and still run to its end.
   Cancel :: key -> Carry key st act slots out m ev
+
+-- | What an ask waits for. Make one with 'run', 'child', 'delay' or
+-- 'delayCounted', and change its answer with 'fmap'.
+--
+-- The work can only wait and answer. It cannot change the component's
+-- state, raise an output or send to a child: such a write would happen
+-- outside every step, where the model cannot see it. Write it as an effect
+-- of the step that handles the answer.
+newtype Work slots m a = Work (forall st act out. HalogenM st act slots out m a)
+
+instance Functor (Work slots m) where
+  fmap f (Work w) = Work (fmap f w)
+
+-- | Run an action of the component's monad, as 'Halogen.Query.HalogenM.async'
+-- does: on a thread of its own, while the rest of the tree goes on.
+run :: (Functor m) => m a -> Work slots m a
+run io = Work (async io)
+
+-- | Ask a child, as 'Halogen.Query.request' does. The answer is 'Nothing'
+-- when the slot is empty, or the child goes away before it answers.
+child
+  :: forall label
+  ->forall slots m query output slot a
+   . (HasType label (Slot query output slot) slots, KnownSymbol label, Ord slot, Functor m)
+  => slot
+  -> Request query a
+  -> Work slots m (Maybe a)
+child label slot req = Work (request label slot req)
+
+-- | Pause for this long, in seconds, as 'Halogen.Query.HalogenM.delay'
+-- does. A test that waits for the program to be quiet does not wait for
+-- it. Use it for a pause after which nothing is fetched, such as hiding a
+-- notice.
+delay :: (Functor m) => NominalDiffTime -> Work slots m ()
+delay d = Work (HM.delay d)
+
+-- | Pause for this long, in seconds, as
+-- 'Halogen.Query.HalogenM.delayCounted' does. A test that waits for the
+-- program to be quiet waits for it. Use it for a pause before work, such as
+-- a debounce before a request.
+--
+-- Both pauses sleep on a test's clock in a tree mounted under one
+-- ('Halogen.Activity.Control.withTestClock').
+delayCounted :: (Functor m) => NominalDiffTime -> Work slots m ()
+delayCounted d = Work (HM.delayCounted d)
 
 -- | A machine, and where the component keeps it.
 data Spec key st act slots out m ev fx model = Spec
@@ -265,6 +340,15 @@ data Spec key st act slots out m ev fx model = Spec
 -- killed program runs nothing more, so the rest of the step's effects never
 -- run. Use 'finish' in the finalizer: 'happen' would only queue its event
 -- behind the step that never ends.
+--
+-- A step is also cut short when a handler that one of its effects caused
+-- kills the fork that carries the step out. For instance, a 'Now' moves the
+-- focus, and the blur handler kills a ticker's fork, which is in the middle
+-- of that step. Then the machine stays in the step for ever: it queues
+-- every later event, and nothing says so. So do not kill a fork that calls
+-- 'happen' on a machine from a handler that an effect of the same machine
+-- can cause. Bring the stop to the machine as an event instead, and let
+-- its step 'Cancel' what must stop.
 happen :: (Ord key, Functor m) => Spec key st act slots out m ev fx model -> ev -> HalogenM st act slots out m ()
 happen spec = arrive spec False Just
 
@@ -327,8 +411,8 @@ carryFrom spec failed = \case
 carryOut :: (Ord key, Functor m) => Spec key st act slots out m ev fx model -> Carry key st act slots out m ev -> HalogenM st act slots out m ()
 carryOut spec = \case
   Now effect -> effect
-  Ask work answer -> void $ fork $ try work >>= happen spec . answer
-  AskUnder key work answer -> do
+  Ask (Work work) answer -> void $ fork $ try work >>= happen spec . answer
+  AskUnder key (Work work) answer -> do
     n <- state $ \st ->
       let m = spec.get st
        in (m.next, spec.set m {next = m.next + 1, asksOut = Map.insertWith IntMap.union key (IntMap.singleton m.next Nothing) m.asksOut} st)

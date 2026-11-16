@@ -23,6 +23,7 @@ import Data.Text qualified as T
 import Data.Void (Void)
 import Halogen qualified as H
 import Halogen.Activity (Activity (..))
+import Halogen.Activity.Control (advance, withTestClock)
 import Halogen.HTML qualified as HH
 import Halogen.IO.Driver qualified as AD
 import Halogen.Machine qualified as M
@@ -34,6 +35,8 @@ import Test.Sync (walking, within)
 import Test.Utils (assertEqual)
 #if defined(HALOGEN_WASI) || (!defined(javascript_HOST_ARCH) && !defined(wasm32_HOST_ARCH))
 import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Reader (ReaderT, ask, runReaderT)
+import Data.Text qualified as Text
 import Data.Foldable (traverse_)
 import Data.Row (Empty)
 import Halogen.HTML.Events qualified as HE
@@ -63,7 +66,7 @@ data Fx
   | -- | Throw, in place.
     Fail Text
   | -- | Ask, under a key or not. The answer's step returns the effects.
-    Fetch (Maybe Text) Text (IO Text) [Fx]
+    Fetch (Maybe Text) Text (M.Work ScriptSlots IO Text) [Fx]
   | -- | Cancel the asks under a key.
     Stop Text
   | -- | Send the child a number.
@@ -140,11 +143,11 @@ scripted notes listener acts final =
       Hold entered release -> M.Now (Sync.sync (putMVar entered () >> takeMVar release))
       Poke ev -> M.Now (Sync.sync (HS.notify listener (Happen ev)))
       Fail message -> M.Now (Sync.sync (throwIO (ErrorCall (T.unpack message))))
-      Fetch Nothing name work fx -> M.Ask (H.async work) (\r -> Answer name r fx)
-      Fetch (Just key) name work fx -> M.AskUnder key (H.async work) (\r -> Answer name r fx)
+      Fetch Nothing name work fx -> M.Ask work (\r -> Answer name r fx)
+      Fetch (Just key) name work fx -> M.AskUnder key work (\r -> Answer name r fx)
       Stop key -> M.Cancel key
       SendChild n -> M.Now (Sync.send "child" () (SetNumber n))
-      AskChild fx -> M.Ask (H.request "child" () GetNumber) (\r -> Answer "child" (T.pack . show <$> r) fx)
+      AskChild fx -> M.Ask (M.child "child" () GetNumber) (\r -> Answer "child" (T.pack . show <$> r) fx)
       Raise t -> M.Now (Sync.raise t)
       Acquire n -> M.Now $ do
         Sync.sync (modifyIORef' notes.open (Set.insert n))
@@ -190,8 +193,8 @@ waitAsks AD.HalogenSocket {AD.waitActivity = w} n =
   within ("the tree, with " <> show n <> " asks out") (w (\a -> a.running == 0 && a.waiting == n))
 
 -- | Work that waits for the test's answer.
-gated :: MVar Text -> IO Text
-gated = takeMVar
+gated :: MVar Text -> M.Work ScriptSlots IO Text
+gated = M.run . takeMVar
 
 ----------------------------------------------------------------------
 -- The runner
@@ -245,7 +248,7 @@ failingNow = withScripted (Ev "finished" []) $ \run -> do
 
 failingAsk :: IO ()
 failingAsk = withScripted (Ev "finished" []) $ \run -> do
-  run.send (Ev "fetch" [Fetch Nothing "x" (throwIO (ErrorCall "no network")) []])
+  run.send (Ev "fetch" [Fetch Nothing "x" (M.run (throwIO (ErrorCall "no network"))) []])
   waitAsks run.socket 0
   run.logged >>= assertEqual "the failure is an answer" ["stepped fetch", "stepped answer x failed saw 1"]
 
@@ -338,7 +341,7 @@ resources :: IO ()
 resources = do
   notes <- newNotes
   HS.Subscribe {HS.listener, HS.emitter} <- HS.create
-  let final = Ev "finished" [ReleaseAll, Note "released", Fetch Nothing "late" (pure "v") []]
+  let final = Ev "finished" [ReleaseAll, Note "released", Fetch Nothing "late" (M.run (pure "v")) []]
   socket <- AD.runUI walking (scripted notes listener emitter final) ()
   HS.notify listener (Happen (Ev "acquire" [Acquire 1, Acquire 2]))
   readIORef notes.open >>= assertEqual "both open" (Set.fromList [1, 2])
@@ -371,6 +374,35 @@ cutShort = do
   waitAsks socket 0
   readIORef notes.logged >>= assertEqual "the finalizer's event stepped" ["stepped leave", "stepped finished", "finished"]
   socket.dispose
+
+-- | A debounce: each event cancels the pause under the key and asks for a
+-- new one. The pauses sleep on the test's clock.
+debounced :: IO ()
+debounced = withTestClock $ \clock -> withScripted (Ev "finished" []) $ \run -> do
+  let pause name = Fetch (Just "debounce") name ("fired" <$ M.delayCounted 0.3) []
+  run.send (Ev "type a" [Stop "debounce", pause "a"])
+  -- A counted pause waits.
+  waitAsks run.socket 1
+  advance clock 0.2
+  run.send (Ev "type b" [Stop "debounce", pause "b"])
+  waitAsks run.socket 1
+  advance clock 0.2
+  run.logged >>= assertEqual "nothing fired yet" ["stepped type a", "stepped type b"]
+  advance clock 0.1
+  waitAsks run.socket 0
+  advance clock 1
+  waitAsks run.socket 0
+  run.logged >>= assertEqual "only the last pause fired, once" ["stepped type a", "stepped type b", "stepped answer b fired saw 2"]
+
+-- | A pause that is not counted: the tree reads as quiet while it sleeps.
+notCounted :: IO ()
+notCounted = withTestClock $ \clock -> withScripted (Ev "finished" []) $ \run -> do
+  run.send (Ev "notice" [Fetch (Just "notice") "hide" ("hidden" <$ M.delay 3) []])
+  waitAsks run.socket 0
+  run.logged >>= assertEqual "not fired yet" ["stepped notice"]
+  advance clock 3
+  waitAsks run.socket 0
+  run.logged >>= assertEqual "fired" ["stepped notice", "stepped answer hide hidden saw 1"]
 
 ----------------------------------------------------------------------
 -- Every order of a few events, answers and cancels, on a real component
@@ -464,8 +496,8 @@ runMoves ms = do
       machine = M.Spec {M.step = pstep, M.carry = carry, M.get = (.counted), M.set = \m s -> s {counted = m}}
       carry = \case
         Mark s i -> M.Now (Sync.sync (modifyIORef' marks ((s, i) :)))
-        AskKeyed n -> M.AskUnder () (H.async (gateOf n >>= takeMVar)) (Got . either (const (-1)) id)
-        AskFree n -> M.Ask (H.async (gateOf n >>= takeMVar)) (Got . either (const (-1)) id)
+        AskKeyed n -> M.AskUnder () (M.run (gateOf n >>= takeMVar)) (Got . either (const (-1)) id)
+        AskFree n -> M.Ask (M.run (gateOf n >>= takeMVar)) (Got . either (const (-1)) id)
         PokeTick -> M.Now (Sync.sync (HS.notify listener Tick))
         CancelKeyed -> M.Cancel ()
       component :: H.Component PQuery () Void IO
@@ -484,8 +516,8 @@ runMoves ms = do
       Send e -> HS.notify listener e
       Release k -> gateOf k >>= \g -> void (tryPutMVar g k)
     waitAsks socket n
-  let AD.HalogenSocket {AD.query = ask} = socket
-  model <- ask (CurrentModel id)
+  let AD.HalogenSocket {AD.query = queryTree} = socket
+  model <- queryTree (CurrentModel id)
   socket.dispose
   stepsMarked <- reverse <$> readIORef marks
   let want = foldl' (\m e -> fst (pstep e m)) blank evs
@@ -519,7 +551,7 @@ focusing :: H.Component H.VoidF () Void MemDOM
 focusing =
   H.component
     (\_ -> (\field -> Focusing {focus = M.new (), log = [], field}) <$> H.newRefLabel "field")
-    render
+    renderF
     [H.onAction (M.happen machine)]
   where
     machine = M.Spec {M.step = stepF, M.carry = carry, M.get = (.focus), M.set = \m s -> s {focus = m}}
@@ -531,8 +563,8 @@ focusing =
       FocusField -> M.Now $ do
         field <- gets (.field)
         Sync.getRef field >>= traverse_ (\el -> Sync.sync (liftIO (T.focusNode (N.toNative el)) :: MemDOM ()))
-    render :: Focusing -> H.ComponentHTML FocusEv Empty MemDOM
-    render s =
+    renderF :: Focusing -> H.ComponentHTML FocusEv Empty MemDOM
+    renderF s =
       HH.div_
         [ HH.button [HP.class_ (HH.ClassName "go"), HE.onClick (const Clicked)] [HH.text "go"]
         , HH.input [HP.ref s.field, HE.onFocus (const Focused)]
@@ -546,8 +578,15 @@ dispatched =
     T.within (T.html view) (T.settle view)
     T.textOf view ".log" `shouldReturn` "stepped click, click one, click two, stepped focus"
 
--- The header's example, with the test's gate in place of the network.
+-- The header's example, as printed there. The test's monad answers each
+-- fetch and preview through the test's gate.
 
+-- What the view asks of its monad.
+class (Monad m) => Pages m where
+  fetchPage :: Text -> m Text
+  renderPreview :: Text -> m Text
+
+-- The model and its step. Plain Haskell.
 data Model = Model {slug :: Text, page :: Maybe Text, loads :: Asks}
 
 data Event
@@ -561,36 +600,29 @@ data Effect = Load Ask Text | Preview Text | StopPreview | Display Text | Announ
 step :: Event -> Model -> (Model, [Effect])
 step event model = case event of
   Opened slug ->
+    -- Another page: no answer for the old one may show.
     let (ticket, loads) = newAsk (supersede model.loads)
      in (model {slug, page = Nothing, loads}, [StopPreview, Load ticket slug])
   Loaded ticket answer -> case takes ticket model.loads of
     Nothing -> (model, [])
     Just loads ->
-      let page = either (T.pack . displayException) id answer
+      let page = either (Text.pack . displayException) id answer
        in (model {page = Just page, loads}, [Announce model.slug])
   Typed draft -> (model, [StopPreview, Preview draft])
   Previewed answer -> (model, [Display (either (const "") id answer)])
 
+-- The component. It keeps the machine in its state.
 data Key = Previewing
-  deriving stock (Eq, Ord)
+  deriving (Eq, Ord)
 
 newtype State = State {machine :: M.Machine Key Event Model}
 
 newtype Action = Type Text
 
-data PreviewQuery a = Show Text a
-
-previewer :: H.Component PreviewQuery () Void MemDOM
-previewer =
-  H.component
-    (\_ -> pure "")
-    (\shown -> HH.p [HP.class_ (HH.ClassName "preview")] [HH.text shown])
-    [H.onQuery $ \(Show shown a) -> Just a <$ put shown]
-
 type Slots = ("preview" .== H.Slot PreviewQuery Void ())
 
-pageView :: T.Gate Text Text -> H.Component H.VoidF Text Text MemDOM
-pageView gate =
+pageView :: (Pages m) => H.Component q Text Text m
+pageView =
   H.component
     (\slug -> pure State {machine = M.new Model {slug, page = Nothing, loads = noAsks}})
     render
@@ -601,20 +633,32 @@ pageView gate =
   where
     happen = M.happen M.Spec {M.step = step, M.carry = carry, M.get = (.machine), M.set = \machine s -> s {machine}}
     carry = \case
-      Load ticket slug -> M.Ask (H.async (liftIO (fetchPage slug))) (Loaded ticket)
-      Preview draft -> M.AskUnder Previewing (H.async (liftIO (renderPreview draft))) Previewed
+      Load ticket slug -> M.Ask (M.run (fetchPage slug)) (Loaded ticket)
+      Preview draft -> M.AskUnder Previewing (M.run (renderPreview draft)) Previewed
       StopPreview -> M.Cancel Previewing
-      Display shown -> M.Now (Sync.send "preview" () (Show shown))
+      Display shown -> M.Now (Sync.send "preview" () (ShowPreview shown))
       Announce slug -> M.Now (Sync.raise slug)
-    fetchPage slug = T.hold gate ("load " <> slug)
-    renderPreview draft = T.hold gate ("preview " <> draft)
-    render :: State -> H.ComponentHTML Action Slots MemDOM
-    render s =
-      HH.div_
-        [ HH.p [HP.class_ (HH.ClassName "page")] [HH.text (maybe "loading" id (M.current s.machine).page)]
-        , HH.input [HP.class_ (HH.ClassName "draft"), HE.onValueInput Type]
-        , HH.slot_ "preview" () previewer ()
-        ]
+
+instance Pages (ReaderT (T.Gate Text Text) MemDOM) where
+  fetchPage slug = ask >>= \gate -> liftIO (T.hold gate ("load " <> slug))
+  renderPreview draft = ask >>= \gate -> liftIO (T.hold gate ("preview " <> draft))
+
+data PreviewQuery a = ShowPreview Text a
+
+previewer :: (Monad m) => H.Component PreviewQuery () Void m
+previewer =
+  H.component
+    (\_ -> pure "")
+    (\shown -> HH.p [HP.class_ (HH.ClassName "preview")] [HH.text shown])
+    [H.onQuery $ \(ShowPreview shown a) -> Just a <$ put shown]
+
+render :: (Monad m) => State -> H.ComponentHTML Action Slots m
+render s =
+  HH.div_
+    [ HH.p [HP.class_ (HH.ClassName "page")] [HH.text (maybe "loading" id (M.current s.machine).page)]
+    , HH.input [HP.class_ (HH.ClassName "draft"), HE.onValueInput Type]
+    , HH.slot_ "preview" () previewer ()
+    ]
 
 -- | The asks the gate holds, by what they ask.
 asked :: T.Gate Text Text -> IO [Text]
@@ -629,7 +673,7 @@ answerAsk gate what r =
 example :: IO ()
 example = do
   gate <- T.newGate
-  T.withView id (pageView gate) "a" $ \view -> do
+  T.withView (`runReaderT` gate) (pageView :: H.Component H.VoidF Text Text (ReaderT (T.Gate Text Text) MemDOM)) "a" $ \view -> do
     let holding = T.within (T.html view) (T.settleHolding view (T.holds gate))
     holding
     T.setInput view "b"
@@ -678,6 +722,9 @@ spec = describe "Halogen.Machine" $ do
     it "stops an ask whose work ended but whose answer is not stepped yet" cancelledAfterTheWork
     it "stops every ask under the key, and no other" cancelsEveryAskUnderTheKey
     it "of its own key, in an answer's step, lets that step run to its end" cancelsItsOwnKey
+  describe "a pause" $ do
+    it "under a key, cancelled before it ends, never fires; the one that ends fires once" debounced
+    it "that is not counted lets the tree read as quiet while it sleeps" notCounted
   describe "children and lifetimes" $ do
     it "sends to a child, and asks a child" child
     it "keeps a resource made in one step, and releases it in the finalizer" resources

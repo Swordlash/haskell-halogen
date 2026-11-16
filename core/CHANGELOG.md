@@ -6,8 +6,11 @@
 the model give a new model and a list of effects. You say how each effect is
 carried out. `M.Now` runs in place and is written against `Halogen.Sync`, so
 it cannot suspend. `M.Ask` starts work whose answer comes back later as an
-event; a failure is an answer too. `M.AskUnder` puts an ask under a key, and
-`M.Cancel` stops every ask under it. `M.happen` steps the model and carries
+event; a failure is an answer too. The work can only wait and answer: an
+action of the component's monad (`M.run`), a child's answer (`M.child`), or
+a pause (`M.delay`, `M.delayCounted`). `M.AskUnder` puts an ask under a key,
+and `M.Cancel` stops every ask under it, so a debounce is a pause under a
+key. `M.happen` steps the model and carries
 out the step's effects, with no other event of the machine in between. An
 event that an effect brings, such as a focus handler's, is stepped after
 the step's effects. In a finalizer, use `M.finish`. The module's header has a
