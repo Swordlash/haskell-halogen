@@ -114,9 +114,10 @@
 -- >   sid <- Sync.subscribe changes
 -- >   modify (\s -> s {watches = Map.insert n sid s.watches})
 --
+-- The model holds the number, and the component's state holds the handle.
 -- Release what the model still holds when the component goes away: in
--- 'H.onFinalize', tell the model with 'finish', and have its step return
--- the effects that release each one.
+-- 'Halogen.Component.onFinalize', tell the model with 'finish', and have
+-- its step return the effects that release each one.
 --
 -- = When not to use it
 --
@@ -129,7 +130,7 @@
 -- Keep the state that effects write in the model. When an effect writes a
 -- field of the component's state, the step cannot see what it overwrites,
 -- and no test of the step can either. Make the field part of the model, and
--- the reader's changes to it events.
+-- make the reader's changes to it events.
 --
 -- An answer that is superseded can still carry something the model must
 -- keep. A notification marked read stays read, whichever answer is taken.

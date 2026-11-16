@@ -13,10 +13,9 @@ import Control.Concurrent.MVar
 import Control.Exception (ErrorCall (..), SomeException, displayException, throwIO)
 import Control.Monad (forM, forM_, void, when)
 import Control.Monad.State.Class (get, gets, modify, put)
-import Data.Foldable (traverse_)
 import Data.IORef
 import Data.IntMap.Strict qualified as IntMap
-import Data.Row (Empty, type (.==))
+import Data.Row (type (.==))
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -35,6 +34,8 @@ import Test.Sync (walking, within)
 import Test.Utils (assertEqual)
 #if defined(HALOGEN_WASI) || (!defined(javascript_HOST_ARCH) && !defined(wasm32_HOST_ARCH))
 import Control.Monad.IO.Class (liftIO)
+import Data.Foldable (traverse_)
+import Data.Row (Empty)
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
 import Halogen.Latest (Ask, Asks, newAsk, noAsks, supersede, takes)
