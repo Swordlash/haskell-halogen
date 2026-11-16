@@ -25,6 +25,9 @@
 -- 'Control.Monad.State.Class.put' and 'Control.Monad.State.Class.modify'
 -- work too.
 --
+-- GHC may suggest adding @MonadIO h@ to the context of such code. Do not:
+-- that lets it suspend again. Run an action in place with 'sync' instead.
+--
 -- The names here are "Halogen"'s, so import this module qualified.
 module Halogen.Sync
   ( MonadSync (sync, raise, subscribe, unsubscribe, getRef)

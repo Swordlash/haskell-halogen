@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+The log shows a slow sync (`Halogen.Trace`'s `SlowSync`) under the kind
+"subscriptions, forks and slow syncs".
+
 The first version: a panel over the page that shows what a program's components do, read from
 `haskell-halogen-core`'s trace (`Halogen.Trace`). `Halogen.DevTools.open` docks it at the bottom
 right of the window, `openIn` puts it in an element of the page, and `panel` is the component

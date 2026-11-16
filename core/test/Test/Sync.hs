@@ -16,8 +16,8 @@ import Control.Monad.Catch (throwM)
 import Control.Monad.State.Class (get, modify)
 import Data.Foldable (traverse_)
 import Data.IORef
-import Data.List (sort)
 import Data.Kind (Type)
+import Data.List (sort)
 import Data.Row (Empty, Row, type (.==))
 import Data.Text (Text)
 import Data.Text qualified as T

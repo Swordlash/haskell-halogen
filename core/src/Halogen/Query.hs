@@ -90,7 +90,7 @@ tellAll label req = void $ queryAll label (req ())
 -- suspension (an 'async'), or to its end if it has none. Two 'send's
 -- reach the child in the order they were made. The parent does not hear how
 -- the handler ends: a failure goes to the console, as an unhandled one in a
--- fork does. There is nothing to send to when the slot is empty.
+-- fork does. If the slot is empty, nothing happens.
 --
 -- It is @void (fork (tell label slot q))@, so "Halogen.Trace" shows it as a
 -- fork.

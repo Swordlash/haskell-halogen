@@ -91,7 +91,9 @@ instance (MonadIO m) => MonadIO (HalogenM state' action slots' output m) where
 --
 -- Use it for what must happen now: @preventDefault@ in a handler, focusing
 -- an element, reading the DOM as it is, a synchronous API such as
--- @localStorage@, a command handed to a canvas in order.
+-- @localStorage@, a command handed to a canvas in order. With 'async'
+-- instead, other events may run first: @preventDefault@ comes too late, and
+-- the next effect runs on a state this program never saw.
 --
 -- The action must not wait: not on an 'MVar', a delay, a JavaScript promise
 -- or a query to this tree. While it waits, the whole tree waits with it.
@@ -132,7 +134,9 @@ liftEffect = sync
 --
 -- Use it for whatever takes time: a request, a file, a long computation, a
 -- worker's job. It is the only place a program waits, as @liftAff@ is in
--- purescript-halogen. 'lift' and 'liftIO' are the same thing.
+-- purescript-halogen. With 'sync' instead, the whole tree waits for the
+-- action: no event is handled and nothing renders. 'lift' and 'liftIO' are
+-- the same thing as 'async'.
 --
 -- The state may have changed by the time the program goes on: another
 -- event may have run meanwhile. So read the state again after 'async', and
@@ -173,16 +177,16 @@ try body = catch (Right <$> body) (pure . Left)
 catch :: forall e state action slots output m a. (Exception e, Functor m) => HalogenM state action slots output m a -> (e -> HalogenM state action slots output m a) -> HalogenM state action slots output m a
 catch = Catch.catch
 
--- | Run the first program, then the second, whether the first ended or
--- threw. If the first threw, the exception goes on up after the second.
+-- | Run the first program, then the second. The second runs when the first
+-- ends or throws, but not when the program is killed: when its fork is
+-- killed ('kill'), or its component goes away. A killed program runs
+-- nothing more. So keep what must be released in the component's state,
+-- and release it in 'Halogen.Component.onFinalize'.
 --
--- The second program does not run when the program is killed: when its
--- fork is killed ('kill'), or its component goes away. A killed program
--- runs nothing more. So do not use 'finally' to release what must be
--- released. Keep it in the component's state, and release it in
--- 'Halogen.Component.onFinalize'.
+-- If the first program threw, the exception goes on up after the second.
 --
--- > H.finally (do setBusy True; H.async (save draft)) (setBusy False)
+-- > H.finally (H.async (save draft))
+-- >   (modify (\s -> s {saving = False}))
 finally :: forall state action slots output m a b. (Functor m) => HalogenM state action slots output m a -> HalogenM state action slots output m b -> HalogenM state action slots output m a
 finally body after = do
   a <- body `catch` \(e :: SomeException) -> after >> throwM e
