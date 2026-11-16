@@ -4,11 +4,12 @@
 -- test@ with no cross-compiler and no browser, and that a rendered tree can
 -- be serialised to HTML.
 --
--- A 'MemDOM' program runs in a page: a document, which is also its window,
--- and the page's storage. 'runMemDOM' runs it in the ambient page, one for
--- the process. "Halogen.VDom.DOM.Monad.Native" makes other pages and runs a
--- program in one ('Halogen.VDom.DOM.Monad.Native.runMemDOMIn'). A tree keeps
--- the page it was mounted in: its listeners, fibers and finalizers run there.
+-- A 'MemDOM' program runs in a page. A page has a document, which is also
+-- its window, and its own storage. 'runMemDOM' uses the ambient page, which
+-- is one for the process. To use another page, create it with
+-- 'Halogen.VDom.DOM.Monad.Native.newPage' and run the program with
+-- 'Halogen.VDom.DOM.Monad.Native.runMemDOMIn'. A tree stays in the page it
+-- was mounted in. Its listeners, fibers and finalizers all run there.
 --
 -- The newtype is always in scope; the instance is not. It lives in
 -- "Halogen.VDom.DOM.Monad.Native", alongside the tree it manipulates, and the
@@ -30,7 +31,8 @@ import Halogen.VDom.DOM.Monad.Mem.Internal (Page, ambientPage)
 
 -- | Everything the driver asks of a component monad is derived from 'IO',
 -- so a backend can be the component monad directly and an application monad
--- can be a transformer stack over one. The page is read, never changed.
+-- can be a transformer stack over one. The monad reads its page and never
+-- changes it.
 newtype MemDOM a = MemDOM (ReaderT Page IO a)
   deriving newtype
     ( Functor
@@ -43,7 +45,7 @@ newtype MemDOM a = MemDOM (ReaderT Page IO a)
     , MonadMask
     )
 
--- | A fork runs in the page of the program that forked it.
+-- | A forked program runs in the same page as its parent.
 instance MonadFork MemDOM where
   type Fork MemDOM = Async
   fork (MemDOM m) = MemDOM (ReaderT (async . runReaderT m))
@@ -52,7 +54,7 @@ instance MonadFork MemDOM where
 instance MonadKill MemDOM where
   kill e f = liftIO (cancelWith f e)
 
--- | Each branch runs in the page of the program that runs them.
+-- | Every branch runs in the same page as the program that starts it.
 instance MonadParallel MemDOM where
   type Parallel MemDOM = ReaderT Page (Concurrently IO)
   parallel (MemDOM m) = ReaderT (Concurrently . runReaderT m)

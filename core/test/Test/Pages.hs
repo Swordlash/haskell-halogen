@@ -1,9 +1,8 @@
 {-# LANGUAGE CPP #-}
 
--- | Pages of the in-memory DOM: each has a document of its own, which is
--- also its window, and storage of its own. Trees mounted in different
--- pages do not hear each other's events or see each other's storage, so
--- tests of components can run side by side.
+-- | Pages of the in-memory DOM. Each page has its own document, which is
+-- also its window, and its own storage. Events in one page do not reach
+-- listeners in another, so tests of components can run side by side.
 module Test.Pages (spec) where
 
 import Prelude
@@ -54,19 +53,18 @@ import Web.HTML.Common (AttrName (..))
 import Web.Storage.IndexedDB qualified as IDB
 
 --------------------------------------------------------------------------------
--- A bell: a list that a press anywhere in the document closes
+-- A bell: a press anywhere in the document closes its list
 --------------------------------------------------------------------------------
 
 data Bell = Bell {open :: Bool, heard :: Int}
 
 data BellAction = Watch | Ring | Pressed
 
--- | What a bell has: whether its list is open, and how many presses it
--- heard.
+-- | Ask a bell whether its list is open and how many presses it heard.
 data BellQuery a = Report ((Bool, Int) -> a)
 
--- | A bell whose list closes on a @pointerdown@ anywhere in the document,
--- as a page's does: a subscription to a listener on the document.
+-- | A bell. A @pointerdown@ anywhere in the document closes its list. It
+-- subscribes to a listener on the document, as a page's bell does.
 bell :: H.Component BellQuery () Void MemDOM
 bell =
   H.component
@@ -95,15 +93,15 @@ bell =
       Ring -> modify $ \s -> s {open = True}
       Pressed -> modify $ \s -> s {open = False, heard = s.heard + 1}
 
--- | A mounted bell: its container, how to ask it what it has, and how to
--- end it.
+-- | A mounted bell: its container, a way to ask it for its state, and a
+-- way to end it.
 data Mounted = Mounted
   { container :: N.NativeNode
   , report :: IO (Bool, Int)
   , dispose :: IO ()
   }
 
--- | A bell mounted in a page.
+-- | Mount a bell in a page.
 mountBell :: N.Page -> IO Mounted
 mountBell page = do
   container <- N.newContainerIn page
@@ -111,24 +109,24 @@ mountBell page = do
   let report = N.runMemDOMIn page (ask (H.mkRequest Report)) >>= maybe (fail "the bell did not answer") pure
   pure Mounted {container, report, dispose = N.runMemDOMIn page end}
 
--- | Ring a bell: a click on its button opens its list.
+-- | Ring a bell. A click on its button opens its list.
 ring :: Mounted -> IO ()
 ring mounted =
   N.querySelector "button.bell" mounted.container >>= \case
     Just button -> N.dispatch "click" (object []) button
     Nothing -> fail "the bell has no button"
 
--- | A press on a page's @body@, outside every bell.
+-- | Press on a page's @body@, outside every bell.
 press :: N.Page -> IO ()
 press page =
   N.querySelector "body" (N.pageDocument page) >>= \case
     Just body -> N.dispatch "pointerdown" (object []) body
     Nothing -> fail "the page has no body"
 
--- | Twenty bells, each on a thread of its own, all at once: each rings, and
--- once every one has, the even ones are pressed. What each then has is
--- returned in order. The pages are what the bells are mounted in: one
--- each, or one for all.
+-- | Run twenty bells at once, each on its own thread. Every bell rings.
+-- When all have rung, the even ones get a press in their page. The result
+-- is each bell's state, in order. The function gives the page for each
+-- bell: one page each, or one page for all.
 twentyBells :: (Int -> N.Page) -> IO [(Bool, Int)]
 twentyBells pageOf = do
   when rtsSupportsBoundThreads (setNumCapabilities 4)
@@ -147,7 +145,7 @@ twentyBells pageOf = do
     | i <- [0 .. 19]
     ]
 
--- | Run each on a thread of its own, at once, and wait for them all.
+-- | Run each action on its own thread, all at once, and wait for them all.
 inParallel :: [IO a] -> IO [a]
 inParallel actions = do
   results <- for actions $ \action -> do
@@ -156,7 +154,7 @@ inParallel actions = do
     pure result
   for results $ \result -> takeMVar result >>= either (throwIO @SomeException) pure
 
--- | A barrier for this many threads: each waits in it until all have come.
+-- | A barrier for this many threads. Each thread waits until all arrive.
 barrier :: Int -> IO (IO ())
 barrier n = do
   arrived <- newMVar (0 :: Int)
@@ -170,10 +168,9 @@ barrier n = do
 -- Where a tree's later work runs
 --------------------------------------------------------------------------------
 
--- | A component that notes the document it finds at each kind of later
--- work: after a wait in a fiber, in a fiber it forked, in a wait in its
--- monad, and in its finalizer. It also renders a portal, whose target is
--- the body of the document it finds.
+-- | A component that notes which document it finds in its later work:
+-- after a wait, in a forked fiber, after a wait in its monad, and in its
+-- finalizer. It also renders a portal into the body of its document.
 noting :: IORef [(Text, N.NativeNode)] -> H.Component H.VoidF () Void MemDOM
 noting found =
   H.component
@@ -188,15 +185,15 @@ noting found =
     , H.onFinalize (note "in its finalizer")
     ]
   where
-    -- In one effect, which does not wait: a finalizer's is done when
-    -- the tree's disposal returns.
+    -- Both steps are in one effect, which does not wait. So the
+    -- finalizer's note is written before the tree's disposal returns.
     note label = H.liftEffect $ do
       doc <- DOM.window >>= DOM.document
       liftIO (atomicModifyIORef' found (\before -> ((label, N.toNative doc) : before, ())))
     render :: () -> H.ComponentHTML () ("portal" .== H.Slot H.VoidF Void ()) MemDOM
     render () = HH.div_ [Portal.portal "portal" () ported () Nothing absurd]
 
--- | What the portal puts in the body.
+-- | The content the portal puts in the body.
 ported :: H.Component H.VoidF () Void MemDOM
 ported =
   H.component
@@ -206,8 +203,9 @@ ported =
 
 --------------------------------------------------------------------------------
 
--- | A page that has been used and let go of, and a weak pointer to its
--- document's children: once the page is garbage, so is its document.
+-- | Use a page and drop it. The result says whether the page's document
+-- has been collected. The page holds its document, so a collected
+-- document means a collected page.
 usedAndDropped :: IO (IO Bool)
 usedAndDropped = do
   page <- N.newPage
@@ -231,8 +229,8 @@ spec = describe "pages of the in-memory DOM" $ do
       outcomes `shouldBe` [if even i then (False, 1) else (True, 0) | i <- [0 .. 19 :: Int]]
 
     it "hears every press in a page the twenty bells share" $ do
-      -- The same as above with one page for all: every bell hears every
-      -- press. This is what pages of their own prevent.
+      -- This is the test above with one page for all bells. Every bell
+      -- hears every press. Separate pages prevent this.
       page <- N.newPage
       outcomes <- twentyBells (const page)
       outcomes `shouldBe` replicate 20 (False, 10)
@@ -242,7 +240,7 @@ spec = describe "pages of the in-memory DOM" $ do
       one <- N.newPage
       other <- N.newPage
       heard <- newIORef []
-      -- The listener notes the document it finds when it runs: the page it
+      -- The listener notes the document it finds. It must be the page it
       -- was made in, whoever dispatches the event.
       N.runMemDOMIn one $ do
         target <- DOM.window >>= DOM.windowToEventTarget
@@ -274,7 +272,7 @@ spec = describe "pages of the in-memory DOM" $ do
           node = toNode (N.fromNative inOther :: Element)
       otherDoc.contains node `shouldReturn` True
       oneDoc.contains node `shouldReturn` False
-      -- What a program in a page asks for is that page's document.
+      -- A program in a page gets that page's document.
       doc <- N.runMemDOMIn one (DOM.window >>= DOM.document)
       (N.toNative doc == N.pageDocument one) `shouldBe` True
       ambient <- runMemDOM (DOM.window >>= DOM.document)
@@ -298,7 +296,7 @@ spec = describe "pages of the in-memory DOM" $ do
       N.runMemDOMIn one (IDB.get db (IDB.StoreName "notes") "k") `shouldReturn` Just "one's"
       N.runMemDOMIn other (IDB.get db (IDB.StoreName "notes") "k") `shouldReturn` Nothing
       runMemDOM (IDB.deleteDatabase db.name >> IDB.get db (IDB.StoreName "notes") "k") `shouldReturn` Nothing
-      -- Deleting the ambient page's database left this page's alone.
+      -- Deleting the ambient page's database does not touch this page's.
       N.runMemDOMIn one (IDB.get db (IDB.StoreName "notes") "k") `shouldReturn` Just "one's"
 
     it "is where a tree's later work runs: fibers, forks, its monad, finalizers and portals" $ do

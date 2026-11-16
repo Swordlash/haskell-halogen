@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+A native test can now give each component a page of its own. Create a page
+with `N.newPage`, make a container in it with `N.newContainerIn`, and mount
+with `N.runMemDOMIn` (`N` is `Halogen.VDom.DOM.Monad.Native`). Each page has
+its own document, which is also its window. Each page also has its own local
+storage, session storage and IndexedDB. Events in one page do not reach
+listeners in another, so tests can run side by side on threads of their own.
+A tree stays in the page it was mounted in: its listeners, fibers and
+finalizers see that page's window and storage.
+
+Nothing changes for `runMemDOM` and `N.newContainer`. They use the ambient
+page, one for the process, as before.
+
+`MemDOM`'s constructor now holds a `ReaderT` over `IO`, and `Parallel MemDOM`
+is now a `ReaderT` over `Concurrently IO`. Code that uses either changes.
+
 `Halogen.Activity.Control` is how to control a program in a native test.
 Inside `withHeldWaits`, the waits of the trees a test mounts (a component's
 `lift` and `liftIO`, and a `withRunInIO` body) are held: the fiber counts as

@@ -39,9 +39,9 @@
 -- another; it closes itself when another tab upgrades the database (so as
 -- not to block it), and the next call then opens it again, failing with
 -- 'VersionTooLow' if this program is now older than the database. The
--- in-memory instance ('MemDOM') keeps the databases in the program's page
--- (each page has its own, see "Halogen.VDom.DOM.Monad.Native"), and behaves
--- the same.
+-- in-memory instance ('MemDOM') keeps the databases in the program's page,
+-- and behaves the same. Each page has its own (see
+-- "Halogen.VDom.DOM.Monad.Native").
 --
 -- Calls made one after another happen in that order. Calls made at once
 -- from different threads happen in the order they reach the browser (and
@@ -323,14 +323,12 @@ elements array = do
 --------------------------------------------------------------------------------
 -- In memory
 
--- | Every database the in-memory instance holds, by name: the program's
--- page's.
+-- | The databases of the program's page, by name.
 --
--- Each page has its own, as each browser profile has its own. Every program
--- in the ambient page ('Halogen.VDom.DOM.Monad.runMemDOM') sees the same
--- databases. That is how a test watches something persist from one program
--- to the next. A test that wants to start from nothing deletes its database
--- first, uses a name of its own, or uses a page of its own.
+-- Each page has its own databases. Every program in the ambient page
+-- ('Halogen.VDom.DOM.Monad.runMemDOM') sees the same ones, so a test can
+-- see data persist from one program to the next. To start from nothing,
+-- delete the database first, use a new name, or use a new page.
 pageDatabases :: MemDOM (IORef (Map Text MemDatabase))
 pageDatabases = MemDOM (asks (.databases))
 
@@ -377,7 +375,7 @@ withStore db store f = withDatabase db $ \present -> case M.lookup (storeKey sto
   Nothing -> Left (StoreNotFound store)
   Just entries -> Right (first (\changed -> M.insert (storeKey store) changed present) (f entries))
 
--- | A store's name as the page keeps it.
+-- | The key a page keeps a store under.
 storeKey :: StoreName -> Text
 storeKey (StoreName name) = name
 

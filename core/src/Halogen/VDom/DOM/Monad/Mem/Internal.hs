@@ -1,14 +1,13 @@
--- | What a 'Halogen.VDom.DOM.Monad.Mem.MemDOM' program runs in: its page.
+-- | The page a 'Halogen.VDom.DOM.Monad.Mem.MemDOM' program runs in.
 --
--- A page is what a browser tab has one of: a document, which is also its
--- window, local and session storage, and IndexedDB. The in-memory DOM
--- keeps them here so that two pages share nothing.
+-- A page holds what a browser tab has: a document, which is also its
+-- window, local storage, session storage and IndexedDB. Two pages share
+-- none of them.
 --
--- This module is compiled on every backend, as
--- "Halogen.VDom.DOM.Monad.Mem" is. The document's tree is not: it is
--- in "Halogen.VDom.DOM.Monad.Native", compiled natively and with the
--- @wasi@ flag. So the page holds its document as a 'Dynamic', which that
--- module reads back.
+-- This module is compiled on every backend, like
+-- "Halogen.VDom.DOM.Monad.Mem". The document's tree is defined in
+-- "Halogen.VDom.DOM.Monad.Native", which is compiled only natively and
+-- with the @wasi@ flag. So the page holds its document as a 'Dynamic'.
 module Halogen.VDom.DOM.Monad.Mem.Internal
   ( Page (..)
   , MemDatabase (..)
@@ -34,21 +33,21 @@ data Page = Page
   -- ^ IndexedDB: every database, by name.
   }
 
--- | A database as the in-memory IndexedDB keeps it: its version, and its
--- stores by name, each with its keys and values.
+-- | One database of the in-memory IndexedDB. It has a version and its
+-- stores by name. Each store maps keys to values.
 data MemDatabase = MemDatabase
   { version :: Int
   , stores :: Map Text (Map Text ByteString)
   }
 
--- | The page 'Halogen.VDom.DOM.Monad.Mem.runMemDOM' runs in. There is one
--- for the process. Its stores are never emptied: that is how a test sees
--- something persist from one program to the next.
+-- | The page that 'Halogen.VDom.DOM.Monad.Mem.runMemDOM' uses. There is
+-- one for the process. Its storage is never emptied, so a test can see data
+-- persist from one program to the next.
 {-# NOINLINE ambientPage #-}
 ambientPage :: Page
 ambientPage = unsafePerformIO (fresh Nothing)
 
--- | A page with this document and nothing stored.
+-- | Create a page with this document and empty storage.
 newPageWith :: Dynamic -> IO Page
 newPageWith = fresh . Just
 

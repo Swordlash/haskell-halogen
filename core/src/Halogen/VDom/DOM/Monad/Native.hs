@@ -38,8 +38,9 @@
 --   rendered is connected and an event reaches the listeners a component
 --   put on the document or the window; an element made with 'newElement'
 --   is in no document.
--- * Or mount into a page of the test's own, so that tests can run side by
---   side. Nothing in another page hears its events or sees its storage:
+-- * To run tests side by side, give each one a page of its own. Each page
+--   has its own document and storage. Events in one page do not reach
+--   listeners in another:
 --
 -- > page <- N.newPage
 -- > container <- N.newContainerIn page
@@ -200,30 +201,30 @@ identSource = unsafePerformIO (newIORef 0)
 nextIdent :: IO Int
 nextIdent = atomicModifyIORef' identSource $ \n -> (n + 1, n)
 
--- | The ambient page's document, which is also its window: what
+-- | The ambient page's document, which is also its window. In 'runMemDOM',
 -- 'Halogen.VDom.DOM.Monad.window' and 'Halogen.VDom.DOM.Monad.document'
--- give in 'runMemDOM'. There is one for the process. A component that
--- listens on the document or the window listens on it, and 'newContainer'
--- makes the elements to mount into in it.
+-- return it. There is one for the process. 'newContainer' makes its
+-- containers in it.
 {-# NOINLINE ambientDocument #-}
 ambientDocument :: NativeNode
 ambientDocument = unsafePerformIO newDocument
 
--- | A new page: a document of its own, which is also its window, and
--- storage of its own (local, session and IndexedDB), all empty.
+-- | Create a page. It has its own document, which is also its window, and
+-- its own local storage, session storage and IndexedDB, all empty.
 --
--- Run a program in it with 'runMemDOMIn', and mount into it with
--- 'newContainerIn'. Nothing in another page hears its events or sees its
--- storage. A tree mounted in it stays in it: its listeners, its fibers and
--- its finalizers ask for the window and the document and get this page's.
--- Nothing global holds a page. Once the trees mounted in it are disposed of
--- and the test lets go of it, it is garbage.
+-- Make a container in it with 'newContainerIn', then mount with
+-- 'runMemDOMIn'. Events in one page do not reach listeners in another. A
+-- tree stays in the page it was mounted in: its listeners, fibers and
+-- finalizers see this page's window and storage.
+--
+-- Nothing global holds a page. It is garbage once its trees are disposed of
+-- and the test drops it.
 newPage :: IO Page
 newPage = newDocument >>= newPageWith . toDyn
 
--- | Run a program in a page: 'Halogen.VDom.DOM.Monad.window',
--- 'Halogen.VDom.DOM.Monad.document' and storage are the page's.
--- 'runMemDOM' is this for the ambient page.
+-- | Run a program in a page. 'Halogen.VDom.DOM.Monad.window',
+-- 'Halogen.VDom.DOM.Monad.document' and storage return the page's.
+-- 'runMemDOM' does the same with the ambient page.
 runMemDOMIn :: Page -> MemDOM a -> IO a
 runMemDOMIn page (MemDOM m) = runReaderT m page
 
@@ -235,7 +236,7 @@ pageDocument page = fromMaybe ambientDocument (fromDynamic =<< page.document)
 currentPage :: MemDOM Page
 currentPage = MemDOM ask
 
--- | One of the page's two stores.
+-- | The page's local or session storage.
 storageOf :: StorageKind -> Page -> IORef (Map Text Text)
 storageOf = \case
   LocalStorage -> (.localStore)
@@ -273,16 +274,15 @@ newElement ns name = newNode (ElementNode ns name)
 -- or a "Halogen.Query.Event.Window" emitter, hears it.
 --
 -- The ambient document is the one 'Halogen.VDom.DOM.Monad.window' and
--- 'Halogen.VDom.DOM.Monad.document' give in 'runMemDOM', one for the whole
--- program: every container is in it, every component's document listeners
--- are on it, and an event that reaches it reaches all of them, as in one
--- page. Tests that run side by side mount into pages of their own instead
--- ('newPage', 'newContainerIn').
+-- 'Halogen.VDom.DOM.Monad.document' return in 'runMemDOM'. There is one for
+-- the whole program. Every container made here is in it, and an event that
+-- reaches it reaches every component's document listeners. For tests that
+-- run side by side, use 'newPage' and 'newContainerIn' instead.
 newContainer :: IO NativeNode
 newContainer = newContainerIn ambientPage
 
--- | A new @div@ at the end of a page's @body@: 'newContainer' for a page
--- ('newPage'). Mount into it with 'runMemDOMIn' and the same page.
+-- | Add a new @div@ at the end of a page's @body@, like 'newContainer'.
+-- Mount into it with 'runMemDOMIn' and the same page.
 newContainerIn :: Page -> IO NativeNode
 newContainerIn page = do
   container <- newElement Nothing "div"
@@ -1598,8 +1598,8 @@ instance MonadDOM MemDOM where
   elementToEventTarget el = pure (fromNative (toNative el))
 
   -- The event type is not known until addEventListener; it is filled in there.
-  -- The listener runs in the page it was made in, whoever dispatches the
-  -- event: a tree's listeners stay in the tree's page.
+  -- A listener runs in the page it was made in, whoever dispatches the
+  -- event. So a tree's listeners stay in the tree's page.
   mkEventListener f = do
     page <- currentPage
     i <- liftIO nextIdent
@@ -1662,8 +1662,8 @@ instance MonadDOM MemDOM where
 
 -- | The in-memory tree answers the browser-shaped queries too, so that the
 -- driver and Halogen.IO.Util compile and can be exercised natively. There is
--- no window here: the page's document stands in for one ('newPage'). The
--- window, the document and storage are the page the program runs in.
+-- no window here: the page's document stands in for one. The window, the
+-- document and storage belong to the page the program runs in ('newPage').
 instance MonadBrowserDOM MemDOM where
   insertBefore inserted sibling parent = liftIO $ do
     let child = toNative inserted
