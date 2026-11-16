@@ -3,10 +3,10 @@
 -- rather than guess with a clock.
 --
 -- A mounted tree runs on a loop of its own ("Halogen.IO.Driver.Runtime"),
--- and a component's program waits only in 'Halogen.Query.HalogenM.lift'
--- and 'liftIO', on a worker thread. 'activity' reads every live tree's loop
--- as it is at that moment: whether it is running work or has work queued,
--- and how many of its fibers wait for a worker. It keeps no counts of its
+-- and a component's program waits only in 'Halogen.Query.HalogenM.async'
+-- (also spelled @lift@ and @liftIO@), on a worker thread. 'activity' reads
+-- every live tree's loop as it is at that moment: whether it is running
+-- work or has work queued, and how many of its fibers wait for a worker. It keeps no counts of its
 -- own beside the loops, so it cannot drift from them, whatever is
 -- cancelled or fails.
 --
@@ -78,7 +78,7 @@
 --
 -- A timer written as a sleeping fiber is counted as the program writes it.
 -- 'Halogen.Query.HalogenM.delayCounted' (@Hooks.delayCounted@ in hooks) is
--- a pause counted as waiting, as @liftIO (threadDelay n)@ is: the fiber is
+-- a pause counted as waiting, as @H.async (threadDelay n)@ is: the fiber is
 -- 'waiting' until it wakes, so 'quiet' waits for it.
 -- 'Halogen.Query.HalogenM.delay' (@Hooks.delay@) is a pause that is not
 -- counted: while it sleeps the fiber is neither running nor waiting, and

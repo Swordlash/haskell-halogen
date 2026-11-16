@@ -108,13 +108,13 @@ focusing =
     )
     [ H.onInitialize $ do
         s <- get
-        H.getHTMLElementRef s.field >>= traverse_ (H.liftEffect . liftIO . HTMLElement.focus)
-        doc <- H.liftEffect (DOM.window >>= DOM.document)
-        H.liftEffect (liftIO (doc.title_set "Focused"))
+        H.getHTMLElementRef s.field >>= traverse_ (H.sync . liftIO . HTMLElement.focus)
+        doc <- H.sync (DOM.window >>= DOM.document)
+        H.sync (liftIO (doc.title_set "Focused"))
     , H.onQuery $ \act -> do
         s <- get
         dialog <- (>>= HTMLDialogElement.fromElement) <$> H.getRef s.dialog
-        for_ dialog $ \d -> H.liftEffect . liftIO $ case act of
+        for_ dialog $ \d -> H.sync . liftIO $ case act of
           Open _ -> d.showModal
           Shut _ -> HTMLDialogElement.close d
         pure (Just (case act of Open a -> a; Shut a -> a))

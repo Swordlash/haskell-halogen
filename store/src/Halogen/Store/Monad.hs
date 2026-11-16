@@ -38,13 +38,16 @@ import UnliftIO.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import Web.Storage.IndexedDB (MonadIndexedDB)
 
 -- | A monad that can read the store, update it and say when a part of it
--- changes: purescript-halogen-store's @MonadStore@, with 'MonadIO' as its
--- @MonadEffect@.
+-- changes: purescript-halogen-store's @MonadStore@.
+--
+-- Unlike purescript-halogen-store's class, it has no 'MonadIO' superclass,
+-- so 'H.HalogenM' can have an instance. A component that also runs 'IO' of
+-- its own asks for @MonadIO m@ beside it.
 --
 -- The store's type and its actions' are determined by the monad, so a
 -- component written against @MonadStore Action Store m@ is used in any
 -- monad that carries that one store, 'StoreT' or a transformer over it.
-class (MonadIO m) => MonadStore action store m | m -> store action where
+class (Monad m) => MonadStore action store m | m -> store action where
   -- | What the store holds now.
   getStore :: m store
   default getStore :: (MonadTrans t, MonadStore action store n, m ~ t n) => m store
@@ -192,17 +195,14 @@ instance (MonadIO m) => MonadStore action store (StoreT action store m) where
     store <- ask
     pure (selectEmitter selector (storeEmitter store))
 
--- | A component's programs use the store through 'H.liftEffect', not
--- 'lift'. In this port 'lift' and 'liftIO' are where a program may wait:
--- they run on a worker thread while the rest of the tree goes on, and the
--- program resumes after what came before it. The store's operations never
--- wait, so they run at once, as purescript-halogen-store's @lift@ does on
--- 'Effect': an update made in an event's action is in the store, and its
--- subscribers have heard of it, before the action goes on.
+-- | A component's programs use the store in place, through 'H.sync'. The
+-- store's operations never wait. So an update made in an event's action is
+-- in the store, and its subscribers have heard of it, before the action goes
+-- on, as with purescript-halogen-store's @lift@ on 'Effect'.
 instance (MonadStore action store m) => MonadStore action store (H.HalogenM st act slots output m) where
-  getStore = H.liftEffect getStore
-  updateStore = H.liftEffect . updateStore
-  emitSelected = H.liftEffect . emitSelected
+  getStore = H.sync getStore
+  updateStore = H.sync . updateStore
+  emitSelected = H.sync . emitSelected
 
 instance (MonadStore action store m) => MonadStore action store (ReaderT r m)
 

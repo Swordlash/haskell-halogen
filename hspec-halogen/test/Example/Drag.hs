@@ -62,7 +62,7 @@ component =
     handleAction = \case
       Pick p -> modify $ \s -> s {held = Just p} :: State
       -- Without it the bin refuses the drop.
-      Over event -> H.liftEffect (preventDefault (Drag.toEvent event))
+      Over event -> H.sync (preventDefault (Drag.toEvent event))
       Drop b -> place b
       Grab p -> modify $ \s -> s {held = Just p} :: State
       Release b -> place b

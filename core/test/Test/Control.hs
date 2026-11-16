@@ -10,8 +10,6 @@ import Control.Concurrent.MVar
 import Control.Exception (ErrorCall (..), SomeException, bracket, throwIO)
 import Control.Monad (forever, replicateM_, void)
 import Control.Monad.Catch (try)
-import Control.Monad.IO.Class (liftIO)
-import Control.Monad.IO.Unlift (withRunInIO)
 import Control.Monad.State.Class (get, modify, put)
 import Data.Foldable (for_, traverse_)
 import Data.IORef
@@ -131,7 +129,7 @@ timed io = do
 -- Components
 
 -- | A component that loads a word in its @Initialize@, and another for
--- every word its emitter sends (a click, say), each in a 'liftIO' that
+-- every word its emitter sends (a click, say), each in an 'H.async' that
 -- notes the word as it runs; it shows the words in the order they came
 -- back.
 loader :: HS.Emitter IO String -> IORef [String] -> H.Component H.VoidF () Void IO
@@ -145,7 +143,7 @@ loader asks ran =
       ]
   where
     load w = do
-      got <- liftIO (modifyIORef ran (<> [w]) >> pure w)
+      got <- H.async (modifyIORef ran (<> [w]) >> pure w)
       modify (<> [got])
 
 -- | A component whose @Initialize@ is this program, its state a number it
@@ -165,18 +163,18 @@ family =
     H.component
       (\() -> pure ())
       (\() -> HH.div_ [HH.slot_ "child" () child ()] :: H.ComponentHTML () ("child" .== H.Slot H.VoidF Void ()) IO)
-      [H.onInitialize (liftIO (pure ()))]
+      [H.onInitialize (H.async (pure ()))]
   where
     child =
       H.named "child" $
         H.component
           (\() -> pure ())
           (\() -> HH.text "" :: H.ComponentHTML () Empty IO)
-          [H.onInitialize (liftIO (pure ()))]
+          [H.onInitialize (H.async (pure ()))]
 
 -- | A search box: every word typed restarts a debounce of 0.3 s (a counted
 -- pause in a fork, the last one killed), after which the word is looked up
--- in a 'liftIO' that notes it, and the answer shown.
+-- in an 'H.async' that notes it, and the answer shown.
 search :: HS.Emitter IO String -> IORef [String] -> H.Component H.VoidF () Void IO
 search typed looked =
   H.named "search" $
@@ -189,17 +187,17 @@ search typed looked =
           traverse_ H.kill previous
           fid <- H.fork $ do
             H.delayCounted 0.3
-            got <- liftIO (modifyIORef looked (<> [w]) >> pure ("found " <> w))
+            got <- H.async (modifyIORef looked (<> [w]) >> pure ("found " <> w))
             put (Nothing, got)
           put (Just fid, answer)
       ]
 
 -- | Note something from the loop, with the test clock's time then.
 note :: IORef [(String, NominalDiffTime)] -> IO NominalDiffTime -> String -> H.HalogenM s act ps o IO ()
-note notes clock what = H.liftEffect (clock >>= \t -> modifyIORef notes (<> [(what, t)]))
+note notes clock what = H.sync (clock >>= \t -> modifyIORef notes (<> [(what, t)]))
 
 mark :: MVar () -> H.HalogenM s act ps o IO ()
-mark var = H.liftEffect (void (tryPutMVar var ()))
+mark var = H.sync (void (tryPutMVar var ()))
 
 ----------------------------------------------------------------------
 
@@ -228,7 +226,7 @@ spec = describe "Halogen.Activity.Control" $ do
 
     it "returns from pending once the program has gone as far as it can: a wait made after a release is in the next" $
       withHeldWaits $ \waits ->
-        withTree (program (liftIO (pure ()) >> modify (+ 1) >> liftIO (pure ()) >> modify (+ 1))) $ \_ renders -> do
+        withTree (program (H.async (pure ()) >> modify (+ 1) >> H.async (pure ()) >> modify (+ 1))) $ \_ renders -> do
           [w1] <- pendingOf waits
           release w1
           [w2] <- pendingOf waits
@@ -251,7 +249,7 @@ spec = describe "Halogen.Activity.Control" $ do
     it "makes a wait throw with failWith, its action not run" $ do
       ran <- newIORef False
       withHeldWaits $ \waits ->
-        withTree (program (try (liftIO (writeIORef ran True)) >>= put . either (\(_ :: SomeException) -> -1) (const 1))) $ \ui renders -> do
+        withTree (program (try (H.async (writeIORef ran True)) >>= put . either (\(_ :: SomeException) -> -1) (const 1))) $ \ui renders -> do
           [w] <- pendingOf waits
           failWith w (ErrorCall "the backend is down")
           pendingOf waits >>= assertEqual "nothing held" []
@@ -297,13 +295,13 @@ spec = describe "Halogen.Activity.Control" $ do
         waitTree socket Activity.quiet
         readIORef ran >>= assertEqual "the action never ran, released by the bracket's end" []
 
-    it "holds the programs a withRunInIO runs, whose caller waits for them" $ do
+    it "holds the programs an H.asyncWith runs, whose caller waits for them" $ do
       -- The body's worker counts as waiting while it waits for a program of
       -- its own, which the test holds: 'pending' must not wait for it.
       ran <- newIORef ([] :: [String])
-      let step w = liftIO (modifyIORef ran (<> [w]))
+      let step w = H.async (modifyIORef ran (<> [w]))
       withHeldWaits $ \waits ->
-        withTree (program (withRunInIO (\run -> run (step "a") >> run (step "b")) >> modify (+ 1))) $ \ui renders -> do
+        withTree (program (H.asyncWith (\run -> run (step "a") >> run (step "b")) >> modify (+ 1))) $ \ui renders -> do
           [body] <- pendingOf waits
           release body
           [a] <- pendingOf waits
@@ -448,7 +446,7 @@ spec = describe "Halogen.Activity.Control" $ do
     it "takes the pause of a component that goes away off the clock" $ do
       woke <- newIORef False
       withTestClock $ \clock -> do
-        (socket, _) <- mountRecorded (program (void (H.fork (H.delayCounted 1 >> H.liftEffect (writeIORef woke True)))))
+        (socket, _) <- mountRecorded (program (void (H.fork (H.delayCounted 1 >> H.sync (writeIORef woke True)))))
         treeActivity socket >>= assertEqual "counted" (Activity 1 0 1)
         dispose socket
         waitTree socket Activity.quiet

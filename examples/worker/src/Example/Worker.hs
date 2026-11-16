@@ -162,7 +162,7 @@ component pool =
     initialize :: H.HalogenM State Action Empty o m ()
     initialize = do
       void (H.subscribe (Frame <$ Window.animationFrame))
-      available <- Worker.available
+      available <- H.sync Worker.available
       modify (\st -> st {workers = available})
 
     render :: State -> H.ComponentHTML Action Empty m
@@ -245,12 +245,12 @@ component pool =
       -- On the page: in the component's loop, which renders nothing until
       -- the count is done, and on the page's only thread, which the page
       -- needs to draw and to answer clicks.
-      Here -> measure "here" size $ H.liftEffect $ liftIO $ do
+      Here -> measure "here" size $ H.sync $ liftIO $ do
         start <- getMonotonicTime
         count <- evaluate (countPrimes size)
         end <- getMonotonicTime
         pure (Right count, (end - start) * 1000)
-      -- In a worker: the wait is a liftIO, on a thread of its own, so the
+      -- In a worker: the wait is an H.async, on a thread of its own, so the
       -- loop renders meanwhile, and the work is on the worker's thread, so
       -- the page draws. Where no worker can be made, Worker.start counts on
       -- a thread of its own, still beside the loop, but on the page's.
@@ -262,7 +262,7 @@ component pool =
       -- Worker.run cancels its job when its wait is interrupted, so the
       -- losing side of a race is cancelled: the slow count, which stops at
       -- its next checkpoint (its log in the console stops too).
-      Race -> measure "the race" raceSize $ liftIO $ do
+      Race -> measure "the race" raceSize $ H.async $ liftIO $ do
         start <- getMonotonicTime
         result <- try (race (Worker.run pool primes raceSize) (Worker.run pool primesSlowly slowSize))
         end <- getMonotonicTime
@@ -271,8 +271,8 @@ component pool =
               Right (Left count) -> Right count
               Right (Right _) -> Left "the slow count won"
         pure (answer, (end - start) * 1000)
-      Cancel -> gets (.current) >>= traverse_ (Worker.cancel pool)
-      Kill -> gets (.current) >>= traverse_ (Worker.kill pool)
+      Cancel -> gets (.current) >>= traverse_ (H.sync . Worker.cancel pool)
+      Kill -> gets (.current) >>= traverse_ (H.sync . Worker.kill pool)
       -- The range in parts, each given to the pool with Worker.start, which
       -- gives a promise at once, so the two workers count side by side
       -- (they take turns, a part each); mapConcurrently waits for them all
@@ -282,7 +282,7 @@ component pool =
       Spread -> do
         inWorker <- gets (.workers)
         measure (if inWorker then "in both workers" else "in parts with Worker.start") size $ do
-          (result, millis) <- liftIO $ do
+          (result, millis) <- H.async $ liftIO $ do
             start <- getMonotonicTime
             result <- try (Promise.mapConcurrently (uncurry (Worker.start pool primesBetween)) parts)
             end <- getMonotonicTime
@@ -301,7 +301,7 @@ component pool =
       InTasks -> do
         inWorker <- gets (.workers)
         measure (if inWorker then "in tasks" else "in tasks, here") size $ do
-          (result, millis) <- liftIO $ do
+          (result, millis) <- H.async $ liftIO $ do
             start <- getMonotonicTime
             result <- try (runPar pool (traverse (uncurry (task primesBetween)) manyParts))
             end <- getMonotonicTime
@@ -312,11 +312,11 @@ component pool =
               let spread = zipWith (\range (worker, count) -> Part {range, count, worker}) manyParts counted
               modify (\st -> st {spread})
               pure (Right (sum (map (.count) spread)), millis)
-      Fail -> measure "the failing job" size $ liftIO $ do
+      Fail -> measure "the failing job" size $ H.async $ liftIO $ do
         result <- try (Worker.run pool failing)
         pure (first (\(e :: WorkerError) -> e.message) result, 0)
       Terminate -> do
-        Worker.terminate pool
+        H.sync (Worker.terminate pool)
         modify (\st -> st {note = "The workers were terminated: the next job starts one again."})
 
     -- A count of the primes below n with the job, which Cancel and Kill can
@@ -328,11 +328,11 @@ component pool =
     stoppable place pointer n = measure place n $ do
       -- Timed from before the start: where no worker can be made, the
       -- forked job can run to its end before this thread runs again.
-      start <- liftIO getMonotonicTime
-      job <- liftIO (Worker.start pool pointer n)
+      start <- H.sync (liftIO getMonotonicTime)
+      job <- H.sync (liftIO (Worker.start pool pointer n))
       modify (\st -> st {current = Just job})
-      result <- liftIO (Promise.waitCatch job `onException` Worker.cancel pool job)
-      end <- liftIO getMonotonicTime
+      result <- H.async (liftIO (Promise.waitCatch job `onException` Worker.cancel pool job))
+      end <- H.sync (liftIO getMonotonicTime)
       modify (\st -> st {current = Nothing})
       pure (first (.message) result, (end - start) * 1000)
 

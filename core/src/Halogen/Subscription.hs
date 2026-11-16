@@ -12,6 +12,7 @@ data Subscribe m a = Subscribe
   , emitter :: Emitter m a
   }
 
+-- | A new listener and the emitter it feeds. Call it in @H.sync@.
 create :: (MonadIO m) => m (Subscribe m a)
 create = do
   -- Subscribers are told apart by a number from this counter: nothing but

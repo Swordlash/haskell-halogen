@@ -66,7 +66,7 @@ The init script tracks navigation by wrapping `History.prototype.back`, `forward
 
 `waitStarted page` waits for a mounted, idle tree, including the synchronous parts of initialization. `visit` combines `goto` and `waitStarted`. It times out if no program answers.
 
-`waitQuiet page` also waits for fibers suspended in `liftIO`, but excludes `H.delay`. Timeout messages report the remaining waiters. `activity page` returns the raw activity reading, or `Nothing` if no program provides one.
+`waitQuiet page` also waits for fibers suspended in `H.async`, but excludes `H.delay`. Timeout messages report the remaining waiters. `activity page` returns the raw activity reading, or `Nothing` if no program provides one.
 
 Activity waits do not cover external events that have not reached the program, such as timers, incoming WebSocket messages, animations or worker startup. Use retrying `should` expectations or `eventually page` for those conditions. `waitForFunction` polls a JavaScript expression at animation frames; `waitForFunctionWith` passes an argument separately. `awaitText` waits for matching text and reports the last value on failure. `waitForURL` accepts an exact address or glob and settles after navigation.
 
@@ -88,7 +88,7 @@ _ <- waitForWebSocket watcher (\f -> not f.sent && "\"subscribed\"" `Text.isInfi
 
 ### Pauses: what `waitQuiet` waits for is the program's to say
 
-`waitQuiet` includes timers written with `liftIO (threadDelay n)` or `H.delayCounted`. Choose the delay API according to what the timer represents:
+`waitQuiet` includes timers written with `H.async (threadDelay n)` or `H.delayCounted`. Choose the delay API according to what the timer represents:
 
 - Use `H.delayCounted` or `Hooks.delayCounted` for delays before work that tests should await, such as a debounced search or autosave. `waitQuiet` then includes both the delay and the resulting request.
 - Use `H.delay` or `Hooks.delay` for transient notices and repeating UI timers. These take seconds as `NominalDiffTime` and do not keep the program busy. Tests can inspect a notice before it disappears, and clocks remain quiet between ticks. Using a counted delay for a perpetual ticker would prevent `waitQuiet` from returning.
@@ -111,7 +111,7 @@ Every page the driver opens has `globalThis.__halogenProbe = {}` before its own 
 await __halogenProbe.activity()   // {trees, running, waiting}
 ```
 
-`trees` counts mounted trees, `running` counts trees executing or holding queued work, and `waiting` counts fibers suspended in `liftIO`. `H.delay` does not contribute to `waiting`. The program is idle when `running == 0`. Each reading inspects the current loops directly. Any tool can install and query this probe; see `Halogen.Activity` for its contract.
+`trees` counts mounted trees, `running` counts trees executing or holding queued work, and `waiting` counts fibers suspended in `H.async`. `H.delay` does not contribute to `waiting`. The program is idle when `running == 0`. Each reading inspects the current loops directly. Any tool can install and query this probe; see `Halogen.Activity` for its contract.
 
 `Halogen.Remote.Test` supports the same probe for components running in the native test process. Its browser client forwards activity queries to the component's remote session. Actions then settle against that session alone. See remote's README, "Testing a component in a real page".
 

@@ -23,7 +23,7 @@ import Data.Row as Row
 import Data.UUID.Types qualified as UUID
 import HPrelude hiding (async, catch, finally, try)
 import Halogen.Data.Slot (Slot)
-import Halogen.Query.HalogenM (ForkId, HalogenF (..), HalogenM (..), SubscriptionId, async, asyncWith, catch, delay, delayCounted, finally, fork, getRef, join, kill, liftEffect, query, queryAll, raise, subscribe, subscribe', sync, try, unsubscribe)
+import Halogen.Query.HalogenM (Counted (..), ForkId, HalogenF (..), HalogenM (..), SubscriptionId, async, asyncWith, catch, delay, delayCounted, finally, fork, getRef, join, kill, liftEffect, query, queryAll, raise, subscribe, subscribe', sync, try, unsubscribe)
 import Halogen.Query.HalogenQ (HalogenQ (..))
 import Halogen.Query.Input (RefLabel (..))
 import Web.DOM.Internal.Types

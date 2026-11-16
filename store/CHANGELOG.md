@@ -34,8 +34,14 @@ or a subscriber can update it inside another update's notification, every
 update carries its number, and a subscriber is never handed an update older
 than one it already has, so that what it heard last is what the store holds.
 
-`HalogenM` uses the store through `liftEffect`, not `lift` (which is where a
+`HalogenM` uses the store through `H.sync`, not `H.async` (which is where a
 program waits, on a worker thread): an update made in an event's action is
 in the store, and in the tree's components that follow it, before the action
 goes on. There is no `useSelector` for hooks; the README shows the few lines
 it takes.
+
+`MonadStore` has no `MonadIO` superclass. In purescript-halogen-store,
+`MonadStore` asks for `MonadEffect`. Here that would make `HalogenM`'s
+instance depend on `liftIO`, which suspends the program. A component that
+uses the store and also runs `IO` of its own asks for both:
+`(MonadStore Action Store m, MonadIO m)`.

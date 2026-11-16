@@ -1,6 +1,6 @@
 -- | Commands and events in a component: a command sent in an effect and
--- waited for in @lift@ while the component goes on, and a subscription to an
--- event that goes with the component.
+-- waited for in @H.async@ while the component goes on, and a subscription
+-- to an event that goes with the component.
 module Test.Component (spec) where
 
 import Control.Monad.IO.Class (MonadIO)
@@ -25,7 +25,7 @@ newtype Held = Held {name :: Text}
 
 spec :: forall m -> (MonadBrowserTest m) => Spec
 spec m = do
-  it "sends a command in the click's dispatch, waits for it in lift, and renders meanwhile" $ runPage $ do
+  it "sends a command in the click's dispatch, waits for it in H.async, and renders meanwhile" $ runPage $ do
     ui <- mount m (desk :: H.Component H.VoidF () Void m) ()
     find ui ".start" >>= click
     answer <- find ui ".result"
@@ -38,7 +38,7 @@ spec m = do
     ticks `shouldHaveText` "2"
     textContent answer `shouldReturn` "waiting"
     unsafeIOToPageM (release "component")
-    -- The command's answer is what the fiber waiting in lift was waiting
+    -- The command's answer is what the fiber waiting in H.async was waiting
     -- for: once the program is quiet it has come and been rendered.
     waitQuiet
     textContent answer `shouldReturn` "component"
@@ -65,7 +65,7 @@ data State = State
 data Action = Initialize | Start | Tick | Counted Int
 
 -- | A component that sends a held command with @start@ in an effect and
--- waits for its @result@ in @lift@, counts clicks meanwhile, and shows the
+-- waits for its @result@ in @H.async@, counts clicks meanwhile, and shows the
 -- last "counter" event it heard.
 desk :: forall q o m. (MonadIO m) => H.Component q () o m
 desk =
@@ -91,10 +91,10 @@ desk =
       Initialize -> () <$ H.subscribe (Counted <$> listen "counter")
       Start -> do
         -- At once, inside the click's dispatch; nothing waits.
-        sent <- H.liftEffect (start "held" Held {name = "component"})
+        sent <- H.sync (start "held" Held {name = "component"})
         modify $ \st -> st {result = "waiting"}
         -- On a worker, while the tree goes on.
-        outcome <- result sent :: H.HalogenM State Action Empty o m (Either TauriError Held)
+        outcome <- H.async (result sent) :: H.HalogenM State Action Empty o m (Either TauriError Held)
         modify $ \st -> st {result = either (Text.pack . show) (.name) outcome}
       Tick -> modify $ \st -> st {ticks = st.ticks + 1}
       Counted n -> modify $ \st -> st {counter = n}

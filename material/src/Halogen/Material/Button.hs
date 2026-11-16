@@ -114,8 +114,8 @@ button =
         gets (.ref) >>= H.getHTMLElementRef >>= \case
           Nothing -> panic "Cannot initialize button Ripple, no HTML element found"
           Just e -> do
-            ripple <- lift $ initRipple e
+            ripple <- H.sync $ initRipple e
             modify $ \s -> s {mdcRipple = Just ripple}
-      Finalize -> traverse_ (lift . destroyRipple) =<< gets (.mdcRipple)
+      Finalize -> traverse_ (H.sync . destroyRipple) =<< gets (.mdcRipple)
       Clicked ->
         H.raise ButtonClicked

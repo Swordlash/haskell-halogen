@@ -1,5 +1,5 @@
--- | Waiting for the program: 'waitQuiet' for what its fibers wait for in a
--- @liftIO@, and not for a pause in 'Halogen.delay'; and the deadline of
+-- | Waiting for the program: 'waitQuiet' for what its fibers wait for in an
+-- @H.async@, and not for a pause in 'Halogen.delay'; and the deadline of
 -- both it and 'settle', for a program that does not finish.
 module Test.Waiting (spec) where
 
@@ -36,7 +36,7 @@ spec :: forall m -> (MonadBrowserTest m) => Spec
 spec m = do
   -- An action returns once the handler is waiting: what it waits for is
   -- 'waitQuiet''s, and after it one read sees what came back.
-  it "waits for a fiber waiting in liftIO for a threadDelay" $ runPage $ do
+  it "waits for a fiber waiting in H.async for a threadDelay" $ runPage $ do
     ui <- loader m
     status <- find ui ".status"
     find ui ".load" >>= click
@@ -44,7 +44,7 @@ spec m = do
     waitQuiet
     textContent status `shouldReturn` "loaded"
 
-  it "waits for a fiber waiting in liftIO for a promise of the page's" $ runPage $ do
+  it "waits for a fiber waiting in H.async for a promise of the page's" $ runPage $ do
     ui <- loader m
     status <- find ui ".status"
     find ui ".load-promise" >>= click

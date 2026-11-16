@@ -308,13 +308,13 @@ reading =
     pasted event = case CE.clipboardData event of
       Nothing -> modify (const "no transfer")
       Just transfer -> do
-        (carried, file) <- liftIO $ do
+        (carried, file) <- H.sync $ liftIO $ do
           text <- DataTransfer.getData transfer "text/plain"
           file <- FileList.item (DataTransfer.files transfer) 0
           past <- FileList.item (DataTransfer.files transfer) 1
           pure (T.intercalate "|" [text, maybe "no file" File.name file, maybe "none past it" File.name past], file)
         modify (const carried)
-        contents <- liftIO $ case file of
+        contents <- H.async $ liftIO $ case file of
           Nothing -> pure "no file"
           Just f -> either (const "unreadable") identity <$> (Promise.waitCatch =<< File.text f)
         modify (const (carried <> "|" <> contents))
@@ -406,26 +406,26 @@ operating =
         CloseDialog -> withDialog HTMLDialogElement.close
         ScrollFar -> do
           s <- get
-          H.getRef s.far >>= traverse_ (\e -> H.liftEffect (liftIO (Element.scrollIntoViewBlock e Element.ToCenter)))
+          H.getRef s.far >>= traverse_ (\e -> H.sync (liftIO (Element.scrollIntoViewBlock e Element.ToCenter)))
         Forget -> do
           s <- get
           element <- H.getRef s.doomed
           modify (\st -> st {kept = element, shown = False})
         FocusForgotten -> do
           s <- get
-          for_ (s.kept >>= HTMLElement.fromElement) (H.liftEffect . liftIO . HTMLElement.focus)
+          for_ (s.kept >>= HTMLElement.fromElement) (H.sync . liftIO . HTMLElement.focus)
         NotListed -> do
           s <- get
-          H.getRef s.second >>= traverse_ (\e -> H.liftEffect (liftIO (e.setAttribute "data-set" "by the program")))
+          H.getRef s.second >>= traverse_ (\e -> H.sync (liftIO (e.setAttribute "data-set" "by the program")))
     ]
   where
     focusing label act = do
       s <- get
-      H.getHTMLElementRef (label s) >>= traverse_ (H.liftEffect . liftIO . act)
+      H.getHTMLElementRef (label s) >>= traverse_ (H.sync . liftIO . act)
     withDialog act = do
       s <- get
       dialog <- (>>= HTMLDialogElement.fromElement) <$> H.getRef s.dialog
-      for_ dialog (H.liftEffect . liftIO . act)
+      for_ dialog (H.sync . liftIO . act)
     render :: Operations -> H.ComponentHTML Operate Empty m
     render s =
       HH.div_ $
@@ -471,13 +471,13 @@ hearing =
     [ H.onAction $ \case
         FocusField -> do
           s <- get
-          H.getHTMLElementRef s.field >>= traverse_ (H.liftEffect . liftIO . HTMLElement.focus)
+          H.getHTMLElementRef s.field >>= traverse_ (H.sync . liftIO . HTMLElement.focus)
         CloseDialogHeard -> do
           s <- get
           dialog <- (>>= HTMLDialogElement.fromElement) <$> H.getRef s.dialog
-          for_ dialog (H.liftEffect . liftIO . HTMLDialogElement.close)
+          for_ dialog (H.sync . liftIO . HTMLDialogElement.close)
         Heard what -> do
-          H.liftEffect (liftIO (threadDelay 50000))
+          H.sync (liftIO (threadDelay 50000))
           modify (\s -> s {heard = s.heard <> [what]})
     ]
   where
@@ -504,11 +504,11 @@ titling =
     (\() -> pure ())
     (\() -> HH.button [HP.id "retitle", HE.onClick (const (Retitle "Second title"))] [HH.text "Retitle"] :: H.ComponentHTML Retitle Empty m)
     [ H.onInitialize $ do
-        doc <- H.liftEffect (DOM.window >>= DOM.document)
-        H.liftEffect (liftIO (doc.title_set "First title"))
+        doc <- H.sync (DOM.window >>= DOM.document)
+        H.sync (liftIO (doc.title_set "First title"))
     , H.onAction $ \(Retitle t) -> do
-        w <- H.liftEffect DOM.window
-        H.liftEffect (liftIO (w.document.title_set t))
+        w <- H.sync DOM.window
+        H.sync (liftIO (w.document.title_set t))
     ]
 
 -- | Three places of a site: its front page, a post, and a page about it.
@@ -546,7 +546,7 @@ routed made stopped =
         void (H.subscribe (Moved <$> Router.changes router))
     , H.onFinalize $ do
         (router, _) <- get
-        liftIO (stopped router)
+        H.sync (liftIO (stopped router))
     , H.onAction $ \case
         Moved spot -> modify (\(router, _) -> (router, spot))
         Went f -> do
@@ -554,10 +554,10 @@ routed made stopped =
           Router.follow router f
         RedirectAbout -> do
           (router, _) <- get
-          Router.redirect router About
+          H.sync (Router.redirect router About)
         -- Back through the page's history, as a page's own Back button
         -- does it: through the window's history, not the router.
-        StepBack -> H.liftEffect (DOM.window >>= \w -> liftIO (History.back w.history))
+        StepBack -> H.sync (DOM.window >>= \w -> liftIO (History.back w.history))
     ]
   where
     render :: (Router.Router Spot, Spot) -> H.ComponentHTML Moving Empty m
@@ -586,14 +586,14 @@ storing =
         Bump -> do
           modify (\s -> s {count = s.count + 1})
           s <- get
-          H.liftEffect (Storage.setItem Storage.LocalStorage "count" s.count)
+          H.sync (Storage.setItem Storage.LocalStorage "count" s.count)
         Visit -> do
           modify (\s -> s {visits = s.visits + 1})
           s <- get
-          H.liftEffect (Storage.setItem Storage.SessionStorage "visits" s.visits)
+          H.sync (Storage.setItem Storage.SessionStorage "visits" s.visits)
         ForgetCount -> do
           modify (\s -> s {count = 0})
-          H.liftEffect (Storage.removeItem Storage.LocalStorage "count")
+          H.sync (Storage.removeItem Storage.LocalStorage "count")
     ]
   where
     stored :: Storage.StorageKind -> Text -> m Int

@@ -264,7 +264,7 @@ component =
       Initialize -> when inBrowser $ do
         router <- gets (.router)
         void $ H.subscribe (Arrived <$> Router.changes router)
-        narrow <- H.liftEffect (liftIO Browser.narrowScreen)
+        narrow <- H.sync (liftIO Browser.narrowScreen)
         modify $ \s -> s {narrow}
         enterPage
         -- What the compiler weighs, for the page to say, whether or not it
@@ -278,7 +278,7 @@ component =
           leavePage
           modify $ \s ->
             s {route = r, edited = False, run = NotRun, mounted = False, layerFailure = Nothing, diagnostics = [], bindings = Nothing, lastCheck = Nothing}
-          H.liftEffect (liftIO Browser.scrollToTop)
+          H.sync (liftIO Browser.scrollToTop)
           enterPage
           gets (.compiler) >>= \case
             Loaded _ -> loadLayers >> startCheck
@@ -302,7 +302,7 @@ component =
         -- Storage the browser denies (a strict private window) must not
         -- stop the lesson: the code is then kept for this visit only.
         void
-          $ H.liftEffect
+          $ H.sync
           $ tryAny
           $ if text == code.start
             then removeStorageItem LocalStorage code.key
@@ -313,13 +313,13 @@ component =
         checkSoon
       FromEditor CompileRequested -> handleAction Compile
       FromEditor (Cursor line column) ->
-        gets (.source) >>= traverse_ \(source, _) -> H.liftEffect (liftIO (Browser.outlineSource source line column))
+        gets (.source) >>= traverse_ \(source, _) -> H.sync (liftIO (Browser.outlineSource source line column))
       Compile -> do
         st <- get
         when (canCompile st) $ for_ ((,) <$> codeOf st <*> st.editor) $ \(code, (editor, _)) -> do
-          source <- H.liftEffect (liftIO (Browser.compileText editor))
+          source <- H.sync (liftIO (Browser.compileText editor))
           modify $ \s -> s {run = Compiling, runs = s.runs + 1, coveredEdit = Just s.edits}
-          compiled <- liftIO $ Browser.compile (request code source)
+          compiled <- H.async $ liftIO $ Browser.compile (request code source)
           -- The reader may have left meanwhile, even for this same lesson
           -- again: that visit's editor is another one, and its run its own.
           now <- gets (.visit)
@@ -343,29 +343,29 @@ component =
                 -- and the editor says where its cursor is again, for the new
                 -- elements.
                 when result.compiled $ do
-                  H.liftEffect (liftIO (Browser.markCompiled editor))
-                  gets (.source) >>= traverse_ \_ -> H.liftEffect $ liftIO $ do
+                  H.sync (liftIO (Browser.markCompiled editor))
+                  gets (.source) >>= traverse_ \_ -> H.sync $ liftIO $ do
                     Browser.showSource editor 0
                     Browser.setSourceMode editor True
             -- The reader may have typed while it compiled.
             startCheck
-      Reset -> withEditor $ \code editor -> H.liftEffect (liftIO (Browser.setEditorText editor code.start))
+      Reset -> withEditor $ \code editor -> H.sync (liftIO (Browser.setEditorText editor code.start))
       ShowSolution -> withEditor $ \code editor -> for_ code.solution $ \solution -> do
         edited <- gets (.edited)
         sure <-
           if edited
-            then H.liftEffect (liftIO (Browser.confirm "Replace your code with the lesson's solution? Your current edits will be lost."))
+            then H.sync (liftIO (Browser.confirm "Replace your code with the lesson's solution? Your current edits will be lost."))
             else pure True
-        when sure $ H.liftEffect (liftIO (Browser.setEditorText editor solution))
+        when sure $ H.sync (liftIO (Browser.setEditorText editor solution))
       -- The lesson's code, as the reader has it, with what it compiles
       -- with, for the playground to open with when it is entered. It stays
       -- in this component's state: the playground is entered without a
       -- page load, and the browser's storage may refuse to keep it.
       OpenInPlayground -> withEditor $ \code editor -> do
-        text <- H.liftEffect (liftIO (Browser.editorText editor))
+        text <- H.sync (liftIO (Browser.editorText editor))
         modify $ \s -> s {handoff = Just Handoff {code = text, layers = code.layers, args = code.args}}
         router <- gets (.router)
-        Router.navigate router Playground
+        H.sync (Router.navigate router Playground)
       ToggleLayer name checked -> do
         modify $ \s ->
           s
@@ -386,9 +386,9 @@ component =
         modify $ \s -> s {playground = s.playground {extra}}
         keepSettings
         checkSoon
-      Goto line column -> withEditor $ \_ editor -> H.liftEffect (liftIO (Browser.gotoPosition editor line column))
+      Goto line column -> withEditor $ \_ editor -> H.sync (liftIO (Browser.gotoPosition editor line column))
       ToggleSource -> gets (.source) >>= maybe startSource (const stopSource)
-      FromSource event -> withEditor $ \_ editor -> H.liftEffect $ liftIO $ case event of
+      FromSource event -> withEditor $ \_ editor -> H.sync $ liftIO $ case event of
         Pointing line _ -> Browser.showSource editor line
         NotPointing -> Browser.showSource editor 0
         Picked line column -> Browser.gotoPosition editor line column
@@ -402,7 +402,7 @@ component =
     -- denies its storage).
     keepSettings = do
       settings <- gets (.playground)
-      void $ H.liftEffect $ tryAny $ do
+      void $ H.sync $ tryAny $ do
         writeStorageItem LocalStorage Playground.layersKey (Playground.showLayers settings.layers)
         writeStorageItem LocalStorage Playground.argsKey settings.extra
 
@@ -421,21 +421,21 @@ component =
       modify $ \s -> s {playground = PlaygroundSettings {layers = opened.layers, extra = opened.extra}}
       for_ handed $ \handoff -> do
         keepSettings
-        void $ H.liftEffect $ tryAny $ writeStorageItem LocalStorage Playground.codeKey handoff.code
+        void $ H.sync $ tryAny $ writeStorageItem LocalStorage Playground.codeKey handoff.code
       pure opened.code
 
     -- What @localStorage@ has under this key, if the browser lets it be
     -- read.
-    stored key = join . rightToMaybe <$> H.liftEffect (tryAny (readStorageItem LocalStorage key))
+    stored key = join . rightToMaybe <$> H.sync (tryAny (readStorageItem LocalStorage key))
 
     markDiagnostics editor diagnostics =
-      H.liftEffect $ liftIO $ Browser.showDiagnostics editor (filter ((== "Lesson.hs") . (.file)) diagnostics)
+      H.sync $ liftIO $ Browser.showDiagnostics editor (filter ((== "Lesson.hs") . (.file)) diagnostics)
 
     -- The types a run reported, if the code typechecked; else the last
     -- ones stay, as no longer the code's.
     keepTypes editor typechecked types
       | typechecked = do
-          H.liftEffect $ liftIO $ Browser.showTypes editor types
+          H.sync $ liftIO $ Browser.showTypes editor types
           modify $ \s -> s {bindings = Just Bindings {list = types, current = True}}
       | otherwise = modify $ \s -> s {bindings = (\b -> b {current = False}) <$> s.bindings}
 
@@ -449,10 +449,10 @@ component =
       when (isLoaded st.compiler) $ do
         due <- H.fork $ do
           -- A pause before work a reader (and a test) waits for, the check:
-          -- so a liftIO, which Halogen.Activity counts as waiting, and not
+          -- so an H.async, which Halogen.Activity counts as waiting, and not
           -- H.delay. A program that is quiet after a key has checked the
           -- code the key left.
-          liftIO (threadDelay checkDelay)
+          H.async (liftIO (threadDelay checkDelay))
           -- From here on it is not killed: a change meanwhile drops its
           -- result instead, so the session never has a run taken from it
           -- half-way.
@@ -471,9 +471,9 @@ component =
       when (canCompile st && not st.checking && isNothing st.checkDue && st.coveredEdit /= Just st.edits) $
         for_ ((,) <$> codeOf st <*> st.editor) $
           \(code, (editor, _)) -> do
-            source <- H.liftEffect (liftIO (Browser.editorText editor))
+            source <- H.sync (liftIO (Browser.editorText editor))
             modify $ \s -> s {checking = True, coveredEdit = Just st.edits}
-            checked <- liftIO $ Browser.typecheck (request code source)
+            checked <- H.async $ liftIO $ Browser.typecheck (request code source)
             modify $ \s -> s {checking = False}
             now <- get
             -- Not if the code has changed since, or a compile has started
@@ -506,9 +506,9 @@ component =
         saved <- maybe (stored code.key) pure opened
         let text = fromMaybe code.start saved
         H.getHTMLElementRef st.editorHost >>= traverse_ \host -> do
-          events <- liftIO HS.create
+          events <- H.sync (liftIO HS.create)
           subscription <- H.subscribe (FromEditor <$> events.emitter)
-          editor <- H.liftEffect $ liftIO $ Browser.createEditor host text (readOnly st) (HS.notify events.listener)
+          editor <- H.sync $ liftIO $ Browser.createEditor host text (readOnly st) (HS.notify events.listener)
           modify $ \s -> s {editor = Just (editor, subscription), edited = text /= code.start, visit = s.visit + 1}
 
     -- The Source mode over the result, and the editor telling where its
@@ -518,18 +518,18 @@ component =
       st <- get
       when (canSource st) $ for_ st.editor $ \(editor, _) ->
         H.getHTMLElementRef st.resultHost >>= traverse_ \element -> do
-          events <- liftIO HS.create
+          events <- H.sync (liftIO HS.create)
           subscription <- H.subscribe (FromSource <$> events.emitter)
-          source <- H.liftEffect $ liftIO $ Browser.startSource element editor (HS.notify events.listener)
+          source <- H.sync $ liftIO $ Browser.startSource element editor (HS.notify events.listener)
           modify $ \s -> s {source = Just (source, subscription)}
-          H.liftEffect $ liftIO $ Browser.setSourceMode editor True
+          H.sync $ liftIO $ Browser.setSourceMode editor True
 
     stopSource = do
       st <- get
       for_ st.source $ \(source, subscription) -> do
         H.unsubscribe subscription
-        H.liftEffect $ liftIO $ Browser.stopSource source
-        for_ st.editor $ \(editor, _) -> H.liftEffect $ liftIO $ do
+        H.sync $ liftIO $ Browser.stopSource source
+        for_ st.editor $ \(editor, _) -> H.sync $ liftIO $ do
           Browser.setSourceMode editor False
           Browser.showSource editor 0
         modify $ \s -> s {source = Nothing}
@@ -539,12 +539,12 @@ component =
       st <- get
       for_ st.editor $ \(editor, subscription) -> do
         H.unsubscribe subscription
-        H.liftEffect (liftIO (Browser.destroyEditor editor))
+        H.sync (liftIO (Browser.destroyEditor editor))
       for_ st.checkDue H.kill
       modify $ \s -> s {editor = Nothing, checkDue = Nothing}
       -- A compile under way will mount what it compiled into this lesson's
       -- element, or the next one's: ending the run is queued after it.
-      when (st.mounted || isCompiling st.run) $ void $ H.fork (liftIO Browser.endRun)
+      when (st.mounted || isCompiling st.run) $ void $ H.fork (H.async (liftIO Browser.endRun))
 
     loadCompiler = do
       st <- get
@@ -553,11 +553,11 @@ component =
         Loaded _ -> loadLayers
         _ -> do
           modify $ \s -> s {compiler = Loading ReadingManifest}
-          progress <- liftIO HS.create
+          progress <- H.sync (liftIO HS.create)
           subscription <- H.subscribe (Progressed <$> progress.emitter)
-          root <- liftIO Browser.rootfsAddress
+          root <- H.sync (liftIO Browser.rootfsAddress)
           let wanted = maybe [] (.layers) (codeOf st)
-          liftIO (Browser.startCompiler root wanted (HS.notify progress.listener)) >>= \case
+          H.async (liftIO (Browser.startCompiler root wanted (HS.notify progress.listener))) >>= \case
             Left message -> do
               -- The page tells nothing more through this start's progress:
               -- a Retry subscribes anew.
@@ -586,8 +586,8 @@ component =
                 Just _ -> pass
 
     readSizes = do
-      root <- liftIO Browser.rootfsAddress
-      liftIO (Browser.describe root) >>= \case
+      root <- H.sync (liftIO Browser.rootfsAddress)
+      H.async (liftIO (Browser.describe root)) >>= \case
         Right sizes -> modify $ \s -> s {sizes = Just sizes}
         Left _ -> pass
 
@@ -603,7 +603,7 @@ component =
       let wanted = maybe [] (.layers) (codeOf st)
       unless (st.loadingLayers || all (`elem` st.loadedLayers) wanted) $ do
         modify $ \s -> s {loadingLayers = True, layerFailure = Nothing}
-        result <- liftIO (Browser.ensureLayers wanted)
+        result <- H.async (liftIO (Browser.ensureLayers wanted))
         modify $ \s -> s {loadingLayers = False}
         now <- gets (.route)
         case result of
@@ -623,7 +623,7 @@ component =
     -- is unlocked once that is over.
     syncEditor = do
       st <- get
-      for_ st.editor $ \(editor, _) -> H.liftEffect (liftIO (Browser.setEditorReadOnly editor (readOnly st)))
+      for_ st.editor $ \(editor, _) -> H.sync (liftIO (Browser.setEditorReadOnly editor (readOnly st)))
 
     render :: State -> H.ComponentHTML Action Empty m
     render st =

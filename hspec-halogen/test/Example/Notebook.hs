@@ -42,18 +42,18 @@ component =
         , HH.button [HP.class_ (HH.ClassName "keep"), HE.onClick (const Keep)] [HH.text "Keep"]
         ]
 
-    -- The store is reached through 'lift', which waits on a worker thread
+    -- The store is reached through 'H.async', which waits on a worker thread
     -- while the rest of the tree goes on: IndexedDB answers later.
     handleAction :: Action -> H.HalogenM State Action Empty o m ()
     handleAction = \case
       Initialize -> load
       Keep -> do
         input <- gets (.input)
-        lift (IDB.setItem input.database notes "note" input.note)
+        H.async (IDB.setItem input.database notes "note" input.note)
         load
 
     load :: H.HalogenM State Action Empty o m ()
     load = do
       input <- gets (.input)
-      found <- lift (IDB.getItem input.database notes "note")
+      found <- H.async (IDB.getItem input.database notes "note")
       modify $ \current -> current {kept = either (const Nothing) Just =<< found}

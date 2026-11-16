@@ -43,8 +43,8 @@ data ComponentGone = ComponentGone
 
 instance Exception ComponentGone
 
--- | A program of the component, as a fiber's steps. Everything but 'Lift',
--- 'Delay', 'DelayCounted' (and 'Unlift', whose body is arbitrary 'IO') is
+-- | A program of the component, as a fiber's steps. Everything but 'Async',
+-- 'Delay' (and 'AsyncWith', whose body is arbitrary 'IO') is
 -- synchronous work on the loop.
 --
 -- A tree mounted under a test's control ("Halogen.Activity.Control") has
@@ -82,19 +82,17 @@ evalM var (HalogenM hm) = foldF go hm
         sub <- atomicModifyIORef' ds.subscriptions (\subs -> (M.delete sid subs, M.lookup sid subs))
         for_ sub $ \s -> HS.unsubscribe s >> Trace.emit ds.tag (Trace.Unsubscribed sid)
         pure next
-      Lift aff -> do
+      Async aff -> do
         ds <- sync (readIORef var)
         awaitHeld ds.tree.control ds.tag (treeRunM ds.tree aff)
       -- The same suspension, with its own worker killed with the fiber,
-      -- but not counted as waiting (see 'delay'); or, on a test's clock,
-      -- a sleeper the test wakes.
-      Delay d a -> withDriverState $ \ds -> a <$ pause ds.tree.control False d
-      -- Counted as waiting, as 'Lift' is.
-      DelayCounted d a -> withDriverState $ \ds -> a <$ pause ds.tree.control True d
-      LiftEffect eff -> do
+      -- counted as waiting as 'Async' is or not (see 'delay'); or, on a
+      -- test's clock, a sleeper the test wakes.
+      Delay counted d a -> withDriverState $ \ds -> a <$ pause ds.tree.control (counted == Counted) d
+      Sync eff -> do
         ds <- sync (readIORef var)
         sync (timed ds.tag (withinEffect ds.tree.loop (treeRunM ds.tree eff)))
-      Unlift q -> do
+      AsyncWith q -> do
         ds <- sync (readIORef var)
         -- The body is arbitrary IO, run on a worker; each program it runs
         -- is a fiber of this component, handed to the loop, and waited for.

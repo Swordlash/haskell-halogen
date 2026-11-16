@@ -7,8 +7,8 @@
 -- a time. IndexedDB holds as much as the browser lets the origin have (tens
 -- of megabytes at least), keeps bytes as bytes, and can change several things
 -- at once in a transaction; but it answers later, so every call here waits.
--- Call it from a component's @lift@ (which waits on a worker thread while the
--- rest of the tree goes on), never from @H.liftEffect@, which must not wait.
+-- Call it in a component's @H.async@ (which waits on a worker thread while the
+-- rest of the tree goes on), never in @H.sync@, which must not wait.
 --
 -- A 'Database' says what a program expects to find: a name, a version and
 -- the stores in it. Stores can only be made while a database is being

@@ -80,9 +80,9 @@ type Slots query output = ("inner" .== H.Slot query output ())
 -- can ask again when the component's first output arrives, or have the
 -- component raise one when it starts.
 --
--- The loader runs once per mount, through 'lift', so it waits on a thread of
--- its own and the rest of the tree goes on meanwhile (a fetch, a link, a
--- delay). When it throws, the wrapper shows 'failed' with the exception, and
+-- The loader runs once per mount, through 'H.async', so it waits on a thread
+-- of its own and the rest of the tree goes on meanwhile (a fetch, a link,
+-- a delay). When it throws, the wrapper shows 'failed' with the exception, and
 -- stays so until it is mounted again; an asynchronous exception (the wrapper
 -- going away while the loader waits) is not caught. Removing the wrapper
 -- while it loads stops waiting for the loader; 'memo' makes sure the next
@@ -112,7 +112,7 @@ lazy Loading {placeholder, failed} loader =
 
     load :: H.HalogenM (State query input output m) (Action output) (Slots query output) output m ()
     load = do
-      result <- Catch.try (lift loader)
+      result <- Catch.try (H.async loader)
       case result of
         -- The message is the exception's own: GHC 9.10's displayException of a
         -- SomeException adds the backtrace it was thrown with.
@@ -135,6 +135,7 @@ lazy Loading {placeholder, failed} loader =
 --
 -- A use that is cancelled while it loads (its wrapper removed) leaves the
 -- load to the next one.
+-- Call it in @H.sync@.
 memo :: forall a m n. (MonadUnliftIO m, MonadIO n) => m a -> n (m a)
 memo load = do
   var <- newMVar Nothing

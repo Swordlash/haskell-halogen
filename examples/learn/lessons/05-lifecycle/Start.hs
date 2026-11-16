@@ -35,8 +35,8 @@ component =
       Remind -> do
         modify (\s -> s {message = "Waiting..."})
         void $ H.fork $ do
-          liftIO (threadDelay 2000000)
+          H.async (liftIO (threadDelay 2000000))
           modify (\s -> s {message = "Two seconds have passed."})
     report = do
       state <- get
-      liftIO (putStrLn ("Finalized after " <> show state.seconds <> " seconds."))
+      H.sync (liftIO (putStrLn ("Finalized after " <> show state.seconds <> " seconds.")))

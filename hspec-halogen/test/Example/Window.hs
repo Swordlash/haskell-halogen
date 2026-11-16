@@ -83,15 +83,15 @@ component =
     handleAction = \case
       Initialize -> do
         counter <- gets (.delivered)
-        -- Made at once, in 'H.liftEffect', so that the subscriptions are
+        -- Made at once, in 'H.sync', so that the subscriptions are
         -- there once the component has been initialized, which is when
         -- 'mount' returns and a test starts acting on the page. After a
-        -- 'lift' they would come later, and what the test does first
+        -- 'H.async' they would come later, and what the test does first
         -- could go unheard.
-        keyDowns <- H.liftEffect Window.keyDown
-        resizes <- H.liftEffect Window.resize
-        visibility <- H.liftEffect Window.visibility
-        online <- H.liftEffect Window.online
+        keyDowns <- H.sync Window.keyDown
+        resizes <- H.sync Window.resize
+        visibility <- H.sync Window.visibility
+        online <- H.sync Window.online
         subscriptions <-
           traverse
             (H.subscribe . counted counter)

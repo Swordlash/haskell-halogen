@@ -22,7 +22,6 @@ import Control.Exception (SomeException, throwIO, try)
 import Control.Monad (void, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.State.Class (get, modify)
-import Control.Monad.Trans (lift)
 import Data.Aeson (object)
 import Data.Foldable (for_)
 import Data.IORef (IORef, atomicModifyIORef', mkWeakIORef, newIORef, readIORef)
@@ -86,7 +85,7 @@ bell =
         ]
     act = \case
       Watch -> do
-        presses <- H.liftEffect $ do
+        presses <- H.sync $ do
           doc <- DOM.window >>= DOM.document
           HS.lowerEmitter (HQE.eventListener (EventType "pointerdown") (N.fromNative (N.toNative doc)) Just)
         void (H.subscribe (Pressed <$ presses))
@@ -177,17 +176,17 @@ noting found =
     (\() -> pure ())
     render
     [ H.onInitialize $ do
-        liftIO (threadDelay 1000)
+        H.async (liftIO (threadDelay 1000))
         note "after a wait"
-        void (H.fork (liftIO (threadDelay 1000) >> note "in a fork"))
-        doc <- lift (liftIO (threadDelay 1000) >> DOM.window >>= DOM.document)
-        liftIO (atomicModifyIORef' found (\before -> (("in its monad", N.toNative doc) : before, ())))
+        void (H.fork (H.async (liftIO (threadDelay 1000)) >> note "in a fork"))
+        doc <- H.async (liftIO (threadDelay 1000) >> DOM.window >>= DOM.document)
+        H.sync (liftIO (atomicModifyIORef' found (\before -> (("in its monad", N.toNative doc) : before, ()))))
     , H.onFinalize (note "in its finalizer")
     ]
   where
     -- Both steps are in one effect, which does not wait. So the
     -- finalizer's note is written before the tree's disposal returns.
-    note label = H.liftEffect $ do
+    note label = H.sync $ do
       doc <- DOM.window >>= DOM.document
       liftIO (atomicModifyIORef' found (\before -> ((label, N.toNative doc) : before, ())))
     render :: () -> H.ComponentHTML () ("portal" .== H.Slot H.VoidF Void ()) MemDOM

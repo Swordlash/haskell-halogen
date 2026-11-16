@@ -53,7 +53,7 @@ import Web.Event.Event qualified as Event
 
 -- | Note a line in a log, at once.
 note :: (MonadIO m) => IORef [Text] -> Text -> H.HalogenM s a ps o m ()
-note ref line = H.liftEffect (liftIO (atomicModifyIORef' ref (\before -> (before <> [line], ()))))
+note ref line = H.sync (liftIO (atomicModifyIORef' ref (\before -> (before <> [line], ()))))
 
 -- | A guard against a hang, with the view's HTML in the message.
 guarded :: T.View q i o -> IO a -> IO a
@@ -146,7 +146,7 @@ popup logged =
         ]
     act = \case
       Watch -> do
-        presses <- H.liftEffect $ do
+        presses <- H.sync $ do
           doc <- DOM.window >>= DOM.document
           HS.lowerEmitter (HQE.eventListener (EventType "pointerdown") (N.fromNative (N.toNative doc)) outside)
         void (H.subscribe presses)
@@ -293,7 +293,7 @@ data FieldAction = Type Text | Save
 data Field = Field {typed :: Text, saved :: Bool}
 
 -- | A field whose text the component keeps, and a button that saves after
--- a wait in @liftIO@.
+-- a wait in @H.async@.
 field :: forall m. (MonadIO m) => H.Component FieldQuery () Void m
 field =
   H.component
@@ -302,7 +302,7 @@ field =
     [ H.onAction $ \case
         Type t -> modify (\s -> s {typed = t})
         Save -> do
-          liftIO (threadDelay 20_000)
+          H.async (liftIO (threadDelay 20_000))
           modify (\s -> s {saved = True})
     , H.onQuery $ \case
         Typed reply -> Just . reply . (.typed) <$> get
@@ -341,10 +341,10 @@ asking gate =
   where
     act = \case
       Ask what -> do
-        r <- liftIO (T.hold gate what)
+        r <- H.async (liftIO (T.hold gate what))
         modify (\s -> s {answers = s.answers <> [r]})
       Again -> do
-        _ <- liftIO (T.hold gate "again")
+        _ <- H.async (liftIO (T.hold gate "again"))
         modify (\s -> s {clicks = s.clicks + 1})
     render :: Asking -> H.ComponentHTML AskAction Empty m
     render s =
@@ -362,7 +362,7 @@ data Loading = Loading {loaded :: Bool, ticked :: Bool}
 
 data LoadingAction = Tick
 
--- | Loads in a @liftIO@ as it starts, and ticks after a counted pause of
+-- | Loads in an @H.async@ as it starts, and ticks after a counted pause of
 -- five seconds when clicked.
 loading :: forall m. (MonadIO m) => H.Component H.VoidF () Void m
 loading =
@@ -370,7 +370,7 @@ loading =
     (\() -> pure Loading {loaded = False, ticked = False})
     render
     [ H.onInitialize $ do
-        liftIO (threadDelay 1000)
+        H.async (liftIO (threadDelay 1000))
         modify (\s -> s {loaded = True})
     , H.onAction $ \Tick -> do
         H.delayCounted 5
@@ -414,7 +414,7 @@ bell =
     render _ = HH.button [HP.class_ (HH.ClassName "bell"), HE.onClick (const Ring)] [HH.text "bell"]
     act = \case
       Listen -> do
-        presses <- H.liftEffect $ do
+        presses <- H.sync $ do
           doc <- DOM.window >>= DOM.document
           HS.lowerEmitter (HQE.eventListener (EventType "pointerdown") (N.fromNative (N.toNative doc)) Just)
         void (H.subscribe (Pressed <$ presses))
@@ -638,7 +638,7 @@ spec = describe "the harness for the in-memory DOM" $ do
         ("not a text field" `isInfixOf` refused) `shouldBe` True
 
   describe "settle" $ do
-    it "waits for what a handler waits for in liftIO" $ do
+    it "waits for what a handler waits for in H.async" $ do
       T.withView id field () $ \view -> do
         T.click view "button.save"
         guarded view (T.settle view)

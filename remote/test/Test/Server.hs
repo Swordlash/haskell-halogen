@@ -43,7 +43,7 @@ watched finalized =
   H.component
     (\() -> pure (0 :: Int))
     render
-    [H.onAction (\() -> modify (+ 1)), H.onFinalize (liftIO (putMVar finalized ()))]
+    [H.onAction (\() -> modify (+ 1)), H.onFinalize (H.sync (liftIO (putMVar finalized ())))]
   where
     render :: Int -> H.ComponentHTML () Empty m
     render n = HH.button [HP.id "increment", HE.onClick (const ())] [HH.text (show n)]

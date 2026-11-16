@@ -93,13 +93,13 @@ component =
         target <- gets (.target)
         H.getHTMLElementRef target >>= traverse_ (\el -> do
           modify $ \st -> st {trail = st.trail <> ["poke"]}
-          cancelled <- H.liftEffect (liftIO (js_poke el))
+          cancelled <- H.sync (liftIO (js_poke el))
           modify $ \st -> st {trail = st.trail <> ["poked"]}
           handledFirst <- gets (.handled)
           modify $ \st -> st {result = Just (cancelled, handledFirst)})
       Inner event -> do
         modify $ \st -> st {trail = st.trail <> ["inner"]}
-        H.liftEffect (preventDefault event >> stopPropagation event)
+        H.sync (preventDefault event >> stopPropagation event)
         modify $ \st -> st {handled = True}
       Outer -> modify $ \st -> st {outer = True, trail = st.trail <> ["outer"]}
 
@@ -165,7 +165,7 @@ subscribed =
 
     handleAction :: SubscribedAction -> H.HalogenM Subscribed SubscribedAction Empty o m ()
     handleAction = \case
-      -- Subscribed in 'H.liftEffect', so that the listeners are on the
+      -- Subscribed in 'H.sync', so that the listeners are on the
       -- elements by the time the component counts as initialized.
       Listen -> do
         st <- get
@@ -175,7 +175,7 @@ subscribed =
         modify $ \st -> st {heard = False, poked = Nothing}
         gets (.element) >>= H.getHTMLElementRef >>= traverse_ (\el -> do
           step "poke"
-          cancelled <- H.liftEffect (liftIO (js_poke el))
+          cancelled <- H.sync (liftIO (js_poke el))
           step "poked"
           heardFirst <- gets (.heard)
           modify $ \st -> st {poked = Just (cancelled, heardFirst)})
@@ -183,23 +183,23 @@ subscribed =
         modify $ \st -> st {boxHeard = False, clicked = Nothing}
         gets (.box) >>= H.getHTMLElementRef >>= traverse_ (\el -> do
           step "click"
-          checked <- H.liftEffect (liftIO (js_click_box el))
+          checked <- H.sync (liftIO (js_click_box el))
           step "clicked"
           heardFirst <- gets (.boxHeard)
           modify $ \st -> st {clicked = Just (checked, heardFirst)})
       Heard event -> do
         step "heard"
-        H.liftEffect (preventDefault event)
+        H.sync (preventDefault event)
         modify $ \st -> st {heard = True}
       BoxHeard event -> do
         step "box"
-        H.liftEffect (preventDefault event)
+        H.sync (preventDefault event)
         modify $ \st -> st {boxHeard = True}
 
     listen :: H.RefLabel -> EventType -> (Event -> SubscribedAction) -> H.HalogenM Subscribed SubscribedAction Empty o m ()
     listen label eventType action =
       H.getRef label >>= traverse_ (\el -> do
-        emitter <- H.liftEffect $ do
+        emitter <- H.sync $ do
           target <- elementToEventTarget el
           HS.lowerEmitter (HQE.eventListener eventType target Just)
         void (H.subscribe (action <$> emitter)))

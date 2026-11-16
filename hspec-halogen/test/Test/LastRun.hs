@@ -15,14 +15,14 @@ import Test.Hspec.Halogen
 import Web.DOM.ParentNode (QuerySelector (..))
 
 -- | A paragraph that sets the reference it is given once it is finalized,
--- at once ('H.liftEffect'), so that the finalizer has run by the time the
--- disposal returns: what a finalizer does in 'liftIO' goes on after it.
+-- at once ('H.sync'), so that the finalizer has run by the time the
+-- disposal returns: what a finalizer does in 'H.async' goes on after it.
 finalizing :: forall m. (MonadIO m) => H.Component H.VoidF (IORef Bool) Void m
 finalizing =
   H.component
     pure
     (\_ -> HH.p_ [HH.text "the last run"])
-    [H.onFinalize (get >>= \finalized -> H.liftEffect (liftIO (atomicWriteIORef finalized True)))]
+    [H.onFinalize (get >>= \finalized -> H.sync (liftIO (atomicWriteIORef finalized True)))]
 
 -- | What a program's @main@ does: end the last run, mount into the page's
 -- @.last-run@ and keep the socket's @dispose@ for the next run.

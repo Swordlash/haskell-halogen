@@ -17,7 +17,7 @@ render state =
 
 `Lazy.lazy loading loader` is a component of the same type as the one it waits for.
 
-When mounted, the wrapper shows `loading.placeholder` and runs the loader through `lift` on a separate thread. The rest of the component tree continues normally.
+When mounted, the wrapper shows `loading.placeholder` and runs the loader through `H.async` on a separate thread. The rest of the component tree continues normally.
 
 Once loading completes, the wrapper mounts the component with its initial input and delivers any subsequent inputs through `H.onReceive`. It forwards the child's outputs and queries. Queries received before loading finishes, or after a loading failure, return `Nothing`; `H.tell` has no effect. Queries are not queued for later.
 

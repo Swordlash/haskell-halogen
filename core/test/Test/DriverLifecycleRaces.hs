@@ -14,7 +14,6 @@ import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (ErrorCall (..), throwIO, try)
 import Control.Monad (void, when)
-import Control.Monad.IO.Class (liftIO)
 import Control.Monad.State.Class (get, modify, put, state)
 import Data.Foldable (traverse_)
 import Data.IORef
@@ -104,8 +103,8 @@ child counts =
     [H.onAction handleAction, H.onInitialize (handleAction Start), H.onFinalize (handleAction Stop)]
   where
     handleAction = \case
-      Start -> H.liftEffect $ modifyIORef' counts.started (+ 1)
-      Stop -> H.liftEffect $ modifyIORef' counts.stopped (+ 1)
+      Start -> H.sync $ modifyIORef' counts.started (+ 1)
+      Stop -> H.sync $ modifyIORef' counts.stopped (+ 1)
 
 type Slots = "child" .== H.Slot H.VoidF Void Int
 
@@ -177,11 +176,11 @@ forker =
   where
     answer :: ForkQuery a -> H.HalogenM () Void Empty Void IO (Maybe a)
     answer (HoldThenFork holding go survived a) = do
-      liftIO $ putMVar holding () >> takeMVar go
+      H.async $ putMVar holding () >> takeMVar go
       -- The component is finalized by now; this fork must not outlive it.
       -- (It may be killed before it even starts, so it cannot report its
       -- own death; what it can report is having lived on.)
-      void $ H.fork $ liftIO $ threadDelay 200000 >> writeIORef survived True
+      void $ H.fork $ H.async $ threadDelay 200000 >> writeIORef survived True
       pure (Just a)
 
 forkAfterFinalize :: IO ()

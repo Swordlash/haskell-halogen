@@ -43,7 +43,7 @@ component =
       -- another one. Fifty-nine ticks a minute now write nothing, and
       -- nothing renders for them.
       Tick -> do
-        now <- liftIO getCurrentTime
+        now <- H.sync (liftIO getCurrentTime)
         let minute = T.pack (formatTime defaultTimeLocale "%H:%M" now)
         st <- get
         when (st.clock /= minute) $ put st {clock = minute}

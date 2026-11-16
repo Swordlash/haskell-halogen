@@ -48,8 +48,8 @@ spec m = do
     (ui, journal) <- family m
     addChildren ui 2
     removeChild ui 1
-    -- The finaliser writes in a liftIO, a fiber of the tree's like any
-    -- other while the tree is mounted: once the program is quiet it has.
+    -- The finaliser writes in an H.sync, as the child is removed: once the
+    -- program is quiet it has.
     waitQuiet
     unsafeIOToPageM (readIORef journal) `shouldReturn` ["finalised bo"]
 

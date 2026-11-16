@@ -66,7 +66,7 @@
 -- callbacks as the browser's events: Haskell has seen it by the time the
 -- page's code goes on, though what the component does about it may come
 -- later. An attribute or a property set from inside the component's own
--- @H.liftEffect@ queues its input behind that effect, as any outside
+-- @H.sync@ queues its input behind that effect, as any outside
 -- caller's query does.
 --
 -- = Natively
@@ -412,7 +412,7 @@ wrapper dispatch inner =
   -- wrapper does without carrying its states.
   H.Component H.ComponentInfo {label = "Halogen.CustomElement.wrapper", stateType = Nothing} $
     H.componentSpec pure render
-      & H.onAction (H.liftEffect . liftIO . dispatch)
+      & H.onAction (H.sync . liftIO . dispatch)
       & H.onQuery answer
   where
     render :: input -> H.ComponentHTML output (Inner query output) m

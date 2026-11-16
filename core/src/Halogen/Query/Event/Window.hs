@@ -12,7 +12,7 @@
 --
 -- > handleAction = \case
 -- >   Initialize -> do
--- >     keys <- H.liftEffect Window.keyDown
+-- >     keys <- H.sync Window.keyDown
 -- >     void $ H.subscribe (KeyPressed . KeyboardEvent.key <$> keys)
 -- >     void $ H.subscribe (Tick <$ Window.interval 1000)
 -- >   KeyPressed k -> ...
@@ -24,13 +24,13 @@
 -- 'lowerEmitter' as they are made; the two clocks need nothing of the page
 -- and are plain values.
 --
--- Make them with @H.liftEffect@ (in hooks, @Hooks.liftEffect@), as above,
--- rather than 'lift'. Making one does not wait, and 'lift' is where a
+-- Make them with @H.sync@ (in hooks, @Hooks.sync@), as above,
+-- rather than @H.async@. Making one does not wait, and @H.async@ is where a
 -- program may wait: what follows it runs later, on another thread, while
 -- the tree goes on. A component counts as initialized once its
 -- @Initialize@ has reached its first wait, and @runUI@ returns then, so
--- after a 'lift' the subscription is not yet there, and whatever the page
--- does until it is goes unheard. With @H.liftEffect@ it is there by the
+-- after an @H.async@ the subscription is not yet there, and whatever the page
+-- does until it is goes unheard. With @H.sync@ it is there by the
 -- time the component has been initialized.
 --
 -- Each subscription is its own listener, frame request or thread, made when

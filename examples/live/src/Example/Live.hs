@@ -77,13 +77,13 @@ board shared =
     render
     [ H.onInitialize $ do
         void (H.subscribe (Heard <$> shared.changes.emitter))
-        liftIO (readMVar shared.kept) >>= show'
+        H.async (liftIO (readMVar shared.kept)) >>= show'
     , H.onAction $ \case
         Typed text -> modify (\s -> s {draft = text})
         Heard ls -> show' ls
         Posted -> do
           line <- Text.strip <$> gets (.draft)
-          unless (Text.null line) $ liftIO (post shared line)
+          unless (Text.null line) $ H.async (liftIO (post shared line))
           modify (\s -> s {draft = ""})
     ]
   where

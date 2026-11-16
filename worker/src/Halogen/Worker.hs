@@ -27,8 +27,8 @@
 -- >   pool <- Worker.newPool 2
 -- >   ...
 -- > -- and in a component:
--- >   n <- liftIO (Worker.run pool primes 2000000)
--- >   m <- liftIO (Worker.run pool primesBetween 1000000 2000000)
+-- >   n <- H.async (liftIO (Worker.run pool primes 2000000))
+-- >   m <- H.async (liftIO (Worker.run pool primesBetween 1000000 2000000))
 --
 -- 'start' gives a 'Promise' of the result at once instead of waiting, so
 -- that "Halogen.JSBits.Promise"'s vocabulary ('Halogen.JSBits.Promise.mapConcurrently',
@@ -180,6 +180,7 @@ job = Internal.job
 -- 0, or 'Nothing' on the page (and wherever a job runs in the program
 -- itself). A job can read it to say where it ran; nothing else depends on
 -- it.
+-- Call it in @H.sync@.
 whichWorker :: (MonadIO m) => m (Maybe Int)
 whichWorker = liftIO $ do
   inWorker <- js_in_worker
@@ -270,6 +271,7 @@ data Local = Local
 -- to load the program (fetching and compiling the binary, which the browser
 -- caches, and running @main@ to 'serve'). Natively, and wherever 'available'
 -- is 'False', a pool starts nothing.
+-- Call it in @H.sync@.
 newPool :: (MonadIO m) => Int -> m Pool
 newPool n = liftIO (Pool <$> js_pool n arch <*> pure (max 1 n) <*> newIORef [])
 
@@ -289,6 +291,7 @@ sendTo pool index request = toJSBytes request >>= js_run_on pool.workers index
 -- | End the pool's workers, and the jobs it runs in the program itself.
 -- What they were running fails with a 'WorkerError'; a later job starts the
 -- workers again.
+-- Call it in @H.sync@.
 terminate :: (MonadIO m) => Pool -> m ()
 terminate pool = liftIO $ do
   js_terminate pool.workers
@@ -300,6 +303,7 @@ terminate pool = liftIO $ do
 -- for this program's backend, or a script of the loader's own that loads it),
 -- once 'serve' has been called, and not inside
 -- a worker. Otherwise jobs run in the program itself.
+-- Call it in @H.sync@.
 available :: (MonadIO m) => m Bool
 available = liftIO $ do
   serving <- readIORef served
@@ -307,10 +311,10 @@ available = liftIO $ do
 
 -- | Give the job to the next worker of the pool (they take turns), and a
 -- 'Promise' of its result at once. Nothing waits: 'Halogen.JSBits.Promise.wait'
--- for the promise where a thread may wait (a component's @liftIO@), or start
+-- for the promise where a thread may wait (a component's @H.async@), or start
 -- several first, which is how the pool's workers compute side by side:
 --
--- > counts <- liftIO (mapConcurrently (Worker.start pool primes) [1000000, 2000000])
+-- > counts <- H.async (liftIO (mapConcurrently (Worker.start pool primes) [1000000, 2000000]))
 --
 -- Pass the job's arguments after the job, in order:
 -- @Worker.start pool primesBetween lo hi@.
@@ -335,11 +339,11 @@ start pool pointer = curried (deRefStaticPtr pointer) $ \bytes -> do
   let rejection e = JSError {name = e.name, message = Text.pack (displayException (WorkerError (jobName pointer) e.message))}
   pure Promise {rawPromise = raw, settled = first rejection <$> outcome}
 
--- | 'start' the job and wait for its result. In a component this is a
--- @liftIO@ (or @lift@), which runs on a thread of its own while the tree
--- goes on; the page's thread is free meanwhile, since the work is in the
--- worker's. Consecutive calls in one thread wait for one another; 'start'
--- several to use several workers. Pass the job's arguments after the job,
+-- | 'start' the job and wait for its result. In a component, call it in
+-- @H.async@, which runs it on a thread of its own while the tree goes on.
+-- The page's thread is free meanwhile, since the work is in the worker's.
+-- Consecutive calls in one thread wait for one another; 'start' several to
+-- use several workers. Pass the job's arguments after the job,
 -- in order: @Worker.run pool primesBetween lo hi@.
 --
 -- An exception in the job, arguments it cannot decode, a result the
@@ -448,6 +452,7 @@ tokens = unsafePerformIO (newIORef 0)
 -- 'checkpoint' (or sooner, when the runtime switches threads).
 --
 -- A promise the pool did not start, or one that has settled, is left alone.
+-- Call it in @H.sync@.
 cancel :: (MonadIO m) => Pool -> Promise b -> m ()
 cancel pool p = liftIO (stop Cancelling pool p.rawPromise)
 
@@ -461,6 +466,7 @@ cancel pool p = liftIO (stop Cancelling pool p.rawPromise)
 -- worker can be made it is 'cancel'.
 --
 -- A promise the pool did not start, or one that has settled, is left alone.
+-- Call it in @H.sync@.
 kill :: (MonadIO m) => Pool -> Promise b -> m ()
 kill pool p = liftIO (stop Killing pool p.rawPromise)
 

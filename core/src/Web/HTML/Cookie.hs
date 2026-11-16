@@ -75,14 +75,17 @@ defaultCookie name value =
 
 -- | Every cookie the document can see. Cookies the browser marked @HttpOnly@
 -- are not among them, which is the point of that flag.
+-- Call it in @H.sync@.
 getCookies :: (MonadIO m) => HTMLDocument -> m (Map Text Text)
 getCookies doc = parseCookies <$> HTMLDocument.cookie doc
 
 -- | One cookie by name.
+-- Call it in @H.sync@.
 getCookie :: (MonadIO m) => Text -> HTMLDocument -> m (Maybe Text)
 getCookie key doc = M.lookup key <$> getCookies doc
 
 -- | Add a cookie, or replace the one of the same name.
+-- Call it in @H.sync@.
 setCookie :: (MonadIO m) => Cookie -> HTMLDocument -> m ()
 setCookie c = HTMLDocument.setCookie (renderCookie c)
 
@@ -90,6 +93,7 @@ setCookie c = HTMLDocument.setCookie (renderCookie c)
 --
 -- A cookie is only replaced by a write that matches its path and domain, so
 -- one set with either needs the same here.
+-- Call it in @H.sync@.
 deleteCookie :: (MonadIO m) => Cookie -> HTMLDocument -> m ()
 deleteCookie c = setCookie c {value = "", maxAge = Just 0}
 

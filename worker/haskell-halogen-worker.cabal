@@ -13,7 +13,7 @@ description:
   @program@ (or @serve@), which in a worker serves the jobs and on the page
   goes on to the UI; a @Pool@ starts its workers when it first needs them,
   @start@ gives a promise of a job's result and @run@ waits for it as any
-  @liftIO@ waits. Where no worker can be made (natively, in Node, in a page
+  @H.async@ waits. Where no worker can be made (natively, in Node, in a page
   that has not said where the program is) the job runs in the program
   itself, through the same bytes, so the same code works everywhere. It
   needs nothing of haskell-halogen-core: any program compiled for the

@@ -2,7 +2,7 @@
 -- from the element's @label@ property or attribute; it raises every new
 -- count, the first (0) from its initializer, which the element dispatches
 -- as a @count@ event; and its queries are the element's methods. It bumps
--- the reference it is given when it is finalized, at once ('H.liftEffect'),
+-- the reference it is given when it is finalized, at once ('H.sync'),
 -- so that a test can tell. The label @boom@ makes its initialState throw,
 -- for the test of a definition that fails to mount an element.
 module Example.Counter
@@ -51,7 +51,7 @@ counter finalized =
     , H.onAction handleAction
     , H.onQuery handleQuery
     , H.onReceive (\label -> modify (\st -> st {label}))
-    , H.onFinalize (H.liftEffect (liftIO (atomicModifyIORef' finalized (\n -> (n + 1, ())))))
+    , H.onFinalize (H.sync (liftIO (atomicModifyIORef' finalized (\n -> (n + 1, ())))))
     ]
   where
     render :: State -> H.ComponentHTML Action Empty m
@@ -101,5 +101,5 @@ other finalized =
     pure
     (\label -> HH.p [HP.class_ (HH.ClassName "other")] [HH.text ("other: " <> label)])
     [ H.onReceive put
-    , H.onFinalize (H.liftEffect (liftIO (atomicModifyIORef' finalized (\n -> (n + 1, ())))))
+    , H.onFinalize (H.sync (liftIO (atomicModifyIORef' finalized (\n -> (n + 1, ())))))
     ]

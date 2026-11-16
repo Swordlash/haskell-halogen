@@ -304,8 +304,11 @@ test-suite Halogen-core-test
                       row-types,
                       text,
                       time,
-                      unliftio-core,
                       unordered-containers
+    -- Only Test.Harness uses it, and the harness is built natively and with
+    -- wasi only.
+    if (!arch(wasm32) && !arch(javascript)) || flag(wasi)
+      build-depends: unliftio-core
     
     other-modules:  Test.Activity
                     Test.Control

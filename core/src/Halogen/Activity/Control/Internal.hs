@@ -156,8 +156,8 @@ data HeldWaits = HeldWaits
   , closed :: TVar Bool
   }
 
--- | A wait of a component's program (a 'Halogen.Query.HalogenM.lift' or
--- 'liftIO', or the body of a 'UnliftIO.withRunInIO') that the test holds:
+-- | A wait of a component's program (a 'Halogen.Query.HalogenM.async', or
+-- the body of a 'Halogen.Query.HalogenM.asyncWith') that the test holds:
 -- its worker has started and the fiber counts as waiting, but the action
 -- has not started and does not until the wait is released.
 data HeldWait = HeldWait
@@ -253,7 +253,7 @@ releaseAll hw = atomically $ do
   writeTVar hw.holding IntMap.empty
   for_ held $ \w -> park w.tree.parked (-1) >> void (tryPutTMVar w.decision Go)
 
--- | The suspension of a 'Halogen.Query.HalogenM.Lift': 'await', held when
+-- | The suspension of a 'Halogen.Query.HalogenM.Async': 'await', held when
 -- the tree is under 'withHeldWaits'. The wait is numbered here, on the
 -- loop, and held by its worker.
 awaitHeld :: Maybe TreeControl -> Tag -> IO a -> Turn a
@@ -300,7 +300,7 @@ data FiberGone = FiberGone
 
 instance Exception FiberGone
 
--- | For the body of a 'Halogen.Query.HalogenM.Unlift' in a controlled tree:
+-- | For the body of a 'Halogen.Query.HalogenM.AsyncWith' in a controlled tree:
 -- an action to run for each program the body hands to the loop, which
 -- gives two more: one to run once the program is queued, and one to run
 -- when it has ended (on the loop, before the body hears of it).

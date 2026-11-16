@@ -29,8 +29,8 @@ component :: H.Component H.VoidF () Void IO
 component = Hooks.component @Empty $ \_ -> Hooks.do
   (_, stateId) <- Hooks.useState (0 :: Int)
   Hooks.useLifecycleEffect $ do
-    liftIO $ evaluate (escape stateId) `shouldThrow` isScopeError
-    liftIO $ evaluate (escapeAction (Hooks.put stateId 1)) `shouldThrow` isScopeError
+    Hooks.sync $ evaluate (escape stateId) `shouldThrow` isScopeError
+    Hooks.sync $ evaluate (escapeAction (Hooks.put stateId 1)) `shouldThrow` isScopeError
     pure Nothing
   Hooks.pure $ HH.text "scoped"
 

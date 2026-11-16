@@ -39,4 +39,4 @@ worker =
     H.component
       (\() -> pure Worker)
       (\Worker -> HH.text "working" :: H.ComponentHTML () Empty m)
-      [H.onInitialize (void (H.fork (forever (liftIO (threadDelay 20000)))))]
+      [H.onInitialize (void (H.fork (forever (H.async (liftIO (threadDelay 20000))))))]

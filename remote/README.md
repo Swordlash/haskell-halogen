@@ -131,7 +131,7 @@ The hello message includes all prefixed entries, so its size depends on stored d
 
 Back, Forward and manual fragment changes send a location message such as `{"location": "https://example.com/blog/"}`. The client's `popstate` and `hashchange` listeners run before program listeners so the mirror updates first. Cross-tab storage changes send `{"storage": {"kind": "local", "key": "haskell-halogen:count", "value": "NA=="}}`. A null value removes an item; a null key clears the store.
 
-The activity probe uses the same socket. The client sends `{"probe": 3}` and receives `{"probe": 3, "trees": 1, "running": 0, "waiting": 0}`. `trees` is 1 while the component is mounted. `running` includes tree work, renders, queued operations and batches still being sent. `waiting` counts fibers suspended in `liftIO`.
+The activity probe uses the same socket. The client sends `{"probe": 3}` and receives `{"probe": 3, "trees": 1, "running": 0, "waiting": 0}`. `trees` is 1 while the component is mounted. `running` includes tree work, renders, queued operations and batches still being sent. `waiting` counts fibers suspended in `H.async`.
 
 Probe replies are ordered with batches and follow all operations recorded before the query arrived. Both sides ignore unknown message types, and the client ignores unknown operations. The client recognises `ops` and `probe`; the program recognises `listener`, `probe`, `hello`, `location` and `storage`.
 
@@ -192,7 +192,7 @@ main = withTestServer $ \server -> hspec $ playwright $
 
 **Activity over the wire.** The client forwards activity queries to its own session, so a busy test does not block another. An idle reply means the component has handled earlier events and the browser has applied their DOM batches: both directions preserve socket order.
 
-Some applied operations produce more browser events, such as a requested focus triggering `onFocus`. If those events were sent after a probe query, the client queries again before returning the answer. `waitQuiet` also waits for `liftIO` fibers, but excludes `H.delay`, just as it does for an in-page program.
+Some applied operations produce more browser events, such as a requested focus triggering `onFocus`. If those events were sent after a probe query, the client queries again before returning the answer. `waitQuiet` also waits for `H.async` fibers, but excludes `H.delay`, just as it does for an in-page program.
 
 **Work started by the test.** Releasing a held backend response, querying the component or notifying an emitter does not trigger a browser action, so the driver does not automatically settle afterward. Use `waitSession mounted p` to wait for a session activity condition, then `settle page` to ensure the browser has applied the batches. `waitSession` wakes on activity changes rather than polling:
 
@@ -203,7 +203,7 @@ settle page
 textContent (locator page "#count") `shouldReturn` "3"
 ```
 
-**Disposal.** `Session.dispose` returns after finalizers complete their synchronous parts, even if the server is disposing the same session concurrently. Finalizers suspended in `liftIO` may continue afterward. Use `waitSession mounted quiet` or `Session.waitActivity` to wait for those too.
+**Disposal.** `Session.dispose` returns after finalizers complete their synchronous parts, even if the server is disposing the same session concurrently. Finalizers suspended in `H.async` may continue afterward. Use `waitSession mounted quiet` or `Session.waitActivity` to wait for those too.
 
 **Routes and reloads.** Every path beneath a mount URL serves the same page with that mount's `<base href>`. Use `mountingEach server program` to create a component and input in each new session after its hello arrives. This supports routers and reloads: every connection gets fresh state, and the returned action waits for successive connections in order:
 
@@ -273,6 +273,6 @@ The client does not hydrate prerendered HTML; it starts with an empty container.
 
 Handler tests cover default prevention, declared matches, plain-click routing, delegated links, clipboard metadata and updated listener options. Native tests also check supported DOM calls and their ordering, dialog and scroll operations, both title access paths, ignored unsupported operations, real WebSocket serving through `application` and `applicationWith`, per-request mounts, empty connections and hello handling. Storage and router tests cover initial values, updates, cross-tab changes, history operations, hash routes and sessions without hello.
 
-`Halogen-remote-live-test` drives Chromium from a native test through `haskell-halogen-playwright`. It exercises a server behind a disconnectable proxy and the `Halogen.Remote.Test` API, reading once after each settled action. Cases include busy handlers, `liftIO`, uncounted delays, independent pages, disabled reconnection, direct queries, delegated navigation, real paste events, focus, modal dialogs, scrolling, title updates and unsupported methods. `mountingEach` tests deep links, Back/Forward, redirects, reloads, hash routing and local/session storage persistence.
+`Halogen-remote-live-test` drives Chromium from a native test through `haskell-halogen-playwright`. It exercises a server behind a disconnectable proxy and the `Halogen.Remote.Test` API, reading once after each settled action. Cases include busy handlers, `H.async`, uncounted delays, independent pages, disabled reconnection, direct queries, delegated navigation, real paste events, focus, modal dialogs, scrolling, title updates and unsupported methods. `mountingEach` tests deep links, Back/Forward, redirects, reloads, hash routing and local/session storage persistence.
 
 `Halogen-remote-browser-test` runs loopback in headless Chromium on both browser backends using hspec-halogen. It checks real input, retained child elements, prevented form and link defaults, delegated events, key matching, loopback handle limitations, mount failure and disposal. It also checks that the probe counts the loopback tree once, hello arrives first, storage survives remounts and hash routing supports Back.

@@ -12,9 +12,9 @@ Use `H.subscribe` for events that come from outside the component's elements, su
 
 ## Forks
 
-`H.fork` starts a component program that can continue after the current action finishes. `Remind` forks a program that waits two seconds with `liftIO (threadDelay 2000000)`, then updates state. `threadDelay` takes microseconds.
+`H.fork` starts a component program that can continue after the current action finishes. `Remind` forks a program that waits two seconds with `H.async (liftIO (threadDelay 2000000))`, then updates state. `threadDelay` takes microseconds.
 
-The wait runs on a separate Haskell thread, allowing the component to handle clock ticks meanwhile. `H.fork` returns an ID for early cancellation. This example discards it with `void`, as it does the subscription ID.
+Put an action that waits in `H.async`. The wait runs on a separate Haskell thread, so the component handles clock ticks meanwhile. Put an action that does not wait in `H.sync`, as `report` does with `putStrLn`. It runs at once, and nothing else runs until it ends. `H.fork` returns an ID for early cancellation. This example discards it with `void`, as it does the subscription ID.
 
 ## What finalizing is for
 

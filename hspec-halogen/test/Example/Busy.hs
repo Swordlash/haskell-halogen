@@ -13,7 +13,7 @@
 --
 -- The test makes that case itself: pressing a button renders a child
 -- component, whose 'initialState' runs during that render, on the loop and
--- outside any 'H.liftEffect', and dispatches a click to the link named. The
+-- outside any 'H.sync', and dispatches a click to the link named. The
 -- loop's own thread is then under the click's listener on the JavaScript
 -- stack and cannot go on until the listener returns.
 --
@@ -77,7 +77,7 @@ data Link
   = -- | A "Halogen.Router" link to @Just 1@, followed with 'Router.follow'.
     RouterLink
   | -- | A click handler whose action prevents the default itself, in
-    -- 'H.liftEffect'.
+    -- 'H.sync'.
     ActionPrevents
   | -- | A click handler that prevents the default in the listener.
     ListenerPrevents
@@ -153,11 +153,11 @@ component =
         Router.follow router f
         record RouterLink
       Clicked l ev -> do
-        when (l == ActionPrevents) $ H.liftEffect (preventDefault (toEvent ev))
+        when (l == ActionPrevents) $ H.sync (preventDefault (toEvent ev))
         record l
       ClickWhilePreempted -> do
-        gate <- H.liftEffect (liftIO newEmptyMVar)
-        started <- H.liftEffect (liftIO (newIORef False))
+        gate <- H.sync (liftIO newEmptyMVar)
+        started <- H.sync (liftIO (newIORef False))
         -- The page's call that lets this action go on. A synchronous call
         -- returns with the threads it woke still runnable, so it waits
         -- until the long render below has begun: the worker woken here has
@@ -165,17 +165,17 @@ component =
         -- inside the call, and that runner has been preempted, its render
         -- unfinished, for this thread to see the flag. The click the page
         -- makes next, in the same task, finds the loop held that way.
-        release <- H.liftEffect $ liftIO $ mkSyncCallback $ \_ -> do
+        release <- H.sync $ liftIO $ mkSyncCallback $ \_ -> do
           putMVar gate ()
           let untilStarted = readIORef started >>= \s -> unless s (yield >> untilStarted)
           untilStarted
-        clicked <- H.liftEffect (liftIO (js_release_then_click release (fromEnum ActionPrevents)))
-        liftIO (takeMVar gate)
-        H.liftEffect (liftIO (writeIORef started True))
+        clicked <- H.sync (liftIO (js_release_then_click release (fromEnum ActionPrevents)))
+        H.async (liftIO (takeMVar gate))
+        H.sync (liftIO (writeIORef started True))
         modify $ \st -> st {filler = 3000}
         modify $ \st -> st {handled = st.handled <> ["Filled"]}
-        outcome <- waitCatch clicked
-        liftIO (freeCallback release)
+        outcome <- H.async (waitCatch clicked)
+        H.sync (liftIO (freeCallback release))
         modify $ \st -> st {preempted = either (const "failed") jsValText outcome}
 
     record :: Link -> H.HalogenM State Action Slots o m ()

@@ -181,10 +181,10 @@ The suite and its components share one program. `Halogen.Activity` reports wheth
 
 After an action, one read is enough to inspect its rendered result. Call `settle` explicitly after custom actions, such as an `unsafeIOToPageM` operation that dispatches an event. Settling usually costs one frame, about 17 ms at 60 Hz. It waits through browser promises, allowing the page to continue running. If the program is still busy after five seconds, the test fails with activity counts and a trace.
 
-`settle` does not wait for fibers suspended in `liftIO`, such as a request or a counted debounce. Use these APIs when the result depends on them:
+`settle` does not wait for fibers suspended in `H.async`, such as a request or a counted debounce. Use these APIs when the result depends on them:
 
-- `waitQuiet` settles the page, waits until no fibers remain in `liftIO`, then settles again. It has a five-second deadline; `waitQuietWithin ms` overrides it. Failures report running trees and waiting fibers.
-- `H.delay` and `Hooks.delay` are excluded intentionally. Use them for transient notices and repeating timers. Use `H.delayCounted` for delays before observable work, such as debounced requests or autosaves. `liftIO (threadDelay n)` also counts, but a test clock cannot advance it.
+- `waitQuiet` settles the page, waits until no fibers remain in `H.async`, then settles again. It has a five-second deadline; `waitQuietWithin ms` overrides it. Failures report running trees and waiting fibers.
+- `H.delay` and `Hooks.delay` are excluded intentionally. Use them for transient notices and repeating timers. Use `H.delayCounted` for delays before observable work, such as debounced requests or autosaves. `H.async (threadDelay n)` also counts, but a test clock cannot advance it.
 - `activity` returns the raw reading: trees, running trees and waiting fibers. Import its fields from `Halogen.Activity (Activity (..))`.
 
 These are `haskell-halogen-playwright`'s names for the same waits, so a test reads the same on either harness.

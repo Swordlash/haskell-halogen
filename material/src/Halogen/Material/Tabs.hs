@@ -161,9 +161,9 @@ tabsComponent =
         gets (.ref) >>= H.getHTMLElementRef >>= \case
           Nothing -> panic "Cannot initialize Tab Bar, no HTML element found\n"
           Just e -> do
-            mdcTabBar <- lift $ initTabBar e
+            mdcTabBar <- H.sync $ initTabBar e
             modify $ \s -> s {mdcTabBar = Just mdcTabBar}
-      Finalize -> traverse_ (lift . destroyTabBar) =<< gets (.mdcTabBar)
+      Finalize -> traverse_ (H.sync . destroyTabBar) =<< gets (.mdcTabBar)
       Receive tabs extraStyle -> do
         -- A parent that shrinks the tab list must not leave the selection
         -- pointing past its end, where no panel would be shown.

@@ -2,7 +2,7 @@
 
 -- | Work started in one action and awaited in another.
 --
--- Pressing @start@ starts some JavaScript work in 'H.liftEffect', inside
+-- Pressing @start@ starts some JavaScript work in 'H.sync', inside
 -- the dispatch of the click, without waiting for it: the binding returns a
 -- 'Promise' at once, which the component keeps in its state. Pressing
 -- @collect@ later waits for it ('waitCatch'), on a worker, while the rest of the tree goes
@@ -62,18 +62,17 @@ component =
       -- At once, in the click's dispatch: the work starts, and nothing waits.
       Start -> do
         ms <- gets (.delayMs)
-        started (H.liftEffect (liftIO (js_later ms (toJSText "ready"))))
+        started (H.sync (liftIO (js_later ms (toJSText "ready"))))
       StartFailing -> do
         ms <- gets (.delayMs)
-        started (H.liftEffect (liftIO (js_failing ms)))
+        started (H.sync (liftIO (js_failing ms)))
       Collect ->
         gets (.pending) >>= \case
           Nothing -> pass
           Just promise -> do
             modify $ \st -> st {pending = Nothing, result = "waiting"}
-            -- Waits on a worker ('waitCatch' is a 'liftIO'), while the tree
-            -- goes on.
-            outcome <- waitCatch promise
+            -- Waits on a worker, in 'H.async', while the tree goes on.
+            outcome <- H.async (waitCatch promise)
             modify $ \st -> st {result = either failed (("resolved: " <>) . jsValText) outcome}
       Tick -> modify $ \st -> st {ticks = st.ticks + 1}
 

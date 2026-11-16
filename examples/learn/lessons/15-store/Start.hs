@@ -5,7 +5,6 @@
 
 module Lesson (Store (..), Action (..), initialStore, reduce, component) where
 
-import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.State (modify)
 import Data.Row (Empty, type (.+), type (.==))
 import Data.Text (Text)
@@ -34,7 +33,7 @@ reduce store (Rename new) = store {name = new}
 -- was rendered again because that part changed. Its state holds a value of
 -- the type a, and a component's state must be Typeable (Halogen's trace
 -- names a component after its state's type), hence the constraint.
-display :: forall a q o m. (Typeable a, MonadIO m) => Text -> (a -> Text) -> H.Component q (Store.Connected a ()) o m
+display :: forall a q o m. (Typeable a, Monad m) => Text -> (a -> Text) -> H.Component q (Store.Connected a ()) o m
 display label toText =
   H.component initialState render [H.onReceive receive]
   where
@@ -49,7 +48,7 @@ countView = Store.connect (Store.selectEq (.count)) (display "Count" (T.pack . s
 
 -- Not connected yet: it shows the name the store starts with, and never
 -- hears of another.
-nameView :: forall q o m. (MonadIO m) => H.Component q () o m
+nameView :: forall q o m. (Monad m) => H.Component q () o m
 nameView =
   H.component (\_ -> pure ()) render []
   where

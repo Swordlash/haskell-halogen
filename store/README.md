@@ -64,9 +64,11 @@ Unlike the PureScript version, this port can read the store while creating the c
 
 `Store.subscribe selector toAction` converts selected value changes into component actions. Call it in `H.onInitialize`, and use `getStore` to read the initial value: the subscription reports changes only. Use `emitSelected` if you need the emitter directly.
 
-## Lifted with `liftEffect`
+## Run in place with `sync`
 
-`HalogenM` has a `MonadStore` instance whenever its underlying monad does. Store operations use `H.liftEffect` because they do not wait. An update and its notifications complete before the action continues; a subscriber in the same tree handles the notification immediately. By comparison, `lift` and `liftIO` run on worker threads so they can wait while the rest of the tree continues.
+`HalogenM` has a `MonadStore` instance whenever its underlying monad does. Store operations use `H.sync` because they do not wait. An update and its notifications complete before the action continues; a subscriber in the same tree handles the notification immediately. By comparison, `H.async` runs on a worker thread so it can wait while the rest of the tree continues.
+
+`MonadStore` has no `MonadIO` superclass, so `HalogenM` can have its instance. A component that also runs `IO` of its own asks for `MonadIO m` beside `MonadStore`.
 
 `ReaderT`, `ExceptT`, `MaybeT`, `IdentityT`, `StateT`, `WriterT`, `RWST` and `ContT` provide the usual lifted instances.
 
@@ -75,13 +77,13 @@ Unlike the PureScript version, this port can read the store while creating the c
 - `selectAll` treats every update as a change because Haskell has no equivalent of `unsafeRefEq` suitable here. Use `selectEq identity` with an `Eq` store to suppress unchanged values.
 - Updates carry sequence numbers. Concurrent updates and updates triggered inside notifications can arrive out of order, so subscriptions ignore any update older than one already delivered.
 - `HalogenStore` is abstract. Create one with `newHalogenStore` and obtain its emitter with `storeEmitter`. The `StoreT` constructor and `runReaderT` let you run against a manually created store, as the tests do.
-- There is no built-in `useSelector`. You can implement one with `useLifecycleEffect` and `emitSelected`. The example below adds an orphan `MonadStore` instance for `HookM`, lifting operations with `Hooks.liftEffect`. Import `UseState` and `UseEffect` from `Halogen.Hooks.Types`:
+- There is no built-in `useSelector`. You can implement one with `useLifecycleEffect` and `emitSelected`. The example below adds an orphan `MonadStore` instance for `HookM`, lifting operations with `Hooks.sync`. Import `UseState` and `UseEffect` from `Halogen.Hooks.Types`:
 
   ```haskell
   instance (Store.MonadStore a s m) => Store.MonadStore a s (Hooks.HookM scope slots output m) where
-    getStore = Hooks.liftEffect Store.getStore
-    updateStore = Hooks.liftEffect . Store.updateStore
-    emitSelected = Hooks.liftEffect . Store.emitSelected
+    getStore = Hooks.sync Store.getStore
+    updateStore = Hooks.sync . Store.updateStore
+    emitSelected = Hooks.sync . Store.emitSelected
 
   -- The selected part, Nothing until the component's first effect has read it.
   useSelector

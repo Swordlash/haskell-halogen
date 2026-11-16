@@ -74,7 +74,7 @@ child logRef =
   where
     note what = do
       (n, _) <- get
-      H.liftEffect . liftIO $ modifyIORef' logRef (<> [what <> " " <> tshow n])
+      H.sync . liftIO $ modifyIORef' logRef (<> [what <> " " <> tshow n])
 
 ----------------------------------------------------------------------
 -- A parent that holds children under memoized nodes, in one of several
@@ -124,7 +124,7 @@ parent logRef layout keys0 inner0 =
   H.component
     (\_ -> pure State {tick = 0, keys = keys0, inner = inner0, shown = True, bad = False})
     render
-    [ H.onAction (\(Heard n) -> H.liftEffect . liftIO $ modifyIORef' logRef (<> ["heard " <> tshow n]))
+    [ H.onAction (\(Heard n) -> H.sync . liftIO $ modifyIORef' logRef (<> ["heard " <> tshow n]))
     , H.onQuery $ \case
         Tick a -> modify (\s -> s {tick = s.tick + 1}) >> pure (Just a)
         SetKeys ks a -> modify (\s -> s {keys = ks}) >> pure (Just a)

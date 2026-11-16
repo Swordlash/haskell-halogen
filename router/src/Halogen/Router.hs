@@ -183,6 +183,7 @@ start addressing initial fallback duplex = do
 -- it: the last run's router stops with the last run's tree (see
 -- "Halogen.IO.Util".'Halogen.IO.Util.keepForNextRun') rather than go on
 -- listening beside the next run's. Stopping a stopped router does nothing.
+-- Call it in @H.sync@.
 stop :: (MonadIO m) => Router route -> m ()
 stop router = liftIO (HS.unsubscribe router.popstate)
 
@@ -207,6 +208,7 @@ addressOf (Window w) initial
 -- document answers for it (a page across a wire, whose session is told the
 -- address of its @\<base href>@ and answers with that when the page has
 -- one), and @\"\/\"@ otherwise.
+-- Call it in @H.sync@.
 pageBase :: (MonadBrowserDOM m, MonadIO m) => m Text
 pageBase
   | inBrowser = liftIO $ normaliseBase . fromJSText <$> js_router_page_base
@@ -275,6 +277,7 @@ routePart addressing whole = case addressing of
       _ -> Nothing
 
 -- | The route the page is at now.
+-- Call it in @H.sync@.
 current :: (MonadIO m) => Router route -> m route
 current router = liftIO $ do
   whole <- readAddress router.address
@@ -302,6 +305,7 @@ absoluteRoute router route = if "/" `T.isPrefixOf` printed then printed else "/"
 -- | Go to a route, as following a link to it does: a new entry in the
 -- history, and the route on 'changes'. Going where the page already is
 -- does nothing.
+-- Call it in @H.sync@.
 navigate :: (MonadIO m) => Router route -> route -> m ()
 navigate router = go router Push
 
@@ -309,6 +313,7 @@ navigate router = go router Push
 -- replaced, so the back button skips the address being left. For an
 -- address that only ever leads elsewhere, such as an old spelling of a
 -- route.
+-- Call it in @H.sync@.
 redirect :: (MonadIO m) => Router route -> route -> m ()
 redirect router = go router Replace
 
@@ -392,7 +397,7 @@ linkProps router onFollow route =
   , HE.preventingDefault (HE.matching HE.plainLeftClick (HE.handler (EventType "click") (onFollow . Follow route . MouseEvent)))
   ]
 
--- | Follow a link's click: 'navigate', at once, in 'H.liftEffect'.
+-- | Follow a link's click: 'navigate', at once, in 'H.sync'.
 --
 -- The click from a 'link' has had its default prevented already, in its
 -- listener. This prevents it too, for a 'Follow' made by hand from a click
@@ -405,7 +410,7 @@ follow
   => Router route
   -> Follow route
   -> H.HalogenM state action slots output m ()
-follow router (Follow route ev) = H.liftEffect $ liftIO $ do
+follow router (Follow route ev) = H.sync $ liftIO $ do
   preventDefault (toEvent ev)
   navigate router route
 

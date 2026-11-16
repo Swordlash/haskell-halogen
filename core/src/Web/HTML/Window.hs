@@ -47,10 +47,12 @@ window :: IO Window
 window = js_window
 
 -- | The width of the viewport, in CSS pixels. Natively, with no viewport, 0.
+-- Call it in @H.sync@.
 innerWidth :: (MonadIO m) => Window -> m Int
 innerWidth w = liftIO w.innerWidth
 
 -- | The height of the viewport, in CSS pixels. Natively 0.
+-- Call it in @H.sync@.
 innerHeight :: (MonadIO m) => Window -> m Int
 innerHeight w = liftIO w.innerHeight
 
@@ -60,5 +62,6 @@ innerHeight w = liftIO w.innerHeight
 -- the router a page served from static files can have: back, forward, reload
 -- and deep links all arrive as the same event and the same read. A page that
 -- was not loaded from a URL, natively, has no fragment.
+-- Call it in @H.sync@.
 locationHash :: (MonadIO m) => Window -> m Text
 locationHash w = liftIO w.location.hash

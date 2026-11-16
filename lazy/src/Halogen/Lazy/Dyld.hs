@@ -62,6 +62,7 @@ import Foreign.StablePtr (castPtrToStablePtr, deRefStablePtr, freeStablePtr, new
 import Halogen.JSBits (JSText, JSVal, Safety (..), browserJS, toJSText)
 import Halogen.JSBits.Promise (JSError (..), Promise (..), waitCatch)
 import Protolude hiding (waitCatch)
+
 $( browserJS
      ["jsbits/lazy.js"]
      [ ("js_available", "halogen_lazy_available", Safe, [t|IO Bool|])
@@ -128,8 +129,7 @@ available = js_available
 -- and give what the entry handed over, if it is a @c@. A library is fetched
 -- and linked once per path; a later 'load' of it only calls its entry
 -- again. It waits for the fetch and the link, so call it where a program
--- may wait (in @lift@ or @liftIO@, which is where "Halogen.Lazy" runs its
--- loader).
+-- may wait: in @H.async@, which is where "Halogen.Lazy" runs its loader.
 --
 -- A fetch that failed is tried again by the next 'load'. A link that failed
 -- is not, for as long as the page lives: dyld marks a library's name as

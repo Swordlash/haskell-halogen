@@ -8,7 +8,6 @@
 module Test.Fork (spec) where
 
 import Control.Concurrent (threadDelay)
-import Control.Monad.IO.Class (liftIO)
 import Control.Monad.State.Class (get, put)
 import Data.Foldable (traverse_)
 import Data.IORef
@@ -52,7 +51,7 @@ component ran =
     handleQuery :: forall a. Query a -> H.HalogenM (Maybe ForkId) () Empty Void IO (Maybe a)
     handleQuery = \case
       Start a -> do
-        forkId <- H.fork $ liftIO $ do
+        forkId <- H.fork $ H.async $ do
           threadDelay 50_000
           modifyIORef' ran (<> ["ran"])
         put (Just forkId)

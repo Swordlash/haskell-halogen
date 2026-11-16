@@ -190,12 +190,12 @@ popup =
         s <- get
         found <- H.getRef s.holder
         for_ found $ \holder -> do
-          presses <- H.liftEffect $ do
+          presses <- H.sync $ do
             doc <- DOM.window >>= DOM.document
             events <- HS.lowerEmitter (HQE.eventListener (EventType "pointerdown") (N.fromNative (N.toNative doc)) Just)
             pure (pressedOutside holder events)
           void (H.subscribe (Close <$ presses))
-          keys <- H.liftEffect $ do
+          keys <- H.sync $ do
             w <- DOM.window
             target <- DOM.windowToEventTarget w
             HS.lowerEmitter (HQE.eventListener (EventType "keydown") target Just)

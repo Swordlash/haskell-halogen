@@ -53,7 +53,7 @@
 -- animation frame; the @popstate@ of a @history.back()@ a handler called)
 -- and what the program's handlers of that did, have rendered by then, so
 -- one read sees it. 'waitQuiet' also waits for what the program's fibers
--- wait for in a @liftIO@ (a request, a debounce). What the program does not
+-- wait for in an @H.async@ (a request, a debounce). What the program does not
 -- know of -- a JavaScript widget's own timer, a CSS transition, a real
 -- connection's events -- is what 'eventually' is for, and 'find' and the
 -- @should@ helpers here already retry.
@@ -451,7 +451,7 @@ instance Eq (Element s) where
 -- unmounted when the page is torn down.
 --
 -- The component has rendered, and run its initialisers up to their first
--- wait, by the time this returns: what one loads in a @liftIO@ when it
+-- wait, by the time this returns: what one loads in an @H.async@ when it
 -- starts may still be on its way, which 'waitQuiet' waits for. Its outputs
 -- are collected from then on, for 'outputs'.
 --
@@ -647,13 +647,13 @@ viaRunner action argument (Element element) = unsafeIOToPageM (Page.act action e
 -- queues work for ever, a render that does not end) fails the test with how
 -- many trees were running, followed, as every failure here is, by what the
 -- trees did and what the program was doing then. What a fiber waits for in
--- a @liftIO@ is not waited for here: that is 'waitQuiet'.
+-- an @H.async@ is not waited for here: that is 'waitQuiet'.
 settle :: (HasCallStack) => PageM s ()
 settle = void (settleUntil Idle actionDeadlineMs)
 
--- | 'settle', and until no fiber of the program is waiting in a @liftIO@
+-- | 'settle', and until no fiber of the program is waiting in an @H.async@
 -- either: a request has come back, a debounce written
--- @liftIO (threadDelay n)@ has fired, and what they led to has rendered;
+-- @H.async (threadDelay n)@ has fired, and what they led to has rendered;
 -- then the page settled again, for what that made it fire. It reads the
 -- program five milliseconds apart, for up to five seconds, and then fails
 -- saying how many trees were running and how many fibers still waited
@@ -665,14 +665,14 @@ settle = void (settleUntil Idle actionDeadlineMs)
 -- running nor waiting, as "Halogen.Activity" has it. That is on purpose,
 -- and the program says which of its pauses a test waits for by how it
 -- writes them: a pause before work a test waits for (a debounce before a
--- request, an autosave) is @liftIO (threadDelay n)@, so that a quiet program
+-- request, an autosave) is @H.async (threadDelay n)@, so that a quiet program
 -- means the request was answered; one that only takes something off the
 -- screen or ticks (a \"Saved\" notice, a clock,
 -- @forever (H.delay 1 >> tick)@) is @H.delay@, so a test can see the notice
 -- before it goes, and a ticker does not keep the program from being quiet.
 --
 -- A fiber that waits for ever (a subscription's loop written as a
--- @liftIO@ that never returns) keeps the program from ever being quiet:
+-- @H.async@ that never returns) keeps the program from ever being quiet:
 -- 'settle' is the wait for such a program.
 waitQuiet :: (HasCallStack) => PageM s ()
 waitQuiet = waitQuietWithin actionDeadlineMs
@@ -684,8 +684,8 @@ waitQuietWithin :: (HasCallStack) => Int -> PageM s ()
 waitQuietWithin ms = void (settleUntil Quiet ms)
 
 -- | What the program is doing at this moment ("Halogen.Activity"): the trees
--- mounted, those running or with work queued, the fibers waiting in a
--- @liftIO@. For a test that has to check the reading itself; to wait for
+-- mounted, those running or with work queued, the fibers waiting in an
+-- @H.async@. For a test that has to check the reading itself; to wait for
 -- the program, 'settle' and 'waitQuiet'.
 --
 -- 'Activity' is core's, exported here without its fields, whose names

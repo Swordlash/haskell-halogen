@@ -2,6 +2,11 @@
 
 ## 0.1.0.0 -- unreleased
 
+* `HookF`'s constructors `Lift` and `LiftEffect` are now `Async` and `Sync`,
+  after `Hooks.async` and `Hooks.sync`. `Delay` and `DelayCounted` are now
+  one constructor, `Delay`, with core's `Counted` as its first argument.
+  `Hooks.delay` and `Hooks.delayCounted` do not change. Code that matches on
+  `HookF` must use the new names.
 * `Hooks.sync` runs an action in place, as core's `H.sync` does.
   `Hooks.async` suspends the handler while the action runs, as core's
   `H.async` does. `Hooks.liftEffect` is `Hooks.sync`, and `lift` and

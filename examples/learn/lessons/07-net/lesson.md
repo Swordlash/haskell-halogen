@@ -25,7 +25,7 @@ data State a = Loading | Done a | Failed Text
 
 ## Waiting without stopping the page
 
-`handleAction` calls `getQuotes` through `liftIO`. The request waits on a separate Haskell thread while the component loop keeps rendering and handling actions. Once the response arrives, the handler resumes.
+`handleAction` calls `getQuotes` through `H.async`, because the request waits. The request waits on a separate Haskell thread while the component loop keeps rendering and handling actions. Once the response arrives, the handler resumes. An action that does not wait goes in `H.sync` instead.
 
 ## Exercise
 

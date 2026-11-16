@@ -71,12 +71,12 @@ host traffic remote =
       st <- get
       element <- H.getHTMLElementRef st.label
       for_ element $ \container -> do
-        loopback <- liftIO (Loopback.mountIn container remote ())
-        _ <- liftIO (HS.subscribe loopback.traffic (\t -> atomicModifyIORef' traffic (\ts -> (ts <> [t], ()))))
+        loopback <- H.async (liftIO (Loopback.mountIn container remote ()))
+        _ <- H.sync (liftIO (HS.subscribe loopback.traffic (\t -> atomicModifyIORef' traffic (\ts -> (ts <> [t], ())))))
         modify (\s -> s {running = Just loopback})
     stop = do
       st <- get
-      for_ st.running (liftIO . (.dispose))
+      for_ st.running (H.async . liftIO . (.dispose))
       modify (\s -> s {running = Nothing})
 
 -- | A page's component that tries to show a component of the wire's, and
@@ -94,9 +94,9 @@ trying remote =
       (label, _) <- get
       element <- H.getHTMLElementRef label
       for_ element $ \container ->
-        liftIO (try (Loopback.mountIn container remote ())) >>= \case
+        H.async (liftIO (try (Loopback.mountIn container remote ()))) >>= \case
           Left (ErrorCall e) -> modify (second (const (toS e)))
-          Right loopback -> liftIO loopback.dispose >> modify (second (const "mounted"))
+          Right loopback -> H.async (liftIO loopback.dispose) >> modify (second (const "mounted"))
 
 spec :: forall m -> (MonadBrowserTest m, MonadUUID m) => Spec
 spec m = do

@@ -7,8 +7,8 @@
 -- "Web.Event.Event" so that a handler stays one expression.
 --
 -- Call them from the handler itself, before it waits for anything (a
--- 'liftIO', a fork): by then the browser has already decided. They run with
--- 'liftEffect', at once.
+-- 'Halogen.Hooks.async', a fork): by then the browser has already decided.
+-- They run with 'sync', at once.
 --
 -- Even so they are only in time if the tree's loop is free when the event
 -- arrives: a handler runs on the loop, and an event that arrives while the
@@ -28,7 +28,7 @@ module Halogen.Hooks.Extra.Actions.Events
   )
 where
 
-import Halogen.Hooks.Internal.HookM (liftEffect)
+import Halogen.Hooks.Internal.HookM (sync)
 import Halogen.Hooks.Types (HookM)
 import Protolude
 import Web.Event.Event (Event)
@@ -40,7 +40,7 @@ import Web.UIEvent.MouseEvent qualified as ME
 
 -- | Prevent the default action of an 'Event'.
 preventDefault' :: forall scope slots output m. (MonadIO m) => Event -> HookM scope slots output m ()
-preventDefault' = liftEffect . EE.preventDefault
+preventDefault' = sync . EE.preventDefault
 
 -- | Prevent the default action of anything that is an 'Event' underneath, such
 -- as a 'MouseEvent'. Takes the @toEvent@ of the event's own module.
@@ -57,7 +57,7 @@ preventKeyEvent = preventDefault KE.toEvent
 
 -- | Stop an 'Event' travelling further up the tree.
 stopPropagation' :: forall scope slots output m. (MonadIO m) => Event -> HookM scope slots output m ()
-stopPropagation' = liftEffect . EE.stopPropagation
+stopPropagation' = sync . EE.stopPropagation
 
 -- | 'stopPropagation'' for anything that is an 'Event' underneath.
 stopPropagation :: forall e scope slots output m. (MonadIO m) => (e -> Event) -> e -> HookM scope slots output m ()

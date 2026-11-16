@@ -25,6 +25,23 @@ sends reach the child in order.
 a query that waits. Its only instance is `HalogenM`, so a handler calls it
 as it calls any program. Import it qualified.
 
+`HalogenF`'s constructors `Lift`, `LiftEffect` and `Unlift` are now
+`Async`, `Sync` and `AsyncWith`, after `H.async`, `H.sync` and `H.asyncWith`.
+The constructors `Delay` and `DelayCounted` are now one, `Delay`, whose
+first argument says whether the pause is `Counted` or `NotCounted`.
+`H.delay` and `H.delayCounted` do not change. Code that matches on
+`HalogenF`, such as an interpreter or a `hoist` of its own, must use the new
+names.
+
+`Halogen.Canvas`'s component now makes its event emitter in place, with
+`H.sync`. Before, it suspended there, and other events could run first.
+Mounting the canvas's backend still suspends.
+
+The `MonadState` and `MonadDelayedState` instances of `DelayedStateT` now
+exist only over `HalogenM`, which is what `Halogen.Component.Debounced` uses.
+They no longer need `MonadUnliftIO` of `HalogenM`. Code that used
+`DelayedStateT` over another monad must write its own instances.
+
 `Halogen.Trace` reports an `H.sync` that held the tree longer than
 `slowSyncThreshold` (50 ms) as `SlowSync`. A program that matches every
 constructor of `What` must handle it. The clock is read only while someone

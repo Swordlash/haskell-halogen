@@ -100,7 +100,7 @@ component =
     handleAction :: Action -> H.HalogenM State Action Empty o m ()
     handleAction = \case
       Initialize -> do
-        emitter <- H.liftEffect $ do
+        emitter <- H.sync $ do
           target <- windowToEventTarget =<< window
           HS.lowerEmitter (HQE.eventListener (EventType "popstate") target (const (Just Arrived)))
         void (H.subscribe emitter)
@@ -109,26 +109,26 @@ component =
       Dismiss -> withDialog js_close
       Closed -> modify $ \st -> st {closes = st.closes + 1}
       Push -> do
-        n <- H.liftEffect (liftIO ((+ 1) <$> js_entry))
-        H.liftEffect (liftIO (js_push n))
+        n <- H.sync (liftIO ((+ 1) <$> js_entry))
+        H.sync (liftIO (js_push n))
         modify $ \st -> st {entry = n}
       Back -> ours 1 (history History.back)
       BackTwice -> ours 2 (history (\h -> History.back h >> History.back h))
       Forward -> history History.forward
       Arrived -> do
-        n <- H.liftEffect (liftIO js_entry)
+        n <- H.sync (liftIO js_entry)
         modify $ \st -> st {entry = n}
 
     withDialog :: (HTMLElement -> IO ()) -> H.HalogenM State Action Empty o m ()
-    withDialog f = gets (.dialog) >>= H.getHTMLElementRef >>= traverse_ (H.liftEffect . liftIO . f)
+    withDialog f = gets (.dialog) >>= H.getHTMLElementRef >>= traverse_ (H.sync . liftIO . f)
 
     -- Only from an entry this many of ours deep: going back past them would
     -- take the page away from the suite, which a test that read too early,
     -- and so pushed again before its last Back had arrived, could ask for.
     ours :: Int -> H.HalogenM State Action Empty o m () -> H.HalogenM State Action Empty o m ()
     ours deep act = do
-      n <- H.liftEffect (liftIO js_entry)
+      n <- H.sync (liftIO js_entry)
       when (n >= deep) act
 
     history :: (History.History -> IO ()) -> H.HalogenM State Action Empty o m ()
-    history f = H.liftEffect (liftIO (Window.window >>= f . Window.history))
+    history f = H.sync (liftIO (Window.window >>= f . Window.history))

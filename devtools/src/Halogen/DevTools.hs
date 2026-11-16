@@ -155,7 +155,7 @@ panelWith settings =
       (initialState settings)
       render
       [ H.onInitialize initialize
-      , H.onFinalize (gets (.stop) >>= H.liftEffect . liftIO . sequence_)
+      , H.onFinalize (gets (.stop) >>= H.sync . liftIO . sequence_)
       , H.onAction handleAction
       , H.onQuery (\(Clear a) -> Just a <$ handleAction ClearAll)
       ]
@@ -168,7 +168,7 @@ panelWith settings =
 -- component whose state is of a type no 'showing' has named still has its
 -- state changes counted and listed, under the type's name. The panel cannot
 -- show what it has no 'Show' for, and 'Show' is not asked of every state, so
--- this is opt-in, per type:
+-- this is opt-in, per type. In a component, call it in @H.sync@.
 --
 -- > DevTools.showing @Counter.State
 showing :: forall s m. (Typeable s, Show s, MonadIO m) => m ()
@@ -301,12 +301,12 @@ initialState settings () = liftIO $ do
       , status = Nothing
       }
 
--- | Listen, at once (in a synchronous effect, not a @liftIO@ that would let
+-- | Listen, at once (in a synchronous effect, not an @H.async@ that would let
 -- 'open' return first), and take the inbox whenever it says it has events.
 initialize :: (MonadIO m) => H.HalogenM State Action Empty Void m ()
 initialize = do
   inbox <- gets (.inbox)
-  stop <- H.liftEffect (liftIO (Trace.subscribe (listen inbox)))
+  stop <- H.sync (liftIO (Trace.subscribe (listen inbox)))
   modify $ \st -> st {stop = Just stop}
   void $ H.subscribe (Refresh <$ inbox.arrived.emitter)
 
@@ -336,7 +336,7 @@ handleAction = \case
   Refresh -> do
     inbox <- gets (.inbox)
     (new, ended, known) <-
-      H.liftEffect . liftIO $
+      H.sync . liftIO $
         (,,) <$> atomicModifyIORef' inbox.events (Seq.empty,) <*> atomicModifyIORef' inbox.ended (IntSet.empty,) <*> readIORef showers
     modify $ \st ->
       let taken = foldl (absorb known) st new
@@ -344,11 +344,11 @@ handleAction = \case
   Select key -> modify $ \st -> st {selected = if st.selected == Just key then Nothing else Just key}
   Narrow k -> modify $ \st -> st {kind = k}
   Hover key -> do
-    rect <- H.liftEffect . liftIO $ Trace.rootNode key >>= traverse nodeRect
+    rect <- H.sync . liftIO $ Trace.rootNode key >>= traverse nodeRect
     modify $ \st -> st {outline = rect}
   Unhover -> modify $ \st -> st {outline = Nothing}
   Restore key state -> do
-    put' <- liftIO (Trace.restoreState key state)
+    put' <- H.async (liftIO (Trace.restoreState key state))
     st <- get
     let who = maybe ("#" <> showT key) (named . (.tag)) (IntMap.lookup key st.components)
     modify $ \s -> s {status = Just (if put' then "Put " <> who <> "'s state back." else who <> " is gone, or has another state now: nothing was put back.")}
@@ -357,7 +357,7 @@ handleAction = \case
     -- so that the components it mounted or finalized are accounted for, and
     -- the next refresh does not fill the cleared log with it.
     handleAction Refresh
-    now <- liftIO ((* 1000) <$> getMonotonicTime)
+    now <- H.sync (liftIO ((* 1000) <$> getMonotonicTime))
     modify $ \st ->
       st
         { opened = now

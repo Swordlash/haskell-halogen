@@ -37,12 +37,12 @@ report :: Worker.Pool -> H.Component q () o BrowserDOM
 report pool = H.component (\_ -> pure "") (\t -> HH.p_ [HH.text t]) [H.onInitialize initialize]
   where
     initialize = do
-      available <- Worker.available
-      ranIn <- liftIO (Worker.run pool whereAmI)
-      doubled <- liftIO (Worker.run pool double 21)
-      many <- liftIO (mapConcurrently (Worker.start pool double) [1, 2, 3])
-      tasks <- liftIO (runPar pool (traverse (task double) [4, 5, 6]))
-      failed <- liftIO (try (Worker.run pool failing))
+      available <- H.sync Worker.available
+      ranIn <- H.async (liftIO (Worker.run pool whereAmI))
+      doubled <- H.async (liftIO (Worker.run pool double 21))
+      many <- H.async (liftIO (mapConcurrently (Worker.start pool double) [1, 2, 3]))
+      tasks <- H.async (liftIO (runPar pool (traverse (task double) [4, 5, 6])))
+      failed <- H.async (liftIO (try (Worker.run pool failing)))
       let failure = either (\(e :: Worker.WorkerError) -> e.job <> ": " <> e.message) (T.pack . show) failed
       put ("available " <> T.pack (show available) <> "; ran in " <> T.pack (show ranIn) <> "; doubled 21 to " <> T.pack (show doubled) <> "; doubled 1, 2, 3 to " <> T.pack (show many) <> "; in tasks 4, 5, 6 to " <> T.pack (show tasks) <> "; " <> failure :: Text)
 

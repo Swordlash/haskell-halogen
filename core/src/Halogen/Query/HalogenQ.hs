@@ -9,7 +9,7 @@ data HalogenQ query msg input a
     -- children it rendered with have run the synchronous part of theirs.
     -- The component counts as initialized once its own has run its
     -- synchronous part: reached its first wait (a
-    -- 'Halogen.Query.HalogenM.liftIO', a query that waits) or ended. Until
+    -- 'Halogen.Query.HalogenM.async', a query that waits) or ended. Until
     -- then the outputs it raises, and those its children raise to it, are
     -- kept; then they are delivered, and from then on they arrive at once.
     -- What it waits for holds up nothing but the rest of this program: its

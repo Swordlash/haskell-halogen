@@ -66,7 +66,7 @@ Every lesson's `Start.hs` must compile. Every `Solution.hs` must compile without
 
 Live-check tests verify typed-hole warnings, top-level types, hover information, source navigation, edited errors and stale-result suppression when Compile is pressed. A compilation error must leave the previous result mounted. Browser console errors fail the checks.
 
-`LEARN_ROOTFS_DIR` overrides the served rootfs. `LEARN_DEBUG=1` streams page logs, and `LEARN_TIMEOUT` sets the load, compile and check deadline in seconds, defaulting to 300. Tests wait for program activity rather than arbitrary delays: the app counts compiler work in `liftIO`, and compiled lessons expose their own activity. `browser-test/Tutorial/Site.hs` documents conditions that require separate waits. Repeating lesson timers use `H.delay` or `Hooks.delay`, as lesson 8 does, so they do not prevent quiet waits from completing.
+`LEARN_ROOTFS_DIR` overrides the served rootfs. `LEARN_DEBUG=1` streams page logs, and `LEARN_TIMEOUT` sets the load, compile and check deadline in seconds, defaulting to 300. Tests wait for program activity rather than arbitrary delays: the app counts compiler work in `H.async`, and compiled lessons expose their own activity. `browser-test/Tutorial/Site.hs` documents conditions that require separate waits. Repeating lesson timers use `H.delay` or `Hooks.delay`, as lesson 8 does, so they do not prevent quiet waits from completing.
 
 `npm run dev -- learn` runs the app in browser GHCi, as for every example; `bundle.sh` copies the rootfs beside its page too, so the compiler loads there as well.
 

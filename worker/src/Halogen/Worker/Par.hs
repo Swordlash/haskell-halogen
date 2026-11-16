@@ -18,7 +18,7 @@
 -- and @traverse (task fibs) chunks@ is a map of a job over a list on all
 -- the pool's workers, the results in the list's order:
 --
--- > counts <- liftIO (runPar pool (traverse (task primes) limits))
+-- > counts <- H.async (liftIO (runPar pool (traverse (task primes) limits)))
 --
 -- 'task' takes the same arguments as 'Halogen.Worker.run':
 -- @task primesBetween lo hi@.
@@ -139,7 +139,7 @@ instance Exception Unanswered where
   displayException Unanswered = "Halogen.Worker.Par: a task was read before its answer came"
 
 -- | Run the computation on the pool, waiting for its tasks, and give its
--- value. In a component this is a @liftIO@, as 'Halogen.Worker.run' is.
+-- value. It waits: call it in @H.async@, as 'Halogen.Worker.run' is.
 --
 -- A task that fails fails the whole computation with a 'WorkerError' naming
 -- its job, whose message says which of the job's calls it was ("its call at

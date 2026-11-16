@@ -15,7 +15,7 @@ Pressing Enter in the field or clicking a `ButtonSubmit` button submits the form
 
 The browser would normally submit the form and navigate, reloading this page. Wrap the handler in `HE.preventingDefault` to prevent that behaviour.
 
-Calling `preventDefault` from `Web.Event.Event` through `H.liftEffect` inside an action depends on the action running before browser dispatch ends. If the action is queued, it may be too late. `HE.preventingDefault` acts in the event listener before handing the action to Halogen, so it also works when the component is busy.
+Calling `preventDefault` from `Web.Event.Event` through `H.sync` inside an action depends on the action running before browser dispatch ends. If the action is queued, it may be too late. `HE.preventingDefault` acts in the event listener before handing the action to Halogen, so it also works when the component is busy.
 
 ## Exercise
 

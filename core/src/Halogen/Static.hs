@@ -5,7 +5,7 @@
 -- component is mounted, with the driver that runs it in a browser, into an
 -- in-memory document ("Halogen.VDom.DOM.Monad.Native"): its children are
 -- built, its slots filled, and its @Initialize@ and its children's run to the
--- end, 'Halogen.liftIO' and all, as do those of the components they render,
+-- end, 'Halogen.async' and all, as do those of the components they render,
 -- before the HTML is taken (the driver's @runUIInitialized@; a tree
 -- running in a browser waits for none of it). So a page can be
 -- rendered with what a component fetches or reads when it starts. What it
@@ -13,8 +13,8 @@
 -- event, a timer. Once the HTML is taken the tree is disposed of: its
 -- subscriptions end, its fibers are cancelled and its finalizers run, so
 -- nothing it started outlives the render. A finalizer's
--- 'Halogen.liftEffect' runs before 'renderToHtml' returns; what it waits for
--- in 'Halogen.liftIO' is started but not waited for, as with any disposal.
+-- 'Halogen.sync' runs before 'renderToHtml' returns; what it waits for
+-- in 'Halogen.async' is started but not waited for, as with any disposal.
 --
 -- A component that does browser things when it starts, such as measuring an
 -- element or reading the URL, asks 'Halogen.JSBits.inBrowser' first and

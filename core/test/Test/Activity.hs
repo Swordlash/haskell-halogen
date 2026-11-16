@@ -10,7 +10,6 @@ import Control.Concurrent (forkIO, killThread, threadDelay, yield)
 import Control.Concurrent.MVar
 import Control.Exception (ErrorCall (..), SomeException, bracket, throwIO, try)
 import Control.Monad (forM_, forever, replicateM, replicateM_, void, when)
-import Control.Monad.IO.Class (liftIO)
 import Data.Foldable (traverse_)
 import Data.IORef
 import Data.Kind (Type)
@@ -67,7 +66,7 @@ nowhere failing =
       Grafted g -> slots (runGraft g)
 
 -- | What a component does in its @Initialize@: note what the activity was
--- in its synchronous part, then wait in 'liftIO' for the gate, if given.
+-- in its synchronous part, then wait in 'H.async' for the gate, if given.
 data Setup = Setup
   { seen :: IORef (Maybe Activity)
   , gate :: Maybe (MVar (), MVar ())
@@ -80,8 +79,8 @@ waiter setup =
     (\() -> pure ())
     (\() -> HH.text "" :: H.ComponentHTML () Empty IO)
     [ H.onInitialize $ do
-        H.liftEffect (Activity.activity >>= writeIORef setup.seen . Just)
-        traverse_ (\(started, release) -> liftIO (putMVar started () >> takeMVar release)) setup.gate
+        H.sync (Activity.activity >>= writeIORef setup.seen . Just)
+        traverse_ (\(started, release) -> H.async (putMVar started () >> takeMVar release)) setup.gate
     ]
 
 mountWith :: IORef Bool -> Setup -> IO (AD.HalogenSocket H.VoidF Void IO)
@@ -147,7 +146,7 @@ withProgram program = bracket (mountProgram program) dispose
 
 -- | Note that the program got here, from the loop.
 mark :: MVar () -> H.HalogenM () () Empty Void IO ()
-mark var = H.liftEffect (void (tryPutMVar var ()))
+mark var = H.sync (void (tryPutMVar var ()))
 
 -- | Long enough for a test to act while the pause sleeps, even on a busy
 -- machine: every check that something did not happen waits twice as long.
@@ -186,7 +185,7 @@ spec = describe "Halogen.Activity" $ do
     dispose ui
     Activity.activity >>= assertEqual "gone once disposed" (0, 0, 0) . since before
 
-  it "counts a fiber waiting in liftIO as waiting, not running, until it comes back" $ do
+  it "counts a fiber waiting in H.async as waiting, not running, until it comes back" $ do
     failing <- newIORef False
     seen <- newIORef Nothing
     started <- newEmptyMVar
@@ -285,7 +284,7 @@ spec = describe "Halogen.Activity" $ do
     it "reads another tree as idle from inside this tree's work, which the process reads as running" $ do
       inside <- newEmptyMVar
       other <- mountProgram (pure ())
-      let program = H.liftEffect ((,) <$> treeActivity other <*> Activity.activity >>= putMVar inside)
+      let program = H.sync ((,) <$> treeActivity other <*> Activity.activity >>= putMVar inside)
       -- The other tree's reading, taken from inside this tree's Initialize:
       -- this tree's loop is busy, the other's is not.
       withProgram program $ \_ -> do
@@ -299,7 +298,7 @@ spec = describe "Halogen.Activity" $ do
       holding <- newEmptyMVar
       letGo <- newEmptyMVar
       -- After a wait, an effect that holds the loop until the test lets it.
-      let program = liftIO (takeMVar go) >> H.liftEffect (putMVar holding () >> takeMVar letGo)
+      let program = H.async (takeMVar go) >> H.sync (putMVar holding () >> takeMVar letGo)
       withProgram program $ \ui -> do
         treeActivity ui >>= assertEqual "waiting" Activity {trees = 1, running = 0, waiting = 1}
         putMVar go ()
@@ -341,10 +340,10 @@ spec = describe "Halogen.Activity" $ do
         dispose ui
         Activity.activity >>= assertEqual "gone once disposed" (0, 0, 0) . since before
 
-    it "counts the same fiber sleeping in liftIO (threadDelay n) as waiting" $ do
+    it "counts the same fiber sleeping in H.async (threadDelay n) as waiting" $ do
       woke <- newEmptyMVar
       before <- Activity.activity
-      withProgram (liftIO (threadDelay 60_000_000) >> mark woke) $ \_ -> do
+      withProgram (H.async (threadDelay 60_000_000) >> mark woke) $ \_ -> do
         Activity.activity >>= assertEqual "waiting" (1, 0, 1) . since before
         quietEarly <- timeout 50_000 Activity.waitQuiet
         assertEqual "not quiet while it sleeps" Nothing quietEarly
@@ -353,9 +352,9 @@ spec = describe "Halogen.Activity" $ do
       woke <- newEmptyMVar
       released <- newEmptyMVar
       before <- Activity.activity
-      -- After the pause the program waits in liftIO: from then on it is
+      -- After the pause the program waits in H.async: from then on it is
       -- waiting again, so waitQuiet does not return until it is released.
-      withProgram (H.delay 0.05 >> mark woke >> liftIO (takeMVar released)) $ \_ -> do
+      withProgram (H.delay 0.05 >> mark woke >> H.async (takeMVar released)) $ \_ -> do
         within "the pause to end" (readMVar woke)
         -- The mark is made on the loop, a step before the wait: the loop is
         -- still running the fiber when the mark is seen, and the fiber is
@@ -387,7 +386,7 @@ spec = describe "Halogen.Activity" $ do
 
     it "leaves a program whose ticker pauses between ticks quiet between them" $ do
       ticks <- newIORef (0 :: Int)
-      let tick = H.liftEffect (atomicModifyIORef' ticks (\n -> (n + 1, ())))
+      let tick = H.sync (atomicModifyIORef' ticks (\n -> (n + 1, ())))
           ticked n = do
             t <- readIORef ticks
             if t >= n then pure () else threadDelay 1_000 >> ticked n
@@ -422,8 +421,8 @@ spec = describe "Halogen.Activity" $ do
         secondGate <- newEmptyMVar
         firstDone <- newEmptyMVar
         let program = do
-              void (H.fork (liftIO (takeMVar firstGate) >> mark firstDone))
-              void (H.fork (liftIO (takeMVar secondGate)))
+              void (H.fork (H.async (takeMVar firstGate) >> mark firstDone))
+              void (H.fork (H.async (takeMVar secondGate)))
         withProgram program $ \ui -> do
           before <- Activity.activity
           within "both waits" (waitTree ui (\a -> a.running == 0 && a.waiting == 2))
@@ -438,7 +437,7 @@ spec = describe "Halogen.Activity" $ do
     it "misses no change between its reading and its sleep: a wait raced against the change, many times" $ do
       forM_ [1 :: Int .. 500] $ \_ -> do
         gate <- newEmptyMVar
-        withProgram (liftIO (takeMVar gate)) $ \ui -> do
+        withProgram (H.async (takeMVar gate)) $ \ui -> do
           -- Released from another thread as the wait starts.
           _ <- forkIO (putMVar gate ())
           within "quiet" (waitTree ui Activity.quiet)
@@ -451,8 +450,8 @@ spec = describe "Halogen.Activity" $ do
       secondBack <- newEmptyMVar
       before <- Activity.waitsUnderWay
       let program = do
-            void (H.fork (liftIO (takeMVar first)))
-            void (H.fork (liftIO (takeMVar second)))
+            void (H.fork (H.async (takeMVar first)))
+            void (H.fork (H.async (takeMVar second)))
       withProgram program $ \ui -> do
         within "both waits" (waitTree ui (\a -> a.waiting == 2))
         _ <- forkIO (waitTree ui (\a -> a.running == 0 && a.waiting == 1) >> putMVar firstBack ())
@@ -475,7 +474,7 @@ spec = describe "Halogen.Activity" $ do
     it "leaves nothing behind when the waiting thread is killed" $ do
       before <- Activity.waitsUnderWay
       gate <- newEmptyMVar
-      withProgram (liftIO (takeMVar gate)) $ \ui -> do
+      withProgram (H.async (takeMVar gate)) $ \ui -> do
         waiters <- replicateM 3 (forkIO (waitTree ui Activity.quiet))
         let counted n = do
               now <- Activity.waitsUnderWay
@@ -488,7 +487,7 @@ spec = describe "Halogen.Activity" $ do
 
     it "waits for one tree alone: a quiet tree beside a busy one" $ do
       gate <- newEmptyMVar
-      busy <- mountProgram (liftIO (takeMVar gate))
+      busy <- mountProgram (H.async (takeMVar gate))
       calm <- mountProgram (pure ())
       within "the quiet tree" (waitTree calm Activity.quiet)
       quietEarly <- timeout 50_000 Activity.waitQuiet
@@ -502,7 +501,7 @@ spec = describe "Halogen.Activity" $ do
     it "has run every finalizer's synchronous part when dispose returns, many times" $ do
       forM_ [1 :: Int .. 300] $ \_ -> do
         released <- newIORef False
-        ui <- mountFinalizing (H.liftEffect (writeIORef released True))
+        ui <- mountFinalizing (H.sync (writeIORef released True))
         dispose ui
         readIORef released >>= assertEqual "released when dispose returns" True
 
@@ -513,7 +512,7 @@ spec = describe "Halogen.Activity" $ do
         inside <- newEmptyMVar
         letGo <- newEmptyMVar
         released <- newIORef False
-        let program = H.liftEffect (putMVar inside () >> takeMVar letGo >> writeIORef released True)
+        let program = H.sync (putMVar inside () >> takeMVar letGo >> writeIORef released True)
         ui <- mountFinalizing program
         firstDone <- newEmptyMVar
         secondDone <- newEmptyMVar
@@ -530,7 +529,7 @@ spec = describe "Halogen.Activity" $ do
       gate <- newEmptyMVar
       released <- newIORef False
       before <- Activity.activity
-      ui <- mountFinalizing (liftIO (takeMVar gate) >> H.liftEffect (writeIORef released True))
+      ui <- mountFinalizing (H.async (takeMVar gate) >> H.sync (writeIORef released True))
       dispose ui
       readIORef released >>= assertEqual "not yet released" False
       treeActivity ui >>= assertEqual "the socket counts the finalizer's wait" Activity {trees = 0, running = 0, waiting = 1}
@@ -544,20 +543,20 @@ spec = describe "Halogen.Activity" $ do
     it "releases what a finalizer releases after its wait by the time the socket is quiet, many times" $ do
       forM_ [1 :: Int .. 200] $ \_ -> do
         released <- newIORef False
-        ui <- mountFinalizing (liftIO (pure ()) >> H.liftEffect (writeIORef released True))
+        ui <- mountFinalizing (H.async (pure ()) >> H.sync (writeIORef released True))
         dispose ui
         within "the finalizer to end" (waitTree ui Activity.quiet)
         readIORef released >>= assertEqual "released" True
 
     it "returns from dispose while a finalizer never ends, and its socket's wait never returns" $ do
-      ui <- mountFinalizing (liftIO (forever (threadDelay 1_000_000)))
+      ui <- mountFinalizing (H.async (forever (threadDelay 1_000_000)))
       within "dispose" (dispose ui)
       timeout 100_000 (waitTree ui Activity.quiet) >>= assertEqual "still waiting" Nothing
 
     it "throws, rather than wait for ever, on a predicate its last reading does not satisfy" $ do
       gate <- newEmptyMVar
       before <- Activity.waitsUnderWay
-      ui <- mountProgram (liftIO (takeMVar gate))
+      ui <- mountProgram (H.async (takeMVar gate))
       outcome <- newEmptyMVar
       -- A tree that is never going to wait twice: disposed of meanwhile.
       _ <- forkIO (try (waitTree ui (\a -> a.waiting == 2)) >>= putMVar outcome)

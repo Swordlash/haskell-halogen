@@ -65,37 +65,37 @@ idleTree = Activity {trees = 1, running = 0, waiting = 0}
 
 data Wait = Wait
 
--- | A button whose handler waits in 'liftIO' until the test lets it go.
+-- | A button whose handler waits in 'H.async' until the test lets it go.
 waiting :: forall m. (MonadIO m) => MVar () -> H.Component H.VoidF () Void m
 waiting release =
   H.component
     (\() -> pure False)
     render
-    [H.onAction (\Wait -> liftIO (readMVar release) >> put True)]
+    [H.onAction (\Wait -> H.async (liftIO (readMVar release)) >> put True)]
   where
     render :: Bool -> H.ComponentHTML Wait Empty m
     render done = HH.button [HP.id "wait", HE.onClick (const Wait)] [HH.text (if done then "done" else "waiting")]
 
--- | Two fibers of its @Initialize@ waiting in 'liftIO', each until the test
+-- | Two fibers of its @Initialize@ waiting in 'H.async', each until the test
 -- lets it go; the count of those let go is shown.
 twoWaits :: forall m. (MonadIO m) => MVar () -> MVar () -> H.Component H.VoidF () Void m
 twoWaits gateA gateB =
   H.component
     (\() -> pure (0 :: Int))
     render
-    [H.onInitialize (for_ [gateA, gateB] (\gate -> void (H.fork (liftIO (takeMVar gate) >> modify (+ 1)))))]
+    [H.onInitialize (for_ [gateA, gateB] (\gate -> void (H.fork (H.async (liftIO (takeMVar gate)) >> modify (+ 1)))))]
   where
     render :: Int -> H.ComponentHTML () Empty m
     render n = HH.span [HP.id "count"] [HH.text (show n)]
 
 -- | A component whose @Finalize@ runs this synchronously.
 finalizing :: forall m. (MonadIO m) => IO () -> H.Component H.VoidF () Void m
-finalizing effect = finalizingWith (H.liftEffect (liftIO effect))
+finalizing effect = finalizingWith (H.sync (liftIO effect))
 
--- | A component whose @Finalize@ waits in 'liftIO' for the first, then runs
+-- | A component whose @Finalize@ waits in 'H.async' for the first, then runs
 -- the second synchronously.
 finalizingAfter :: forall m. (MonadIO m) => IO () -> IO () -> H.Component H.VoidF () Void m
-finalizingAfter held effect = finalizingWith (liftIO held >> H.liftEffect (liftIO effect))
+finalizingAfter held effect = finalizingWith (H.async (liftIO held) >> H.sync (liftIO effect))
 
 finalizingWith :: forall m. (Monad m) => H.HalogenM () () Empty Void m () -> H.Component H.VoidF () Void m
 finalizingWith program =
@@ -204,7 +204,7 @@ spec = do
         shown `shouldBe` Just (show i)
       Session.dispose session
 
-    it "counts a fiber waiting in liftIO as waiting, and the tree as idle" $ do
+    it "counts a fiber waiting in H.async as waiting, and the tree as idle" $ do
       (wire, send) <- newWire True
       release <- newEmptyMVar
       session <- Session.newSession send
