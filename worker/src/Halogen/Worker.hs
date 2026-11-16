@@ -173,8 +173,9 @@ $( browserJS
 -- 'Data.IORef.IORef' of its own (each copy of the program has its own); a
 -- pure one is @\\x y -> pure (f x y)@. Its arguments are encoded for each
 -- call, one after another, and decoded in the worker in the same order, all
--- of their bytes (bytes that run out or are left over are the job's error). Its result is encoded completely before the job counts as
--- done, so a lazy error in it is the job's error.
+-- of their bytes (bytes that run out or are left over are the job's error).
+-- Its result is encoded completely before the job counts as done, so a lazy
+-- error in it is the job's error.
 job :: (JobFunction f, Binary (ResultOf f)) => f -> Job (ArgsOf f) (ResultOf f)
 job = Internal.job
 
