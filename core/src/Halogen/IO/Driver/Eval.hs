@@ -44,7 +44,7 @@ data ComponentGone = ComponentGone
 instance Exception ComponentGone
 
 -- | A program of the component, as a fiber's steps. Everything but 'Async',
--- 'Delay', 'DelayCounted' (and 'AsyncWith', whose body is arbitrary 'IO') is
+-- 'Delay' (and 'AsyncWith', whose body is arbitrary 'IO') is
 -- synchronous work on the loop.
 --
 -- A tree mounted under a test's control ("Halogen.Activity.Control") has
@@ -86,11 +86,9 @@ evalM var (HalogenM hm) = foldF go hm
         ds <- sync (readIORef var)
         awaitHeld ds.tree.control ds.tag (treeRunM ds.tree aff)
       -- The same suspension, with its own worker killed with the fiber,
-      -- but not counted as waiting (see 'delay'); or, on a test's clock,
-      -- a sleeper the test wakes.
-      Delay d a -> withDriverState $ \ds -> a <$ pause ds.tree.control False d
-      -- Counted as waiting, as 'Async' is.
-      DelayCounted d a -> withDriverState $ \ds -> a <$ pause ds.tree.control True d
+      -- counted as waiting as 'Async' is or not (see 'delay'); or, on a
+      -- test's clock, a sleeper the test wakes.
+      Delay counted d a -> withDriverState $ \ds -> a <$ pause ds.tree.control (counted == Counted) d
       Sync eff -> do
         ds <- sync (readIORef var)
         sync (timed ds.tag (withinEffect ds.tree.loop (treeRunM ds.tree eff)))

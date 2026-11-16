@@ -23,6 +23,14 @@ newtype SubscriptionId = SubscriptionId Int
 newtype ForkId = ForkId Int
   deriving newtype (Eq, Ord, Show)
 
+-- | Whether "Halogen.Activity" counts a pause as waiting.
+data Counted
+  = -- | Counted as waiting, as an 'Async' of a sleep is: 'delayCounted'.
+    Counted
+  | -- | Neither running nor waiting while it sleeps: 'delay'.
+    NotCounted
+  deriving stock (Eq, Show)
+
 data HalogenF state action slots output m a
   = State (state -> (a, state))
   | Subscribe (SubscriptionId -> Emitter IO action) (SubscriptionId -> a)
@@ -31,12 +39,8 @@ data HalogenF state action slots output m a
     Async (m a)
   | -- | Work done in place, before anything else of the tree runs: 'sync'.
     Sync (m a)
-  | -- | A pause: as an 'Async' of a sleep, but not counted as waiting by
-    -- "Halogen.Activity" (see 'delay').
-    Delay NominalDiffTime a
-  | -- | A pause counted as waiting, as an 'Async' of a sleep is (see
-    -- 'delayCounted').
-    DelayCounted NominalDiffTime a
+  | -- | A pause: 'delay' when not counted, 'delayCounted' when counted.
+    Delay Counted NominalDiffTime a
   | -- | IO that may wait and runs programs of the component: 'asyncWith'.
     AsyncWith (UnliftIO (HalogenM state action slots output m) -> IO a)
   | ChildQuery (CQ.ChildQuery slots a)
@@ -58,8 +62,7 @@ instance (Functor m) => Functor (HalogenF state' action slots' output m) where
     Unsubscribe sid a -> Unsubscribe sid (f a)
     Async m -> Async (fmap f m)
     Sync m -> Sync (fmap f m)
-    Delay d a -> Delay d (f a)
-    DelayCounted d a -> DelayCounted d (f a)
+    Delay c d a -> Delay c d (f a)
     AsyncWith q -> AsyncWith (fmap f . q)
     ChildQuery cq -> ChildQuery (fmap f cq)
     Raise o a -> Raise o (f a)
@@ -235,7 +238,7 @@ finally body after = do
 -- In a tree that "Halogen.Static" renders it pauses, as 'async' would:
 -- a pause in an @Initialize@ itself (not in a fork) holds up the render.
 delay :: forall state action slots output m. (Functor m) => NominalDiffTime -> HalogenM state action slots output m ()
-delay d = HalogenM $ liftF $ Delay d ()
+delay d = HalogenM $ liftF $ Delay NotCounted d ()
 
 -- | Pause the program for this long (in seconds), counted as waiting: the
 -- pause before work a test waits for, such as a debounce before a request
@@ -248,7 +251,7 @@ delay d = HalogenM $ liftF $ Delay d ()
 -- sleeps on that clock instead, and the test moves it on with
 -- 'Halogen.Activity.Control.advance' rather than waiting for it.
 delayCounted :: forall state action slots output m. (Functor m) => NominalDiffTime -> HalogenM state action slots output m ()
-delayCounted d = HalogenM $ liftF $ DelayCounted d ()
+delayCounted d = HalogenM $ liftF $ Delay Counted d ()
 
 -- | 'withRunInIO' is 'asyncWith'.
 instance (MonadUnliftIO m) => MonadUnliftIO (HalogenM state' action slots' output m) where
@@ -449,8 +452,7 @@ mapHalogen lens fa fo nat (HalogenM alg) = HalogenM (hoistF go alg)
       Unsubscribe sid a -> Unsubscribe sid a
       Async q -> Async (runNT nat q)
       Sync q -> Sync (runNT nat q)
-      Delay d a -> Delay d a
-      DelayCounted d a -> DelayCounted d a
+      Delay c d a -> Delay c d a
       AsyncWith q -> AsyncWith $ q . mapUnliftIO (mapHalogen lens fa fo nat)
       ChildQuery cq -> ChildQuery cq
       Raise o a -> Raise (fo o) a

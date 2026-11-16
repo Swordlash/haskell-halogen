@@ -270,8 +270,7 @@ interpretHookMWith settleWrites (HookM program) = foldF go program
     go = \case
       Async mx k -> map k (HM.async mx)
       Sync mx k -> map k (HM.sync mx)
-      Delay d a -> HM.delay d $> a
-      DelayCounted d a -> HM.delayCounted d $> a
+      Delay c d a -> HM.HalogenM (liftF (HM.Delay c d a))
       State (StateId ref) f k -> do
         (x, changed) <- atOnce $ atomicModifyIORef' ref $ \s ->
           let (x, s') = f s in (s', (x, not (unsafeRefEq s s')))

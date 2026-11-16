@@ -27,8 +27,11 @@ as it calls any program. Import it qualified.
 
 `HalogenF`'s constructors `Lift`, `LiftEffect` and `Unlift` are now
 `Async`, `Sync` and `AsyncWith`, after `H.async`, `H.sync` and `H.asyncWith`.
-Code that matches on `HalogenF`, such as an interpreter or a `hoist` of its
-own, must use the new names.
+The constructors `Delay` and `DelayCounted` are now one, `Delay`, whose
+first argument says whether the pause is `Counted` or `NotCounted`.
+`H.delay` and `H.delayCounted` do not change. Code that matches on
+`HalogenF`, such as an interpreter or a `hoist` of its own, must use the new
+names.
 
 `Halogen.Canvas`'s component now makes its event emitter in place, with
 `H.sync`. Before, it suspended there, and other events could run first.

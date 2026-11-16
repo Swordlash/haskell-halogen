@@ -63,7 +63,7 @@ import Halogen.Data.Slot qualified as Slot
 import Halogen.HTML (ComponentHTML)
 import Halogen.Hooks.Internal.Types (StateId (..))
 import Halogen.Query.ChildQuery qualified as CQ
-import Halogen.Query.HalogenM (ForkId, SubscriptionId)
+import Halogen.Query.HalogenM (Counted (..), ForkId, SubscriptionId)
 import Halogen.Query.Input (RefLabel)
 import Halogen.Subscription qualified as HS
 import Protolude hiding (async, get, gets, modify, put, state)
@@ -79,8 +79,8 @@ data HookF scope slots output m a where
   Async :: m x -> (x -> a) -> HookF scope slots output m a
   -- | Work done in place, before anything else of the tree runs: 'sync'.
   Sync :: m x -> (x -> a) -> HookF scope slots output m a
-  Delay :: NominalDiffTime -> a -> HookF scope slots output m a
-  DelayCounted :: NominalDiffTime -> a -> HookF scope slots output m a
+  -- | A pause: 'delay' when not counted, 'delayCounted' when counted.
+  Delay :: Counted -> NominalDiffTime -> a -> HookF scope slots output m a
   State :: StateId scope s -> (s -> (x, s)) -> (x -> a) -> HookF scope slots output m a
   Raise :: output -> a -> HookF scope slots output m a
   ChildQuery :: CQ.ChildQuery slots a -> HookF scope slots output m a
@@ -94,8 +94,7 @@ instance Functor (HookF scope slots output m) where
   fmap f = \case
     Async mx k -> Async mx (f . k)
     Sync mx k -> Sync mx (f . k)
-    Delay d a -> Delay d (f a)
-    DelayCounted d a -> DelayCounted d (f a)
+    Delay c d a -> Delay c d (f a)
     State sid g k -> State sid g (f . k)
     Raise o a -> Raise o (f a)
     ChildQuery cq -> ChildQuery (map f cq)
@@ -149,14 +148,14 @@ liftEffect = sync
 -- goes away, and in a tree mounted under a test's clock
 -- ("Halogen.Activity.Control") it sleeps on that clock.
 delay :: NominalDiffTime -> HookM scope slots output m ()
-delay d = HookM $ liftF $ Delay d ()
+delay d = HookM $ liftF $ Delay NotCounted d ()
 
 -- | Pause the handler for this long (in seconds), counted as waiting:
 -- 'Halogen.Query.HalogenM.delayCounted', the pause before work a test waits
 -- for. On the real clock it is @async (threadDelay n)@; under a test's
 -- clock the test moves it on.
 delayCounted :: NominalDiffTime -> HookM scope slots output m ()
-delayCounted d = HookM $ liftF $ DelayCounted d ()
+delayCounted d = HookM $ liftF $ Delay Counted d ()
 
 -- | 'sync' for plain 'IO' (the hooks' own bookkeeping).
 effectIO :: (MonadIO m) => IO x -> HookM scope slots output m x
