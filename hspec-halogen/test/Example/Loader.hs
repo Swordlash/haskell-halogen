@@ -30,6 +30,6 @@ component =
     handleAction Initialize =
       get >>= \case
         Loading input -> void $ H.fork $ do
-          liftIO $ threadDelay (input.delayMs * 1000)
+          H.async $ liftIO $ threadDelay (input.delayMs * 1000)
           put (Loaded input.result)
         Loaded _ -> pass

@@ -101,7 +101,7 @@ component =
       FromPage (Said t) -> modify $ \st -> st {heard = st.heard <> [t]}
       FromPage Leave -> do
         router <- gets (.input.router)
-        H.liftEffect (Router.navigate router Nothing)
+        H.sync (Router.navigate router Nothing)
 
 ----------------------------------------------------------------------
 -- The slow page's view
@@ -200,6 +200,6 @@ island =
       get >>= \case
         Waiting ms -> do
           -- On a worker, while the tree goes on.
-          liftIO (js_islands_wait ms >>= void . waitCatch)
+          H.async (liftIO (js_islands_wait ms >>= void . waitCatch))
           put Loaded
         Loaded -> pass

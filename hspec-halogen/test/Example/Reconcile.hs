@@ -128,7 +128,7 @@ replacing =
       RelabelRef -> modify $ \s -> s {field = s.spare, spare = s.field} :: Replacing
       Mark -> do
         (H.getRef =<< gets (.field)) >>= \case
-          Just element -> H.liftEffect (setAttribute Nothing (HH.AttrName "data-marked") "marked" element)
+          Just element -> H.sync (setAttribute Nothing (HH.AttrName "data-marked") "marked" element)
           Nothing -> modify $ \s -> s {lost = True} :: Replacing
         (H.getRef =<< gets (.spare)) >>= \case
           Just _ -> modify $ \s -> s {stale = True} :: Replacing

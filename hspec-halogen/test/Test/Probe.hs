@@ -32,14 +32,14 @@ probe = unsafeIOToPageM $ do
     Just [t, r, w] -> pure (t, r, w)
     _ -> panic ("the probe answered " <> answer)
 
--- | Waits in 'liftIO' in its @Initialize@, signalling once it does, until
+-- | Waits in 'H.async' in its @Initialize@, signalling once it does, until
 -- let go.
 waiter :: (MonadIO m) => MVar () -> MVar () -> H.Component H.VoidF () Void m
 waiter started gate =
   H.component
     (\() -> pure ())
     (\() -> HH.text "waiting")
-    [H.onInitialize (liftIO (putMVar started () >> takeMVar gate))]
+    [H.onInitialize (H.async (liftIO (putMVar started () >> takeMVar gate)))]
 
 idleOne :: (Applicative m) => H.Component H.VoidF () Void m
 idleOne = H.component (\() -> pure ()) (\() -> HH.text "idle") []

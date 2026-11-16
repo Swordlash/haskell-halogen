@@ -65,7 +65,7 @@ child =
         modify $ \s -> s {found = isJust element}
       Finalize -> do
         model <- get
-        liftIO $ modifyIORef model.journal (<> ["finalised " <> model.name])
+        H.sync $ liftIO $ modifyIORef model.journal (<> ["finalised " <> model.name])
       ClickRemove -> H.raise RemoveMe
 
     handleQuery :: ChildQuery a -> H.HalogenM ChildState ChildAction Empty ChildOutput m (Maybe a)

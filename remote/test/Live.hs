@@ -116,26 +116,26 @@ live shared =
     render
     [ H.onInitialize $ do
         s <- get
-        H.liftEffect (liftIO (atomically (modifyTVar' shared.counts (Map.insert s.session 0))))
+        H.sync (liftIO (atomically (modifyTVar' shared.counts (Map.insert s.session 0))))
     , H.onAction $ \case
         Increment -> do
           modify (\s -> s {count = s.count + 1})
           s <- get
-          H.liftEffect (liftIO (atomically (modifyTVar' shared.counts (Map.insert s.session s.count))))
+          H.sync (liftIO (atomically (modifyTVar' shared.counts (Map.insert s.session s.count))))
         Typed t -> do
           modify (\s -> s {typedText = t})
           s <- get
-          H.liftEffect (liftIO (atomically (modifyTVar' shared.typed (Map.insert s.session t))))
+          H.sync (liftIO (atomically (modifyTVar' shared.typed (Map.insert s.session t))))
         Follow f -> do
           s <- get
           Router.follow s.router f
-          place <- Router.current s.router
+          place <- H.sync (Router.current s.router)
           modify (\st -> st {route = place})
-          H.liftEffect (liftIO (atomically (modifyTVar' shared.follows (+ 1))))
-        Search -> H.liftEffect (liftIO (atomically (modifyTVar' shared.searches (+ 1))))
+          H.sync (liftIO (atomically (modifyTVar' shared.follows (+ 1))))
+        Search -> H.sync (liftIO (atomically (modifyTVar' shared.searches (+ 1))))
     , H.onFinalize $ do
         s <- get
-        H.liftEffect $
+        H.sync $
           liftIO $
             atomically $ do
               modifyTVar' shared.counts (Map.delete s.session)
@@ -334,7 +334,7 @@ data ViewAction = Compute | Fetch | Save | Busy | Bump
 data ViewQuery a = SetLabel Text a
 
 -- | A view whose handlers take time in each of the ways a program does:
--- work on the loop ('H.liftEffect', which holds it), a wait in 'liftIO'
+-- work on the loop ('H.sync', which holds it), a wait in 'liftIO'
 -- (a request), a pause ('H.delay', a notice that goes away by itself).
 -- Its initial state takes a moment too, and its @Initialize@ changes what
 -- the first render showed.
@@ -346,16 +346,16 @@ view =
     [ H.onInitialize (modify (\s -> s {label = "ready"}))
     , H.onAction $ \case
         Compute -> do
-          H.liftEffect (liftIO (threadDelay 300_000))
+          H.sync (liftIO (threadDelay 300_000))
           modify (\s -> s {label = "computed"})
         Fetch -> do
-          liftIO (threadDelay 700_000)
+          H.async (liftIO (threadDelay 700_000))
           modify (\s -> s {label = "fetched"})
         Save -> do
           modify (\s -> s {notice = True})
           void (H.fork (H.delay 3 >> modify (\s -> s {notice = False})))
         Busy -> do
-          liftIO (threadDelay 6_000_000)
+          H.async (liftIO (threadDelay 6_000_000))
           modify (\s -> s {label = "rested"})
         Bump -> modify (\s -> s {bumps = s.bumps + 1})
     , H.onQuery $ \case
@@ -376,29 +376,29 @@ view =
         ]
 
 -- | A count that goes up as each of its gates is let go: each gate is a
--- fiber of its @Initialize@ waiting in a 'liftIO', as a program waits for
+-- fiber of its @Initialize@ waiting in an 'H.async', as a program waits for
 -- answers a test's backend holds.
 gated :: forall m. (MonadIO m) => [MVar ()] -> H.Component H.VoidF () Void m
 gated gates =
   H.component
     (\() -> pure (0 :: Int))
     render
-    [H.onInitialize (mapM_ (\gate -> void (H.fork (liftIO (takeMVar gate) >> modify (+ 1)))) gates)]
+    [H.onInitialize (mapM_ (\gate -> void (H.fork (H.async (liftIO (takeMVar gate)) >> modify (+ 1)))) gates)]
   where
     render :: Int -> H.ComponentHTML () Empty m
     render n = HH.span [HP.id "gated"] [HH.text (Text.pack (show n))]
 
 -- | A component whose finalizer releases what it holds: at once (in its
--- synchronous part), or after a wait in 'liftIO'.
+-- synchronous part), or after a wait in 'H.async'.
 releasing :: forall m. (MonadIO m) => TVar Bool -> TVar Bool -> H.Component H.VoidF () Void m
 releasing atOnce afterWait =
   H.component
     (\() -> pure ())
     (\() -> HH.span [HP.id "holding"] [HH.text "holding"])
     [ H.onFinalize $ do
-        H.liftEffect (liftIO (atomically (writeTVar atOnce True)))
-        liftIO (threadDelay 20_000)
-        H.liftEffect (liftIO (atomically (writeTVar afterWait True)))
+        H.sync (liftIO (atomically (writeTVar atOnce True)))
+        H.async (liftIO (threadDelay 20_000))
+        H.sync (liftIO (atomically (writeTVar afterWait True)))
     ]
 
 -- | How long an action took, in seconds.
@@ -426,7 +426,7 @@ testing server = playwright $ describe "a component per page, mounted in the tes
     click (byRoleNamed page "button" "Compute")
     readOnce page "#label" `shouldReturn` "computed"
 
-  it "waits, in waitQuiet, for a wait in liftIO and what it rendered" $ inPage $ \page -> do
+  it "waits, in waitQuiet, for a wait in H.async and what it rendered" $ inPage $ \page -> do
     (address, _) <- mounting server view ()
     visit page address
     click (locator page "#fetch")
@@ -452,7 +452,7 @@ testing server = playwright $ describe "a component per page, mounted in the tes
       (busyAddress, _) <- mounting server view ()
       (calmAddress, _) <- mounting server view ()
       _ <- concurrently (visit busy busyAddress) (visit calm calmAddress)
-      -- Six seconds in a liftIO, on the busy page's session.
+      -- Six seconds in an H.async, on the busy page's session.
       click (locator busy "#busy")
       ((), took) <- timed $ do
         click (locator calm "#bump")

@@ -3,7 +3,7 @@
 -- | Components that keep the program busy in the ways a test waits for, or
 -- must not wait for.
 --
--- 'component' loads in its actions: one waits in a @liftIO@ for a
+-- 'component' loads in its actions: one waits in an @H.async@ for a
 -- 'threadDelay', one for a promise of the page's (a request, say), one for
 -- two seconds. Beside them a ticker pauses with 'H.delay' for ever, which a
 -- test waiting for the program to be quiet must not wait for.
@@ -79,7 +79,7 @@ component =
     loading :: Text -> IO () -> H.HalogenM State Action Empty o m ()
     loading done work = do
       modify $ \st -> st {status = "loading"}
-      liftIO work
+      H.async (liftIO work)
       modify $ \st -> st {status = done}
 
 data Spinning = Spinning
@@ -116,13 +116,13 @@ spinner =
     handleAction :: SpinAction -> H.HalogenM Spinning SpinAction Empty o m ()
     handleAction = \case
       Start -> do
-        HS.Subscribe {emitter, listener} <- H.liftEffect (liftIO HS.create)
+        HS.Subscribe {emitter, listener} <- H.sync (liftIO HS.create)
         void (H.subscribe emitter)
-        now <- H.liftEffect (liftIO getMonotonicTime)
+        now <- H.sync (liftIO getMonotonicTime)
         modify $ \st -> st {deadline = now + st.seconds, again = Just listener}
         handleAction Spin
       Spin -> do
         modify $ \st -> st {spins = st.spins + 1}
         st <- get
-        now <- H.liftEffect (liftIO getMonotonicTime)
-        when (now < st.deadline) $ for_ st.again $ \listener -> H.liftEffect (liftIO (HS.notify listener Spin))
+        now <- H.sync (liftIO getMonotonicTime)
+        when (now < st.deadline) $ for_ st.again $ \listener -> H.sync (liftIO (HS.notify listener Spin))
