@@ -28,3 +28,6 @@ package *
 
 with-compiler: javascript-unknown-ghcjs-ghc-9.12.2
 with-hc-pkg: javascript-unknown-ghcjs-ghc-pkg-9.12.2
+
+-- The experiment (not for master): what the compiler keeps per splice.
+packages: experiments/js-memory

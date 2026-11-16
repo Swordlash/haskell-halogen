@@ -1,0 +1,113 @@
+cabal-version: 3.0
+name:          jsmem
+version:       0
+synopsis:      What the JavaScript backend's compiler keeps per splice (an experiment, not for master)
+build-type:    Simple
+
+common shared
+  default-language: GHC2021
+  ghc-options:      -Wall
+  build-depends:    base, aeson, bytestring, text, template-haskell
+
+library per-module
+  import:          shared
+  hs-source-dirs:  per-module
+  ghc-options:     "+RTS" "-sper-module.rts" "-hT" "-i1" "-RTS"
+  exposed-modules:
+    PerModule.M00
+    PerModule.M01
+    PerModule.M02
+    PerModule.M03
+    PerModule.M04
+    PerModule.M05
+    PerModule.M06
+    PerModule.M07
+    PerModule.M08
+    PerModule.M09
+    PerModule.M10
+    PerModule.M11
+
+library per-module-twice
+  import:          shared
+  hs-source-dirs:  per-module-twice
+  ghc-options:     "+RTS" "-sper-module-twice.rts" "-RTS"
+  exposed-modules:
+    Twice.M00
+    Twice.M01
+    Twice.M02
+    Twice.M03
+    Twice.M04
+    Twice.M05
+    Twice.M06
+    Twice.M07
+    Twice.M08
+    Twice.M09
+    Twice.M10
+    Twice.M11
+    Twice.M12
+    Twice.M13
+    Twice.M14
+    Twice.M15
+    Twice.M16
+    Twice.M17
+    Twice.M18
+    Twice.M19
+    Twice.M20
+    Twice.M21
+    Twice.M22
+    Twice.M23
+
+library per-splice
+  import:          shared
+  hs-source-dirs:  per-splice
+  ghc-options:     "+RTS" "-sper-splice.rts" "-RTS"
+  exposed-modules:
+    PerSplice.M00
+    PerSplice.M01
+    PerSplice.M02
+    PerSplice.M03
+    PerSplice.M04
+    PerSplice.M05
+    PerSplice.M06
+    PerSplice.M07
+    PerSplice.M08
+    PerSplice.M09
+    PerSplice.M10
+    PerSplice.M11
+
+library no-splice
+  import:          shared
+  hs-source-dirs:  no-splice
+  ghc-options:     "+RTS" "-sno-splice.rts" "-RTS"
+  exposed-modules:
+    NoSplice.M00
+    NoSplice.M01
+    NoSplice.M02
+    NoSplice.M03
+    NoSplice.M04
+    NoSplice.M05
+    NoSplice.M06
+    NoSplice.M07
+    NoSplice.M08
+    NoSplice.M09
+    NoSplice.M10
+    NoSplice.M11
+
+library light-splice
+  import:          shared
+  hs-source-dirs:  light-splice
+  ghc-options:     "+RTS" "-slight-splice.rts" "-RTS"
+  exposed-modules:
+    Light.M00
+    Light.M01
+    Light.M02
+    Light.M03
+    Light.M04
+    Light.M05
+    Light.M06
+    Light.M07
+    Light.M08
+    Light.M09
+    Light.M10
+    Light.M11
+

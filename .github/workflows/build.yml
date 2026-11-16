@@ -307,6 +307,11 @@ jobs:
     - name: Build
       run: sh toolchain/with-memory-watch.sh 60 npm run build-js
 
+    # The experiment (not for master).
+    - name: What the compiler keeps per splice
+      if: always()
+      run: sh experiments/js-memory/measure.sh
+
     # Before the tests: the suites built with hspec-halogen (hspec-halogen's,
     # material's, net's, custom-element's, devtools', remote's, tauri's and
     # three's) run in headless Chromium, driven by the hspec-halogen
