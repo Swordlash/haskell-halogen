@@ -45,10 +45,10 @@ page router =
           H.mkEval
             H.defaultEval
               { H.handleAction = \case
-                  Start -> put =<< Router.current router
+                  Start -> put =<< H.sync (Router.current router)
                   Go follow -> do
                     Router.follow router follow
-                    put =<< Router.current router
+                    put =<< H.sync (Router.current router)
               , H.initialize = Just Start
               }
       }

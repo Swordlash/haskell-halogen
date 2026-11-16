@@ -43,7 +43,7 @@ component pool =
     render
     [ H.onInitialize $ do
         void (H.subscribe (Frame <$ Window.animationFrame))
-        available <- Worker.available
+        available <- H.sync Worker.available
         modify (\st -> st {workers = available})
     , H.onAction handleAction
     ]
@@ -69,9 +69,10 @@ component pool =
       Count -> do
         modify (\st -> st {counting = True, answer = "Counting..."})
         before <- gets (.frame)
-        -- A wait, so a liftIO: on a thread of its own, while the tree goes
-        -- on. With a worker the count is on the worker's thread.
-        outcome <- liftIO (try (Worker.run pool primes 50000))
+        -- The job waits, so it goes in H.async. It runs on a thread of its
+        -- own while the tree goes on. With a worker, the count runs on the
+        -- worker's thread.
+        outcome <- H.async (liftIO (try (Worker.run pool primes 50000)))
         after <- gets (.frame)
         let drawn = " (" <> T.pack (show (after - before)) <> " frames drawn meanwhile)"
         modify $ \st ->

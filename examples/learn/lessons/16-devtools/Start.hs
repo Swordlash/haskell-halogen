@@ -42,6 +42,6 @@ component =
       -- Every second: read the clock, and keep the minute. The minute
       -- changes once a minute, but this writes a new state every second.
       Tick -> do
-        now <- liftIO getCurrentTime
+        now <- H.sync (liftIO getCurrentTime)
         let minute = T.pack (formatTime defaultTimeLocale "%H:%M" now)
         modify (\st -> st {clock = minute})

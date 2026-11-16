@@ -36,7 +36,7 @@ component =
         ]
     handleAction (Load url) = do
       put Loading
-      result <- liftIO (getQuotes url)
+      result <- H.async (liftIO (getQuotes url))
       put (either Failed Done result)
 
 -- Runs in IO, and waits: first for the response, then for its body.

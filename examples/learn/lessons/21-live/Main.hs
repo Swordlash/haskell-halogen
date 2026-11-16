@@ -56,13 +56,13 @@ wire = H.component start render [H.onInitialize mountIt, H.onFinalize stop, H.on
       for_ element $ \container -> do
         -- Subscribed to before mounting, so that the first render's
         -- message, sent as soon as the component is mounted, is seen too.
-        crossing <- liftIO HS.create
+        crossing <- H.sync (liftIO HS.create)
         _ <- H.subscribe (Crossed <$> crossing.emitter)
-        loopback <- liftIO (Loopback.mountWatched (HS.notify crossing.listener) container component ())
+        loopback <- H.async (liftIO (Loopback.mountWatched (HS.notify crossing.listener) container component ()))
         modify (\s -> s {running = Just loopback})
     stop = do
       st <- get
-      for_ st.running (\loopback -> liftIO loopback.dispose)
+      for_ st.running (\loopback -> H.async (liftIO loopback.dispose))
     heard (Crossed message) = modify (\s -> s {seen = take 12 (describe message : s.seen)})
     describe = \case
       Loopback.ToPage text -> "to the page:    " <> shorten text

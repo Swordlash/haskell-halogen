@@ -36,7 +36,7 @@ component pool =
     render
     [ H.onInitialize $ do
         void (H.subscribe (Frame <$ Window.animationFrame))
-        available <- Worker.available
+        available <- H.sync Worker.available
         modify (\st -> st {workers = available})
     , H.onAction handleAction
     ]
@@ -63,7 +63,7 @@ component pool =
         modify (\st -> st {counting = True, answer = "Counting..."})
         before <- gets (.frame)
         -- Counted right here, in the component's loop.
-        n <- H.liftEffect (liftIO (evaluate (countPrimes 50000)))
+        n <- H.sync (liftIO (evaluate (countPrimes 50000)))
         after <- gets (.frame)
         let drawn = " (" <> T.pack (show (after - before)) <> " frames drawn meanwhile)"
         modify (\st -> st {counting = False, answer = "Counted " <> T.pack (show n) <> " primes" <> drawn})

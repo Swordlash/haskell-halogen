@@ -39,7 +39,7 @@ component =
       Remind -> do
         modify (\s -> s {message = "Waiting..."})
         void $ H.fork $ do
-          liftIO (threadDelay 2000000)
+          H.async (liftIO (threadDelay 2000000))
           modify (\s -> s {message = "Two seconds have passed."})
       Start -> do
         subscription <- H.subscribe (TenthTick <$ Window.interval 100)
@@ -51,4 +51,4 @@ component =
       TenthTick -> modify (\s -> s {tenths = s.tenths + 1})
     report = do
       state <- get
-      liftIO (putStrLn ("Finalized after " <> show state.seconds <> " seconds."))
+      H.sync (liftIO (putStrLn ("Finalized after " <> show state.seconds <> " seconds.")))

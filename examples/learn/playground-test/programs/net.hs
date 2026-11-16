@@ -27,8 +27,8 @@ fetched =
           H.mkEval
             H.defaultEval
               { H.handleAction = \Load -> do
-                  result <- Fetch.fetch (Fetch.request Fetch.GET "learn-test/hello.txt")
-                  body <- either (pure . Left) Fetch.text result
+                  result <- H.async (Fetch.fetch (Fetch.request Fetch.GET "learn-test/hello.txt"))
+                  body <- either (pure . Left) (H.async . Fetch.text) result
                   put (either (\e -> "failed: " <> e.name <> ": " <> e.message) id body)
               , H.initialize = Just Load
               }

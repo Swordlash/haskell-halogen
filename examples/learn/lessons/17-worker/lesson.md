@@ -37,7 +37,7 @@ main = Worker.program $ runBrowserDOM $ do
 
 On the page, `Worker.program` runs the UI setup. Inside a worker, it serves job requests instead. The pool starts each worker on its first job using `globalThis.halogenWorker` configuration. Here the tutorial configures a custom compiler-loading script, so `Worker.available` reports `True`.
 
-`Worker.run pool primes 50000` submits the job and waits for its result. The job's arguments follow it in order, one by one. Call it through `liftIO` so the component loop can continue handling actions. `H.liftEffect` must not wait.
+`Worker.run pool primes 50000` submits the job and waits for its result. The job's arguments follow it in order, one by one. It waits, so call it in `H.async`: the component loop goes on handling actions meanwhile. `H.sync` must not wait.
 
 When workers are unavailable, the job runs on a Haskell thread in the current program using the same encoding. That fallback does not move computation off the browser thread. For concurrent jobs, `Worker.start` returns a promise without waiting; the compiled example uses it across several workers.
 
@@ -48,7 +48,7 @@ Define `primes` as above, import `GHC.StaticPtr (StaticPtr)` and export `primes`
 Replace the calculation in `Count` with:
 
 ```haskell
-outcome <- liftIO (try (Worker.run pool primes 50000))
+outcome <- H.async (liftIO (try (Worker.run pool primes 50000)))
 ```
 
 Import `try` from `Control.Exception`. Display the count for `Right n` and the error message for `Left (e :: Worker.WorkerError)`. Worker errors include the job's source location and failure message, including exceptions and decoding failures.
@@ -58,7 +58,7 @@ Compile and count. The spinner should keep moving during worker startup and comp
 Now try capturing a local value. After `before <- gets (.frame)` in `Count`, use:
 
 ```haskell
-outcome <- liftIO (try (Worker.run pool (static (Worker.job (pure (countPrimes (50000 + before)))))))
+outcome <- H.async (liftIO (try (Worker.run pool (static (Worker.job (pure (countPrimes (50000 + before))))))))
 ```
 
 Compilation fails because `before` is local to the handler. The worker cannot access it. Pass any such value as an argument instead.
@@ -73,7 +73,7 @@ Compilation fails because `before` is local to the handler. The worker cannot ac
 
 ## What a worker changes
 
-In the compiled example, counting primes below two million takes about two seconds in each mode. Running in `H.liftEffect` draws no frames during that time. Fallback execution frees the component loop but still occupies the browser thread, drawing about one frame. A real worker allows roughly 120 frames, keeping the spinner responsive.
+In the compiled example, counting primes below two million takes about two seconds in each mode. Running in `H.sync` draws no frames during that time. Fallback execution frees the component loop but still occupies the browser thread, drawing about one frame. A real worker allows roughly 120 frames, keeping the spinner responsive.
 
 Workers also cost startup time and memory. Here each one adds about half a gigabyte for the compiler and lesson until the next compile or lesson change disposes it. Arguments and results require encoding and decoding, so workers are most useful for work lasting seconds rather than milliseconds.
 
@@ -86,9 +86,9 @@ Use `Halogen.Worker.Par` when a calculation contains many independent job calls.
 
 import Halogen.Worker.Par (runPar, task)
 
-counts <- liftIO (runPar pool (traverse (uncurry (task primesBetween)) parts))
+counts <- H.async (liftIO (runPar pool (traverse (uncurry (task primesBetween)) parts)))
 
-both <- liftIO $ runPar pool $ do
+both <- H.async $ liftIO $ runPar pool $ do
   a <- task primes 100000
   b <- task primes 200000
   c <- task primes (a + b)
