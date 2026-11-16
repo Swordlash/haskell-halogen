@@ -24,7 +24,7 @@
 --
 --   -- an effect's body is ordinary 'HookM', so it is an ordinary @do@
 --   Hooks.useTickEffect count $ do
---     liftIO $ putStrLn ("count is now " <> show count)
+--     Hooks.sync $ liftIO $ putStrLn ("count is now " <> show count)
 --     pure Nothing
 --
 --   Hooks.pure $

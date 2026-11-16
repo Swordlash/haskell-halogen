@@ -83,12 +83,12 @@ useStorageWith kind key initial = Hooks.do
   Hooks.useTickEffect (kind, key) $ do
     -- The store is synchronous: read and written at once, so that writes
     -- land in the order they are made.
-    stored <- Hooks.liftEffect $ Storage.getItem kind key
+    stored <- Hooks.sync $ Storage.getItem kind key
     case stored of
       -- Nothing kept yet: start the store off at the default rather than
       -- leaving it empty until something changes.
       Nothing -> do
-        Hooks.liftEffect $ Storage.setItem kind key initial
+        Hooks.sync $ Storage.setItem kind key initial
         current <- Hooks.get valueId
         -- On a mount that is what the state already holds, and putting it
         -- again would cost a render for nothing. After a change of key it is
@@ -108,7 +108,7 @@ useStorageWith kind key initial = Hooks.do
       -- What the state holds now rather than what this render saw: the effect
       -- above runs first, and what it put there came from the store.
       current <- Hooks.get valueId
-      for_ current $ \v -> Hooks.liftEffect $ Storage.setItem kind key v
+      for_ current $ \v -> Hooks.sync $ Storage.setItem kind key v
     pure Nothing
 
   Hooks.pure (value, Hooks.modify_ valueId)

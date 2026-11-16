@@ -268,8 +268,8 @@ interpretHookMWith settleWrites (HookM program) = foldF go program
   where
     go :: forall x. HookF scope slots output m x -> Eval scope q input slots output m hooks x
     go = \case
-      Lift mx k -> map k (lift mx)
-      LiftEffect mx k -> map k (HM.liftEffect mx)
+      Lift mx k -> map k (HM.async mx)
+      LiftEffect mx k -> map k (HM.sync mx)
       Delay d a -> HM.delay d $> a
       DelayCounted d a -> HM.delayCounted d $> a
       State (StateId ref) f k -> do
@@ -304,6 +304,6 @@ modifyInternal f = do
   atOnce $ atomicModifyIORef' st.internal (\int -> (f int, ()))
 
 -- | The hooks' own bookkeeping: at once, not a place where the program may
--- wait (see 'HM.liftEffect').
+-- wait (see 'HM.sync').
 atOnce :: forall state action slots output m a. (MonadIO m) => IO a -> HM.HalogenM state action slots output m a
-atOnce = HM.liftEffect . liftIO
+atOnce = HM.sync . liftIO

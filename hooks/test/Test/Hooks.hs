@@ -75,12 +75,12 @@ probeComponent probe = Hooks.component @Empty $ \_input -> Hooks.do
   memoed <- Hooks.useMemo count (countedMemo probe.memoRuns)
 
   Hooks.useLifecycleEffect $ do
-    Hooks.liftEffect $ modifyIORef' probe.lifecycleRuns (+ 1)
-    pure $ Just $ Hooks.liftEffect $ modifyIORef' probe.cleanupRuns (+ 1)
+    Hooks.sync $ modifyIORef' probe.lifecycleRuns (+ 1)
+    pure $ Just $ Hooks.sync $ modifyIORef' probe.cleanupRuns (+ 1)
 
   Hooks.useTickEffect count $ do
-    Hooks.liftEffect $ modifyIORef' probe.tickLog (<> [Ran count])
-    pure $ Just $ Hooks.liftEffect $ modifyIORef' probe.tickLog (<> [Cleaned count])
+    Hooks.sync $ modifyIORef' probe.tickLog (<> [Ran count])
+    pure $ Just $ Hooks.sync $ modifyIORef' probe.tickLog (<> [Cleaned count])
 
   Hooks.useQuery $ \case
     Bump a -> do
@@ -91,20 +91,20 @@ probeComponent probe = Hooks.component @Empty $ \_input -> Hooks.do
     -- answered and nothing else is going to run the program again.
     BumpLater a -> do
       void $ Hooks.fork $ do
-        liftIO $ threadDelay 20_000
+        Hooks.async $ threadDelay 20_000
         Hooks.modify_ countId (+ 1)
       pure (Just a)
     BumpAndWait changed release a -> do
       void $ Hooks.fork $ do
-        liftIO $ threadDelay 20_000
+        Hooks.async $ threadDelay 20_000
         Hooks.modify_ countId (+ 1)
-        liftIO $ putMVar changed ()
-        liftIO $ takeMVar release
+        Hooks.sync $ putMVar changed ()
+        Hooks.async $ takeMVar release
       pure (Just a)
     BumpOther a -> Hooks.modify_ otherId (+ 1) $> Just a
     CurrentCount k -> Just . k <$> Hooks.get countId
-    WriteRef v a -> Hooks.liftEffect (writeIORef ref v) $> Just a
-    ReadRef k -> Just . k <$> Hooks.liftEffect (readIORef ref)
+    WriteRef v a -> Hooks.sync (writeIORef ref v) $> Just a
+    ReadRef k -> Just . k <$> Hooks.sync (readIORef ref)
 
   Hooks.pure $
     HH.div_
@@ -206,9 +206,9 @@ reentrantComponent logRef source = Hooks.component @Empty $ \_ -> Hooks.do
     void $ Hooks.subscribe $ map (\() -> Hooks.put countId 1) source.emitter
     pure Nothing
   Hooks.useTickEffect count $ do
-    Hooks.liftEffect $ modifyIORef' logRef (<> [Ran count])
-    when (count == 0) $ Hooks.liftEffect $ HS.notify source.listener ()
-    pure $ Just $ Hooks.liftEffect $ modifyIORef' logRef (<> [Cleaned count])
+    Hooks.sync $ modifyIORef' logRef (<> [Ran count])
+    when (count == 0) $ Hooks.sync $ HS.notify source.listener ()
+    pure $ Just $ Hooks.sync $ modifyIORef' logRef (<> [Cleaned count])
   Hooks.pure $ HH.text (show count)
 
 throwingComponent :: IORef [Int] -> HS.Emitter IO Int -> H.Component H.VoidF () Void IO
@@ -218,8 +218,8 @@ throwingComponent logRef source = Hooks.component @Empty $ \_ -> Hooks.do
     void $ Hooks.subscribe $ map (Hooks.put countId) source
     pure Nothing
   Hooks.useTickEffect count $ do
-    when (count == 1) $ Hooks.liftEffect $ throwIO (userError "effect failed")
-    Hooks.liftEffect $ modifyIORef' logRef (<> [count])
+    when (count == 1) $ Hooks.sync $ throwIO (userError "effect failed")
+    Hooks.sync $ modifyIORef' logRef (<> [count])
     pure Nothing
   Hooks.pure $ HH.text (show count)
 
@@ -248,7 +248,7 @@ ticker ticks = Hooks.component @Empty $ \_input -> Hooks.do
     void $ Hooks.fork $ forever $ do
       Hooks.delay 0.01
       n <- Hooks.modify countId (+ 1)
-      Hooks.liftEffect (writeIORef ticks n)
+      Hooks.sync (writeIORef ticks n)
     pure Nothing
   Hooks.pure $ HH.text ("ticks=" <> show count)
 

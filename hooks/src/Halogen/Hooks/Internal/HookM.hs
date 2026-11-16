@@ -113,7 +113,7 @@ instance MonadTrans (HookM scope slots output) where
 -- | As in 'Halogen.Query.HalogenM.HalogenM': 'lift' and 'liftIO' are
 -- 'async', and the rest of the tree goes on meanwhile; 'sync' runs in place.
 instance (MonadIO m) => MonadIO (HookM scope slots output m) where
-  liftIO = lift . liftIO
+  liftIO = async . liftIO
 
 -- | Run an action of the component's monad in place, as
 -- 'Halogen.Query.HalogenM.sync' does. Nothing else of the tree runs until it
@@ -151,14 +151,14 @@ delay d = HookM $ liftF $ Delay d ()
 
 -- | Pause the handler for this long (in seconds), counted as waiting:
 -- 'Halogen.Query.HalogenM.delayCounted', the pause before work a test waits
--- for. On the real clock it is @liftIO (threadDelay n)@; under a test's
+-- for. On the real clock it is @async (threadDelay n)@; under a test's
 -- clock the test moves it on.
 delayCounted :: NominalDiffTime -> HookM scope slots output m ()
 delayCounted d = HookM $ liftF $ DelayCounted d ()
 
--- | 'liftEffect' for plain 'IO' (the hooks' own bookkeeping).
+-- | 'sync' for plain 'IO' (the hooks' own bookkeeping).
 effectIO :: (MonadIO m) => IO x -> HookM scope slots output m x
-effectIO = liftEffect . liftIO
+effectIO = sync . liftIO
 
 -- | What a hooks component's DOM emits: an action is simply the 'HookM'
 -- program to run when the event fires.
