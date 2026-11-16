@@ -17,6 +17,7 @@ import Test.DriverLifecycleRaces qualified as DriverLifecycleRaces
 import Test.DriverReentrancy qualified as DriverReentrancy
 import Test.Fork qualified as Fork
 import Test.HTML qualified as HTML
+import Test.Harness qualified as Harness
 import Test.Hashable qualified as Hashable
 import Test.Hspec (hspec)
 import Test.Hydrate qualified as Hydrate
@@ -53,6 +54,7 @@ main = hspec $ do
   DriverReentrancy.spec
   DriverLifecycleRaces.spec
   Fork.spec
+  Harness.spec
   Hashable.spec
   HTML.spec
   Hydrate.spec

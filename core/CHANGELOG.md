@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+`Halogen.Test.Native` is a harness for testing a component natively, on the
+in-memory DOM. Mount a component with `withView`. It gets a page of its own,
+so tests can run side by side. Click with `click`, type with `typeInto`, and
+press a key with `press`. Wait for the program with `settle`. Read the tree
+with `textOf`, `find` and `html`. A selector that finds nothing throws, and
+the message shows the view's HTML. A click is the reader's whole click:
+`pointerdown`, `mousedown`, `pointerup`, `mouseup` and `click`. It also does
+what a browser does by default: it ticks a checkbox, checks a radio button,
+and submits a form. A `Gate` holds the asks of a test's own backend until
+the test answers them, and `settleHolding` waits until the program has done
+all it can while they are held. The module needs no test framework.
+
+`Halogen.Activity.waitActivityWith` waits for a reading and a value of the
+test's own, read in `STM`, together. A socket has the same wait as
+`waitActivityWith`. A change of the value wakes the wait. Code that builds a
+`HalogenSocket` itself must now give this field too.
+
+`N.disabledControl` (`N` is `Halogen.VDom.DOM.Monad.Native`) tells whether a
+node is a disabled form control. A page sends no click to one.
+
 A native test can now give each component a page of its own. Create a page
 with `N.newPage`, make a container in it with `N.newContainerIn`, and mount
 with `N.runMemDOMIn` (`N` is `Halogen.VDom.DOM.Monad.Native`). Each page has

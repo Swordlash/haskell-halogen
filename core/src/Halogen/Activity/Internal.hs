@@ -1,3 +1,4 @@
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 -- | The registry of mounted trees that "Halogen.Activity" reads, and the
@@ -12,6 +13,7 @@ module Halogen.Activity.Internal
   , register
   , deregister
   , waitReading
+  , waitReadingWith
   , waitsUnderWay
   , ActivityEnded (..)
   )
@@ -112,16 +114,29 @@ treeReading n loop = do
 -- with nothing left of it at work): a predicate it does not satisfy then
 -- throws 'ActivityEnded' rather than wait for ever.
 waitReading :: (Eq s) => STM s -> IO (Activity, Bool) -> (Activity -> Bool) -> IO ()
-waitReading extra reading done = watching go
+waitReading extra reading done = waitReadingWith extra reading (\a _ -> done a)
+
+-- | 'waitReading', with a predicate that also sees the value of @extra@.
+--
+-- The value is read before the reading and again after it. When the two
+-- differ, the value changed during the reading, and the wait reads again at
+-- once. When they agree, the predicate sees both. A later change of either
+-- wakes the wait, as for 'waitReading'.
+waitReadingWith :: (Eq s) => STM s -> IO (Activity, Bool) -> (Activity -> s -> Bool) -> IO ()
+waitReadingWith extra reading done = watching go
   where
     go = do
       v <- currentVersion
       before <- atomically extra
       (a, final) <- reading
-      unless (done a) $ do
-        when final $ throwIO (ActivityEnded a)
-        atomically (changedSince v `orElse` (extra >>= check . (/= before)))
-        go
+      after <- atomically extra
+      if
+        | after /= before -> go
+        | done a before -> pass
+        | otherwise -> do
+            when final $ throwIO (ActivityEnded a)
+            atomically (changedSince v `orElse` (extra >>= check . (/= before)))
+            go
 
 -- | A wait on one tree's reading (a socket's, a remote session's) whose
 -- tree has been disposed of and has nothing left at work, with the reading

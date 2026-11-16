@@ -70,6 +70,12 @@ data HalogenSocket query output m = HalogenSocket
   -- not satisfy throws 'Halogen.Activity.ActivityEnded' instead of waiting
   -- for ever; after 'dispose', @waitActivity quiet@ returns once every
   -- finalizer has ended.
+  , waitActivityWith :: forall s. (Eq s) => STM s -> (Activity.Activity -> s -> Bool) -> m ()
+  -- ^ 'waitActivity' with a predicate that also sees a value of the
+  -- caller's, read in 'STM', as in 'Halogen.Activity.waitActivityWith'. A
+  -- change of the value wakes the wait. The field is polymorphic, so
+  -- @socket.waitActivityWith@ does not work: take it out with a pattern, as
+  -- for 'query'.
   }
 
 data RenderSpec (m :: Type -> Type) (r :: Type -> Type -> Row Type -> Type -> Type) = RenderSpec
@@ -188,6 +194,7 @@ mount toTheEnd spec@RenderSpec {dispose} c i = withRunInIO $ \runInIO -> do
       , dispose = liftIO (disposeRoot tree disposed registration root)
       , activity = liftIO (fst <$> Activity.treeReading registration loop)
       , waitActivity = liftIO . Activity.waitReading (pure ()) (Activity.treeReading registration loop)
+      , waitActivityWith = \extra -> liftIO . Activity.waitReadingWith extra (Activity.treeReading registration loop)
       }
   where
     askRoot :: forall a. Tree m r -> DriverStateRef m r f o -> f a -> IO (Maybe a)
