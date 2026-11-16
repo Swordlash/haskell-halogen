@@ -287,17 +287,21 @@ click view selector = clickNode =<< matching "click" view selector
 -- The node gets these events, in order: @pointerdown@, @mousedown@,
 -- @pointerup@, @mouseup@ and @click@. A disabled form control gets only the
 -- two pointer events, as in a browser. So does a node inside a disabled
--- button.
+-- button. A listener that prevents the @pointerdown@ stops @mousedown@ and
+-- @mouseup@, but not the @click@.
 --
 -- Then what the browser does by default, unless a @click@ listener
 -- prevented it:
 --
--- * A checkbox is ticked or unticked, then gets @input@ and @change@.
+-- * A checkbox is ticked or unticked, then gets @input@ and @change@. Its
+--   @indeterminate@ property, if set, becomes false.
 -- * A radio button is checked and the others of its group are unchecked.
 --   It gets @input@ and @change@ if it was not checked before.
 -- * A submit button in a @form@ makes the form get a @submit@ event. A
 --   click on a node inside the button does the same. The button is looked
 --   at after the listeners have run: one that disabled it stops the submit.
+--   A required field that is empty also stops it, and gets an @invalid@
+--   event. Only @required@ is checked: not @pattern@, a length or a type.
 --
 -- The checkbox and the radio button change before the @click@ listeners
 -- run, as in a browser, so a listener reads the new state. If a listener
@@ -310,15 +314,16 @@ click view selector = clickNode =<< matching "click" view selector
 clickNode :: N.NativeNode -> IO ()
 clickNode at = do
   target <- pointedAt at
-  N.dispatch "pointerdown" (pointerEvent 1) target
-  mouse "mousedown" 1 target
+  down <- N.dispatchOutcome "pointerdown" (pointerEvent 1) target
+  -- A listener that prevents the pointerdown stops the two mouse events,
+  -- as in a browser. The click still comes.
+  let mouse eventType buttons = do
+        off <- disabledFor target
+        unless (off || down.defaultPrevented) (N.dispatch eventType (mouseEvent buttons) target)
+  mouse "mousedown" 1
   N.dispatch "pointerup" (pointerEvent 0) target
-  mouse "mouseup" 0 target
+  mouse "mouseup" 0
   activate target
-  where
-    mouse eventType buttons target = do
-      off <- disabledFor target
-      unless off (N.dispatch eventType (mouseEvent buttons) target)
 
 -- | Click the body of the view's page, outside the view. A popup that
 -- closes on a press outside it hears this.
@@ -361,8 +366,12 @@ prepare target = do
   if
     | tag == Just "input" && kind == "checkbox" -> do
         was <- checked target
+        mixed <- property "indeterminate" target
         setChecked target (not was)
-        pure (setChecked target was, changed target)
+        -- A click also ends a checkbox's indeterminate state.
+        for_ mixed (const (setProperty target "indeterminate" (N.ScalarBool False)))
+        let restore = setChecked target was >> for_ mixed (setProperty target "indeterminate")
+        pure (restore, changed target)
     | tag == Just "input" && kind == "radio" -> do
         group <- radioGroup target
         before <- for group (\r -> (r,) <$> checked r)
@@ -386,7 +395,50 @@ submit button = do
         Just "button" -> kind `notElem` ["button", "reset"]
         _ -> False
   when (submits && not off) $
-    formOwner button >>= traverse_ (N.dispatch "submit" (object []))
+    formOwner button >>= traverse_ (submitForm button)
+
+-- | Send @submit@ to a form, unless a required field is empty. Then each
+-- such field gets an @invalid@ event instead, as in a browser. A form with
+-- @novalidate@, or a button with @formnovalidate@, skips the check.
+submitForm :: N.NativeNode -> N.NativeNode -> IO ()
+submitForm button form = do
+  skip <- (||) <$> has "novalidate" form <*> has "formnovalidate" button
+  missing <- if skip then pure [] else filterM valueMissing =<< N.querySelectorAll "input, textarea" form
+  if null missing
+    then N.dispatch "submit" (object []) form
+    else for_ missing (N.dispatch "invalid" (object []))
+  where
+    has name node = isJust <$> N.attribute name node
+
+-- | Whether a field is required and has no value: an empty text field, an
+-- unticked checkbox, or a radio button whose group has none checked. A
+-- disabled or read-only field is never checked.
+valueMissing :: N.NativeNode -> IO Bool
+valueMissing node = do
+  required <- isJust <$> N.attribute "required" node
+  off <- N.disabledControl node
+  readOnly <- isJust <$> N.attribute "readonly" node
+  if not required || off || readOnly
+    then pure False
+    else do
+      kind <- inputType node
+      isText <- textField node
+      if
+        | htmlTag node == Just "input" && kind == "checkbox" -> not <$> checked node
+        | htmlTag node == Just "input" && kind == "radio" -> not . or <$> (traverse checked =<< radioGroup node)
+        | isText -> T.null <$> fieldValue node
+        | otherwise -> pure False
+
+-- | The text a field holds: its @value@ property, or else its @value@
+-- attribute, or a @textarea@'s content.
+fieldValue :: N.NativeNode -> IO Text
+fieldValue node =
+  property "value" node >>= \case
+    Just (N.ScalarText t) -> pure t
+    Just _ -> pure "set"
+    Nothing
+      | htmlTag node == Just "textarea" -> N.textContent node
+      | otherwise -> fromMaybe "" <$> N.attribute "value" node
 
 -- | Type into the first field in the view that the selector matches. See
 -- 'typeIntoNode'.

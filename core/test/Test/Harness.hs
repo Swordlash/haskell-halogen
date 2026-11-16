@@ -183,6 +183,8 @@ form logged =
         [HE.onSubmit (const (Noted "submit"))]
         [ checkbox "free" False False
         , checkbox "stuck" False True
+        , mixed "mixed" False
+        , mixed "mixedstuck" True
         , radio "small" False False
         , radio "medium" True False
         , radio "large" False False
@@ -191,6 +193,15 @@ form logged =
         , HH.button [HP.class_ (HH.ClassName "plain"), HP.type_ I.ButtonButton] [HH.text "plain"]
         , HH.button [HP.class_ (HH.ClassName "stop"), HE.preventingDefault (HE.onClick (const (Noted "stop")))] [HH.text "stop"]
         , HH.input [HP.class_ (HH.ClassName "send"), HP.type_ I.InputSubmit]
+        , HH.button
+            [ HP.class_ (HH.ClassName "held")
+            , HP.type_ I.ButtonButton
+            , HE.preventingDefault (HE.handler (EventType "pointerdown") (const (Noted "held pointerdown")))
+            , HE.handler (EventType "mousedown") (const (Noted "held mousedown"))
+            , HE.handler (EventType "mouseup") (const (Noted "held mouseup"))
+            , HE.onClick (const (Noted "held click"))
+            ]
+            [HH.text "held"]
         , HH.button [HP.class_ (HH.ClassName "wrap")] [HH.span [HP.class_ (HH.ClassName "icon")] [HH.text "go"]]
         , HH.button [HP.class_ (HH.ClassName "once"), HP.disabled used, HE.onClick (const Once)] [HH.text "once"]
         , HH.button
@@ -213,6 +224,16 @@ form logged =
         , HE.handler (EventType "input") (const (Noted (name <> " input")))
         , HE.onChecked (\b -> Noted (name <> " change " <> shown b))
         ]
+    -- A checkbox that starts indeterminate. Its click listener notes the
+    -- indeterminate it reads.
+    mixed name prevent =
+      HH.input
+        [ HP.class_ (HH.ClassName name)
+        , HP.type_ I.InputCheckbox
+        , HP.prop (HH.PropName "indeterminate") True
+        , (if prevent then HE.preventingDefault else id)
+            (HE.addForeignPropHandler (EventType "click") "indeterminate" (Just . foreignToBool) (\b -> Noted (name <> " click " <> shown b)))
+        ]
     radio name on prevent =
       HH.input
         [ HP.class_ (HH.ClassName name)
@@ -229,6 +250,37 @@ form logged =
       (if prevent then HE.preventingDefault else id)
         (HE.addForeignPropHandler (EventType "click") "checked" (Just . foreignToBool) (\b -> Noted (name <> " click " <> shown b)))
     shown b = if b then "on" else "off"
+
+-- | A form with a required text field and a required checkbox, a submit
+-- button, and one that skips the check.
+signup :: forall m. (MonadIO m) => IORef [Text] -> H.Component H.VoidF () Void m
+signup logged =
+  H.component
+    (\() -> pure ())
+    render
+    [ H.onAction $ \case
+        Noted line -> note logged line
+        Once -> pure ()
+    ]
+  where
+    render :: () -> H.ComponentHTML FormAction Empty m
+    render () =
+      HH.form
+        [HE.onSubmit (const (Noted "submit"))]
+        [ HH.input
+            [ HP.class_ (HH.ClassName "name")
+            , HP.required True
+            , HE.handler (EventType "invalid") (const (Noted "invalid name"))
+            ]
+        , HH.input
+            [ HP.class_ (HH.ClassName "agree")
+            , HP.type_ I.InputCheckbox
+            , HP.required True
+            , HE.handler (EventType "invalid") (const (Noted "invalid agree"))
+            ]
+        , HH.button [HP.class_ (HH.ClassName "join")] [HH.text "join"]
+        , HH.button [HP.class_ (HH.ClassName "skip"), HP.attr (HH.AttrName "formnovalidate") ""] [HH.text "skip"]
+        ]
 
 --------------------------------------------------------------------------------
 -- A field, and a program that waits
@@ -467,6 +519,12 @@ spec = describe "the harness for the in-memory DOM" $ do
         readIORef logged `shouldReturn` ["chosen", "closed"]
         T.find view ".popup" >>= (`shouldBe` True) . isNothing
 
+    it "has no mousedown or mouseup when a listener prevents the pointerdown" $ do
+      logged <- newIORef []
+      T.withView id (form logged) () $ \view -> do
+        T.click view "button.held"
+        readIORef logged `shouldReturn` ["held pointerdown", "held click"]
+
   describe "a checkbox" $ do
     it "is ticked before the click listeners, then gets input and change" $ do
       logged <- newIORef []
@@ -483,6 +541,16 @@ spec = describe "the harness for the in-memory DOM" $ do
         T.click view ".stuck"
         readIORef logged `shouldReturn` ["stuck click on"]
         (T.checked =<< T.element view ".stuck") `shouldReturn` False
+
+    it "stops being indeterminate, unless a click listener prevents the default" $ do
+      logged <- newIORef []
+      T.withView id (form logged) () $ \view -> do
+        T.click view ".mixed"
+        readIORef logged `shouldReturn` ["mixed click off"]
+        (T.property "indeterminate" =<< T.element view ".mixed") `shouldReturn` Just (T.ScalarBool False)
+        T.click view ".mixedstuck"
+        (T.property "indeterminate" =<< T.element view ".mixedstuck") `shouldReturn` Just (T.ScalarBool True)
+        (T.checked =<< T.element view ".mixedstuck") `shouldReturn` False
 
   describe "a radio button" $ do
     it "is checked, unchecks the others of its group, and gets input and change" $ do
@@ -528,6 +596,24 @@ spec = describe "the harness for the in-memory DOM" $ do
         T.click view "button.once"
         (N.disabledControl =<< T.element view "button.once") `shouldReturn` True
         readIORef logged `shouldReturn` []
+
+    it "submits nothing while a required field is empty, and tells the field" $ do
+      logged <- newIORef []
+      T.withView id (signup logged) () $ \view -> do
+        T.click view "button.join"
+        readIORef logged `shouldReturn` ["invalid name", "invalid agree"]
+        T.typeInto view "input.name" "Ada"
+        T.click view "button.join"
+        readIORef logged `shouldReturn` ["invalid name", "invalid agree", "invalid agree"]
+        T.click view "input.agree"
+        T.click view "button.join"
+        readIORef logged `shouldReturn` ["invalid name", "invalid agree", "invalid agree", "submit"]
+
+    it "submits with a required field empty when the button says formnovalidate" $ do
+      logged <- newIORef []
+      T.withView id (signup logged) () $ \view -> do
+        T.click view "button.skip"
+        readIORef logged `shouldReturn` ["submit"]
 
     it "gets only the pointer events when it is disabled, and submits nothing" $ do
       logged <- newIORef []
