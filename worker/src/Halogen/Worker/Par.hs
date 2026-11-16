@@ -18,7 +18,10 @@
 -- and @traverse (task fibs) chunks@ is a map of a job over a list on all
 -- the pool's workers, the results in the list's order:
 --
--- > counts <- liftIO (runPar pool (traverse (task primesBetween) parts))
+-- > counts <- liftIO (runPar pool (traverse (task primes) limits))
+--
+-- 'task' takes the same arguments as 'Halogen.Worker.run':
+-- @task primesBetween lo hi@.
 --
 -- 'runPar' runs the computation until every part of it waits for a task,
 -- groups the tasks it has by job, cuts each job's into batches (several for
@@ -52,7 +55,7 @@ import Data.Text qualified as Text
 import GHC.StaticPtr (StaticKey, StaticPtr, deRefStaticPtr, staticKey)
 import Halogen.JSBits.Promise (JSError (..), waitCatch)
 import Halogen.Worker (Pool, WorkerError (..), available, cancel, sendTo, size, startHere)
-import Halogen.Worker.Internal (Batch (..), Job (..), Reply (..), Request (..), decodeReply, encodeRequest, jobName, plan, runCall)
+import Halogen.Worker.Internal (Batch (..), Fn, Job (..), Reply (..), Request (..), curried, decodeReply, encodeRequest, jobName, plan, runCall)
 
 -- | A computation that runs tasks on a pool, run with 'runPar'.
 newtype Par a = Par (IO (Result a))
@@ -63,7 +66,7 @@ data Result a
   = Done a
   | Blocked (Seq Call) (Par a)
 
--- | One task: its job, by key and by name, its argument's bytes, and what
+-- | One task: its job, by key and by name, its arguments' bytes, and what
 -- to do with its result's.
 data Call = Call
   { key :: StaticKey
@@ -107,23 +110,26 @@ instance Monad Par where
 
 -- | A call of the job, made on one of the pool's workers when 'runPar' sends
 -- the tasks it has collected. Each 'task' is a call of its own: there is no
--- cache, and the same task twice is two calls.
-task :: StaticPtr (Job a b) -> a -> Par b
-task pointer argument = Par $ do
-  box <- newIORef Nothing
-  let theJob = deRefStaticPtr pointer
-      deliver bytes = case theJob.decodeResult bytes of
-        Left problem -> pure (Left ("its result does not decode: " <> Text.pack problem))
-        Right value -> Right <$> writeIORef box (Just value)
-      call =
-        Call
-          { key = staticKey pointer
-          , name = jobName pointer
-          , function = theJob.call
-          , argument = theJob.encodeArgument argument
-          , deliver
-          }
-  pure (Blocked (Seq.singleton call) (Par (Done <$> (readIORef box >>= maybe (throwIO Unanswered) pure))))
+-- cache, and the same task twice is two calls. It takes the same arguments
+-- as 'Halogen.Worker.run': the job, then the job's arguments in order.
+task :: StaticPtr (Job args b) -> Fn args (Par b)
+task pointer = curried theJob (\bytes -> Par (call bytes))
+  where
+    theJob = deRefStaticPtr pointer
+    call bytes = do
+      box <- newIORef Nothing
+      let deliver result = case theJob.decodeResult result of
+            Left problem -> pure (Left ("its result does not decode: " <> Text.pack problem))
+            Right value -> Right <$> writeIORef box (Just value)
+          made =
+            Call
+              { key = staticKey pointer
+              , name = jobName pointer
+              , function = theJob.call
+              , argument = bytes
+              , deliver
+              }
+      pure (Blocked (Seq.singleton made) (Par (Done <$> (readIORef box >>= maybe (throwIO Unanswered) pure))))
 
 -- | A task read before its answer came, which 'runPar' never lets happen.
 data Unanswered = Unanswered

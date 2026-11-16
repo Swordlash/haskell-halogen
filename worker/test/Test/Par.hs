@@ -28,12 +28,12 @@ import Halogen.Worker qualified as Worker
 import Halogen.Worker.Internal (Batch (..), plan)
 import Halogen.Worker.Par (runPar, task)
 import Test.Hspec
-import Test.Run (broken, double, spin)
+import Test.Run (Tile (..), broken, double, labelled, minus, spin, three)
 
-triple :: StaticPtr (Job Int Int)
+triple :: StaticPtr (Job '[Int] Int)
 triple = static (Worker.job (\n -> pure (n * 3)))
 
-failsOnFive :: StaticPtr (Job Int Int)
+failsOnFive :: StaticPtr (Job '[Int] Int)
 failsOnFive = static (Worker.job (\n -> if n == 5 then throwIO (userError "five") else pure n))
 
 failsWith :: String -> Selector WorkerError
@@ -84,18 +84,33 @@ spec = describe "Halogen.Worker.Par" $ do
       runPar pool ((,) <$> traverse (task double) [1, 2, 3] <*> traverse (task triple) [1, 2, 3])
         `shouldReturn` ([2, 4, 6], [3, 6, 9])
 
+    it "runs tasks of several arguments in one batch, each in order, the results in order" $ do
+      pool <- Worker.newPool 1
+      runPar pool (traverse (uncurry (task minus)) [(n, 1) | n <- [1 .. 20]]) `shouldReturn` [0 .. 19]
+
+    it "runs tasks of several arguments, and of none, with independent ones together" $ do
+      pool <- Worker.newPool 2
+      let tile = Tile {x = 0, y = 0, rows = [], label = "l"}
+      result <- runPar pool $ do
+        a <- task minus 10 3
+        b <- task three
+        c <- task labelled (a + b) "t" tile
+        d <- task double a
+        pure (c, d)
+      result `shouldBe` ("10/t/l", 14)
+
     it "fails with a WorkerError naming the job and the index of the call that failed" $ do
       pool <- Worker.newPool 2
       runPar pool (traverse (task failsOnFive) [0 .. 9]) `shouldThrow` failsWith "its call at index 5: user error (five)"
 
     it "fails for a result that does not decode, naming the call" $ do
       pool <- Worker.newPool 1
-      runPar pool (task broken ()) `shouldThrow` failsWith "its call at index 0: its result does not decode"
+      runPar pool (task broken) `shouldThrow` failsWith "its call at index 0: its result does not decode"
 
     it "ends a computation run here when the pool is terminated" $ do
       pool <- Worker.newPool 1
       outcome <- newEmptyMVar
-      _ <- forkIO (try (runPar pool (task spin ())) >>= putMVar outcome)
+      _ <- forkIO (try (runPar pool (task spin)) >>= putMVar outcome)
       threadDelay 10000
       Worker.terminate pool
       takeMVar outcome >>= \case

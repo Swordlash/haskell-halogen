@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -28,7 +29,7 @@ countPrimes n = length (filter isPrime [2 .. n - 1])
 -- The count as a job: a function of Binary types, under static, which
 -- gives it a key a worker finds it by in its own copy of the program.
 -- Exported, as Halogen.Worker advises for every static pointer.
-primes :: StaticPtr (Worker.Job Int Int)
+primes :: StaticPtr (Worker.Job '[Int] Int)
 primes = static (Worker.job (\n -> pure (countPrimes n)))
 
 data State = State {frame :: Int, counting :: Bool, answer :: Text, workers :: Bool}

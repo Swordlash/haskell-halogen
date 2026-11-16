@@ -258,8 +258,11 @@ main = runBrowserDOM $ do
 A long calculation can freeze the page because GHC's WebAssembly threads share its JavaScript thread. `haskell-halogen-worker` moves the calculation to a Web Worker running another copy of the program. The worker finds the job by its GHC static pointer. Arguments and results are encoded with `Data.Binary` and sent in transferred `ArrayBuffer`s:
 
 ```haskell
-primes :: StaticPtr (Worker.Job Int Int)
+primes :: StaticPtr (Worker.Job '[Int] Int)
 primes = static (Worker.job (\n -> pure (countPrimes n)))
+
+primesBetween :: StaticPtr (Worker.Job '[Int, Int] Int)
+primesBetween = static (Worker.job (\lo hi -> pure (countBetween lo hi)))
 
 main = Worker.program $ runBrowserDOM $ do
   pool <- Worker.newPool 2
@@ -267,12 +270,12 @@ main = Worker.program $ runBrowserDOM $ do
 -- and in a component:
   n <- liftIO (Worker.run pool primes 2000000)
 -- or several at once, across the pool's workers:
-  counts <- liftIO (mapConcurrently (Worker.start pool primesBetween) parts)
+  counts <- liftIO (mapConcurrently (uncurry (Worker.start pool primesBetween)) parts)
 ```
 
-`Worker.program` handles jobs inside a worker and starts the UI on the page. Configure the program's files in `globalThis.halogenWorker` before startup; see [worker/README.md](worker/README.md). Without that configuration, on native GHC or in GHCi, jobs run inside the current program using the same encoding.
+A job's argument types are given as a type-level list (needs `DataKinds`). Pass the arguments to `Worker.run` and `Worker.start` after the job, in order. `Worker.program` handles jobs inside a worker and starts the UI on the page. Configure the program's files in `globalThis.halogenWorker` before startup; see [worker/README.md](worker/README.md). Without that configuration, on native GHC or in GHCi, jobs run inside the current program using the same encoding.
 
-Use `Worker.cancel` to stop a job at its next `Worker.checkpoint`, or `Worker.kill` to terminate its worker immediately. `Worker.run` cancels its job if its wait is interrupted. For many independent tasks, `Halogen.Worker.Par` batches them across the pool: `runPar pool (traverse (task primesBetween) parts)`.
+Use `Worker.cancel` to stop a job at its next `Worker.checkpoint`, or `Worker.kill` to terminate its worker immediately. `Worker.run` cancels its job if its wait is interrupted. For many independent tasks, `Halogen.Worker.Par` batches them across the pool: `runPar pool (traverse (uncurry (task primesBetween)) parts)`.
 
 `examples/worker` compares prime counting on the page, in one worker, across two workers and as sixteen batched tasks. It also demonstrates cancellation, termination and races while a spinner shows UI responsiveness. Tutorial lesson 17 teaches the API.
 

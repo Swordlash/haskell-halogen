@@ -15,15 +15,16 @@ This tutorial runs interpreted code, so its workers start a second GHC instance 
 Instead, GHC's `StaticPointers` extension gives a static expression the same key in every copy of the program. The worker uses that key to find the job:
 
 ```haskell
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE StaticPointers #-}
 
-primes :: StaticPtr (Worker.Job Int Int)
+primes :: StaticPtr (Worker.Job '[Int] Int)
 primes = static (Worker.job (\n -> pure (countPrimes n)))
 ```
 
-`Worker.job` wraps a single-argument function returning its result in `IO`. Use a tuple or record for multiple arguments. Input and output must have `Binary` instances from `Data.Binary`; the job stores their codecs. Encoded bytes travel in transferred buffers.
+`Worker.job` wraps a function returning its result in `IO`. The function can take any number of arguments, specified as a type-level list (needs `-XDataKinds`). An action with no arguments uses `'[]`. All the arguments and result must have `Binary` instances from `Data.Binary`; the job stores their codecs. Encoded bytes travel in transferred buffers.
 
-`static` expressions may use top-level functions such as `countPrimes`, but cannot capture local variables. GHC checks this. Pass runtime data as the job's argument.
+`static` expressions may use top-level functions such as `countPrimes`, but cannot capture local variables. GHC checks this. Pass runtime data as the job's arguments.
 
 No manual job registry is needed. Wrap `main` with `Worker.program`, as the lesson wrapper does:
 
@@ -36,7 +37,7 @@ main = Worker.program $ runBrowserDOM $ do
 
 On the page, `Worker.program` runs the UI setup. Inside a worker, it serves job requests instead. The pool starts each worker on its first job using `globalThis.halogenWorker` configuration. Here the tutorial configures a custom compiler-loading script, so `Worker.available` reports `True`.
 
-`Worker.run pool primes 50000` submits the job and waits for its result. Call it through `liftIO` so the component loop can continue handling actions. `H.liftEffect` must not wait.
+`Worker.run pool primes 50000` submits the job and waits for its result. The job's arguments follow it in order, one by one. Call it through `liftIO` so the component loop can continue handling actions. `H.liftEffect` must not wait.
 
 When workers are unavailable, the job runs on a Haskell thread in the current program using the same encoding. That fallback does not move computation off the browser thread. For concurrent jobs, `Worker.start` returns a promise without waiting; the compiled example uses it across several workers.
 
@@ -57,7 +58,7 @@ Compile and count. The spinner should keep moving during worker startup and comp
 Now try capturing a local value. After `before <- gets (.frame)` in `Count`, use:
 
 ```haskell
-outcome <- liftIO (try (Worker.run pool (static (Worker.job (\() -> pure (countPrimes (50000 + before))))) ()))
+outcome <- liftIO (try (Worker.run pool (static (Worker.job (pure (countPrimes (50000 + before)))))))
 ```
 
 Compilation fails because `before` is local to the handler. The worker cannot access it. Pass any such value as an argument instead.
@@ -85,7 +86,7 @@ Use `Halogen.Worker.Par` when a calculation contains many independent job calls.
 
 import Halogen.Worker.Par (runPar, task)
 
-counts <- liftIO (runPar pool (traverse (task primesBetween) parts))
+counts <- liftIO (runPar pool (traverse (uncurry (task primesBetween)) parts))
 
 both <- liftIO $ runPar pool $ do
   a <- task primes 100000
@@ -94,7 +95,7 @@ both <- liftIO $ runPar pool $ do
   pure (a, b, c)
 ```
 
-`traverse` creates one task per part. `runPar` groups calls by job and splits them into batches. Workers take the next batch when ready, so faster workers can process more batches. Results preserve input order.
+`task` takes the same arguments as `Worker.run`; `primesBetween` here takes two - start and end of a part. `traverse` creates one task per part. `runPar` groups calls by job and splits them into batches. Workers take the next batch when ready, so faster workers can process more batches. Results preserve input order.
 
 With `ApplicativeDo`, independent statements run together: `a` and `b` can start at once, while `c` waits for both. A failed call ends `runPar` with a `Worker.WorkerError` identifying the job and call index, and cancels remaining batches.
 

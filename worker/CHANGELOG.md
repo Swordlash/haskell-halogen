@@ -4,19 +4,19 @@
 
 The first version: `Halogen.Worker` runs a program's functions in Web Workers, so that work of
 seconds does not take those seconds from the page. A function is offered as a `Job`, made with
-`job f`, which wraps it in the `Data.Binary` codecs of its argument and result, under GHC's
+`job f`, which wraps it in the `Data.Binary` codecs of its arguments and result, under GHC's
 `static` (the `StaticPointers` extension): `static (job f)` has a key that is the same in every
 copy of the program, by which a worker finds the function in GHC's own static pointer table, so
 there is no table of jobs to register and keep in step, and the compiler checks that what is sent
 captures nothing a worker could not have. The program's `main` starts with `program` (or
 `serve`), which in a worker answers the pool's requests and on the page goes on to the UI. A
 `Pool` starts its workers, each a second instance of the program's own `app.wasm`, when it is
-first given a job. The argument and the result cross as bytes in an `ArrayBuffer` that is
+first given a job. The arguments and the result cross as bytes in an `ArrayBuffer` that is
 transferred to the worker and back rather than copied. `start` gives a `Halogen.JSBits.Promise`
 of the result at once, so that `mapConcurrently`, `concurrently` and `race` spread calls over the
 pool's workers, and rejects with a `JSError` named `WorkerError`; `run` is `start` and the wait,
 and throws a `WorkerError`, whose `job` is where the job's `static` is (its module, line and
-column), for a job that throws, an argument or result that does not decode, a key the worker's
+column), for a job that throws, arguments or a result that do not decode, a key the worker's
 program lacks, a worker that did not start and a pool terminated meanwhile. `terminate` ends the
 workers, and `whichWorker` tells a job which worker runs it. The page's loader says where the
 program is in `globalThis.halogenWorker`. Where no worker can be made (natively, in Node, in GHCi,
@@ -60,3 +60,19 @@ export it from its module, since GHC before 10.0 ([issue
 binding is not exported and is used more than once. The types a job takes and gives derive `Binary` (`deriving anyclass
 (Binary)` with `Generic`) in place of `FromJSON` and `ToJSON`. And `Worker.program` and
 `Worker.serve` take no table: `SomeJob` and `some` are gone.
+
+A job can now take any number of arguments. The first type argument of `Job` is a type-level list
+of the argument types (needs `DataKinds`): `Job '[Int, Text] Int` wraps an `Int -> Text -> IO Int`.
+`run`, `start` and `task` take the arguments after the job, in order: `run pool job 1 "a"`.
+
+To upgrade:
+
+- `Job Int Int` becomes `Job '[Int] Int`. Calls of the job stay the same.
+- A job that took `()` can become a `Job '[] b`, made from an `IO b` and run with `run pool job`.
+- A job that took a tuple can take separate arguments: `\lo hi -> ...` in place of
+  `\(lo, hi) -> ...`. Where the arguments arrive as pairs, use `uncurry (start pool job)`.
+- `run` and `start` return in `IO` (before, in any `MonadIO`). In a component, call them through
+  `liftIO`.
+
+The signature of a job is optional: GHC can infer the job's type from the function. The encoding
+did not change: the arguments of a call are encoded one after another.

@@ -7,20 +7,28 @@
 -- A job is a function made with 'job' under GHC's @static@ (the
 -- @StaticPointers@ extension), which gives it a key that is the same in
 -- every copy of the program: that key is all a worker needs to find the
--- function in its own copy. The argument and the result cross as
--- "Data.Binary" bytes, in an @ArrayBuffer@ transferred rather than copied.
+-- function in its own copy. A job can take any number of arguments. Their
+-- types are given as a type-level list, which needs @DataKinds@:
+-- @'Job' '[Int, Int] Int@ takes two @Int@s. The arguments and the result
+-- cross as "Data.Binary" bytes, in an @ArrayBuffer@ transferred rather than
+-- copied.
 --
+-- > {-# LANGUAGE DataKinds #-}
 -- > {-# LANGUAGE StaticPointers #-}
 -- > import GHC.StaticPtr (StaticPtr)
 -- >
--- > primes :: StaticPtr (Worker.Job Int Int)
+-- > primes :: StaticPtr (Worker.Job '[Int] Int)
 -- > primes = static (Worker.job (\n -> pure (countPrimes n)))
+-- >
+-- > primesBetween :: StaticPtr (Worker.Job '[Int, Int] Int)
+-- > primesBetween = static (Worker.job (\lo hi -> pure (countBetween lo hi)))
 -- >
 -- > main = Worker.program $ runBrowserDOM $ do
 -- >   pool <- Worker.newPool 2
 -- >   ...
 -- > -- and in a component:
 -- >   n <- liftIO (Worker.run pool primes 2000000)
+-- >   m <- liftIO (Worker.run pool primesBetween 1000000 2000000)
 --
 -- 'start' gives a 'Promise' of the result at once instead of waiting, so
 -- that "Halogen.JSBits.Promise"'s vocabulary ('Halogen.JSBits.Promise.mapConcurrently',
@@ -41,6 +49,11 @@ module Halogen.Worker
     Job
   , job
   , whichWorker
+  , FnIO
+  , Fn
+  , JobFunction
+  , ArgsOf
+  , ResultOf
 
     -- * Serving them
   , serve
@@ -76,9 +89,8 @@ import Control.Exception (Exception (..), SomeException (..), evaluate, finally,
 import Control.Monad (void, when)
 import Control.Monad.IO.Class (MonadIO (..))
 import Data.Bifunctor (first)
-import Data.Binary (Binary, encode)
+import Data.Binary (Binary)
 import Data.ByteString (ByteString)
-import Data.ByteString.Lazy qualified as Lazy
 import Data.Foldable (for_)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.List (partition)
@@ -90,7 +102,8 @@ import GHC.Conc (STM, atomically, newTVarIO, readTVar, retry, writeTVar)
 import GHC.StaticPtr (StaticPtr, deRefStaticPtr, staticKey)
 import Halogen.JSBits
 import Halogen.JSBits.Promise (Promise (..), wait)
-import Halogen.Worker.Internal (Job (..), Reply (..), Request (..), answer, decodeReply, decodeStrict, encodeRequest, jobName, runCall)
+import Halogen.Worker.Internal (ArgsOf, Fn, FnIO, Job (..), JobFunction, Reply (..), Request (..), ResultOf, answer, curried, decodeReply, encodeRequest, jobName, runCall)
+import Halogen.Worker.Internal qualified as Internal
 import System.IO.Unsafe (unsafePerformIO)
 import System.Info qualified
 import System.Mem.StableName (StableName, makeStableName)
@@ -117,16 +130,27 @@ $( browserJS
      ]
  )
 
--- | A function from @a@ to @b@ that a worker can run, with the codecs of its
--- argument and result: a function of 'Binary' types (a tuple or a record
--- for several arguments, @deriving anyclass (Binary)@ with 'GHC.Generics.Generic'
--- for a type of the program's own).
+-- | Make a job from a function that returns its result in 'IO'. The
+-- function can take any number of arguments. Their types are the first type
+-- argument of 'Job', a type-level list (needs @DataKinds@):
+-- @'Job' '[Int, Text] Int@ wraps an @Int -> Text -> IO Int@,
+-- @'Job' '[Int] Int@ takes one argument and @'Job' '[] Int@ takes none (it
+-- wraps an @IO Int@). 'run', 'start' and "Halogen.Worker.Par"'s @task@ take
+-- the arguments after the job, in order.
+--
+-- The arguments and the result must have 'Binary' instances. Derive them
+-- for your own types with 'GHC.Generics.Generic' and
+-- @deriving anyclass (Binary)@.
 --
 -- A job is only of use under @static@, which is what gives it a key the
 -- worker can find it by:
 --
--- > fibs :: StaticPtr (Worker.Job [Int] [Integer])
--- > fibs = static (Worker.job (pure . map fib))
+-- > fibs :: StaticPtr (Worker.Job '[Int, Int] [Integer])
+-- > fibs = static (Worker.job (\from n -> pure (map fib [from .. from + n - 1])))
+--
+-- The signature is optional: GHC can infer the job's type from the
+-- function. @static (Worker.job countSlowly)@ with
+-- @countSlowly :: Int -> IO Int@ is a @'StaticPtr' ('Job' '[Int] Int)@.
 --
 -- @static e@ needs @e@ to be closed: it may name top-level functions and
 -- values, but no local variable, since what a local variable holds is in the
@@ -144,23 +168,13 @@ $( browserJS
 --
 -- The function runs in 'IO', for a job that reads a clock or uses an
 -- 'Data.IORef.IORef' of its own (each copy of the program has its own); a
--- pure one is @\\x -> pure (f x)@. Its result is encoded completely before
--- the job counts as done, so a lazy error in it is the job's error.
-job :: (Binary a, Binary b) => (a -> IO b) -> Job a b
-job function =
-  Job
-    { call = \bytes -> case decodeStrict bytes of
-        Left problem -> throwIO (BadArguments problem)
-        Right argument -> Lazy.toStrict . encode <$> function argument
-    , encodeArgument = Lazy.toStrict . encode
-    , decodeResult = decodeStrict
-    }
-
-newtype BadArguments = BadArguments String
-  deriving stock (Show)
-
-instance Exception BadArguments where
-  displayException (BadArguments problem) = "its argument does not decode: " <> problem
+-- pure one is @\\x y -> pure (f x y)@. The arguments of a call are encoded
+-- one after another and decoded in the worker in the same order. Bytes that
+-- run out or are left over are the job's error. The result is encoded
+-- completely before the job counts as done, so a lazy error in it is the
+-- job's error.
+job :: (JobFunction f, Binary (ResultOf f)) => f -> Job (ArgsOf f) (ResultOf f)
+job = Internal.job
 
 -- | Which of its pool's workers this copy of the program is, counting from
 -- 0, or 'Nothing' on the page (and wherever a job runs in the program
@@ -298,6 +312,9 @@ available = liftIO $ do
 --
 -- > counts <- liftIO (mapConcurrently (Worker.start pool primes) [1000000, 2000000])
 --
+-- Pass the job's arguments after the job, in order:
+-- @Worker.start pool primesBetween lo hi@.
+--
 -- The promise is rejected with a 'JSError' named @WorkerError@, whose message
 -- is the 'WorkerError' 'run' would throw, for each of the failures 'run'
 -- lists; with one named @Cancelled@ once 'cancel'led, and @Killed@ once
@@ -312,9 +329,9 @@ available = liftIO $ do
 -- computation takes, between its waits and 'checkpoint's: the component's
 -- loop is free meanwhile, but the page is not, since only a worker gives the
 -- page its thread back.
-start :: (MonadIO m) => Pool -> StaticPtr (Job a b) -> a -> m (Promise b)
-start pool pointer argument = liftIO $ do
-  (raw, outcome) <- launch pool pointer argument
+start :: Pool -> StaticPtr (Job args b) -> FnIO args (Promise b)
+start pool pointer = curried (deRefStaticPtr pointer) $ \bytes -> do
+  (raw, outcome) <- launch pool pointer bytes
   let rejection e = JSError {name = e.name, message = Text.pack (displayException (WorkerError (jobName pointer) e.message))}
   pure Promise {rawPromise = raw, settled = first rejection <$> outcome}
 
@@ -322,9 +339,10 @@ start pool pointer argument = liftIO $ do
 -- @liftIO@ (or @lift@), which runs on a thread of its own while the tree
 -- goes on; the page's thread is free meanwhile, since the work is in the
 -- worker's. Consecutive calls in one thread wait for one another; 'start'
--- several to use several workers.
+-- several to use several workers. Pass the job's arguments after the job,
+-- in order: @Worker.run pool primesBetween lo hi@.
 --
--- An exception in the job, an argument it cannot decode, a result the
+-- An exception in the job, arguments it cannot decode, a result the
 -- caller cannot, a key the worker's program does not have, a worker that
 -- could not start, and a pool terminated while the job ran are each thrown
 -- here as a 'WorkerError'.
@@ -333,23 +351,23 @@ start pool pointer argument = liftIO $ do
 -- losing side of @race@, a @timeout@) 'cancel's the job before it goes on,
 -- so a job that calls 'checkpoint' stops soon after, and one that does not
 -- is left to finish, its result unread.
-run :: (MonadIO m) => Pool -> StaticPtr (Job a b) -> a -> m b
-run pool pointer argument = liftIO $ mask $ \restore -> do
-  (raw, outcome) <- launch pool pointer argument
+run :: Pool -> StaticPtr (Job args b) -> FnIO args b
+run pool pointer = curried (deRefStaticPtr pointer) $ \bytes -> mask $ \restore -> do
+  (raw, outcome) <- launch pool pointer bytes
   result <- restore (atomically outcome) `onException` stop Cancelling pool raw
   either (\e -> throwIO (WorkerError (jobName pointer) e.message)) pure result
 
--- | The work of 'start' and 'run': the job given to a worker, or forked to
--- run here, and the value that identifies it ('rawPromise'), with its
--- outcome, which blocks until it has settled. A failure is a 'JSError' with
--- what went wrong as its message, for the two to make their own error of,
--- and named @Cancelled@, @Killed@ or, for every other failure, @WorkerError@:
--- the worker's rejections and a reply that does not decode are one kind of
--- failure to whoever waits.
-launch :: Pool -> StaticPtr (Job a b) -> a -> IO (JSVal, STM (Either JSError b))
-launch pool pointer argument = do
+-- | The work of 'start' and 'run', given the bytes of the job's arguments:
+-- the job given to a worker, or forked to run here, and the value that
+-- identifies it ('rawPromise'), with its outcome, which blocks until it
+-- has settled. A failure is a 'JSError' with what went wrong as its
+-- message, for the two to make their own error of, and named @Cancelled@,
+-- @Killed@ or, for every other failure, @WorkerError@: the worker's
+-- rejections and a reply that does not decode are one kind of failure to
+-- whoever waits.
+launch :: Pool -> StaticPtr (Job args b) -> ByteString -> IO (JSVal, STM (Either JSError b))
+launch pool pointer bytes = do
   let theJob = deRefStaticPtr pointer
-      bytes = theJob.encodeArgument argument
   inWorkers <- available
   if inWorkers
     then do
@@ -501,14 +519,14 @@ instance Exception Cancelled where
   displayException Cancelled = "the job was cancelled"
 
 -- | A reply's one result, decoded.
-fromReply :: Job a b -> ByteString -> Either Text b
+fromReply :: Job args b -> ByteString -> Either Text b
 fromReply theJob reply = case decodeReply reply of
   Left problem -> Left ("the reply does not decode: " <> Text.pack problem)
   Right Reply {failure = Just problem} -> Left problem
   Right Reply {results = [result]} -> decoded theJob result
   Right Reply {results} -> Left ("the reply has " <> Text.pack (show (length results)) <> " results for one argument")
 
-decoded :: Job a b -> ByteString -> Either Text b
+decoded :: Job args b -> ByteString -> Either Text b
 decoded theJob = first (\problem -> "its result does not decode: " <> Text.pack problem) . theJob.decodeResult
 
 -- | A job that failed, by where its @static@ is (the module, line and
