@@ -48,9 +48,9 @@
 -- slug clears it, and 'supersede' drops every answer still out for the old
 -- slug.
 --
--- The getter and the setter are two functions, because core has no lens
--- library. With @NoFieldSelectors@ the getter is a record dot section,
--- @(.loads)@, and the setter a lambda.
+-- 'asking' and 'answered' take a getter and a setter, as core has no lens
+-- library. With @NoFieldSelectors@ a field is not a function, so pass a
+-- record dot section, @(.loads)@, and a lambda.
 --
 -- = Tickets or 'Halogen.Query.HalogenM.kill'?
 --
@@ -59,7 +59,7 @@
 -- come and its next step waits in the loop's queue: the step checks first
 -- that the fork is not over, and the kill ran on the loop before it. So
 -- kill keeps a stale answer out too, for an answer that comes back to a
--- fork. Use tickets when:
+-- fork, and only when the component kept the fork's id. Use tickets when:
 --
 -- * The answer does not come back to a fork the component can kill. It can
 --   come from a channel's push, a parent's query, or a subscription.
