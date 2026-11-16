@@ -272,6 +272,7 @@ library
     else
       exposed-modules:
         Halogen.Static
+        Halogen.Test.Native
         Halogen.VDom.DOM.Monad.Native
       other-modules:
         Halogen.VDom.DOM.Monad.Native.Selector
@@ -314,6 +315,7 @@ test-suite Halogen-core-test
                     Test.DriverReentrancy
                     Test.Fork
                     Test.GHCJS
+                    Test.Harness
                     Test.Hashable
                     Test.HTML
                     Test.Hydrate

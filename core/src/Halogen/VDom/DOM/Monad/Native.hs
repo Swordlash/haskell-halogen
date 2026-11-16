@@ -22,6 +22,10 @@
 --
 -- = Testing a component on it
 --
+-- "Halogen.Test.Native" is the harness for this. It mounts a component in
+-- a page of its own, clicks and types as the reader does, and waits for the
+-- program. What follows is what it is made of.
+--
 -- A native test mounts a component as a page does, acts on what it
 -- rendered as the reader would, waits for the program, and reads the tree:
 --
@@ -92,6 +96,7 @@ module Halogen.VDom.DOM.Monad.Native
   , dispatch
   , dispatchOutcome
   , Dispatched (..)
+  , disabledControl
 
     -- * Reading the tree
   , querySelector
@@ -1491,7 +1496,7 @@ ancestorsOf node =
 
 -- | Whether the node is a form control a page dispatches no click to: one
 -- with @disabled@, or one inside a @fieldset@ with @disabled@ and not in
--- that fieldset's first @legend@.
+-- that fieldset's first @legend@. 'dispatch' asks this for a @click@.
 disabledControl :: NativeNode -> IO Bool
 disabledControl node = case node.kind of
   ElementNode ns (ElemName tag)
