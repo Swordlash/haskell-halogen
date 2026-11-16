@@ -18,8 +18,8 @@ component's initial state is made in its monad, so `connect` reads the store the
 connected component is in the first render, rather than reading it in an initializer. The store
 numbers its updates and a subscriber drops one older than what it already has, because here
 updates can come from several threads, or from inside another update's notification, and arrive
-out of order. `HalogenM`'s instance lifts with `liftEffect`, which runs at once, since this port's
-`lift` is where a program waits. The hooks' `useSelector` is not included.
+out of order. `HalogenM`'s instance runs each operation with `sync`, at once, since this port's
+`async` is where a program waits. The hooks' `useSelector` is not included.
 
 ---
 

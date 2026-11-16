@@ -32,7 +32,7 @@ newtype Reported = Reported Int
 -- | Shows the count its connection hands it, after the label its parent
 -- passed: @a: 3@. It keeps what it is given and nothing else, so it renders
 -- once at first and once for each new input.
-counter :: forall m. (MonadIO m) => H.Component CounterQuery (Store.Connected Int Text) Reported m
+counter :: forall m. (Monad m) => H.Component CounterQuery (Store.Connected Int Text) Reported m
 counter = H.component pure render [H.onReceive put, H.onQuery handleQuery]
   where
     render :: Store.Connected Int Text -> H.ComponentHTML () Empty m
