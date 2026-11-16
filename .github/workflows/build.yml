@@ -299,12 +299,13 @@ jobs:
         sudo swapon "$dir/halogen-swap"
         free -m
 
-    # Also writes the bundle sizes to the job summary. Under a limit of its
-    # own and with the machine's memory printed once a minute: the build has
-    # twice stopped at DOM.HTML.Indexed and held the runner, which then
-    # uploaded no log. A build still going after an hour (one with warm caches
-    # takes eight minutes) is killed, so that the step fails with a log that
-    # says what memory was left, whose it was, and what the kernel killed.
+    # Also writes the bundle sizes to the job summary. Under a watch: it
+    # prints the machine's memory once a minute. It stops the build after an
+    # hour (one with warm caches takes eight minutes), or when the machine
+    # has had gigabytes in swap for a minute. Either way the step fails with
+    # a log that says whose the memory was. Without the watch, a build that
+    # ran out of memory took the runner down, and the job ended fifty minutes
+    # later with no log.
     - name: Build
       run: sh toolchain/with-memory-watch.sh 60 npm run build-js
 

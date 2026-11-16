@@ -33,6 +33,13 @@ package *
 -- splice, through Halogen.JSBits.declarations. A new binding goes into the
 -- module's splice, not into a splice of its own. CI gives the job more swap
 -- (.github/workflows/build.yml).
+--
+-- Two builds at a time. Once core is compiled, cabal would build and link as
+-- many packages and test suites at once as the machine has cores. On a CI
+-- runner with four, a passing run had 12.4 GB in use, with one compiler at
+-- 6.7 GB, and other runs took the runner down. Two at a time stay under what
+-- the runner has.
+jobs: 2
 
 with-compiler: javascript-unknown-ghcjs-ghc-9.12.2
 with-hc-pkg: javascript-unknown-ghcjs-ghc-pkg-9.12.2
