@@ -8,7 +8,7 @@ import Data.Text qualified as T
 import Halogen.TH.Clay (cssExp)
 import Halogen.TH.Haskell (parseExp, parsePat)
 import Halogen.TH.Html (Dialect (..), htmlExp)
-import Halogen.TH.Template (Env (..))
+import Halogen.TH.Template (Env (..), isWrittenAsList)
 import Language.Haskell.TH (Exp (..), Lit (..), nameBase, runQ)
 import Test.Hspec
 import Test.Hspec.QuickCheck (prop)
@@ -30,6 +30,7 @@ env =
     { expression = \_ t -> either (fail . show) pure (parseExp [] t)
     , pattern = \_ t -> either (fail . show) pure (parsePat [] t)
     , report = \_ m -> fail (T.unpack m)
+    , writtenAsList = pure . isWrittenAsList
     , startColumn = 1
     }
 

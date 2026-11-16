@@ -123,6 +123,12 @@ spec = do
       parseStmt "let s = \"in  deed\"" `shouldBe` Right (Let (Snippet 4 "s") (Snippet 8 "\"in  deed\""))
       parseStmt "endfor" `shouldBe` Right End
       parseStmt "unless x" `shouldSatisfy` either (const True) (const False)
+    it "tells a loop's source written as a list from any other" $ do
+      let written = fmap isWrittenAsList . parseExp exts
+      mapM written ["[1, 2]", "[]", "[a .. b]", "[x | x <- xs]", "\"ab\"", "([1])", "(([a ..]))", "if c then [a] else xs", "case m of { Just a -> xs; _ -> [] }", "let y = 1 in [y]", "if | c -> xs | otherwise -> [a]"]
+        `shouldBe` Right (replicate 11 True)
+      mapM written ["xs", "st.items", "Just x", "([1] :: [Int])", "zip [1 ..] xs", "'a'", "1", "if c then Just a else Nothing", "let y = 1 in ys", "pure a"]
+        `shouldBe` Right (replicate 10 False)
     it "groups blocks and refuses the unbalanced" $ do
       let holes = IntMap.fromList [(0, Hole StmtHole 1 1 "if a"), (1, Hole StmtHole 2 1 "else"), (2, Hole StmtHole 3 1 "end"), (3, Hole StmtHole 4 1 "for x in xs")]
           grouped = blocks holes :: [Item Char] -> Either Err [Block Char]

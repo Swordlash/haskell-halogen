@@ -51,7 +51,8 @@ echo "Good.hs: compiles"
 out=$(ghc th-plugin/test/Typed.hs 2>&1 || true)
 for want in \
   "Typed.hs:14:24: error:" "In the first argument of" \
-  "Typed.hs:19:23: error:" "In the pattern: (x, y)"; do
+  "Typed.hs:19:23: error:" "In the pattern: (x, y)" \
+  "Typed.hs:22:34: error:" "Couldn't match expected type"; do
   if ! grep -qF -- "$want" <<<"$out"; then
     echo "missing in the output: $want" >&2
     echo "$out" >&2

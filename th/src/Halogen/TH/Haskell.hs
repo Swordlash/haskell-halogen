@@ -25,6 +25,7 @@ module Halogen.TH.Haskell
     -- * GHC's tree too
   , parseHsExpAt
   , parseHsPatAt
+  , hsWrittenAsList
   )
 where
 
@@ -57,6 +58,7 @@ import GHC.Types.SrcLoc (GenLocated (..), RealSrcLoc, SrcSpan (..), mkRealSrcLoc
 import GHC.Types.Var (Specificity (..))
 import GHC.Utils.Error (emptyDiagOpts)
 import GHC.Utils.Outputable (Outputable, defaultSDocContext, ppr, renderWithContext)
+import Halogen.TH.Template (isWrittenAsList)
 import Language.Haskell.Syntax.Basic (FieldLabelString (..))
 import Language.Haskell.TH qualified as TH
 import Language.Haskell.TH.Syntax qualified as THS
@@ -94,6 +96,12 @@ parseHsExpAt opts at src = (\e -> (e, verdict (lexpr e))) <$> parseWith opts at 
 -- | A pattern, as 'parseHsExpAt' parses an expression.
 parseHsPatAt :: ParserOpts -> RealSrcLoc -> Text -> Either (Messages PsMessage) (LPat GhcPs, Maybe Failure)
 parseHsPatAt opts at src = (\p -> (p, verdict (lpat p))) <$> parseWith opts at Parser.parsePattern src
+
+-- | 'isWrittenAsList' of an expression of GHC's tree, as the quoter would
+-- translate it: for the compiler plugin, whose quotes hold placeholders
+-- where the quoter's hold the translation.
+hsWrittenAsList :: LHsExpr GhcPs -> Bool
+hsWrittenAsList = either (const False) isWrittenAsList . lexpr
 
 expression :: P (LHsExpr GhcPs)
 expression = Parser.parseExpression >>= \ecp -> runPV (unECP ecp)

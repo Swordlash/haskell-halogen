@@ -27,9 +27,13 @@
 -- the attributes, a property or a list of them (see 'Props'); in a style,
 -- a value (anything Clay can render, by 'Clay.Val') or a rule. A
 -- @{% if c %} … {% elif c %} … {% else %} … {% end %}@, a
--- @{% for pattern in list %} … {% end %}@ and a @{% let pattern = e %}@
+-- @{% for pattern in e %} … {% end %}@ and a @{% let pattern = e %}@
 -- (over the rest of its sequence) work among children, attributes and
--- rules alike. A @{# … #}@ is a comment.
+-- rules alike. A @for@ ranges over any 'Foldable': a list, a 'Maybe' (once
+-- or not at all), a 'Data.List.NonEmpty.NonEmpty', a 'Data.Map.Map' (its
+-- values; 'Data.Map.toList' of it gives the pairs); a 'Text' is not one. A
+-- pattern that can fail skips what it does not match
+-- (@{% for Just x in xs %}@). A @{# … #}@ is a comment.
 --
 -- An @\<svg>@ in an @hh@ quote, and all of an @svg@ quote, is SVG: its
 -- elements and attributes are those of "Halogen.Svg" (@\<path d={{ cmds }}>@,
@@ -53,7 +57,7 @@ import Halogen.TH.Clay (cssExp)
 import Halogen.TH.Haskell (Failure (..), parseExpAt, parsePatAt)
 import Halogen.TH.Html (Dialect (..), htmlExp)
 import Halogen.TH.Html.Children (Children (..), Props (..), Styled (..))
-import Halogen.TH.Template (Env (..))
+import Halogen.TH.Template (Env (..), isWrittenAsList)
 import Language.Haskell.TH (Exp, Q, loc_filename, loc_start, location)
 import Language.Haskell.TH.Quote (QuasiQuoter (..))
 import Language.Haskell.TH.Syntax (extsEnabled)
@@ -117,5 +121,6 @@ environment who = do
       { expression = \origin src -> parsed origin (parseExpAt exts (inFile origin) src)
       , pattern = \origin src -> parsed origin (parsePatAt exts (inFile origin) src)
       , report
+      , writtenAsList = pure . isWrittenAsList
       , startColumn
       }
