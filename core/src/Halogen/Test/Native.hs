@@ -286,7 +286,8 @@ click view selector = clickNode =<< matching "click" view selector
 --
 -- The node gets these events, in order: @pointerdown@, @mousedown@,
 -- @pointerup@, @mouseup@ and @click@. A disabled form control gets only the
--- two pointer events, as in a browser.
+-- two pointer events, as in a browser. So does a node inside a disabled
+-- button.
 --
 -- Then what the browser does by default, unless a @click@ listener
 -- prevented it:
@@ -294,7 +295,9 @@ click view selector = clickNode =<< matching "click" view selector
 -- * A checkbox is ticked or unticked, then gets @input@ and @change@.
 -- * A radio button is checked and the others of its group are unchecked.
 --   It gets @input@ and @change@ if it was not checked before.
--- * A submit button in a @form@ makes the form get a @submit@ event.
+-- * A submit button in a @form@ makes the form get a @submit@ event. A
+--   click on a node inside the button does the same. The button is looked
+--   at after the listeners have run: one that disabled it stops the submit.
 --
 -- The checkbox and the radio button change before the @click@ listeners
 -- run, as in a browser, so a listener reads the new state. If a listener
@@ -314,7 +317,7 @@ clickNode at = do
   activate target
   where
     mouse eventType buttons target = do
-      off <- N.disabledControl target
+      off <- disabledFor target
       unless off (N.dispatch eventType (mouseEvent buttons) target)
 
 -- | Click the body of the view's page, outside the view. A popup that
@@ -327,15 +330,30 @@ clickOutside view =
 -- | Dispatch the @click@ and do what it does by default.
 activate :: N.NativeNode -> IO ()
 activate target = do
-  off <- N.disabledControl target
+  off <- disabledFor target
   unless off $ do
-    (undo, follow) <- prepare target
+    (undo, follow) <- maybe (pure (pure (), pure ())) prepare =<< control target
     outcome <- N.dispatchOutcome "click" (mouseEvent 0) target
     if outcome.defaultPrevented then undo else follow
 
--- | What a click on the node does by default: the change made before the
--- @click@ listeners run, then how to put it back if a listener prevents
--- it, and what follows if none does.
+-- | The control a click on the node activates: the node itself, or the
+-- nearest @button@ or @input@ around it. A click on an icon inside a button
+-- activates the button.
+control :: N.NativeNode -> IO (Maybe N.NativeNode)
+control node
+  | htmlTag node `elem` [Just "button", Just "input"] = pure (Just node)
+  | otherwise = readIORef node.parentRef >>= maybe (pure Nothing) control
+
+-- | Whether a click on the node goes nowhere: the node, or the control it
+-- activates, is a disabled form control.
+disabledFor :: N.NativeNode -> IO Bool
+disabledFor node = do
+  off <- N.disabledControl node
+  if off then pure True else control node >>= maybe (pure False) N.disabledControl
+
+-- | What a click does by default to the control it activates: the change
+-- made before the @click@ listeners run, then how to put it back if a
+-- listener prevents it, and what follows if none does.
 prepare :: N.NativeNode -> IO (IO (), IO ())
 prepare target = do
   let tag = htmlTag target
@@ -351,14 +369,24 @@ prepare target = do
         for_ group (\r -> setChecked r (r == target))
         let was = any (\(r, c) -> r == target && c) before
         pure (for_ before (uncurry setChecked), unless was (changed target))
-    | (tag == Just "input" && kind == "submit") || (tag == Just "button" && buttonSubmits kind) -> do
-        form <- formOwner target
-        pure (pure (), for_ form (N.dispatch "submit" (object [])))
-    | otherwise -> pure (pure (), pure ())
+    | otherwise -> pure (pure (), submit target)
   where
     changed node = N.dispatch "input" (object []) node >> N.dispatch "change" (object []) node
-    -- A button with no type, or a type it does not know, submits.
-    buttonSubmits kind = kind `notElem` ["button", "reset"]
+
+-- | Submit the form of a submit button. It looks at the button after the
+-- @click@ listeners have run, as a browser does: a listener that disabled
+-- the button, changed its type or took it out of its form stops the submit.
+submit :: N.NativeNode -> IO ()
+submit button = do
+  kind <- inputType button
+  off <- N.disabledControl button
+  let submits = case htmlTag button of
+        Just "input" -> kind == "submit"
+        -- A button with no type, or a type it does not know, submits.
+        Just "button" -> kind `notElem` ["button", "reset"]
+        _ -> False
+  when (submits && not off) $
+    formOwner button >>= traverse_ (N.dispatch "submit" (object []))
 
 -- | Type into the first field in the view that the selector matches. See
 -- 'typeIntoNode'.

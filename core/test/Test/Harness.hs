@@ -21,7 +21,9 @@ import Control.Concurrent (forkIO, rtsSupportsBoundThreads, setNumCapabilities, 
 import Control.Concurrent.MVar (modifyMVar, newEmptyMVar, newMVar, putMVar, readMVar, takeMVar)
 import Control.Exception (SomeException, throwIO, try)
 import Control.Monad (forM_, void, when)
-import Control.Monad.IO.Class (liftIO)
+import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.IO.Unlift (MonadUnliftIO)
+import Control.Monad.Reader (runReaderT)
 import Control.Monad.State.Class (get, modify, put)
 import DOM.HTML.Indexed qualified as I
 import Data.Foreign (foreignToBool)
@@ -40,7 +42,6 @@ import Halogen.HTML.Properties qualified as HP
 import Halogen.Query.Event qualified as HQE
 import Halogen.Subscription qualified as HS
 import Halogen.Test.Native qualified as T
-import Halogen.VDom.DOM.Monad (MemDOM)
 import Halogen.VDom.DOM.Monad qualified as DOM
 import Halogen.VDom.DOM.Monad.Native qualified as N
 import System.Mem (performMajorGC)
@@ -51,7 +52,7 @@ import Web.Event.Event (EventType (..))
 import Web.Event.Event qualified as Event
 
 -- | Note a line in a log, at once.
-note :: IORef [Text] -> Text -> H.HalogenM s a ps o MemDOM ()
+note :: (MonadIO m) => IORef [Text] -> Text -> H.HalogenM s a ps o m ()
 note ref line = H.liftEffect (liftIO (atomicModifyIORef' ref (\before -> (before <> [line], ()))))
 
 -- | A guard against a hang, with the view's HTML in the message.
@@ -77,7 +78,7 @@ data CounterAction = Increment
 
 -- | A counter with a label from its input. A click raises the new count.
 -- It notes each input it receives, and its end.
-counter :: IORef [Text] -> H.Component CounterQuery Text Int MemDOM
+counter :: forall m. (MonadIO m) => IORef [Text] -> H.Component CounterQuery Text Int m
 counter logged =
   H.component
     (\label -> pure Counter {label, count = 0})
@@ -95,7 +96,7 @@ counter logged =
     , H.onFinalize (note logged "finalize")
     ]
   where
-    render :: Counter -> H.ComponentHTML CounterAction Empty MemDOM
+    render :: Counter -> H.ComponentHTML CounterAction Empty m
     render s =
       HH.div_
         [ HH.span [HP.class_ (HH.ClassName "label")] [HH.text s.label]
@@ -124,7 +125,7 @@ data Popup = Popup {shown :: Bool}
 
 data PopupAction = Watch | Heard Text | Close
 
-popup :: IORef [Text] -> H.Component H.VoidF () Void MemDOM
+popup :: forall m. (DOM.MonadBrowserDOM m, MonadUnliftIO m) => IORef [Text] -> H.Component H.VoidF () Void m
 popup logged =
   H.component
     (\() -> pure Popup {shown = True})
@@ -135,7 +136,7 @@ popup logged =
   where
     events = ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]
     noting = [HE.handler (EventType e) (const (Heard e)) | e <- events]
-    render :: Popup -> H.ComponentHTML PopupAction Empty MemDOM
+    render :: Popup -> H.ComponentHTML PopupAction Empty m
     render s =
       HH.div_
         [ HH.button (HP.class_ (HH.ClassName "plain") : noting) [HH.text "plain"]
@@ -162,19 +163,22 @@ popup logged =
 -- Checkboxes, radio buttons and forms
 --------------------------------------------------------------------------------
 
-data FormAction = Noted Text
+data FormAction = Noted Text | Once
 
 -- | A form with checkboxes, radio buttons and buttons, each noting what it
 -- hears. The click listeners note the @checked@ they read.
-form :: IORef [Text] -> H.Component H.VoidF () Void MemDOM
+form :: forall m. (MonadIO m) => IORef [Text] -> H.Component H.VoidF () Void m
 form logged =
   H.component
-    (\() -> pure ())
+    (\() -> pure False)
     render
-    [H.onAction (\(Noted line) -> note logged line)]
+    [ H.onAction $ \case
+        Noted line -> note logged line
+        Once -> put True
+    ]
   where
-    render :: () -> H.ComponentHTML FormAction Empty MemDOM
-    render () =
+    render :: Bool -> H.ComponentHTML FormAction Empty m
+    render used =
       HH.form
         [HE.onSubmit (const (Noted "submit"))]
         [ checkbox "free" False False
@@ -187,6 +191,8 @@ form logged =
         , HH.button [HP.class_ (HH.ClassName "plain"), HP.type_ I.ButtonButton] [HH.text "plain"]
         , HH.button [HP.class_ (HH.ClassName "stop"), HE.preventingDefault (HE.onClick (const (Noted "stop")))] [HH.text "stop"]
         , HH.input [HP.class_ (HH.ClassName "send"), HP.type_ I.InputSubmit]
+        , HH.button [HP.class_ (HH.ClassName "wrap")] [HH.span [HP.class_ (HH.ClassName "icon")] [HH.text "go"]]
+        , HH.button [HP.class_ (HH.ClassName "once"), HP.disabled used, HE.onClick (const Once)] [HH.text "once"]
         , HH.button
             [ HP.class_ (HH.ClassName "off")
             , HP.disabled True
@@ -236,7 +242,7 @@ data Field = Field {typed :: Text, saved :: Bool}
 
 -- | A field whose text the component keeps, and a button that saves after
 -- a wait in @liftIO@.
-field :: H.Component FieldQuery () Void MemDOM
+field :: forall m. (MonadIO m) => H.Component FieldQuery () Void m
 field =
   H.component
     (\() -> pure Field {typed = "", saved = False})
@@ -250,7 +256,7 @@ field =
         Typed reply -> Just . reply . (.typed) <$> get
     ]
   where
-    render :: Field -> H.ComponentHTML FieldAction Empty MemDOM
+    render :: Field -> H.ComponentHTML FieldAction Empty m
     render s =
       HH.div_
         [ HH.input [HP.class_ (HH.ClassName "name"), HE.onValueInput Type]
@@ -270,7 +276,7 @@ data AskAction = Ask Text | Again
 
 -- | Asks twice as it starts, each on a fork of its own, and once more on
 -- every click. Each ask is held on the gate until the test answers it.
-asking :: T.Gate Text Text -> H.Component H.VoidF () Void MemDOM
+asking :: forall m. (MonadIO m) => T.Gate Text Text -> H.Component H.VoidF () Void m
 asking gate =
   H.component
     (\() -> pure Asking {answers = [], clicks = 0})
@@ -288,7 +294,7 @@ asking gate =
       Again -> do
         _ <- liftIO (T.hold gate "again")
         modify (\s -> s {clicks = s.clicks + 1})
-    render :: Asking -> H.ComponentHTML AskAction Empty MemDOM
+    render :: Asking -> H.ComponentHTML AskAction Empty m
     render s =
       HH.div_
         [ HH.p [HP.class_ (HH.ClassName "answers")] [HH.text (Text.intercalate "," s.answers)]
@@ -306,7 +312,7 @@ data LoadingAction = Tick
 
 -- | Loads in a @liftIO@ as it starts, and ticks after a counted pause of
 -- five seconds when clicked.
-loading :: H.Component H.VoidF () Void MemDOM
+loading :: forall m. (MonadIO m) => H.Component H.VoidF () Void m
 loading =
   H.component
     (\() -> pure Loading {loaded = False, ticked = False})
@@ -319,7 +325,7 @@ loading =
         modify (\s -> s {ticked = True})
     ]
   where
-    render :: Loading -> H.ComponentHTML LoadingAction Empty MemDOM
+    render :: Loading -> H.ComponentHTML LoadingAction Empty m
     render s =
       HH.div_
         [ HH.p [HP.class_ (HH.ClassName "loaded")] [HH.text (if s.loaded then "yes" else "no")]
@@ -339,7 +345,7 @@ data BellQuery a = Report ((Bool, Int) -> a)
 
 -- | A bell. A click on it opens its list. A @pointerdown@ anywhere in the
 -- document closes it and is counted.
-bell :: H.Component BellQuery () Void MemDOM
+bell :: forall m. (DOM.MonadBrowserDOM m, MonadUnliftIO m) => H.Component BellQuery () Void m
 bell =
   H.component
     (\() -> pure Bell {open = False, heard = 0})
@@ -352,7 +358,7 @@ bell =
           pure (Just (reply (s.open, s.heard)))
     ]
   where
-    render :: Bell -> H.ComponentHTML BellAction Empty MemDOM
+    render :: Bell -> H.ComponentHTML BellAction Empty m
     render _ = HH.button [HP.class_ (HH.ClassName "bell"), HE.onClick (const Ring)] [HH.text "bell"]
     act = \case
       Listen -> do
@@ -387,6 +393,13 @@ barrier n = do
 spec :: Spec
 spec = describe "the harness for the in-memory DOM" $ do
   describe "a view" $ do
+    it "mounts a component whose monad is a transformer over MemDOM" $ do
+      logged <- newIORef []
+      T.withView (`runReaderT` ()) (counter logged) "a" $ \view -> do
+        T.click view "button.inc"
+        T.request view Count `shouldReturn` 1
+        T.outputs view `shouldReturn` [1]
+
     it "is mounted, read, asked, and disposed of" $ do
       logged <- newIORef []
       page <- N.newPage
@@ -502,6 +515,19 @@ spec = describe "the harness for the in-memory DOM" $ do
         T.click view "button.plain"
         T.click view "button.stop"
         readIORef logged `shouldReturn` ["submit", "submit", "stop"]
+
+    it "submits its form when the click is on a node inside it" $ do
+      logged <- newIORef []
+      T.withView id (form logged) () $ \view -> do
+        T.click view "button.wrap .icon"
+        readIORef logged `shouldReturn` ["submit"]
+
+    it "submits nothing when a click listener disables it, as in a browser" $ do
+      logged <- newIORef []
+      T.withView id (form logged) () $ \view -> do
+        T.click view "button.once"
+        (N.disabledControl =<< T.element view "button.once") `shouldReturn` True
+        readIORef logged `shouldReturn` []
 
     it "gets only the pointer events when it is disabled, and submits nothing" $ do
       logged <- newIORef []
