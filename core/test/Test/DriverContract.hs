@@ -3,7 +3,7 @@
 --
 -- * A tree's work runs one piece at a time: what arrives while it is busy
 --   waits, in the order it came, and runs before the busy thread lets go.
--- * A program waits only in 'liftIO' (a suspension); meanwhile the rest of
+-- * A program waits only in 'H.async' (a suspension); meanwhile the rest of
 --   the tree goes on, and the program resumes after what came before.
 -- * A child's 'Receive' runs as a program of the child: until it waits, the
 --   render waits for it; once it waits, the render goes on.
@@ -26,7 +26,7 @@
 -- * So does an event a synchronous effect dispatches, through a callback
 --   the page calls (an emitter fed by a DOM listener): it is handled before
 --   the effect goes on, on every backend.
--- * Work a program's worker brings it (an emitter a 'liftIO' notifies) is
+-- * Work a program's worker brings it (an emitter an 'H.async' notifies) is
 --   not run by that worker, which may be killed by it; nor is it run inside
 --   a synchronous effect under way, and neither is work any other thread
 --   brings: both wait for the effect, and the action it is in, to end.
@@ -38,7 +38,6 @@ import Control.Concurrent.MVar
 import Control.Exception (ErrorCall (..), SomeException, finally, onException, throwIO)
 import Control.Monad (forever, void, when)
 import Control.Monad.Catch (try)
-import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Parallel (parallel, sequential)
 import Control.Monad.Reader (ReaderT, runReaderT)
 import Control.Monad.State.Class (get, modify, put, state)
@@ -154,11 +153,11 @@ onCapabilities = when rtsSupportsBoundThreads (setNumCapabilities 4)
 
 data Act
   = Note Text
-  | -- | Holds the tree: signals, then waits in 'liftEffect'.
+  | -- | Holds the tree: signals, then waits in 'H.sync'.
     Hold (MVar ()) (MVar ())
-  | -- | Waits in 'liftIO' for the first, then signals the second.
+  | -- | Waits in 'H.async' for the first, then signals the second.
     Slow (MVar ()) (MVar ())
-  | -- | Waits in 'liftIO' for the second forever, signalling the first once
+  | -- | Waits in 'H.async' for the second forever, signalling the first once
     -- it waits (a worker killed before it starts runs none of its handlers)
     -- and the third when killed.
     Stuck (MVar ()) (MVar ()) (MVar ())
@@ -176,7 +175,7 @@ data Act
     -- once it has caught the failure.
     ParFailsLater (MVar ()) (MVar ()) (MVar ()) (MVar ()) (MVar ())
   | Dispatch
-  | -- | Forks a program that notifies 'Tick' from its 'liftIO'. The third
+  | -- | Forks a program that notifies 'Tick' from its 'H.async'. The third
     -- 'Tick' kills the fork, signals the first, and once it has gone on,
     -- the second.
     TickFrom (MVar ()) (MVar ())
@@ -187,7 +186,7 @@ data Act
   | -- | In an effect, starts a thread of its own that notifies 'Note' and
     -- signals, waits for the signal, and notes.
     FromThread
-  | -- | Forks a program whose 'liftIO' notifies 'Note' and signals; then, in
+  | -- | Forks a program whose 'H.async' notifies 'Note' and signals; then, in
     -- an effect, waits for the signal and notes.
     WorkerInEffect
 
@@ -203,111 +202,111 @@ logging texts logRef ticker acts self =
     (\n -> HH.text (T.pack (show n)) :: H.ComponentHTML Act Empty IO)
     [H.onAction handleAction, H.onQuery handleQuery, H.onInitialize (handleAction (Note "init"))]
   where
-    note t = H.liftEffect (note' t)
+    note t = H.sync (note' t)
     note' t = modifyIORef' logRef (<> [t])
     handleAction = \case
       Note "init" -> void (H.subscribe acts)
       Note t -> note t
       Hold entered release -> do
-        H.liftEffect (putMVar entered () >> takeMVar release)
+        H.sync (putMVar entered () >> takeMVar release)
         note "held"
       Slow gate done -> do
         note "slow start"
-        liftIO (takeMVar gate)
+        H.async (takeMVar gate)
         note "slow end"
-        H.liftEffect (putMVar done ())
+        H.sync (putMVar done ())
       Stuck started gate killed -> do
         note "stuck"
-        liftIO ((putMVar started () >> takeMVar gate) `onException` putMVar killed ())
+        H.async ((putMVar started () >> takeMVar gate) `onException` putMVar killed ())
         modify (+ 1)
         note "after"
-      Boom -> H.liftEffect (throwIO (ErrorCall "boom"))
+      Boom -> H.sync (throwIO (ErrorCall "boom"))
       SelfKill done -> do
-        me <- H.liftEffect newEmptyMVar
+        me <- H.sync newEmptyMVar
         fid <- H.fork $ do
-          fid <- liftIO (readMVar me)
-          H.liftEffect (putMVar done ())
+          fid <- H.async (readMVar me)
+          H.sync (putMVar done ())
           H.kill fid
           note "went on after its kill"
           modify (+ 1)
-          liftIO (note' "waited after its kill")
-        H.liftEffect (putMVar me fid)
+          H.async (note' "waited after its kill")
+        H.sync (putMVar me fid)
       ParStuck started1 started2 killed1 killed2 ->
         sequential $
           (\() () -> ())
             -- The handler goes up before the branch says it started: a kill
             -- right after the signal is still seen.
-            <$> parallel (liftIO ((putMVar started1 () >> forever (threadDelay 1_000_000)) `onException` putMVar killed1 ()) :: H.HalogenM Int Act Empty Void IO ())
-            <*> parallel (liftIO ((putMVar started2 () >> forever (threadDelay 1_000_000)) `onException` putMVar killed2 ()) :: H.HalogenM Int Act Empty Void IO ())
+            <$> parallel (H.async ((putMVar started1 () >> forever (threadDelay 1_000_000)) `onException` putMVar killed1 ()) :: H.HalogenM Int Act Empty Void IO ())
+            <*> parallel (H.async ((putMVar started2 () >> forever (threadDelay 1_000_000)) `onException` putMVar killed2 ()) :: H.HalogenM Int Act Empty Void IO ())
       ParFailsAtOnce done -> do
         result <-
           try
             $ sequential
             $ (,)
-              <$> parallel (H.liftEffect (throwIO (ErrorCall "first")) :: H.HalogenM Int Act Empty Void IO ())
+              <$> parallel (H.sync (throwIO (ErrorCall "first")) :: H.HalogenM Int Act Empty Void IO ())
               <*> parallel (note "second started")
         for_ (either (\(_ :: SomeException) -> Just ()) (const Nothing) result) $ \() -> note "caught"
         -- Still running, so that a sibling let go would run too.
-        liftIO (pure ())
+        H.async (pure ())
         note "went on"
-        H.liftEffect (putMVar done ())
+        H.sync (putMVar done ())
       ParFailsLater gate1 started2 gate2 killed2 caught -> do
         result <-
           try
             $ sequential
             $ (,)
-              <$> parallel (liftIO (takeMVar gate1 >> throwIO (ErrorCall "first")) :: H.HalogenM Int Act Empty Void IO ())
-              <*> parallel (liftIO ((putMVar started2 () >> takeMVar gate2) `onException` putMVar killed2 ()) >> modify (+ 1) >> note "sibling went on")
+              <$> parallel (H.async (takeMVar gate1 >> throwIO (ErrorCall "first")) :: H.HalogenM Int Act Empty Void IO ())
+              <*> parallel (H.async ((putMVar started2 () >> takeMVar gate2) `onException` putMVar killed2 ()) >> modify (+ 1) >> note "sibling went on")
         for_ (either (\(_ :: SomeException) -> Just ()) (const Nothing) result) $ \() -> note "caught"
-        H.liftEffect (putMVar caught ())
+        H.sync (putMVar caught ())
       Dispatch -> do
-        H.liftEffect (HS.notify self (Note "handled while dispatched"))
+        H.sync (HS.notify self (Note "handled while dispatched"))
         note "dispatched"
-      CallBack -> H.liftEffect $ do
+      CallBack -> H.sync $ do
         callback <- mkSyncCallback (\_ -> HS.notify self (Note "handled in the call"))
         invokeCallback callback jsNull
         freeCallback callback
         note' "the effect went on"
-      FromThread -> H.liftEffect $ do
+      FromThread -> H.sync $ do
         notified <- newEmptyMVar
         _ <- forkIO (HS.notify self (Note "from a thread") >> putMVar notified ())
         takeMVar notified
         note' "the effect went on"
       WorkerInEffect -> do
-        notified <- H.liftEffect newEmptyMVar
-        _ <- H.fork (liftIO (HS.notify self (Note "from the worker") >> putMVar notified ()))
-        H.liftEffect (takeMVar notified >> note' "the effect went on")
+        notified <- H.sync newEmptyMVar
+        _ <- H.fork (H.async (HS.notify self (Note "from the worker") >> putMVar notified ()))
+        H.sync (takeMVar notified >> note' "the effect went on")
       TickFrom killed wentOn -> do
         fid <- H.fork $ forever $ do
-          liftIO (threadDelay 1_000)
+          H.async (threadDelay 1_000)
           -- Notified from the fork's worker: that thread must not run the
           -- loop, since the work it brings may kill the fork, and it with it.
-          liftIO (HS.notify self Tick)
-        H.liftEffect (writeIORef ticker (Just (fid, killed, wentOn)))
+          H.async (HS.notify self Tick)
+        H.sync (writeIORef ticker (Just (fid, killed, wentOn)))
       Tick -> do
         n <- state (\k -> (k + 1, k + 1))
         when (n == 3) $
-          H.liftEffect (readIORef ticker)
+          H.sync (readIORef ticker)
             >>= traverse_
               ( \(fid, killed, wentOn) -> do
                   H.kill fid
                   -- Were this handler running on the fork's worker, the kill would
                   -- land here, in its wait.
-                  H.liftEffect (putMVar killed () >> threadDelay 20_000)
+                  H.sync (putMVar killed () >> threadDelay 20_000)
                   note "went on after the kill"
-                  H.liftEffect (putMVar wentOn ())
+                  H.sync (putMVar wentOn ())
               )
     handleQuery :: Query a -> H.HalogenM Int Act Empty Void IO (Maybe a)
     handleQuery = \case
       Bump k -> do
         modify (+ 1)
         -- What was rendered by now.
-        rendered <- H.liftEffect (readIORef texts)
+        rendered <- H.sync (readIORef texts)
         pure (Just (k (last rendered)))
       Current k -> Just . k <$> get
       Hang started a -> do
-        H.liftEffect (putMVar started ())
-        liftIO (newEmptyMVar >>= takeMVar :: IO ())
+        H.sync (putMVar started ())
+        H.async (newEmptyMVar >>= takeMVar :: IO ())
         pure (Just a)
 
 withLogging :: (HS.Listener IO Act -> AD.HalogenSocket Query Void IO -> IORef [Text] -> IORef [Text] -> IO ()) -> IO ()
@@ -480,8 +479,8 @@ poked logRef pokes =
       Poke -> do
         -- The parent removes this component before 'raise' returns.
         H.raise ()
-        H.liftEffect (modifyIORef' logRef (<> ["went on"]))
-        liftIO (modifyIORef' logRef (<> ["waited"]))
+        H.sync (modifyIORef' logRef (<> ["went on"]))
+        H.async (modifyIORef' logRef (<> ["waited"]))
 
 remover :: IORef [Text] -> HS.Emitter IO () -> H.Component Query () Void IO
 remover logRef pokes =
@@ -521,10 +520,10 @@ asker childDone =
     [H.onAction handleAction, H.onReceive (handleAction . Received)]
   where
     handleAction (Received n) = when (n > 0) $ do
-      reply <- H.liftEffect newEmptyMVar
+      reply <- H.sync newEmptyMVar
       H.raise reply
-      liftIO (takeMVar reply)
-      H.liftEffect (putMVar childDone ())
+      H.async (takeMVar reply)
+      H.sync (putMVar childDone ())
 
 data ParentAct = Answer (MVar ())
 
@@ -535,7 +534,7 @@ askedParent childDone =
   H.component
     (\_ -> pure (0 :: Int))
     (\n -> HH.div_ [HH.slot "child" () (asker childDone) n Answer] :: H.ComponentHTML ParentAct ("child" .== H.Slot H.VoidF (MVar ()) ()) IO)
-    [ H.onAction (\(Answer reply) -> H.liftEffect (putMVar reply ()))
+    [ H.onAction (\(Answer reply) -> H.sync (putMVar reply ()))
     , H.onQuery (\(Set n a) -> put n >> pure (Just a))
     ]
 
@@ -563,8 +562,8 @@ counted counts =
     [H.onAction handleAction, H.onInitialize (handleAction Start), H.onFinalize (handleAction Stop)]
   where
     handleAction = \case
-      Start -> H.liftEffect $ modifyIORef' counts.started (+ 1)
-      Stop -> H.liftEffect $ modifyIORef' counts.stopped (+ 1)
+      Start -> H.sync $ modifyIORef' counts.started (+ 1)
+      Stop -> H.sync $ modifyIORef' counts.stopped (+ 1)
 
 rows :: Counts -> H.Component SetQuery () Void IO
 rows counts =
@@ -572,7 +571,7 @@ rows counts =
     (\_ -> pure (1 :: Int))
     (\n -> HH.div_ [HH.slot_ "row" k (counted counts) k | k <- [0 .. n]] :: H.ComponentHTML () ("row" .== H.Slot H.VoidF Void Int) IO)
     [ H.onQuery (\(Set n a) -> put n >> pure (Just a))
-    , H.onInitialize (H.liftEffect $ modifyIORef' counts.parentStarted (+ 1))
+    , H.onInitialize (H.sync $ modifyIORef' counts.parentStarted (+ 1))
     ]
 
 failedPass :: IO ()
@@ -639,7 +638,7 @@ initFails logRef bad =
     (\_ -> HH.text "" :: H.ComponentHTML InitAct Empty IO)
     [H.onAction handleAction, H.onInitialize (handleAction Init)]
   where
-    handleAction _ = H.liftEffect $ if bad then throwIO (ErrorCall "init") else modifyIORef' logRef (<> ["good child"])
+    handleAction _ = H.sync $ if bad then throwIO (ErrorCall "init") else modifyIORef' logRef (<> ["good child"])
 
 initParent :: IORef [Text] -> MVar () -> H.Component H.VoidF () Void IO
 initParent logRef forkKilled =
@@ -649,12 +648,12 @@ initParent logRef forkKilled =
     [H.onAction handleAction, H.onInitialize (handleAction Init), H.onFinalize (handleAction Fin)]
   where
     handleAction = \case
-      Init -> H.liftEffect $ modifyIORef' logRef (<> ["parent"])
+      Init -> H.sync $ modifyIORef' logRef (<> ["parent"])
       -- Forks work that outlives the finalizer: it ends with it.
       Fin -> do
-        forkWaits <- H.liftEffect newEmptyMVar
-        void $ H.fork $ liftIO $ (putMVar forkWaits () >> (newEmptyMVar >>= takeMVar :: IO ())) `onException` putMVar forkKilled ()
-        liftIO (readMVar forkWaits)
+        forkWaits <- H.sync newEmptyMVar
+        void $ H.fork $ H.async $ (putMVar forkWaits () >> (newEmptyMVar >>= takeMVar :: IO ())) `onException` putMVar forkKilled ()
+        H.async (readMVar forkWaits)
 
 lifecycle :: IO ()
 lifecycle = do
@@ -677,7 +676,7 @@ data Gate = Gate {open :: MVar (), waiting :: MVar (), loaded :: MVar (), cancel
 data IslandAct = Load | Poked
 
 -- | An island: its Initialize subscribes to the pokes, then waits at the
--- gate (in 'liftIO'), and its state says whether it has loaded. It raises
+-- gate (in 'H.async'), and its state says whether it has loaded. It raises
 -- each poke to its parent, while it waits too.
 island :: IORef [Text] -> Gate -> HS.Emitter IO () -> H.Component Query () Text IO
 island logRef gate pokes =
@@ -686,7 +685,7 @@ island logRef gate pokes =
     (\_ -> HH.text "island" :: H.ComponentHTML IslandAct Empty IO)
     [H.onAction handleAction, H.onQuery handleQuery, H.onInitialize (handleAction Load)]
   where
-    note t = H.liftEffect (modifyIORef' logRef (<> [t]))
+    note t = H.sync (modifyIORef' logRef (<> [t]))
     handleAction = \case
       Load -> do
         void (H.subscribe (Poked <$ pokes))
@@ -694,10 +693,10 @@ island logRef gate pokes =
         -- The wait says that it has begun from inside what the handler
         -- covers: a worker killed before its action has run has no handler
         -- yet, and says nothing of being cancelled.
-        liftIO ((tryPutMVar gate.waiting () >> readMVar gate.open) `onException` tryPutMVar gate.cancelled ())
+        H.async ((tryPutMVar gate.waiting () >> readMVar gate.open) `onException` tryPutMVar gate.cancelled ())
         put 1
         note "island loaded"
-        H.liftEffect (putMVar gate.loaded ())
+        H.sync (putMVar gate.loaded ())
       Poked -> H.raise "poked"
     handleQuery :: Query a -> H.HalogenM Int IslandAct Empty Text IO (Maybe a)
     handleQuery = \case
@@ -719,7 +718,7 @@ host logRef gate pokes shown =
     )
     [H.onAction handleAction, H.onQuery handleQuery, H.onInitialize (handleAction HostInit)]
   where
-    note t = H.liftEffect (modifyIORef' logRef (<> [t]))
+    note t = H.sync (modifyIORef' logRef (<> [t]))
     handleAction = \case
       HostInit -> note "host initialized"
       Heard t -> note ("host heard " <> t)

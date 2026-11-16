@@ -173,7 +173,7 @@ loader gate =
     act (Load what) = do
       ask <- asking (.loads) (\a s -> s {loads = a})
       void $ H.fork $ do
-        r <- liftIO (T.hold gate what)
+        r <- H.async (liftIO (T.hold gate what))
         took <- answered (.loads) (\a s -> s {loads = a}) ask (\s -> s {showing = r})
         unless took $ modify (\s -> s {dropped = s.dropped + 1})
     render :: Loads -> H.ComponentHTML LoadAction Empty m

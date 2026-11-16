@@ -214,9 +214,9 @@ deregister key = do
 -- the driver keeps none while nobody does. Open a listener before mounting
 -- what it is to look at.
 --
--- It waits for the tree to have done it: called from a synchronous effect
--- ('Halogen.Query.liftEffect') of another tree, it holds that tree up until
--- then, so a panel calls it from a @liftIO@.
+-- It waits for the tree to have done it, so call it in @H.async@. Called
+-- from a synchronous effect ('Halogen.Query.sync') of another tree, it holds
+-- that tree up until then.
 restoreState :: Int -> Dynamic -> IO Bool
 restoreState key value =
   IntMap.lookup key <$> readIORef registry >>= \case

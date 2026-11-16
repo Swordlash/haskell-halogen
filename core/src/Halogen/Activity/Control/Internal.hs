@@ -156,8 +156,8 @@ data HeldWaits = HeldWaits
   , closed :: TVar Bool
   }
 
--- | A wait of a component's program (a 'Halogen.Query.HalogenM.lift' or
--- 'liftIO', or the body of a 'UnliftIO.withRunInIO') that the test holds:
+-- | A wait of a component's program (a 'Halogen.Query.HalogenM.async', or
+-- the body of a 'Halogen.Query.HalogenM.asyncWith') that the test holds:
 -- its worker has started and the fiber counts as waiting, but the action
 -- has not started and does not until the wait is released.
 data HeldWait = HeldWait

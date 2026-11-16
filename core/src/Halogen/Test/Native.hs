@@ -228,7 +228,7 @@ driven :: forall q i o m. (MonadIO m) => IORef [o] -> H.Component q i o m -> H.C
 driven raised inner =
   H.Component H.ComponentInfo {label = "View", stateType = Nothing} $
     H.componentSpec (pure . Holding 0) render
-      & H.onAction (\o -> H.liftEffect (liftIO (atomicModifyIORef' raised (\os -> (o : os, ())))))
+      & H.onAction (\o -> H.sync (liftIO (atomicModifyIORef' raised (\os -> (o : os, ())))))
       & H.onQuery
         ( \case
             Forward q -> H.query "view" () q
@@ -702,7 +702,7 @@ describe node =
 -- Waiting for the program
 
 -- | Wait until the view's tree is quiet: nothing running or queued, and no
--- fiber waiting in a @liftIO@. Other trees in the process do not count.
+-- fiber waiting in an @H.async@. Other trees in the process do not count.
 -- It waits for the program, never for a clock, and has no deadline: wrap
 -- it in 'within'. It does not return while the tree waits for something
 -- the test holds; use 'settleHolding' then.
@@ -744,7 +744,7 @@ newGate :: IO (Gate q r)
 newGate = Gate <$> newTVarIO IntMap.empty <*> newTVarIO 1 <*> newTVarIO 0
 
 -- | Hold an ask until the test answers it, and return the answer. The
--- test's backend calls this from the component's @liftIO@. If the waiting
+-- test's backend calls this from the component's @H.async@. If the waiting
 -- thread is killed (its component goes away), the ask leaves the gate.
 hold :: Gate q r -> q -> IO r
 hold gate q = do
@@ -809,7 +809,7 @@ holds gate = Holds ((,) <$> (IntMap.size <$> readTVar gate.asks) <*> readTVar ga
 -- the two counts differ, so the wait goes on.
 --
 -- Each held ask must be the wait of one fiber of this view. An ask held
--- for another view, or two asks held by one @liftIO@ at once, keep this
+-- for another view, or two asks held by one @H.async@ at once, keep this
 -- from returning.
 settleHolding :: View q i o -> Holds -> IO ()
 settleHolding View {waitWith} (Holds counts) =

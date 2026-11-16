@@ -37,11 +37,12 @@
 -- = Held waits
 --
 -- Inside 'withHeldWaits', a component's program that waits
--- ('Halogen.Query.HalogenM.lift', 'liftIO', the body of a
--- 'UnliftIO.withRunInIO') is held: its worker starts and the fiber counts
--- as waiting ("Halogen.Activity"), as always, but the action does not start
--- until the test lets it ('release'), or makes it throw ('failWith').
--- What is not a wait is not held: a 'Halogen.Query.HalogenM.liftEffect'
+-- ('Halogen.Query.HalogenM.async', the body of a
+-- 'Halogen.Query.HalogenM.asyncWith') is held: its worker starts and the
+-- fiber counts as waiting ("Halogen.Activity"), as always, but the action
+-- does not start until the test lets it ('release'), or makes it throw
+-- ('failWith').
+-- What is not a wait is not held: a 'Halogen.Query.HalogenM.sync'
 -- (it runs at once) and a pause ('Halogen.Query.HalogenM.delay',
 -- 'Halogen.Query.HalogenM.delayCounted': those are the clock's).
 -- A held wait whose fiber is cancelled (its fork killed, its component gone)
@@ -62,7 +63,7 @@
 -- test's clock: nothing wakes until 'advance' moves it past their time,
 -- which it does as fake timers do (see 'advance'). Counting is as on the
 -- real clock: a 'delay' asleep is neither running nor waiting, a
--- 'delayCounted' one is waiting. @liftIO (threadDelay n)@ is a wait like
+-- 'delayCounted' one is waiting. @H.async (threadDelay n)@ is a wait like
 -- any other, not a pause: it sleeps on the real clock (and is held, inside
 -- 'withHeldWaits'), so a pause a test should move on is written with
 -- 'Halogen.Query.HalogenM.delayCounted'. Timers that are not a program's

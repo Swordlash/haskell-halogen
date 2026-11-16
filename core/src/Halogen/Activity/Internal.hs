@@ -45,7 +45,7 @@ data Activity = Activity
   -- queued.
   , waiting :: Int
   -- ^ Fibers of those trees waiting for an action on a worker thread: a
-  -- 'Halogen.Query.HalogenM.lift' or 'liftIO' under way. Not a pause
+  -- 'Halogen.Query.HalogenM.async' under way. Not a pause
   -- ('Halogen.Query.HalogenM.delay'), which is not counted.
   }
   deriving stock (Eq, Show)

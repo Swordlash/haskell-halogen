@@ -41,7 +41,7 @@
 -- >       slug <- gets (.slug)
 -- >       ask <- asking (.loads) (\a s -> s {loads = a})
 -- >       void $ H.fork $ do
--- >         result <- liftIO (fetchPage slug)
+-- >         result <- H.async (liftIO (fetchPage slug))
 -- >         void $ answered (.loads) (\a s -> s {loads = a}) ask (\s -> s {page = Just result})
 --
 -- A reload keeps the page on the screen until the new one comes. A new

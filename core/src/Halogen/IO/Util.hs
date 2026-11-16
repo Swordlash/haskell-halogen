@@ -12,6 +12,7 @@ import Web.HTML.Event.EventTypes qualified as ET
 import Web.HTML.HTMLDocument.ReadyState
 
 -- | Waits for the document to load.
+-- It waits: call it in @H.async@.
 awaitLoad :: (MonadBrowserDOM m, MonadIO m) => m ()
 awaitLoad = do
   rs <- readyState =<< document =<< window
@@ -26,6 +27,7 @@ awaitLoad = do
     _ -> pass
 
 -- | Waits for the document to load and then finds the `body` element.
+-- It waits: call it in @H.async@.
 awaitBody :: (MonadBrowserDOM m, MonadIO m) => m HTMLElement
 awaitBody = do
   awaitLoad
@@ -102,7 +104,7 @@ keepForNextRun teardown = withRunInIO $ \runInIO -> atomicWriteIORef lastRun (Ju
 -- | Run what the last run kept with 'keepForNextRun', if there is anything,
 -- and forget it. A socket's @dispose@ there runs the tree's finalizers, ends
 -- its subscriptions and forks and takes its root off the page before this
--- returns (what a finalizer does in @liftIO@ goes on after it, as it does
+-- returns (what a finalizer does in @H.async@ goes on after it, as it does
 -- anywhere). With nothing kept, nothing happens.
 endPreviousRun :: (MonadIO m) => m ()
 endPreviousRun = liftIO $ sequence_ =<< atomicModifyIORef' lastRun (Nothing,)

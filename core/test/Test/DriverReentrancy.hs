@@ -1,7 +1,7 @@
 -- | Driver-level regression test for a render that meets a child's
 -- @Receive@ still in progress.
 --
--- The first child's first @Receive@ waits (in 'liftIO') until the test lets
+-- The first child's first @Receive@ waits (in 'H.async') until the test lets
 -- it go, and meanwhile another state change renders the parent again. With
 -- the old driver the second render re-entered the first and re-minted a live
 -- child. Now the @Receive@ is a program of the child that suspends, the
@@ -14,7 +14,6 @@ module Test.DriverReentrancy (spec) where
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Monad (void, when)
-import Control.Monad.IO.Class (liftIO)
 import Control.Monad.State.Class (modify)
 import Data.Foldable (traverse_)
 import Data.IORef
@@ -108,9 +107,9 @@ mkChild env cid =
     renderChildHtml _ = HH.text "child"
 
     handleChild = \case
-      CInit -> H.liftEffect $ modifyIORef' env.initCount (+ 1)
-      CFinalize -> H.liftEffect $ modifyIORef' env.finalizeCount (+ 1)
-      CReceive _ -> liftIO $ env.receiveHook cid
+      CInit -> H.sync $ modifyIORef' env.initCount (+ 1)
+      CFinalize -> H.sync $ modifyIORef' env.finalizeCount (+ 1)
+      CReceive _ -> H.async $ env.receiveHook cid
 
 data ParentAction = PInit | Bump | Reenter
 

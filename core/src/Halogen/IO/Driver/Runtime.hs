@@ -14,7 +14,7 @@
 --   is being dispatched, and 'preventDefault' still counts), one piece of
 --   work at a time, until nothing is queued. The one exception is the
 --   browser's own: an event a piece of work dispatches (from a
---   'Halogen.Query.HalogenM.liftEffect') is handled there and then, nested
+--   'Halogen.Query.HalogenM.sync') is handled there and then, nested
 --   in it, as the browser runs handlers while it dispatches; so is work the
 --   thread running the loop brings it itself. And on WebAssembly a browser
 --   event that finds the loop held by a thread that was merely preempted
@@ -134,7 +134,7 @@ data Entry = Claimed | Nested | Behind | Queued | Handed
 -- WebAssembly).
 --
 -- The thread running the loop that enters it again, from inside a piece of
--- work (an emitter a 'Halogen.Query.HalogenM.liftEffect' notifies, say),
+-- work (an emitter a 'Halogen.Query.HalogenM.sync' notifies, say),
 -- runs the new work there and then, nested in the old.
 --
 -- The work runs in the masking state of the thread that entered.

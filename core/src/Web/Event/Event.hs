@@ -59,17 +59,19 @@ newEvent (EventType eventType) bubbles = js_new_event (toJSText eventType) bubbl
 -- | Ask the browser not to take its default action for this event: not to
 -- submit the form, not to follow the link, not to scroll the page.
 --
--- Call it from the handler itself. By the time anything the handler forks or
--- schedules runs, the browser has already decided.
+-- Call it from the handler itself, in @H.sync@. By the time anything the
+-- handler forks or schedules runs, the browser has already decided.
 preventDefault :: (MonadIO m) => Event -> m ()
 preventDefault e = liftIO e.preventDefault
 
 -- | Stop the event travelling further up the tree. Handlers already attached
 -- to /this/ target still run; 'stopImmediatePropagation' stops those too.
+-- Call it in @H.sync@.
 stopPropagation :: (MonadIO m) => Event -> m ()
 stopPropagation e = liftIO e.stopPropagation
 
 -- | Stop the event travelling further up the tree, and stop the other
 -- handlers on this target from running.
+-- Call it in @H.sync@.
 stopImmediatePropagation :: (MonadIO m) => Event -> m ()
 stopImmediatePropagation e = liftIO e.stopImmediatePropagation

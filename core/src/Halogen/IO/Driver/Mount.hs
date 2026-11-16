@@ -41,7 +41,7 @@ import Web.DOM.Internal.Types (Node)
 data HalogenSocket query output m = HalogenSocket
   { query :: forall a. query a -> m (Maybe a)
   -- ^ Waits for the answer: not to be called from a component's
-  -- 'Halogen.Query.HalogenM.liftEffect' in the same tree, which would wait
+  -- 'Halogen.Query.HalogenM.sync' in the same tree, which would wait
   -- for itself.
   , messages :: HS.Emitter m output
   , dispose :: m ()
@@ -119,11 +119,11 @@ data ChildSlots ps m act r = ChildSlots
 -- | Mount a component. The tree runs on a loop of its own (see
 -- "Halogen.IO.Driver.Runtime"): the component's state, children, renders
 -- and lifecycle are only ever touched there, one piece of work at a time,
--- and its programs wait only in 'Halogen.Query.HalogenM.Lift' ('liftIO').
+-- and its programs wait only in 'Halogen.Query.HalogenM.Lift' ('async').
 --
 -- The tree is handed over once it has rendered and its components have
 -- run the synchronous part of their @Initialize@: what an @Initialize@
--- waits for in 'liftIO' goes on afterwards, and holds up only its own
+-- waits for in 'async' goes on afterwards, and holds up only its own
 -- component (see 'Halogen.Query.HalogenQ.Initialize').
 --
 -- All the driver asks of the component monad is a way into 'IO' and back:

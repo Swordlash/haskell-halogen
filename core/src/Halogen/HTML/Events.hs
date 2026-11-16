@@ -45,7 +45,7 @@ handler' et f = IProp $ Core.handler et (fmap Action . f)
 -- > HH.form [HE.preventingDefault (HE.onSubmit (const Save))] […]
 --
 -- Calling 'Web.Event.Event.preventDefault' from the component's action
--- handler, in 'Halogen.Query.HalogenM.liftEffect', is not the same: that runs
+-- handler, in 'Halogen.Query.HalogenM.sync', is not the same: that runs
 -- when the tree's loop gets to the action, which is during the event's
 -- dispatch only if the loop is free when the event arrives. An event that
 -- arrives while the loop is busy elsewhere has its action queued, and the

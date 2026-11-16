@@ -220,7 +220,7 @@ finally body after = do
 --
 -- Both sleep on a test's clock in a tree mounted under one
 -- ("Halogen.Activity.Control"'s 'Halogen.Activity.Control.withTestClock'),
--- so a test moves them on without waiting; @liftIO (threadDelay n)@, which
+-- so a test moves them on without waiting; @async (threadDelay n)@, which
 -- counts as 'delayCounted' does, always sleeps on the real clock.
 --
 -- The duration is a 'NominalDiffTime', as every duration in this library
@@ -231,7 +231,7 @@ finally body after = do
 -- goes on after what the tree has queued); one longer than an 'Int' of
 -- microseconds holds on a 32-bit backend is waited in parts.
 --
--- In a tree that "Halogen.Static" renders it pauses, as 'liftIO' would:
+-- In a tree that "Halogen.Static" renders it pauses, as 'async' would:
 -- a pause in an @Initialize@ itself (not in a fork) holds up the render.
 delay :: forall state action slots output m. (Functor m) => NominalDiffTime -> HalogenM state action slots output m ()
 delay d = HalogenM $ liftF $ Delay d ()
@@ -240,7 +240,7 @@ delay d = HalogenM $ liftF $ Delay d ()
 -- pause before work a test waits for, such as a debounce before a request
 -- or an autosave after the last key (see 'delay' for which to write).
 --
--- On the real clock it is @liftIO (threadDelay n)@, with the duration in
+-- On the real clock it is @async (threadDelay n)@, with the duration in
 -- seconds: "Halogen.Activity" counts the fiber as waiting until it wakes,
 -- so a quiet program means the work after it is done. In a tree mounted
 -- under a test's clock ('Halogen.Activity.Control.withTestClock') it
@@ -325,11 +325,11 @@ queryAll label q =
 -- An emitter the page notifies while it dispatches an event (one over a DOM
 -- listener, such as 'Halogen.Query.Event.eventListener''s or
 -- "Halogen.Query.Event.Window"'s) has its action run as an element's own
--- handler's is: when a synchronous effect ('liftEffect') dispatched the
+-- handler's is: when a synchronous effect ('sync') dispatched the
 -- event, inside that dispatch, before the effect goes on, so that the
 -- action may still prevent the event's default. So is one the tree's own
 -- work makes (an effect that notifies the emitter). A notification from
--- any other thread (a 'liftIO' body's, a timer's) has its action run at
+-- any other thread (an 'async' body's, a timer's) has its action run at
 -- once only when the tree is idle, and otherwise queued behind what runs
 -- (see 'Halogen.IO.Driver.Runtime.enterCallback').
 subscribe :: forall state action slots output m. (Functor m) => HS.Emitter IO action -> HalogenM state action slots output m SubscriptionId

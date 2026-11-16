@@ -42,12 +42,14 @@ toParentNode = coerce
 -- separated by @"; "@. "Web.HTML.Cookie" reads and writes this in terms of
 -- single cookies, which is almost always what is wanted. No browser, no
 -- cookie jar: natively it is empty, as with "Web.Storage.Storage".
+-- Call it in @H.sync@.
 cookie :: (MonadIO m) => HTMLDocument -> m Text
 cookie doc = liftIO doc.cookie
 
 -- | Write one cookie. The string is a single cookie and its attributes, and
 -- assigning it adds or replaces that cookie rather than replacing the lot.
 -- Natively it goes nowhere.
+-- Call it in @H.sync@.
 setCookie :: (MonadIO m) => Text -> HTMLDocument -> m ()
 setCookie value doc = liftIO (doc.cookie_set value)
 
@@ -57,6 +59,7 @@ setCookie value doc = liftIO (doc.cookie_set value)
 -- answer a page gets natively, with no browser: what this is read for is
 -- mostly to stop work nobody can see, and a page that cannot tell whether it
 -- is seen should go on with it.
+-- Call it in @H.sync@.
 visibilityState :: (MonadIO m) => HTMLDocument -> m VisibilityState
 visibilityState doc =
   liftIO $ fromMaybe Visible . VisibilityState.parse <$> doc.visibilityState

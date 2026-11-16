@@ -123,26 +123,26 @@ component =
     eval = NT $ \case
       H.Initialize a -> do
         state <- get
-        UnliftIO f <- lift askUnliftIO
+        UnliftIO f <- H.sync askUnliftIO
         -- The target element can either be the one supplied by the user, or the
         -- document body. Either way, we'll run the sub-tree at the target and
         -- save the resulting interface.
-        target <- maybe (lift awaitBody) pure state.targetElement
-        socket@H.HalogenSocket {messages = HS.Emitter k} <- lift $ VDom.runUI wrapper state target
+        target <- maybe (H.async awaitBody) pure state.targetElement
+        socket@H.HalogenSocket {messages = HS.Emitter k} <- H.async $ VDom.runUI wrapper state target
         -- Subscribe to the child component's messages
         void $ H.subscribe $ HS.Emitter $ \emit' ->
           fmap (HS.hoistSubscription (NT f)) $ f $ k $ liftIO . emit'
         modify $ \s -> s {socket = Just socket} :: State q i o m
         pure a
       H.Finalize a -> do
-        gets (.socket) >>= traverse_ (lift . (.dispose))
+        gets (.socket) >>= traverse_ (H.async . (.dispose))
         pure a
       H.Receive (Input {input}) a ->
         gets (.socket)
           >>= \case
             Nothing -> pure a
             Just io -> do
-              void $ lift $ ioq io (SetInput input a)
+              void $ H.async $ ioq io (SetInput input a)
               pure a
       H.Action output a -> do
         H.raise output
@@ -151,7 +151,7 @@ component =
         gets (.socket)
           >>= \case
             Nothing -> pure $ fail ()
-            Just io -> lift $ case hoistCoyoneda ChildQuery query of
+            Just io -> H.async $ case hoistCoyoneda ChildQuery query of
               Coyoneda k q -> maybe (fail ()) k <$> ioq io q
 
     -- We don't need to render anything; this component is explicitly meant to be

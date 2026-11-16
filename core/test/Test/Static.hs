@@ -36,14 +36,14 @@ import Web.DOM.ParentNode (QuerySelector (..))
 import Test.Hspec (Spec, describe, it)
 import Test.Utils (assertEqual, assertWith)
 
--- | What it renders is what its initializer read, through 'liftIO', from
+-- | What it renders is what its initializer read, through 'H.async', from
 -- the cell it is given.
 initialized :: IORef Text -> H.Component H.VoidF () Void MemDOM
 initialized source =
   H.component
     (\_ -> pure "before")
     (\st -> HH.p_ [HH.text st] :: H.ComponentHTML () Empty MemDOM)
-    [H.onInitialize (liftIO (readIORef source) >>= put)]
+    [H.onInitialize (H.async (liftIO (readIORef source)) >>= put)]
 
 -- | Loads its text the same way, and once it has, renders it beside a
 -- child that loads its own in turn.
@@ -55,7 +55,7 @@ loading source =
         Nothing -> HH.p_ [HH.text "loading"] :: H.ComponentHTML () ("child" .== H.Slot H.VoidF Void ()) MemDOM
         Just st -> HH.div_ [HH.p_ [HH.text st], HH.slot_ "child" () (initialized source) ()]
     )
-    [H.onInitialize (liftIO (readIORef source) >>= put . Just)]
+    [H.onInitialize (H.async (liftIO (readIORef source)) >>= put . Just)]
 
 child :: H.Component H.VoidF () Void MemDOM
 child =
@@ -86,10 +86,10 @@ subscribing events =
       Start -> do
         let emitter = HS.Emitter $ \_ -> pure (HS.Subscription (liftIO (record "unsubscribed")))
         void (H.subscribe emitter)
-      -- At once rather than through liftIO: disposing of a
+      -- At once rather than through H.async: disposing of a
       -- tree runs its finalizers, but does not wait for what
       -- they wait for.
-      Tick -> H.liftEffect (liftIO (record "finalized"))
+      Tick -> H.sync (liftIO (record "finalized"))
     record e = modifyIORef' events (<> [e])
 
 -- | What 'embed' writes, as a component would build it: a script with an id,

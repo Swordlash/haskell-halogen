@@ -81,16 +81,16 @@ component renderer =
         CanvasState {canvasRef} <- get
         canvas <- H.getHTMLElementRef canvasRef
         for_ canvas $ \element -> do
-          events <- liftIO HS.create
+          events <- H.sync (liftIO HS.create)
           void $ H.subscribe $ Emit <$> events.emitter
-          mounted <- lift $ renderer.mount element (liftIO . HS.notify events.listener)
+          mounted <- H.async $ renderer.mount element (liftIO . HS.notify events.listener)
           -- Mounting may wait (a backend can set up asynchronously); a
           -- scene is handed over at once, so that scenes arrive in order.
           current <- gets (.scene)
-          H.liftEffect $ mounted.update current
+          H.sync $ mounted.update current
           modify $ \currentState -> currentState {mounted = Just mounted}
       Receive scene -> do
         modify $ \currentState -> currentState {scene}
-        gets (.mounted) >>= traverse_ (\mounted -> H.liftEffect $ mounted.update scene)
+        gets (.mounted) >>= traverse_ (\mounted -> H.sync $ mounted.update scene)
       Emit event -> H.raise event
-      Unmount -> gets (.mounted) >>= traverse_ (lift . (.destroy))
+      Unmount -> gets (.mounted) >>= traverse_ (H.async . (.destroy))
