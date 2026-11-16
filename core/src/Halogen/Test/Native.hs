@@ -37,9 +37,9 @@
 -- > gate <- T.newGate
 -- > T.withView (flip runReaderT (backendOn gate)) list () $ \view -> do
 -- >   T.settleHolding view (T.holds gate)
--- >   [first, second] <- T.held gate
--- >   T.answer gate second ["b"]
--- >   T.answer gate first ["a"]
+-- >   asks <- T.held gate
+-- >   for_ (reverse asks) $ \ask ->
+-- >     T.answer gate ask (resultFor ask.asked)
 -- >   T.settleHolding view (T.holds gate)
 --
 -- This module also re-exports "Halogen.Activity.Control": 'withHeldWaits'
@@ -682,6 +682,9 @@ hold gate q = do
 
 -- | The asks held now, oldest first. Call it after 'settleHolding' to see
 -- every ask the program has made by then.
+--
+-- Asks made by different fibers at the same time can reach the gate in
+-- either order. Tell them apart by 'asked', not by 'number'.
 held :: Gate q r -> IO [Held q r]
 held gate = map (\(number, (asked, _)) -> Held {number, asked}) . IntMap.toAscList <$> readTVarIO gate.asks
 

@@ -538,8 +538,11 @@ spec = describe "the harness for the in-memory DOM" $ do
       T.withView id (asking gate) () $ \view -> do
         guarded view (T.settleHolding view (T.holds gate))
         asks <- T.held gate
-        map (\h -> (h.number, h.asked)) asks `shouldBe` [(1, "first"), (2, "second")]
-        case asks of
+        map (.number) asks `shouldBe` [1, 2]
+        -- The two asks come from two forks, so either can reach the gate
+        -- first. Tell them apart by what they ask.
+        let named what = filter (\h -> h.asked == what) asks
+        case named "first" <> named "second" of
           [first, second] -> do
             T.answer gate second "B"
             guarded view (T.settleHolding view (T.holds gate))
