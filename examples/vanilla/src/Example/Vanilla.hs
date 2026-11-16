@@ -68,7 +68,7 @@ component =
 
     handleAction = \case
       Init ->
-        liftIO $ putStrLn @Text "Initialized"
+        H.sync $ liftIO $ putStrLn @Text "Initialized"
       Increment n -> do
         modify (+ n)
         get >>= H.raise

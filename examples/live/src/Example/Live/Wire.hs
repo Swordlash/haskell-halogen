@@ -34,7 +34,7 @@ page shared =
     (\() -> (\container -> State {container, running = Nothing, seen = []}) <$> H.newRefLabel "wire")
     render
     [ H.onInitialize start
-    , H.onFinalize (gets (.running) >>= traverse_ (liftIO . (.dispose)))
+    , H.onFinalize (gets (.running) >>= traverse_ (H.async . liftIO . (.dispose)))
     , H.onAction $ \(Crossed message) -> modify (\s -> s {seen = lastN 40 (s.seen <> [line message])})
     ]
   where
@@ -44,9 +44,9 @@ page shared =
       for_ element $ \container -> do
         -- Subscribed to before mounting, so that the first render's
         -- message, sent as soon as the board is mounted, is seen too.
-        HS.Subscribe {emitter, listener} <- liftIO HS.create
+        HS.Subscribe {emitter, listener} <- H.sync (liftIO HS.create)
         void (H.subscribe (Crossed <$> emitter))
-        loopback <- liftIO (Loopback.mountWatched (HS.notify listener) container (board shared) ())
+        loopback <- H.async (liftIO (Loopback.mountWatched (HS.notify listener) container (board shared) ()))
         modify (\s -> s {running = Just loopback})
 
     render :: State -> H.ComponentHTML Action Empty m

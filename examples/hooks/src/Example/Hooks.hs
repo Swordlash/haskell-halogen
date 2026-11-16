@@ -63,7 +63,7 @@ useCounter initial = Hooks.do
   (count, countId) <- Hooks.useState initial
 
   Hooks.useTickEffect count $ do
-    liftIO $ putStrLn ("[effect] the count is now " <> show count :: Text)
+    Hooks.sync $ liftIO $ putStrLn ("[effect] the count is now " <> show count :: Text)
     pure Nothing
 
   Hooks.pure
@@ -91,11 +91,11 @@ useWindowWidth = Hooks.do
   (width, setWidth) <- usePutState Nothing
 
   Hooks.useLifecycleEffect $ do
-    win <- lift window
-    target <- lift (windowToEventTarget win)
-    resizes <- lift $ HS.lowerEmitter $ HQE.eventListener (EventType "resize") target (const (Just ()))
+    win <- Hooks.sync window
+    target <- Hooks.sync (windowToEventTarget win)
+    resizes <- Hooks.sync $ HS.lowerEmitter $ HQE.eventListener (EventType "resize") target (const (Just ()))
 
-    let measure = setWidth . Just =<< lift (Window.innerWidth win)
+    let measure = setWidth . Just =<< Hooks.sync (Window.innerWidth win)
     subscription <- Hooks.subscribe $ map (const measure) resizes
     measure
 
@@ -159,9 +159,9 @@ app = Hooks.component $ \_input -> Hooks.do
   Hooks.useLifecycleEffect $ do
     -- A fork of the component: killed with it, or by the cleanup below.
     ticker <- Hooks.fork $ forever $ do
-      liftIO $ threadDelay 5_000_000
+      Hooks.async $ liftIO $ threadDelay 5_000_000
       current <- getCount
-      liftIO $ putStrLn ("[fork] five seconds on, the count is " <> show current :: Text)
+      Hooks.sync $ liftIO $ putStrLn ("[fork] five seconds on, the count is " <> show current :: Text)
     pure $ Just $ Hooks.kill ticker
 
   (typed, setTyped) <- usePutState ""
@@ -181,7 +181,7 @@ app = Hooks.component $ \_input -> Hooks.do
   (jar, setJar) <- usePutState M.empty
   width <- useWindowWidth
 
-  let readJar = setJar =<< lift (Cookie.getCookies =<< document =<< window)
+  let readJar = setJar =<< Hooks.sync (Cookie.getCookies =<< document =<< window)
 
   Hooks.useLifecycleEffect $ readJar $> Nothing
 
@@ -246,8 +246,8 @@ app = Hooks.component $ \_input -> Hooks.do
           , HH.p_ [HH.text (either ("what was kept could not be read: " <>) ("what was kept: " <>) kept)]
           , HH.p_
               [ button "keep the count in a cookie" $ do
-                  doc <- lift (document =<< window)
-                  lift $
+                  doc <- Hooks.sync (document =<< window)
+                  Hooks.sync $
                     Cookie.setCookie
                       (Cookie.defaultCookie "halogen-hooks-example" (show counter.count))
                         { Cookie.maxAge = Just 3600

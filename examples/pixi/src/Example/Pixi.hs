@@ -212,4 +212,4 @@ parent =
       Pixi.Fired (Entered target) -> modify $ \state -> state {hovered = Just target}
       Pixi.Fired (Exited target) ->
         modify $ \state -> if state.hovered == Just target then state {hovered = Nothing} else state
-      Pixi.Fired (TileClicked index) -> liftIO $ putStrLn ("tile clicked: " <> show index :: Text)
+      Pixi.Fired (TileClicked index) -> H.sync $ liftIO $ putStrLn ("tile clicked: " <> show index :: Text)
