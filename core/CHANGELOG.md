@@ -15,7 +15,8 @@ Nothing changes for `runMemDOM` and `N.newContainer`. They use the ambient
 page, one for the process, as before.
 
 `MemDOM`'s constructor now holds a `ReaderT` over `IO`, and `Parallel MemDOM`
-is now a `ReaderT` over `Concurrently IO`. Code that uses either changes.
+is now a `ReaderT` over `Concurrently IO`. Code that uses the constructor or
+`Parallel MemDOM` directly needs updating.
 
 `Halogen.Activity.Control` is how to control a program in a native test.
 Inside `withHeldWaits`, the waits of the trees a test mounts (a component's
