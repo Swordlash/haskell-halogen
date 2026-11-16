@@ -28,6 +28,7 @@ import Test.NativeAnswers qualified as NativeAnswers
 import Test.NativeDispatch qualified as NativeDispatch
 import Test.NativeDom qualified as NativeDom
 import Test.NativeEvents qualified as NativeEvents
+import Test.OldNames qualified as OldNames
 import Test.Pages qualified as Pages
 import Test.Refs qualified as Refs
 import Test.RenderRecovery qualified as RenderRecovery
@@ -67,6 +68,7 @@ main = hspec $ do
   NativeDispatch.spec
   NativeDom.spec
   NativeEvents.spec
+  OldNames.spec
   Pages.spec
   Refs.spec
   RenderRecovery.spec

@@ -2,6 +2,10 @@
 
 ## 0.1.0.0 -- unreleased
 
+* `HookM`'s `MonadTrans` and `MonadIO` instances are now deprecated. `lift`
+  and `liftIO` still work and still suspend the handler, but each use warns
+  and names what to write: `Hooks.async` for an action that waits,
+  `Hooks.sync` for one that must run in place.
 * `HookF`'s constructors `Lift` and `LiftEffect` are now `Async` and `Sync`,
   after `Hooks.async` and `Hooks.sync`. `Delay` and `DelayCounted` are now
   one constructor, `Delay`, with core's `Counted` as its first argument.

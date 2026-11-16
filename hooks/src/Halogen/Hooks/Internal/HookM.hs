@@ -108,12 +108,16 @@ type HookM :: Type -> Row Type -> Type -> (Type -> Type) -> Type -> Type
 newtype HookM scope slots output m a = HookM (F (HookF scope slots output m) a)
   deriving newtype (Functor, Applicative, Monad)
 
-instance MonadTrans (HookM scope slots output) where
+-- | 'lift' is 'async': the handler suspends while the action runs. The
+-- instance is deprecated: write 'async', or 'sync' to run the action in
+-- place.
+instance {-# DEPRECATED "lift suspends the handler. Write Hooks.async, or Hooks.sync to run the action in place." #-} MonadTrans (HookM scope slots output) where
   lift mx = HookM $ liftF $ Async mx identity
 
--- | As in 'Halogen.Query.HalogenM.HalogenM': 'lift' and 'liftIO' are
--- 'async', and the rest of the tree goes on meanwhile; 'sync' runs in place.
-instance (MonadIO m) => MonadIO (HookM scope slots output m) where
+-- | 'liftIO' is 'async': the handler suspends while the action runs. The
+-- instance is deprecated: write @async (liftIO io)@, or @sync (liftIO io)@
+-- to run the action in place.
+instance {-# DEPRECATED "liftIO suspends the handler. Write Hooks.async (liftIO io), or Hooks.sync (liftIO io) to run it in place." #-} (MonadIO m) => MonadIO (HookM scope slots output m) where
   liftIO = async . liftIO
 
 -- | Run an action of the component's monad in place, as
