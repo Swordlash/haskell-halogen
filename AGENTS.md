@@ -251,7 +251,9 @@ A component evaluates in the monad the DOM is spoken in. Each backend is a newty
 as a page: `N.dispatch` bubbles an event from a node with it as the target, `N.newContainer` mounts in the ambient
 document so that document listeners hear it and `isConnected` holds (`N.newPage` and `N.newContainerIn` give a test a
 page of its own, with its own document and storage, and `N.runMemDOMIn` mounts there), `N.querySelectorAll`/`textContent`/`attribute`
-read the tree, with the selectors `.Native.Selector` understands and an exception for any other),
+read the tree, with the selectors `.Native.Selector` understands and an exception for any other;
+`Halogen.Test.Native` is the harness over all this: a view in a page of its own, the reader's whole click, gates for a
+test's backend),
 `PixiDOM` in `pixi`, `ThreeDOM` in `three` and `RemoteDOM` in `remote` (whose DOM is a mirror of a page
 across a wire; its handles hold node numbers). Natively a `JSVal` is a `Dynamic` of what it was made
 from (`Halogen.JSBits.Native`), so an event built from JSON (a test's, or one a remote client sent)

@@ -148,7 +148,8 @@ import Web.DOM.Internal.Types (Node)
 -- Mounting
 
 -- | A mounted component: its page, the container it is mounted in, and its
--- tree. Read @view.page@ and @view.container@ to reach the page itself.
+-- tree. Read the page with @view.page@ and the container with
+-- @view.container@.
 data View q i o = View
   { page :: N.Page
   -- ^ The view's page. A test can make more containers in it, or read its
@@ -734,8 +735,9 @@ settleHolding View {waitWith} (Holds counts) =
 ----------------------------------------------------------------------
 -- Failures
 
--- | What the harness throws when a test asks for something that is not
--- there: the message says what was looked for.
+-- | What the harness throws when a step cannot be done: nothing matches a
+-- selector, a field cannot be typed into, or a wait gave up. The message
+-- says what was looked for.
 newtype Failure = Failure Text
 
 instance Show Failure where

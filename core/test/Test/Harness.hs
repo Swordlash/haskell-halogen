@@ -337,8 +337,8 @@ data BellAction = Listen | Ring | Pressed
 
 data BellQuery a = Report ((Bool, Int) -> a)
 
--- | A bell. A click on it opens its list; a @pointerdown@ anywhere in the
--- document closes it, and is counted.
+-- | A bell. A click on it opens its list. A @pointerdown@ anywhere in the
+-- document closes it and is counted.
 bell :: H.Component BellQuery () Void MemDOM
 bell =
   H.component
