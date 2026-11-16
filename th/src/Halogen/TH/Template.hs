@@ -468,9 +468,10 @@ blocksExp env holes leaf splice = fmap join . mapM segment . group
 
 -- | Whether a loop's source is written as a list: a list literal (@[]@
 -- too), a range, a comprehension or a string literal, in parentheses or
--- not. A loop draws from any other source through 'toList', and from this
--- one as it is: 'toList' leaves the container's type to be inferred from
--- the source alone, and for these the source alone is not one type. Under
+-- not, or an @if@, a @case@ or a @let@ with one of these as a result. A
+-- loop draws from any other source through 'toList', and from this one as
+-- it is: 'toList' leaves the container's type to be inferred from the
+-- source alone, and for these the source alone is not one type. Under
 -- @OverloadedLists@ a list literal and a range are any
 -- 'GHC.IsList.IsList', under @OverloadedStrings@ a string literal is any
 -- 'Data.String.IsString', under @MonadComprehensions@ a comprehension is
@@ -485,7 +486,15 @@ isWrittenAsList = \case
   CompE _ -> True
   LitE (StringL _) -> True
   ParensE e -> isWrittenAsList e
+  CondE _ a b -> isWrittenAsList a || isWrittenAsList b
+  MultiIfE alts -> any (isWrittenAsList . snd) alts
+  CaseE _ ms -> any (\(TH.Match _ body _) -> written body) ms
+  LetE _ e -> isWrittenAsList e
   _ -> False
+  where
+    written = \case
+      TH.NormalB e -> isWrittenAsList e
+      TH.GuardedB gs -> any (isWrittenAsList . snd) gs
 
 -- | Text with holes as an expression of 'Text': the holes must be 'Text'
 -- too, and statements among them shape it (@class="a {% if b %}b{% end %}"@).

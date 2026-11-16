@@ -54,6 +54,10 @@ spec = do
   it "a list literal of string literals in an attribute's text" $
     [hh|<p class="{% for c in ["a", "b"] %}{{ c }}{% end %}"></p>|]
       `same` HH.p [HP.class_ (ClassName "ab")] []
+  it "an if whose branches are list literals" $ do
+    let open = True
+        a = 7 :: Int
+    [hhs|{% for x in if open then [a] else [] %}<b>{{ shown x }}</b>{% end %}|] `sameAll` [HH.b_ [HH.text "7"]]
   it "a list literal with a signature is of the signature's type" $
     [hhs|{% for x in ([3, 1, 3] :: Set Int) %}<b>{{ shown x }}</b>{% end %}|]
       `sameAll` [HH.b_ [HH.text "1"], HH.b_ [HH.text "3"]]
