@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+**`declarations` runs several generators as one splice.** `$(declarations
+[jsFields ''URL [...], jsFieldFunctions ''URL [], inlineJS ...])` writes what
+each generator writes, in order. On the JavaScript backend the compiler keeps
+about 110 MiB for each top-level splice until the package ends. A module with
+one splice needs far less memory than a module with eight. `Halogen.JSBits`
+and `Halogen.JSBits.Fields` export it. `jsFieldFunctions` now also finds the
+fields an earlier `jsFields` of the same module wrote, so both fit in one
+splice.
+
 **Natively a value can answer for itself** when a member of it is used:
 `withNativeObject object value` is the value (what it holds is read as before) with
 a `NativeObject`, whose `call`, `set`, `get` and `instanceOf` say what a

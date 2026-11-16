@@ -121,6 +121,7 @@ module Halogen.JSBits.Fields
   , jsFieldFunctions
   , jsCast
   , inlineJS
+  , declarations
   )
 where
 
@@ -133,7 +134,7 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import GHC.Records (HasField (..))
-import Halogen.JSBits.Inline (Backend (..), arrow, backend, importJS, inlineJS, splitArrows)
+import Halogen.JSBits.Inline (Backend (..), arrow, backend, declarations, importJS, inlineJS, splitArrows)
 import Halogen.JSBits.Promise (Promise, promise)
 import Halogen.JSBits.Value
   ( Inert (..)
@@ -161,7 +162,7 @@ import Halogen.JSBits.Value
   , toJSText
   )
 import Language.Haskell.TH
-import Language.Haskell.TH.Syntax (addModFinalizer)
+import Language.Haskell.TH.Syntax (addModFinalizer, getQ, putQ)
 
 -- | One member of a JavaScript object: its JavaScript name and the type of
 -- its field. See the module's description for what each kind means.
@@ -198,18 +199,32 @@ instance (m ~ Q, a ~ Type) => ToType (m a) where toType = id
 -- newtype over a 'JSVal' (or over another such newtype, as an event type is
 -- over @Event@), with no type parameters.
 jsFields :: Name -> [Member] -> Q [Dec]
-jsFields receiver members = concat <$> mapM (member receiver Nothing) members
+jsFields receiver members = do
+  decs <- concat <$> mapM (member receiver Nothing) members
+  Written written <- fromMaybe (Written []) <$> getQ
+  putQ (Written ((receiver, [d | d@InstanceD {} <- decs]) : written))
+  pure decs
+
+-- The instances 'jsFields' has written in this module, by type. A splice
+-- cannot see what an earlier generator of the same splice declares, so
+-- 'jsFieldFunctions' reads them here too. That lets one splice
+-- ('declarations') hold both.
+newtype Written = Written [(Name, [Dec])]
 
 -- | Each field of the type, as a function of the same name, taking the
 -- object first: @go :: History -> Int -> IO ()@. A @_set@ field becomes
 -- @setName@: @title_set@ is @setTitle@. The fields are the 'HasField'
--- instances in scope for the type, so splice this after 'jsFields' (or in
--- a module that imports the instances); the second argument lists fields
--- the module writes functions for itself.
+-- instances for the type: those in scope, and those an earlier 'jsFields'
+-- of this module wrote. So put this after 'jsFields', in the same
+-- 'declarations' or in a later splice, or in a module that imports the
+-- instances. The second argument lists fields the module writes functions
+-- for itself.
 jsFieldFunctions :: Name -> [String] -> Q [Dec]
 jsFieldFunctions receiver handWritten = do
-  instances <- reifyInstances ''HasField [VarT (mkName "field"), ConT receiver, VarT (mkName "value")]
-  let fields = sortOn fst [(field, ty) | InstanceD _ _ h _ <- instances, (_, [LitT (StrTyLit field), _, ty]) <- [spine h], field `notElem` handWritten]
+  found <- reifyInstances ''HasField [VarT (mkName "field"), ConT receiver, VarT (mkName "value")]
+  Written written <- fromMaybe (Written []) <$> getQ
+  let instances = found <> concat [decs | (r, decs) <- reverse written, r == receiver]
+      fields = once (sortOn fst [(field, ty) | InstanceD _ _ h _ <- instances, (_, [LitT (StrTyLit field), _, ty]) <- [spine h], field `notElem` handWritten])
   fmap concat . forM fields $ \(field, ty) -> do
     let name = mkName (functionName field)
     addModFinalizer $ putDoc (DeclDoc name) ("The @" <> field <> "@ field of '" <> nameBase receiver <> "', as a function.")
@@ -223,6 +238,12 @@ jsFieldFunctions receiver handWritten = do
           SigT t _ -> go args t
           ParensT t -> go args t
           t -> (t, args)
+    -- An instance from an earlier splice is found twice: in scope, and
+    -- written. The one in scope comes first and is kept.
+    once = \case
+      a : b : rest | fst a == fst b -> once (a : rest)
+      a : rest -> a : once rest
+      [] -> []
     functionName field
       | "_set" `isSuffixOf` field, (c : cs) <- take (length field - 4) field = "set" <> (toUpper c : cs)
       | otherwise = field
