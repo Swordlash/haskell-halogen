@@ -18,6 +18,7 @@ module Halogen.Worker.Internal
 
     -- * A job's function
   , Fn
+  , FnIO
   , JobFunction (..)
   , JobArgument (..)
   , ArgsOf
@@ -83,6 +84,11 @@ data Job (args :: [Type]) b = Job
 type family Fn (args :: [Type]) (r :: Type) :: Type where
   Fn '[] r = r
   Fn (a ': as) r = a -> Fn as r
+
+-- | The function of these arguments, in order, to an @IO b@, which is the
+-- type of the function a job wraps: @FnIO '[Int, Text] Int@ is
+-- @Int -> Text -> IO Int@, and @FnIO '[] Int@ is @IO Int@.
+type FnIO args b = Fn args (IO b)
 
 -- | The arguments of a function given to 'job', which ends in 'IO'.
 type family ArgsOf (f :: Type) :: [Type] where

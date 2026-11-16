@@ -49,6 +49,7 @@ module Halogen.Worker
     Job
   , job
   , whichWorker
+  , FnIO
   , Fn
   , JobFunction
   , ArgsOf
@@ -101,7 +102,7 @@ import GHC.Conc (STM, atomically, newTVarIO, readTVar, retry, writeTVar)
 import GHC.StaticPtr (StaticPtr, deRefStaticPtr, staticKey)
 import Halogen.JSBits
 import Halogen.JSBits.Promise (Promise (..), wait)
-import Halogen.Worker.Internal (ArgsOf, Fn, Job (..), JobFunction, Reply (..), Request (..), ResultOf, answer, curried, decodeReply, encodeRequest, jobName, runCall)
+import Halogen.Worker.Internal (ArgsOf, Fn, FnIO, Job (..), JobFunction, Reply (..), Request (..), ResultOf, answer, curried, decodeReply, encodeRequest, jobName, runCall)
 import Halogen.Worker.Internal qualified as Internal
 import System.IO.Unsafe (unsafePerformIO)
 import System.Info qualified
@@ -328,7 +329,7 @@ available = liftIO $ do
 -- computation takes, between its waits and 'checkpoint's: the component's
 -- loop is free meanwhile, but the page is not, since only a worker gives the
 -- page its thread back.
-start :: Pool -> StaticPtr (Job args b) -> Fn args (IO (Promise b))
+start :: Pool -> StaticPtr (Job args b) -> FnIO args (Promise b)
 start pool pointer = curried (deRefStaticPtr pointer) $ \bytes -> do
   (raw, outcome) <- launch pool pointer bytes
   let rejection e = JSError {name = e.name, message = Text.pack (displayException (WorkerError (jobName pointer) e.message))}
@@ -350,7 +351,7 @@ start pool pointer = curried (deRefStaticPtr pointer) $ \bytes -> do
 -- losing side of @race@, a @timeout@) 'cancel's the job before it goes on,
 -- so a job that calls 'checkpoint' stops soon after, and one that does not
 -- is left to finish, its result unread.
-run :: Pool -> StaticPtr (Job args b) -> Fn args (IO b)
+run :: Pool -> StaticPtr (Job args b) -> FnIO args b
 run pool pointer = curried (deRefStaticPtr pointer) $ \bytes -> mask $ \restore -> do
   (raw, outcome) <- launch pool pointer bytes
   result <- restore (atomically outcome) `onException` stop Cancelling pool raw
