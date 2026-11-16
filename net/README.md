@@ -11,23 +11,24 @@ handleAction = \case
   -- Waits on a worker thread, while the rest of the tree goes on. If the
   -- component goes away first, the request is aborted.
   Load -> do
-    outcome <- fetch (request GET "/api/notes") >>= either (pure . Left) text
+    outcome <- H.async (fetch (request GET "/api/notes") >>= either (pure . Left) text)
     modify $ \st -> st {notes = outcome}
   Save json -> do
     _ <-
-      fetch
-        (request POST "/api/notes")
-          { headers = [("content-type", "application/json")]
-          , body = Just (TextBody json)
-          }
+      H.async $
+        fetch
+          (request POST "/api/notes")
+            { headers = [("content-type", "application/json")]
+            , body = Just (TextBody json)
+            }
     pure ()
 ```
 
 `request` creates a `Request` with browser defaults. Use record updates to set headers, credentials, mode and body. The body can be `TextBody` or `BytesBody`; encode JSON yourself if needed.
 
-`fetch` waits for the response status and headers. `text` and `bytes` wait for the body, which can be read only once. These operations belong in `lift` because they wait.
+`fetch` waits for the response status and headers. `text` and `bytes` wait for the body, which can be read only once. They wait, so call them in `H.async`.
 
-To start a request during an event's dispatch, call `start` in `H.liftEffect`. It returns a handle you can keep in component state. Use `response` in `lift` to wait for the response, or `abort` to cancel the request from another action.
+To start a request during an event's dispatch, call `start` in `H.sync`. It returns a handle you can keep in component state. Use `response` in `H.async` to wait for the response, or `abort` to cancel the request from another action.
 
 Browser failures return `Left JSError` with the original error name. `TypeError` covers failures such as invalid URLs, unreachable hosts, CORS restrictions and rejected headers or bodies. `AbortError` means the request was aborted. An HTTP error status is still a response, with `ok` set to `False`.
 
@@ -46,7 +47,7 @@ handleAction = \case
   -- Opening waits for nothing, so it goes in an effect; what the socket
   -- does afterwards arrives through its emitters.
   Initialize ->
-    H.liftEffect (WS.open "wss://example.com/chat" []) >>= \case
+    H.sync (WS.open "wss://example.com/chat" []) >>= \case
       Left refused -> modify $ \st -> st {problem = Just refused}
       Right socket -> do
         modify $ \st -> st {socket = Just socket}
@@ -54,12 +55,12 @@ handleAction = \case
         void $ H.subscribe (Ended <$> WS.closed socket)
   Received message -> modify $ \st -> st {heard = st.heard <> [message]}
   Ended _ -> modify $ \st -> st {socket = Nothing}
-  Say line -> gets (.socket) >>= traverse_ (\s -> H.liftEffect (WS.send s (WS.TextMessage line)))
+  Say line -> gets (.socket) >>= traverse_ (\s -> H.sync (WS.send s (WS.TextMessage line)))
   -- The component's subscriptions end with it; its socket does not.
-  Finalize -> gets (.socket) >>= traverse_ (H.liftEffect . WS.close')
+  Finalize -> gets (.socket) >>= traverse_ (H.sync . WS.close')
 ```
 
-WebSocket and EventSource operations do not wait, so call them in `H.liftEffect`. `WS.open url protocols` begins connecting and returns a socket. `send` sends a `TextMessage` or a `BinaryMessage` containing a `ByteString`. `close` starts the closing handshake with a code and reason; `close'` uses neither.
+WebSocket and EventSource operations do not wait, so call them in `H.sync`. `WS.open url protocols` begins connecting and returns a socket. `send` sends a `TextMessage` or a `BinaryMessage` containing a `ByteString`. `close` starts the closing handshake with a code and reason; `close'` uses neither.
 
 Subscribe to the socket's `opened`, `messages`, `errors` and `closed` emitters with `H.subscribe`. The browser supplies no details for `errors`. The final event is always `closed`, including for failed connections, and contains the close `code`, `reason` and `clean` flag. Read `readyState` and `protocol` to inspect the connection.
 

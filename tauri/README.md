@@ -45,7 +45,7 @@ handleAction = \case
   -- Waits on a worker thread, while the rest of the tree goes on.
   Save -> do
     st <- get
-    outcome <- invoke "save_note" SaveNote {noteId = st.noteId, text = st.text}
+    outcome <- H.async (invoke "save_note" SaveNote {noteId = st.noteId, text = st.text})
     modify $ \st' -> st' {saved = outcome}
 ```
 
@@ -57,7 +57,7 @@ Use `encodeArgs` to inspect the generated JSON and `noArgs` for commands without
 
 Failures are returned as values. `NotInTauri` means the program is running outside Tauri. `Rejected JSError` means the command returned `Err` or Tauri refused the call, for example because the command does not exist or the window lacks permission. String errors become the error message; other errors are represented as JSON. `BadResult` contains aeson's error message when the result cannot be decoded.
 
-`invoke` waits for the result, so call it through `lift`. To send a command during an event's dispatch, call `start` through `H.liftEffect`, then wait for its `result` through `lift`.
+`invoke` waits for the result, so call it in `H.async`. To send a command during an event's dispatch, call `start` in `H.sync`, then wait for its `result` in `H.async`.
 
 Tauri cannot cancel commands. If the waiting component is removed, its wait ends, but the Rust function continues and its result is discarded.
 
@@ -67,10 +67,10 @@ Tauri cannot cancel commands. If the waiting component is removed, its wait ends
 handleAction = \case
   Initialize -> void (H.subscribe (Progress <$> listen "download-progress"))
   Progress p -> modify $ \st -> st {progress = p}
-  Done file -> emit "download-done" file
+  Done file -> H.sync (emit "download-done" file)
 ```
 
-`listen name` returns an emitter for `H.subscribe`. Each subscription creates its own listener, which is removed when you unsubscribe or the component is disposed. Invalid payloads are logged to the console and skipped; use `listenEither` to receive the aeson decoding error instead. `emit` broadcasts an event, and `emitTo` sends it to a target label. Neither waits.
+`listen name` returns an emitter for `H.subscribe`. Each subscription creates its own listener, which is removed when you unsubscribe or the component is disposed. Invalid payloads are logged to the console and skipped; use `listenEither` to receive the aeson decoding error instead. `emit` broadcasts an event, and `emitTo` sends it to a target label. Neither waits, so call them in `H.sync`.
 
 `Halogen.Tauri.Window` provides events for the current window: `closeRequested`, `focused`, `blurred`, `resized`, `moved` and `themeChanged`. While a `closeRequested` listener exists, Tauri keeps the window open until your program calls `destroy`. This matches Tauri's `onCloseRequested` behaviour and requires `core:window:allow-destroy` in the window's capabilities.
 

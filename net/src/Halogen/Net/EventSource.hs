@@ -15,16 +15,16 @@
 -- >
 -- > handleAction = \case
 -- >   Initialize ->
--- >     H.liftEffect (SSE.open "/api/updates" False ["price"]) >>= \case
+-- >     H.sync (SSE.open "/api/updates" False ["price"]) >>= \case
 -- >       Left refused -> modify $ \st -> st {problem = Just refused}
 -- >       Right source -> do
 -- >         modify $ \st -> st {source = Just source}
 -- >         void $ H.subscribe (Heard <$> SSE.events source)
 -- >   Heard event -> modify $ \st -> st {prices = event.data_ : st.prices}
--- >   Finalize -> gets (.source) >>= traverse_ (H.liftEffect . SSE.close)
+-- >   Finalize -> gets (.source) >>= traverse_ (H.sync . SSE.close)
 --
 -- As with a socket, nothing here waits: 'open' starts the request and
--- returns, and belongs in @H.liftEffect@, and the events arrive through the
+-- returns, and belongs in @H.sync@, and the events arrive through the
 -- emitters, 'opened', 'events' and 'errors', for @H.subscribe@. Each emitter
 -- keeps what arrives before its first subscriber and hands it to that
 -- subscriber, so a component that subscribes in a later action, or is handed
@@ -133,6 +133,7 @@ data ReadyState
 -- else that goes wrong, a server that does not answer or answers with an
 -- error status or with something that is no event stream, is an event on
 -- 'errors' afterwards.
+-- Call it in @H.sync@.
 open :: (MonadIO m) => Text -> Bool -> [Text] -> m (Either JSError Source)
 open url withCredentials names = liftIO $ do
   openLog <- newBacklog
@@ -177,10 +178,12 @@ errors source = backlogEmitter source.errorLog
 -- | Close the source for good: the browser drops the connection, or stops
 -- trying to make one, and no more events arrive, not even on 'errors'.
 -- Closing a closed source does nothing.
+-- Call it in @H.sync@.
 close :: (MonadIO m) => Source -> m ()
 close source = liftIO $ js_close source.raw >> freeAll source.callbacks
 
 -- | Where the source is now. Natively, always 'Closed'.
+-- Call it in @H.sync@.
 readyState :: (MonadIO m) => Source -> m ReadyState
 readyState source
   | not inBrowser = pure Closed

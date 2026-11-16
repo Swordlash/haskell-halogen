@@ -12,7 +12,7 @@
 -- >
 -- > handleAction = \case
 -- >   Initialize ->
--- >     H.liftEffect (WS.open "wss://example.com/chat" []) >>= \case
+-- >     H.sync (WS.open "wss://example.com/chat" []) >>= \case
 -- >       Left refused -> modify $ \st -> st {problem = Just refused}
 -- >       Right socket -> do
 -- >         modify $ \st -> st {socket = Just socket}
@@ -20,15 +20,15 @@
 -- >         void $ H.subscribe (Ended <$> WS.closed socket)
 -- >   Received message -> modify $ \st -> st {heard = st.heard <> [message]}
 -- >   Ended _ -> modify $ \st -> st {socket = Nothing}
--- >   Say line -> gets (.socket) >>= traverse_ (\s -> H.liftEffect (WS.send s (WS.TextMessage line)))
--- >   Finalize -> gets (.socket) >>= traverse_ (H.liftEffect . WS.close')
+-- >   Say line -> gets (.socket) >>= traverse_ (\s -> H.sync (WS.send s (WS.TextMessage line)))
+-- >   Finalize -> gets (.socket) >>= traverse_ (H.sync . WS.close')
 --
 -- = Nothing here waits
 --
 -- 'open' starts connecting and returns at once, with the 'Socket'; 'send'
 -- hands the browser a message and returns; 'close' starts the closing
 -- handshake and returns. All of it is synchronous, so it belongs in
--- @H.liftEffect@, and none of it in @lift@, which would only move it to a
+-- @H.sync@, and none of it in @H.async@, which would only move it to a
 -- worker for nothing. What a socket does afterwards arrives through its
 -- emitters, 'opened', 'messages', 'errors' and 'closed', which are for
 -- @H.subscribe@: the waiting is the emitter's, and a component waits for a
@@ -172,7 +172,7 @@ data ReadyState
 -- @https:@, which the browser takes to mean the same; relative to the page
 -- if it is no absolute address), asking for the subprotocols given, in the
 -- order of preference, if any; and return at once, without waiting for the
--- connection. It can run in @H.liftEffect@, and should: there is nothing to
+-- connection. It can run in @H.sync@, and should: there is nothing to
 -- wait for. Subscribe to 'opened' to hear that the socket is open.
 --
 -- What the browser refuses before it tries to connect is a 'Left', with
@@ -235,6 +235,7 @@ closed socket = backlogEmitter socket.closeLog
 -- socket that is closing or closed the browser takes the message and drops
 -- it, without a word, so a 'Right' says that the browser has the message,
 -- not that it has gone.
+-- Call it in @H.sync@.
 send :: (MonadIO m) => Socket -> Message -> m (Either JSError ())
 send socket message = liftIO $ do
   outcome <- case message of
@@ -250,15 +251,18 @@ send socket message = liftIO $ do
 -- Closing a socket that is still connecting gives up on the connection,
 -- which the browser reports as a failure: an 'errors' event, and a 'Close'
 -- with code 1006. Closing a socket that is closing or closed does nothing.
+-- Call it in @H.sync@.
 close :: (MonadIO m) => Socket -> Int -> Text -> m (Either JSError ())
 close socket code reason = liftIO $ maybe (Right ()) Left <$> (refusal =<< js_close socket.raw code (toJSText reason))
 
 -- | Start closing the socket with no code and no reason, which the browser
 -- never refuses; the server, and 'closed', then see code 1005.
+-- Call it in @H.sync@.
 close' :: (MonadIO m) => Socket -> m ()
 close' socket = liftIO $ js_close_plain socket.raw
 
 -- | Where the socket is now. Natively, always 'Closed'.
+-- Call it in @H.sync@.
 readyState :: (MonadIO m) => Socket -> m ReadyState
 readyState socket
   | not inBrowser = pure Closed
@@ -272,5 +276,6 @@ readyState socket
 
 -- | The subprotocol the server chose from those 'open' asked for: empty
 -- until the socket is open, and if the server chose none.
+-- Call it in @H.sync@.
 protocol :: (MonadIO m) => Socket -> m Text
 protocol socket = liftIO $ fromJSText <$> js_protocol socket.raw

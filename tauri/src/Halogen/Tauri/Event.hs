@@ -68,7 +68,7 @@ listenEither = listenTo Anywhere
 
 -- | Emit the event, with the payload, to every listener: those of every
 -- window, this one's included, and the Rust side's. It waits for nothing,
--- so it can run anywhere, @H.liftEffect@ included; an emit Tauri refuses
+-- so it can run anywhere, @H.sync@ included; an emit Tauri refuses
 -- (an event name with characters it does not allow, say, or one the
 -- window's capabilities do not allow) is reported to the console.
 emit :: (MonadIO m, ToJSON a) => Text -> a -> m ()
@@ -77,5 +77,6 @@ emit name payload = liftIO (emitText Nothing name (encodeJSON payload))
 -- | Emit the event to the listeners of one target only, named by its label
 -- (a window's, a webview's), as 'emit' does otherwise. Listeners that hear
 -- the event anywhere ('listen' among them) hear it too, as Tauri has it.
+-- Call it in @H.sync@.
 emitTo :: (MonadIO m, ToJSON a) => Text -> Text -> a -> m ()
 emitTo target name payload = liftIO (emitText (Just target) name (encodeJSON payload))

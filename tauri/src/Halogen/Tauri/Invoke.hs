@@ -41,11 +41,11 @@
 --
 -- = Waiting
 --
--- 'invoke' waits for the command's result, so it belongs in a component's
--- @lift@ (or @liftIO@), which waits on a worker thread while the rest of the
--- tree goes on, and never in @H.liftEffect@, which must not wait. A command
+-- 'invoke' waits for the command's result, so call it in a component's
+-- @H.async@, which waits on a worker thread while the rest of the tree goes
+-- on. Never call it in @H.sync@, which must not wait. A command
 -- that must be sent at once, inside the dispatch of the event that asked
--- for it, is sent with 'start' in @H.liftEffect@, which gives an
+-- for it, is sent with 'start' in @H.sync@, which gives an
 -- 'Invocation' to wait for with 'result' later.
 --
 -- Killing the thread that waits (as a component's worker is killed when
@@ -91,14 +91,14 @@ import Halogen.Tauri.Internal
 -- nothing outside Tauri, where nothing was sent.
 newtype Invocation = Invocation (Maybe (Promise JSVal))
 
--- | Call the command and wait for its result, decoded. Call it from
--- @lift@; see /Waiting/ above for what killing the wait does.
+-- | Call the command and wait for its result, decoded. It waits: call it in
+-- @H.async@. See /Waiting/ above for what killing the wait does.
 invoke :: (MonadIO m, ToJSON args, FromJSON a) => Text -> args -> m (Either TauriError a)
 invoke command args = start command args >>= result
 
 -- | Call a command whose result does not matter, such as one that returns
 -- nothing, and wait until it has succeeded or failed. Whatever it returns
--- is dropped, of whatever type it is.
+-- is dropped, of whatever type it is. It waits: call it in @H.async@.
 invoke_ :: forall m args. (MonadIO m, ToJSON args) => Text -> args -> m (Either TauriError ())
 invoke_ command args = fmap (const ()) <$> (invoke command args :: m (Either TauriError Value))
 
@@ -112,7 +112,7 @@ encodeArgs :: (ToJSON args) => args -> Text
 encodeArgs = encodeJSON
 
 -- | Send the command, and wait for nothing: by the time this returns, it is
--- on its way to Tauri. It is synchronous, so it can run in @H.liftEffect@; wait
+-- on its way to Tauri. It is synchronous, so it can run in @H.sync@; wait
 -- for its result with 'result'.
 start :: (MonadIO m, ToJSON args) => Text -> args -> m Invocation
 start command args = liftIO $ do
@@ -123,7 +123,7 @@ start command args = liftIO $ do
 
 -- | Wait for the result of a command 'start' sent, as 'invoke' does. Any
 -- number of waits for the same 'Invocation' each get its result, each
--- decoding it as the type it asks for.
+-- decoding it as the type it asks for. It waits: call it in @H.async@.
 result :: (MonadIO m, FromJSON a) => Invocation -> m (Either TauriError a)
 result (Invocation Nothing) = pure (Left NotInTauri)
 result (Invocation (Just promise)) = liftIO (settled promise)

@@ -24,7 +24,7 @@ An asynchronous browser operation returns `IO (Promise a)` from `Halogen.JSBits.
 
 `Promise` provides an API similar to `async`'s `Async`: `wait`, `waitCatch`, `poll`, STM variants, `waitAny`, `waitEither`, `waitBoth`, `waitAll`, `mapConcurrently`, `concurrently` and `race`. `wait` throws a `JSError` on rejection; `waitCatch` returns `Either JSError a`. Successful results are decoded with `FromJS`.
 
-A component can start an operation during event dispatch with `H.liftEffect` and wait later through `lift`. Interrupting a waiter does not cancel the operation. If the browser API supports `AbortSignal`, expose it in your binding so callers can cancel explicitly. On native GHC, promises are rejected with `JSError "NotInBrowserError" _`.
+A component can start an operation during event dispatch with `H.sync` and wait later in `H.async`. Interrupting a waiter does not cancel the operation. If the browser API supports `AbortSignal`, expose it in your binding so callers can cancel explicitly. On native GHC, promises are rejected with `JSError "NotInBrowserError" _`.
 
 ```haskell
 $(browserJS ["jsbits/net.js"]

@@ -2,7 +2,7 @@
 
 Run expensive Haskell functions in Web Workers so the browser can keep drawing and handling input while a worker computes the result.
 
-`forkIO` and a component's `liftIO` let other Haskell threads run, but those threads still share the page's JavaScript thread. A long calculation can therefore freeze the UI. A Web Worker runs on a separate browser thread with its own Haskell heap.
+`forkIO` and a component's `H.async` let other Haskell threads run, but those threads still share the page's JavaScript thread. A long calculation can therefore freeze the UI. A Web Worker runs on a separate browser thread with its own Haskell heap.
 
 ## Define a job and run it
 
@@ -41,16 +41,16 @@ A component can now run the job and use its result:
 
 ```haskell
 handleAction Count = do
-  n <- liftIO (Worker.run pool primes 2000000)
+  n <- H.async (liftIO (Worker.run pool primes 2000000))
   modify (\st -> st {primes = Just n})
 ```
 
-Pass the job's arguments after the job, in order: `Worker.run pool primesBetween 0 1000000`. `run` and `start` return in `IO`, so call them through `liftIO` in a component.
+Pass the job's arguments after the job, in order: `Worker.run pool primesBetween 0 1000000`. `run` and `start` return in `IO`. `run` waits, so call it in `H.async` in a component. `start` does not wait, so it can also go in `H.sync`.
 
 `run` submits a job and waits for its result. `start` submits a job and immediately returns a `Halogen.JSBits.Promise`. This lets you submit several jobs before waiting, so the pool can run them in parallel. Use the functions from `Halogen.JSBits.Promise` to wait for their results:
 
 ```haskell
-counts <- liftIO (mapConcurrently (uncurry (Worker.start pool primesBetween)) parts)
+counts <- H.async (liftIO (mapConcurrently (uncurry (Worker.start pool primesBetween)) parts))
 ```
 
 `mapConcurrently` returns results in the same order as `parts`, regardless of which worker finishes first. By contrast, two consecutive `run` calls in a `do` block run sequentially: the second is submitted only after the first returns.
@@ -133,10 +133,10 @@ The fallback lets you use the API in these environments, but it does not move co
 Keep the promise returned by `start` if you want to stop the job later:
 
 ```haskell
-p <- liftIO (Worker.start pool primesSlowly 6000000)
+p <- H.sync (liftIO (Worker.start pool primesSlowly 6000000))
 -- Later, from another action:
-Worker.cancel pool p   -- Stop the job at its next checkpoint.
-Worker.kill pool p     -- Terminate the job's worker immediately.
+H.sync (Worker.cancel pool p)   -- Stop the job at its next checkpoint.
+H.sync (Worker.kill pool p)     -- Terminate the job's worker immediately.
 ```
 
 `cancel pool promise` rejects the promise immediately and sends a cancellation request to the worker. If the job has not started, the worker skips it. If it is already running, its next call to `checkpoint` throws `Cancelled`. The worker can then process its next job.
@@ -161,10 +161,10 @@ Use `Par` when a computation needs to call many jobs. It collects independent ca
 import Halogen.Worker.Par (runPar, task)
 
 -- Run a job for each list element and return results in the same order.
-counts <- liftIO (runPar pool (traverse (uncurry (task primesBetween)) parts))
+counts <- H.async (liftIO (runPar pool (traverse (uncurry (task primesBetween)) parts)))
 
 -- Run a and b together, then use their results to run c.
-(a, b, c) <- liftIO $ runPar pool $ do
+(a, b, c) <- H.async $ liftIO $ runPar pool $ do
   a <- task primes 1000000
   b <- task primes 2000000
   c <- task primes (a + b)

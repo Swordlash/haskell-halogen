@@ -9,16 +9,16 @@ description:
   aborted) is a value rather than an exception, and an HTTP error status a
   response like any other, as in the browser.
   .
-  @fetch@ waits, for a component's @lift@, and aborts its request when the
+  @fetch@ waits, for a component's @H.async@, and aborts its request when the
   thread waiting is killed, as a component's worker is when the component
-  goes away. @start@ starts a request without waiting, for @H.liftEffect@,
+  goes away. @start@ starts a request without waiting, for @H.sync@,
   and gives a handle to wait for, or abort, later. Natively there is no
   engine to make a request, and every request fails with
   @NotInBrowserError@.
   .
   "Halogen.Net.WebSocket" and "Halogen.Net.EventSource" bind the browser's
   @WebSocket@ and @EventSource@ (server-sent events). Opening one waits for
-  nothing, for @H.liftEffect@; what the connection does afterwards (its
+  nothing, for @H.sync@; what the connection does afterwards (its
   opening, its messages or events, its errors, its closing) arrives through
   "Halogen.Subscription" emitters, for @H.subscribe@, which keep what
   arrives before their first subscriber. Natively they never connect.

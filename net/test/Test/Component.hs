@@ -1,5 +1,5 @@
 -- | Requests a component makes: one started in an effect and waited for in
--- @lift@, one aborted from another action, and one that goes with its
+-- @H.async@, one aborted from another action, and one that goes with its
 -- component.
 module Test.Component (spec) where
 
@@ -20,7 +20,7 @@ import Test.Network (aborted, fixtureText, release, started)
 
 spec :: forall m -> (MonadBrowserTest m) => Spec
 spec m = do
-  it "starts a request in the click's dispatch, waits for it in lift, and renders meanwhile" $ runPage $ do
+  it "starts a request in the click's dispatch, waits for it in H.async, and renders meanwhile" $ runPage $ do
     ui <- mount m (loader :: H.Component H.VoidF Text Void m) "held/pattern/fixture.txt"
     find ui ".start" >>= click
     -- The request was made in the click's own handling, before it settled.
@@ -35,7 +35,7 @@ spec m = do
     ticks `shouldHaveText` "2"
     textContent result `shouldReturn` "loading"
     unsafeIOToPageM (release "pattern")
-    -- The response, and its body, are what the fiber waiting in lift was
+    -- The response, and its body, are what the fiber waiting in H.async was
     -- waiting for: once the program is quiet they have come and been
     -- rendered.
     waitQuiet
@@ -48,7 +48,7 @@ spec m = do
     find ui ".result" >>= (`shouldHaveText` "AbortError")
     unsafeIOToPageM (aborted "kept-in-state") `shouldReturn` True
 
-  it "aborts the request of a fetch in lift when the component goes away" $ runPage $ do
+  it "aborts the request of a fetch in H.async when the component goes away" $ runPage $ do
     ui <- mount m (loader :: H.Component H.VoidF Text Void m) "held/unmounted/fixture.txt"
     find ui ".load" >>= click
     find ui ".result" >>= (`shouldHaveText` "loading")
@@ -66,8 +66,8 @@ data State = State
 data Action = Start | Load | Abort | Tick
 
 -- | A component that loads the text at an address: with @start@ in an
--- effect and @response@ in @lift@, keeping the request to abort it, or with
--- @fetch@ in @lift@.
+-- effect and @response@ in @H.async@, keeping the request to abort it, or
+-- with @fetch@ in @H.async@.
 loader :: forall q o m. (MonadIO m) => H.Component q Text o m
 loader =
   H.component
@@ -93,15 +93,15 @@ loader =
       Start -> do
         address <- gets (.address)
         -- At once, inside the click's dispatch; nothing waits.
-        started' <- H.liftEffect (start (request GET address))
+        started' <- H.sync (start (request GET address))
         modify $ \st -> st {pending = Just started', result = "loading"}
         -- On a worker, while the tree goes on.
-        shown =<< (response started' >>= either (pure . Left) text)
+        shown =<< H.async (response started' >>= either (pure . Left) text)
       Load -> do
         address <- gets (.address)
         modify $ \st -> st {result = "loading"}
-        shown =<< (fetch (request GET address) >>= either (pure . Left) text)
-      Abort -> gets (.pending) >>= traverse_ (H.liftEffect . abort)
+        shown =<< H.async (fetch (request GET address) >>= either (pure . Left) text)
+      Abort -> gets (.pending) >>= traverse_ (H.sync . abort)
       Tick -> modify $ \st -> st {ticks = st.ticks + 1}
 
     shown outcome = modify $ \st -> st {result = either (.name) id outcome}

@@ -107,7 +107,7 @@ themeChanged = windowEvent "tauri://theme-changed" id
 -- | Close the current window at once, without emitting
 -- @tauri:\/\/close-requested@ again, and wait until Tauri has done it: what
 -- a program that listens to 'closeRequested' does once the window may
--- close. It waits, so it belongs in @lift@. Outside Tauri it gives
+-- close. It waits: call it in @H.async@. Outside Tauri it gives
 -- 'NotInTauri'.
 destroy :: (MonadIO m) => m (Either TauriError ())
 destroy = liftIO destroyCurrent

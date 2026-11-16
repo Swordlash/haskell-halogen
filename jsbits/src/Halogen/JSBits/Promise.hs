@@ -24,12 +24,12 @@
 -- and one rejected before anyone waits for it is not an unhandled rejection
 -- (which a browser logs and Node ends its process for).
 --
--- A component can start work in @H.liftEffect@, inside the dispatch of the
+-- A component can start work in @H.sync@, inside the dispatch of the
 -- event that asked for it, keep the 'Promise' in its state, then 'wait' for
--- it in @lift@ (on a worker, while the rest of the tree goes on), or never.
+-- it in @H.async@ (on a worker, while the rest of the tree goes on), or never.
 -- Waiting puts the calling thread to sleep, and the runtime goes on with the
 -- rest of the program and gives the page back to the browser meanwhile; so a
--- wait belongs where a thread may wait, not in @H.liftEffect@.
+-- wait belongs where a thread may wait, not in @H.sync@.
 --
 -- Unlike an @Async@, a promise cannot be cancelled: there is no @cancel@,
 -- and 'race' leaves the loser to finish. Killing the thread that waits stops
@@ -215,14 +215,17 @@ promise raw
 
 -- | Wait for the promise to settle and give what it resolved with, or throw
 -- what it was rejected with.
+-- It waits: call it in @H.async@.
 wait :: (MonadIO m) => Promise a -> m a
 wait = liftIO . atomically . waitSTM
 
 -- | Wait for the promise to settle and give its outcome; never throws.
+-- It waits: call it in @H.async@.
 waitCatch :: (MonadIO m) => Promise a -> m (Either JSError a)
 waitCatch = liftIO . atomically . waitCatchSTM
 
 -- | The outcome, if the promise has settled; without waiting.
+-- Call it in @H.sync@.
 poll :: (MonadIO m) => Promise a -> m (Maybe (Either JSError a))
 poll = liftIO . atomically . pollSTM
 
@@ -238,14 +241,17 @@ pollSTM p = (Just <$> p.settled) `orElse` pure Nothing
 -- | Wait for whichever promise settles first, and give it with what it
 -- resolved with, or throw what it was rejected with. With no promises it
 -- waits for ever.
+-- It waits: call it in @H.async@.
 waitAny :: (MonadIO m) => [Promise a] -> m (Promise a, a)
 waitAny ps = liftIO . atomically $ foldr (\p rest -> ((p,) <$> waitSTM p) `orElse` rest) retry ps
 
 -- | 'waitAny', giving the outcome rather than throwing.
+-- It waits: call it in @H.async@.
 waitAnyCatch :: (MonadIO m) => [Promise a] -> m (Promise a, Either JSError a)
 waitAnyCatch ps = liftIO . atomically $ foldr (\p rest -> ((p,) <$> waitCatchSTM p) `orElse` rest) retry ps
 
 -- | Wait for whichever of the two settles first.
+-- It waits: call it in @H.async@.
 waitEither :: (MonadIO m) => Promise a -> Promise b -> m (Either a b)
 waitEither a b = liftIO . atomically $ (Left <$> waitSTM a) `orElse` (Right <$> waitSTM b)
 
@@ -254,6 +260,7 @@ waitEitherCatch a b = liftIO . atomically $ (Left <$> waitCatchSTM a) `orElse` (
 
 -- | Wait for both, or throw the first rejection as soon as it comes, even
 -- while the other is still pending.
+-- It waits: call it in @H.async@.
 waitBoth :: (MonadIO m) => Promise a -> Promise b -> m (a, b)
 waitBoth a b = liftIO . atomically $ do
   x <- waitSTM a `orElse` (waitSTM b >> retry)
@@ -262,6 +269,7 @@ waitBoth a b = liftIO . atomically $ do
 
 -- | Wait for every promise and give what each resolved with, in order, or
 -- throw a rejection as soon as one comes.
+-- It waits: call it in @H.async@.
 waitAll :: (MonadIO m) => [Promise a] -> m [a]
 waitAll = liftIO . atomically . waitAllSTM
 
@@ -277,6 +285,8 @@ waitAllSTM ps = do
 -- 'waitAll' does: the results in order, or the first rejection.
 --
 -- > pages <- mapConcurrently (fetchText . pageUrl) ids
+--
+-- It waits: call it in @H.async@.
 mapConcurrently :: (MonadIO m, Traversable t) => (a -> m (Promise b)) -> t a -> m (t b)
 mapConcurrently f xs = do
   ps <- traverse f xs
@@ -294,6 +304,7 @@ forConcurrently_ :: (MonadIO m, Foldable f) => f a -> (a -> m (Promise b)) -> m 
 forConcurrently_ = flip mapConcurrently_
 
 -- | Start both, and wait for both ('waitBoth').
+-- It waits: call it in @H.async@.
 concurrently :: (MonadIO m) => m (Promise a) -> m (Promise b) -> m (a, b)
 concurrently a b = do
   pa <- a
@@ -303,6 +314,7 @@ concurrently a b = do
 -- | Start both, and give the result of whichever settles first
 -- ('waitEither'). The other is not cancelled, since a promise cannot be: its
 -- work goes on to the end, its outcome unread.
+-- It waits: call it in @H.async@.
 race :: (MonadIO m) => m (Promise a) -> m (Promise b) -> m (Either a b)
 race a b = do
   pa <- a

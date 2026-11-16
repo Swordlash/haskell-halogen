@@ -76,7 +76,7 @@ chat =
     handleAction = \case
       Initialize -> do
         name <- gets (.name)
-        H.liftEffect (WS.open ("ws://double/" <> name) []) >>= \case
+        H.sync (WS.open ("ws://double/" <> name) []) >>= \case
           Left refused -> heard refused.name
           Right socket -> do
             modify $ \st -> st {socket = Just socket}
@@ -87,7 +87,7 @@ chat =
       Received (WS.TextMessage line) -> heard line
       Received (WS.BinaryMessage bytes) -> heard (Text.pack (show (BS.length bytes)) <> " bytes")
       Ended c -> heard ("closed " <> Text.pack (show c.code))
-      Say -> gets (.socket) >>= traverse_ (\s -> void (H.liftEffect (WS.send s (WS.TextMessage "hi"))))
-      Finalize -> gets (.socket) >>= traverse_ (H.liftEffect . WS.close')
+      Say -> gets (.socket) >>= traverse_ (\s -> void (H.sync (WS.send s (WS.TextMessage "hi"))))
+      Finalize -> gets (.socket) >>= traverse_ (H.sync . WS.close')
 
     heard line = modify $ \st -> st {heard = st.heard <> [line]}

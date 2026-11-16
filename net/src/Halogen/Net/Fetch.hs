@@ -15,15 +15,15 @@
 --
 -- 'fetch' starts the request and waits for its response, that is for its
 -- status and headers; the body is read afterwards, with 'text' or 'bytes',
--- which wait for the rest. Waiting is why these belong in a component's
--- @lift@ (or @liftIO@), which waits on a worker thread while the rest of the
--- tree goes on, and never in @H.liftEffect@, which must not wait.
+-- which wait for the rest. They wait, so call them in a component's
+-- @H.async@, which waits on a worker thread while the rest of the tree goes
+-- on. Never call them in @H.sync@, which must not wait.
 --
 -- Some requests have to start at once, inside the dispatch of the event that
 -- asked for them, or are to be kept so that another action can abort them.
--- 'start' waits for nothing, so it can run in @H.liftEffect@: it gives a
+-- 'start' waits for nothing, so it can run in @H.sync@: it gives a
 -- 'Fetch', a handle for the component to keep in its state, and 'response'
--- waits for it later, in @lift@, as 'fetch' would have.
+-- waits for it later, in @H.async@, as 'fetch' would have.
 --
 -- = What fails
 --
@@ -238,14 +238,14 @@ $( browserJS
  )
 
 -- | Make the request and wait for its response: its status and headers, not
--- its body. Call it from @lift@. Killing the thread that waits aborts the
--- request (see /Cancellation/ above).
+-- its body. It waits: call it in @H.async@. Killing the thread that waits
+-- aborts the request (see /Cancellation/ above).
 fetch :: (MonadIO m) => Request -> m (Either JSError Response)
 fetch r = liftIO $ bracketOnError (start r) abort (\started -> waitFor (Just started) started)
 
 -- | Start the request, and wait for nothing: by the time this returns, the
 -- browser has the request. It is synchronous, so it can run in
--- @H.liftEffect@, inside the dispatch of the event that asked for it; wait
+-- @H.sync@, inside the dispatch of the event that asked for it; wait
 -- for the response with 'response'.
 start :: (MonadIO m) => Request -> m Fetch
 start r = liftIO $ do
@@ -260,24 +260,24 @@ start r = liftIO $ do
 -- | Wait for the response of a request 'start' started, as 'fetch' does. Any
 -- number of waits for the same 'Fetch' each get its response, but there is
 -- one body between them. Killing the thread that waits stops the wait and
--- nothing else; 'abort' aborts the request.
+-- nothing else; 'abort' aborts the request. It waits: call it in @H.async@.
 response :: (MonadIO m) => Fetch -> m (Either JSError Response)
 response started = liftIO (waitFor Nothing started)
 
 -- | Abort the request: a wait for its response, or for its body if the
 -- response has arrived, then gives @'JSError' "AbortError" _@. Once the body
--- has been read it does nothing, as it does natively.
+-- has been read it does nothing, as it does natively. Call it in @H.sync@.
 abort :: (MonadIO m) => Fetch -> m ()
 abort started = liftIO (js_abort started.handle)
 
 -- | Read the body as text, decoded as UTF-8 (as the browser decodes it,
 -- whatever the response's @content-type@ says), waiting for all of it.
--- A body can be read once: see 'Response'.
+-- A body can be read once: see 'Response'. It waits: call it in @H.async@.
 text :: (MonadIO m) => Response -> m (Either JSError Text)
 text r = liftIO $ fmap jsValText <$> reading r (js_text r.raw)
 
 -- | Read the body as bytes, waiting for all of it. A body can be read once:
--- see 'Response'.
+-- see 'Response'. It waits: call it in @H.async@.
 bytes :: (MonadIO m) => Response -> m (Either JSError ByteString)
 bytes r = liftIO $ traverse fromJSBytes =<< reading r (js_bytes r.raw)
 

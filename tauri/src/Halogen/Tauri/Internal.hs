@@ -84,6 +84,7 @@ $( browserJS
 --
 -- It is asked afresh each time, and costs a property lookup or two, so a
 -- program can ask it wherever it needs to rather than keep the answer.
+-- Call it in @H.sync@.
 isTauri :: (MonadIO m) => m Bool
 isTauri = liftIO js_is_tauri
 
