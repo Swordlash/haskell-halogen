@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+`Halogen.Machine` runs a component whose logic is a pure step: an event and
+the model give a new model and a list of effects. You say how each effect is
+carried out. `M.Now` runs in place and is written against `Halogen.Sync`, so
+it cannot suspend. `M.Ask` starts work whose answer comes back later as an
+event; a failure is an answer too. `M.AskUnder` puts an ask under a key, and
+`M.Cancel` stops every ask under it. `M.happen` steps the model and carries
+out the step's effects, with no other event of the machine in between. An
+event that an effect brings, such as a focus handler's, is stepped after
+the step's effects. In a finalizer, use `M.finish`. The module's header has a
+complete example. It is optional: a view with one ask is simpler as a plain
+handler.
+
 `HalogenM`'s `MonadTrans`, `MonadIO` and `MonadUnliftIO` instances are now
 deprecated. `lift`, `liftIO` and `withRunInIO` still work, and each still
 suspends the program. But each use now warns, and the warning names what to
