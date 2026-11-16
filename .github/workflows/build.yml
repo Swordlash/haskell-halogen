@@ -279,14 +279,15 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-ghcjs-build-${{ env.GHCJS_VERSION }}-
 
-    # Room for core's compile. On this backend the compiler keeps some 390 MB
-    # for every module of a package that has a splice, and core has about
-    # forty: a build that compiles core takes the compiler to 14 GB of the
+    # Room for core's compile. On this backend the compiler keeps about
+    # 110 MiB for every top-level splice of a package, until the package
+    # ends. Core had about 105 splices, which took the compiler to 14 GB of the
     # runner's 16, with the rest of the build beside it, and what swap the
     # runner comes with has not always been enough (the job then stops
-    # answering and uploads no log). A run that does not compile core stays
-    # under 10 GB and uses none of this. The file goes on the runner's
-    # temporary disk where there is one.
+    # answering and uploads no log). Core now runs one splice per module,
+    # about forty in all (cabal-ghcjs.project). A run that does not compile
+    # core stays under 10 GB and uses none of this. The file goes on the
+    # runner's temporary disk where there is one.
     - name: Add swap
       run: |
         swapon --show

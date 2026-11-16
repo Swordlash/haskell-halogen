@@ -20,7 +20,7 @@ where
 import Data.Foreign (Foreign, foreignToBool, foreignToInt, foreignToNumber, readProp)
 import HPrelude
 import Halogen.JSBits (Inert)
-import Halogen.JSBits.Fields (Member (..), jsCast, jsFieldFunctions, jsFields)
+import Halogen.JSBits.Fields (Member (..), declarations, jsCast, jsFieldFunctions, jsFields)
 import Web.Event.Internal.Types
 
 newtype MouseEvent = MouseEvent Event
@@ -35,28 +35,28 @@ toEvent (MouseEvent e) = e
 nativeProperty :: Text -> (Foreign Event -> a) -> a -> MouseEvent -> a
 nativeProperty name readValue none (MouseEvent (Event value)) = fromMaybe none (readProp name (Just . readValue) value)
 
--- Pure, because where and how an event happened is fixed when it is made.
-$( jsFields
-     ''MouseEvent
-     [ -- Where the pointer was, in CSS pixels from the left edge of the
-       -- viewport (not the page: scrolling does not change it). A 'Double',
-       -- as the standard has it, though a browser may round it to whole
-       -- pixels.
-       Natively [|nativeProperty "clientX" foreignToNumber 0|] (Fixed "clientX" ''Double)
-     , -- Where the pointer was, in CSS pixels from the top edge of the
-       -- viewport.
-       Natively [|nativeProperty "clientY" foreignToNumber 0|] (Fixed "clientY" ''Double)
-     , -- Which button changed: 0 the main one (usually the left), 1 the
-       -- middle, 2 the secondary.
-       Natively [|nativeProperty "button" foreignToInt 0|] (Fixed "button" ''Int)
-     , -- Whether each modifier was held.
-       Natively [|nativeProperty "altKey" foreignToBool False|] (Fixed "altKey" ''Bool)
-     , Natively [|nativeProperty "ctrlKey" foreignToBool False|] (Fixed "ctrlKey" ''Bool)
-     , Natively [|nativeProperty "metaKey" foreignToBool False|] (Fixed "metaKey" ''Bool)
-     , Natively [|nativeProperty "shiftKey" foreignToBool False|] (Fixed "shiftKey" ''Bool)
+$( declarations
+     [ -- Pure, because where and how an event happened is fixed when it is made.
+       jsFields
+         ''MouseEvent
+         [ -- Where the pointer was, in CSS pixels from the left edge of the
+           -- viewport (not the page: scrolling does not change it). A 'Double',
+           -- as the standard has it, though a browser may round it to whole
+           -- pixels.
+           Natively [|nativeProperty "clientX" foreignToNumber 0|] (Fixed "clientX" ''Double)
+         , -- Where the pointer was, in CSS pixels from the top edge of the
+           -- viewport.
+           Natively [|nativeProperty "clientY" foreignToNumber 0|] (Fixed "clientY" ''Double)
+         , -- Which button changed: 0 the main one (usually the left), 1 the
+           -- middle, 2 the secondary.
+           Natively [|nativeProperty "button" foreignToInt 0|] (Fixed "button" ''Int)
+         , -- Whether each modifier was held.
+           Natively [|nativeProperty "altKey" foreignToBool False|] (Fixed "altKey" ''Bool)
+         , Natively [|nativeProperty "ctrlKey" foreignToBool False|] (Fixed "ctrlKey" ''Bool)
+         , Natively [|nativeProperty "metaKey" foreignToBool False|] (Fixed "metaKey" ''Bool)
+         , Natively [|nativeProperty "shiftKey" foreignToBool False|] (Fixed "shiftKey" ''Bool)
+         ]
+     , jsFieldFunctions ''MouseEvent []
+     , jsCast "fromEvent" ''Event ''MouseEvent
      ]
  )
-
-$(jsFieldFunctions ''MouseEvent [])
-
-$(jsCast "fromEvent" ''Event ''MouseEvent)

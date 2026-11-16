@@ -23,10 +23,15 @@ import Data.Aeson qualified as Aeson
 import Data.Foreign (toForeign)
 import HPrelude
 import Halogen.JSBits (inBrowser, nativeCall)
-import Halogen.JSBits.Fields (inlineJS, jsCast, jsFieldFunctions)
+import Halogen.JSBits.Fields (declarations, inlineJS, jsCast, jsFieldFunctions)
 import Web.DOM.Internal.Types (Element (..), HTMLElement (..))
 
-$(inlineJS "js_focus_without_scrolling" "$1.focus({ preventScroll: true })" [t|HTMLElement -> IO ()|])
+$( declarations
+     [ inlineJS "js_focus_without_scrolling" "$1.focus({ preventScroll: true })" [t|HTMLElement -> IO ()|]
+     , jsFieldFunctions ''HTMLElement []
+     , jsCast "fromElement" ''Element ''HTMLElement
+     ]
+ )
 
 -- | Give the element the focus, as 'focus' does, without scrolling it into
 -- view: for a control the page shows where it is, such as the text of an
@@ -43,7 +48,3 @@ focusWithoutScrolling element
 -- | Every HTML element is an 'Element'.
 toElement :: HTMLElement -> Element
 toElement = coerce
-
-$(jsFieldFunctions ''HTMLElement [])
-
-$(jsCast "fromElement" ''Element ''HTMLElement)

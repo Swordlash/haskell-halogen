@@ -17,7 +17,7 @@ where
 import Data.Foreign (Foreign, foreignToNumber, foreignToString, readProp)
 import HPrelude
 import Halogen.JSBits (Inert)
-import Halogen.JSBits.Fields (Member (..), jsFieldFunctions, jsFields)
+import Halogen.JSBits.Fields (Member (..), declarations, jsFieldFunctions, jsFields)
 import Halogen.JSBits.Promise (Promise (..))
 import Web.File.Blob (Blob (..))
 
@@ -42,24 +42,25 @@ nativeNumber name (File value) = fromMaybe 0 (readProp name (Just . foreignToNum
 toBlob :: File -> Blob
 toBlob = coerce
 
--- What a file says about itself does not change once the browser has made
--- it, so those fields are pure.
-$( jsFields
-     ''File
-     [ -- Its name, without a directory.
-       Natively [|nativeText "name"|] (Fixed "name" ''Text)
-     , -- Its media type, as the browser guessed it from the name, or
-       -- empty.
-       Natively [|nativeText "type"|] (Fixed "type" ''Text)
-     , -- How many bytes it holds.
-       Natively [|nativeNumber "size"|] (Fixed "size" ''Double)
-     , -- When it was last changed, in milliseconds since 1970.
-       Natively [|nativeNumber "lastModified"|] (Fixed "lastModified" ''Double)
-     , -- Its bytes read as UTF-8 text, once the promise resolves.
-       Method "text" [t|IO (Promise Text)|]
-     , -- Its bytes, copied out, once the promise resolves.
-       Method "bytes" [t|IO (Promise ByteString)|]
+$( declarations
+     [ -- What a file says about itself does not change once the browser has made
+       -- it, so those fields are pure.
+       jsFields
+         ''File
+         [ -- Its name, without a directory.
+           Natively [|nativeText "name"|] (Fixed "name" ''Text)
+         , -- Its media type, as the browser guessed it from the name, or
+           -- empty.
+           Natively [|nativeText "type"|] (Fixed "type" ''Text)
+         , -- How many bytes it holds.
+           Natively [|nativeNumber "size"|] (Fixed "size" ''Double)
+         , -- When it was last changed, in milliseconds since 1970.
+           Natively [|nativeNumber "lastModified"|] (Fixed "lastModified" ''Double)
+         , -- Its bytes read as UTF-8 text, once the promise resolves.
+           Method "text" [t|IO (Promise Text)|]
+         , -- Its bytes, copied out, once the promise resolves.
+           Method "bytes" [t|IO (Promise ByteString)|]
+         ]
+     , jsFieldFunctions ''File []
      ]
  )
-
-$(jsFieldFunctions ''File [])

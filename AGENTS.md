@@ -406,6 +406,8 @@ they block; on JS, `syncCallback1 ContinueAsync` gives the same behaviour.
 A plain property read or method call needs no `.js` file: `Halogen.JSBits.Fields.jsFields`
 writes a `HasField` instance per member with the JavaScript inline (core's `Web.*` types are
 written with it, the instances beside each newtype), and `jsFieldFunctions` the same as functions.
+A module runs all its generators in one splice, `$(declarations [...])` (`Halogen.JSBits`): the
+JavaScript backend's compiler keeps about 110 MiB per top-level splice until the package ends.
 Natively a field is `inert` unless the value answers for itself (`Halogen.JSBits.Value.withNativeObject`,
 a `NativeObject`): then every member but a Promise or bytes asks it first (`call` for a method returning `()`,
 `invoke` for one with a result, `set`, `get` for a `Fixed` member, `live` for a read, `instanceOf` for a

@@ -7,6 +7,7 @@
 module Halogen.JSBits
   ( browserJS
   , wasmJS
+  , declarations
   , Safety (..)
   , module Halogen.JSBits.Value
   )
@@ -14,7 +15,7 @@ where
 
 import Control.Monad (forM)
 import Data.List (intercalate)
-import Halogen.JSBits.Inline (importJS)
+import Halogen.JSBits.Inline (declarations, importJS)
 import Halogen.JSBits.Promise (Promise, promise)
 import Halogen.JSBits.Value
 import Language.Haskell.TH hiding (Safety (..))
@@ -73,8 +74,8 @@ wasmJS files bindings = do
         , PragmaD (InlineP api NoInline FunLike AllPhases)
         ]
       loaded e = InfixE (Just (VarE api)) (VarE 'seq) (Just e)
-  declarations <- forM bindings (binding ((namespace <> ".") <>) loaded)
-  pure (loader : cache <> concat declarations)
+  functions <- forM bindings (binding ((namespace <> ".") <>) loaded)
+  pure (loader : cache <> concat functions)
 
 -- The declarations of one binding: its imports and its function. @named@
 -- gives the expression that names the JavaScript function, @loaded@ wraps

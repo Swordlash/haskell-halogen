@@ -13,7 +13,7 @@ where
 
 import HPrelude
 import Halogen.JSBits (Inert)
-import Halogen.JSBits.Fields (Member (..), jsCast, jsFieldFunctions, jsFields)
+import Halogen.JSBits.Fields (Member (..), declarations, jsCast, jsFieldFunctions, jsFields)
 import Web.Event.Internal.Types
 
 newtype FocusEvent = FocusEvent Event
@@ -23,17 +23,17 @@ newtype FocusEvent = FocusEvent Event
 toEvent :: FocusEvent -> Event
 toEvent (FocusEvent e) = e
 
--- Pure, because what an event says about the change of focus is fixed when
--- it is made.
-$( jsFields
-     ''FocusEvent
-     [ -- The other end of the change of focus: where the focus goes, for
-       -- @blur@ and @focusout@, and where it comes from, for @focus@ and
-       -- @focusin@. 'Nothing' when that is outside the page, or nothing.
-       Fixed "relatedTarget" [t|Maybe EventTarget|]
+$( declarations
+     [ -- Pure, because what an event says about the change of focus is fixed when
+       -- it is made.
+       jsFields
+         ''FocusEvent
+         [ -- The other end of the change of focus: where the focus goes, for
+           -- @blur@ and @focusout@, and where it comes from, for @focus@ and
+           -- @focusin@. 'Nothing' when that is outside the page, or nothing.
+           Fixed "relatedTarget" [t|Maybe EventTarget|]
+         ]
+     , jsFieldFunctions ''FocusEvent []
+     , jsCast "fromEvent" ''Event ''FocusEvent
      ]
  )
-
-$(jsFieldFunctions ''FocusEvent [])
-
-$(jsCast "fromEvent" ''Event ''FocusEvent)

@@ -12,23 +12,24 @@ where
 import Data.Foreign (Foreign)
 import HPrelude
 import Halogen.JSBits (Inert)
-import Halogen.JSBits.Fields (Member (..), jsFieldFunctions, jsFields)
+import Halogen.JSBits.Fields (Member (..), declarations, jsFieldFunctions, jsFields)
 import Web.Clipboard (Clipboard (..))
 
 -- | A window's navigator: @w.navigator@ ("Web.HTML.Window").
 newtype Navigator = Navigator (Foreign Navigator)
   deriving newtype (Inert)
 
-$( jsFields
-     ''Navigator
-     [ -- Whether the browser thinks it is online. 'False' means certainly
-       -- offline; 'True' only that some network is there. The window's
-       -- @online@ and @offline@ events tell when it changes.
-       Live "onLine" ''Bool
-     , -- The system clipboard, which only a secure context (HTTPS, or a
-       -- page on localhost) has.
-       Fixed "clipboard" [t|Maybe Clipboard|]
+$( declarations
+     [ jsFields
+         ''Navigator
+         [ -- Whether the browser thinks it is online. 'False' means certainly
+           -- offline; 'True' only that some network is there. The window's
+           -- @online@ and @offline@ events tell when it changes.
+           Live "onLine" ''Bool
+         , -- The system clipboard, which only a secure context (HTTPS, or a
+           -- page on localhost) has.
+           Fixed "clipboard" [t|Maybe Clipboard|]
+         ]
+     , jsFieldFunctions ''Navigator []
      ]
  )
-
-$(jsFieldFunctions ''Navigator [])

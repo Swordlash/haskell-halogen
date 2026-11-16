@@ -12,7 +12,7 @@ where
 
 import HPrelude
 import Halogen.JSBits (Inert, JSVal)
-import Halogen.JSBits.Fields (Member (..), jsCast, jsFieldFunctions, jsFields)
+import Halogen.JSBits.Fields (Member (..), declarations, jsCast, jsFieldFunctions, jsFields)
 import Web.Event.Internal.Types (Event (..))
 
 newtype CustomEvent = CustomEvent Event
@@ -22,15 +22,15 @@ newtype CustomEvent = CustomEvent Event
 toEvent :: CustomEvent -> Event
 toEvent = coerce
 
-$( jsFields
-     ''CustomEvent
-     [ -- The value the event was made with (@new CustomEvent(type, {
-       -- detail })@), @null@ when it was made without one. Read it with
-       -- "Data.Foreign".
-       Fixed "detail" ''JSVal
+$( declarations
+     [ jsFields
+         ''CustomEvent
+         [ -- The value the event was made with (@new CustomEvent(type, {
+           -- detail })@), @null@ when it was made without one. Read it with
+           -- "Data.Foreign".
+           Fixed "detail" ''JSVal
+         ]
+     , jsFieldFunctions ''CustomEvent []
+     , jsCast "fromEvent" ''Event ''CustomEvent
      ]
  )
-
-$(jsFieldFunctions ''CustomEvent [])
-
-$(jsCast "fromEvent" ''Event ''CustomEvent)

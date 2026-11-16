@@ -53,26 +53,30 @@ import Data.Aeson qualified as Aeson
 import Data.Foreign (foreignToString, nativeInvokeNow, readProp, toForeign)
 import HPrelude
 import Halogen.JSBits (JSText, JSVal, inBrowser, isNull, jsValText, nativeCall, nativeInstanceOf, textValue, toJSText)
-import Halogen.JSBits.Fields (inlineJS, jsFieldFunctions)
+import Halogen.JSBits.Fields (declarations, inlineJS, jsFieldFunctions)
 import Web.DOM.Internal.Types (Element (..))
 import Web.Event.Internal.Types (EventTarget (..))
 
-$(jsFieldFunctions ''Element [])
-
--- Neither read throws: a selector that does not parse finds nothing, since
--- a SyntaxError out of a synchronous import would end the program on
--- WebAssembly. An element a remote client described is a plain object: its
--- closest and attributes are objects keyed by selector and by name.
-$( inlineJS
-     "js_closest_now"
-     "((e, s) => { if (typeof e.closest === 'function') { try { return e.closest(s) ?? null; } catch { return null; } } const c = e.closest; return c !== null && typeof c === 'object' && Object.prototype.hasOwnProperty.call(c, s) && c[s] !== null && typeof c[s] === 'object' ? c[s] : null; })($1, $2)"
-     [t|Element -> JSText -> JSVal|]
- )
-
-$( inlineJS
-     "js_attribute_now"
-     "((e, n) => { if (typeof e.getAttribute === 'function') return e.getAttribute(n) ?? null; const a = e.attributes; return a !== null && typeof a === 'object' && Object.prototype.hasOwnProperty.call(a, n) && typeof a[n] === 'string' ? a[n] : null; })($1, $2)"
-     [t|Element -> JSText -> JSVal|]
+$( declarations
+     [ jsFieldFunctions ''Element []
+     , -- Neither read throws: a selector that does not parse finds nothing, since
+       -- a SyntaxError out of a synchronous import would end the program on
+       -- WebAssembly. An element a remote client described is a plain object: its
+       -- closest and attributes are objects keyed by selector and by name.
+       inlineJS
+         "js_closest_now"
+         "((e, s) => { if (typeof e.closest === 'function') { try { return e.closest(s) ?? null; } catch { return null; } } const c = e.closest; return c !== null && typeof c === 'object' && Object.prototype.hasOwnProperty.call(c, s) && c[s] !== null && typeof c[s] === 'object' ? c[s] : null; })($1, $2)"
+         [t|Element -> JSText -> JSVal|]
+     , inlineJS
+         "js_attribute_now"
+         "((e, n) => { if (typeof e.getAttribute === 'function') return e.getAttribute(n) ?? null; const a = e.attributes; return a !== null && typeof a === 'object' && Object.prototype.hasOwnProperty.call(a, n) && typeof a[n] === 'string' ? a[n] : null; })($1, $2)"
+         [t|Element -> JSText -> JSVal|]
+     , inlineJS "js_scroll_into_view_block" "$1.scrollIntoView({ block: $2 })" [t|Element -> JSText -> IO ()|]
+     , inlineJS
+         "js_is_element"
+         "((typeof Element === 'function' && $1 instanceof Element) || ($1 !== null && typeof $1 === 'object' && typeof $1.tagName === 'string'))"
+         [t|EventTarget -> Bool|]
+     ]
  )
 
 -- | 'closest', read purely: the element itself or its nearest ancestor that
@@ -121,8 +125,6 @@ getAttributeNow element name
 data ScrollBlock = ToStart | ToCenter | ToEnd | ToNearest
   deriving stock (Eq, Show)
 
-$(inlineJS "js_scroll_into_view_block" "$1.scrollIntoView({ block: $2 })" [t|Element -> JSText -> IO ()|])
-
 -- | 'scrollIntoView', saying where in the viewport the element goes.
 -- Natively it is @scrollIntoView@ with its options, @{block: ...}@ (as
 -- JSON), for an element that answers for itself
@@ -141,12 +143,6 @@ scrollIntoViewBlock element block
 -- | Every element is an 'EventTarget'.
 toEventTarget :: Element -> EventTarget
 toEventTarget = coerce
-
-$( inlineJS
-     "js_is_element"
-     "((typeof Element === 'function' && $1 instanceof Element) || ($1 !== null && typeof $1 === 'object' && typeof $1.tagName === 'string'))"
-     [t|EventTarget -> Bool|]
- )
 
 -- | The target as an 'Element', if it is one (an event's target can be a
 -- text node, the document or the window). An element is an instance of

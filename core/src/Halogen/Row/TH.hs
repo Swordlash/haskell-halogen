@@ -47,7 +47,7 @@ import Prelude
 -- One splice defines all the rows of a module, because a splice is
 -- expensive on the JavaScript backend. There GHC 9.12 spent about 3 s and
 -- 500 MB of allocation on each splice and kept much of that memory until
--- the end of the module: with one splice per row, "DOM.HTML.Indexed" (108
+-- the end of the package: with one splice per row, "DOM.HTML.Indexed" (108
 -- rows) grew GHC past 10 GB. With one splice, it compiles in about 13 s.
 --
 -- A type synonym used in a definition is defined in another module, or in

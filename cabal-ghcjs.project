@@ -14,16 +14,24 @@ index-state: 2026-09-27T00:00:00Z
 package *
   ghc-options: -O2 -fexpose-all-unfoldings -fspecialise-aggressively -ddisable-js-c-sources
 
--- What compiling core costs on this backend, measured on a CI runner
--- (16 GB): the compiler's process grows with every module that has a splice
--- (core has about forty: the Web types' fields, the browser bindings, the
--- element rows), by some 390 MB each, which it keeps to the end of the
--- package: 4.3 GB at module 36, 9.6 GB at 59, 14.1 GB at 90, with 0.6 GB of
--- the machine left and 1.9 GB in swap. Starting the compiler with its
--- compacting collector (+RTS -c) changed nothing, so those gigabytes are
--- what it holds, not a collection's second copy. A new module with a splice
--- in core costs the same again: put a binding in a module that already has
--- one, or in another package. CI gives the job more swap
+-- What compiling a package costs on this backend. The compiler keeps memory
+-- for every top-level splice it runs, until the package ends. Small
+-- libraries, each compiled by its own compiler with +RTS -s on a CI runner:
+--
+--   12 modules, no splice                           36 MiB
+--   12 modules, one empty splice each             2122 MiB
+--   1 module with 12 splices, 11 plain modules    2035 MiB
+--   24 modules, one splice each                   3390 MiB
+--
+-- So the cost is per splice: about 110 MiB each, plus about 800 MiB once.
+-- It does not depend on the module the splice is in, or on what it runs.
+-- Core had 103 splices. They took the compiler to 14.4 GB on the runner's
+-- 16, and into swap. Now it has 39, one per module. The compacting
+-- collector (+RTS -c) changed nothing, so the compiler holds that memory.
+--
+-- The rule: one splice per module. A module runs all its generators in one
+-- splice, through Halogen.JSBits.declarations. A new binding goes into the
+-- module's splice, not into a splice of its own. CI gives the job more swap
 -- (.github/workflows/build.yml).
 
 with-compiler: javascript-unknown-ghcjs-ghc-9.12.2

@@ -13,7 +13,7 @@ where
 import Data.Foreign (Foreign)
 import HPrelude
 import Halogen.JSBits (Inert)
-import Halogen.JSBits.Fields (Member (..), jsFieldFunctions, jsFields)
+import Halogen.JSBits.Fields (Member (..), declarations, jsFieldFunctions, jsFields)
 import Halogen.JSBits.Promise (Promise (..))
 
 -- | A window's caches: @w.caches@ ("Web.HTML.Window"), which only a secure
@@ -21,13 +21,14 @@ import Halogen.JSBits.Promise (Promise (..))
 newtype CacheStorage = CacheStorage (Foreign CacheStorage)
   deriving newtype (Inert)
 
-$( jsFields
-     ''CacheStorage
-     [ -- The names of the caches, once the promise resolves.
-       Method "keys" [t|IO (Promise [Text])|]
-     , -- Delete the cache of a name; whether there was one.
-       Method "delete" [t|Text -> IO (Promise Bool)|]
+$( declarations
+     [ jsFields
+         ''CacheStorage
+         [ -- The names of the caches, once the promise resolves.
+           Method "keys" [t|IO (Promise [Text])|]
+         , -- Delete the cache of a name; whether there was one.
+           Method "delete" [t|Text -> IO (Promise Bool)|]
+         ]
+     , jsFieldFunctions ''CacheStorage []
      ]
  )
-
-$(jsFieldFunctions ''CacheStorage [])

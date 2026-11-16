@@ -34,11 +34,16 @@ $(browserJS ["jsbits/net.js"]
 For simple property reads and method calls, use `Halogen.JSBits.Fields` without creating a `.js` file. `jsFields` generates `HasField` instances for a newtype over `JSVal`, allowing `OverloadedRecordDot`. `jsFieldFunctions` generates ordinary functions suitable for qualified imports. Both embed the JavaScript directly in the binding:
 
 ```haskell
-$(jsFields ''Navigator [Live "onLine" ''Bool, Fixed "clipboard" [t| Maybe Clipboard |]])
-$(jsFields ''HTMLDocument [Writable "title" ''Text])
-$(jsFields ''History [Method "go" [t| Int -> IO () |]])
-$(jsFields ''Blob [Method "text" [t| IO (Promise Text) |]])
+$( declarations
+     [ jsFields ''Navigator [Live "onLine" ''Bool, Fixed "clipboard" [t| Maybe Clipboard |]]
+     , jsFields ''HTMLDocument [Writable "title" ''Text]
+     , jsFields ''History [Method "go" [t| Int -> IO () |]]
+     , jsFields ''Blob [Method "text" [t| IO (Promise Text) |]]
+     ]
+ )
 ```
+
+`declarations` runs several generators as one splice. Give each module one splice. On the JavaScript backend the compiler keeps about 110 MiB for each top-level splice until the package is compiled. The splice goes after the types it names and before the code that uses what it writes.
 
 `Fixed` provides a pure field read, so accesses can chain as in `w.navigator.onLine`. `Live` reads the value in `IO` each time. `Writable` adds a setter such as `title_set :: Text -> IO ()`; `_set` does not conflict with Web API names. `Method` wraps a call, including typed promise results such as `Promise Text`. JavaScript exceptions become `JSError`s.
 

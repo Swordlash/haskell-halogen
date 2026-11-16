@@ -16,7 +16,7 @@ import Data.Foreign (Foreign)
 import Data.MediaType (MediaType (..))
 import HPrelude
 import Halogen.JSBits (Inert, JSText, JSVal, toJSBytes, toJSText)
-import Halogen.JSBits.Fields (Member (..), inlineJS, jsFieldFunctions, jsFields)
+import Halogen.JSBits.Fields (Member (..), declarations, inlineJS, jsFieldFunctions, jsFields)
 import Halogen.JSBits.Promise (Promise (..))
 
 -- | A @Blob@: bytes the browser holds, which a page reads asynchronously
@@ -24,22 +24,22 @@ import Halogen.JSBits.Promise (Promise (..))
 newtype Blob = Blob (Foreign Blob)
   deriving newtype (Inert)
 
-$( jsFields
-     ''Blob
-     [ -- How many bytes it holds.
-       Fixed "size" ''Double
-     , -- Its media type, or empty when nobody gave one.
-       Fixed "type" ''Text
-     , -- Its bytes read as UTF-8 text, once the promise resolves.
-       Method "text" [t|IO (Promise Text)|]
-     , -- Its bytes, copied out (@Blob.bytes()@), once the promise resolves.
-       Method "bytes" [t|IO (Promise ByteString)|]
+$( declarations
+     [ jsFields
+         ''Blob
+         [ -- How many bytes it holds.
+           Fixed "size" ''Double
+         , -- Its media type, or empty when nobody gave one.
+           Fixed "type" ''Text
+         , -- Its bytes read as UTF-8 text, once the promise resolves.
+           Method "text" [t|IO (Promise Text)|]
+         , -- Its bytes, copied out (@Blob.bytes()@), once the promise resolves.
+           Method "bytes" [t|IO (Promise ByteString)|]
+         ]
+     , jsFieldFunctions ''Blob []
+     , inlineJS "js_new_blob" "new Blob([$1], { type: $2 })" [t|JSVal -> JSText -> IO Blob|]
      ]
  )
-
-$(jsFieldFunctions ''Blob [])
-
-$(inlineJS "js_new_blob" "new Blob([$1], { type: $2 })" [t|JSVal -> JSText -> IO Blob|])
 
 -- | A @Blob@ of these bytes, of this media type. Natively a placeholder.
 fromBytes :: ByteString -> MediaType -> IO Blob

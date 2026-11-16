@@ -9,6 +9,7 @@
 -- 'Halogen.JSBits.browserJS' can wrap the promises a binding returns.
 module Halogen.JSBits.Inline
   ( inlineJS
+  , declarations
   , importJS
   , Backend (..)
   , backend
@@ -56,6 +57,27 @@ inlineJS function expression quotedType = do
     if backend == OnNative
       then [SigD name ty, ValD (VarP name) (NormalB (VarE 'inert)) []]
       else [importJS name expression ty]
+
+-- | Run several generators as one splice. Their declarations come out in
+-- the order of the list.
+--
+-- > $( declarations
+-- >      [ jsFields ''URL [Live "pathname" ''Text]
+-- >      , jsFieldFunctions ''URL []
+-- >      , inlineJS "js_revoke" "URL.revokeObjectURL($1)" [t|JSText -> IO ()|]
+-- >      ]
+-- >  )
+--
+-- Each top-level splice costs memory on the JavaScript backend. There GHC
+-- keeps about 110 MiB per splice until the whole package is compiled. A
+-- module with eight splices costs eight times as much as a module with one.
+-- So a module runs its generators in one splice, with this function.
+--
+-- The splice goes after the types it names and before the code that uses
+-- what it writes. 'Halogen.JSBits.Fields.jsFieldFunctions' sees the fields
+-- that an earlier 'Halogen.JSBits.Fields.jsFields' in the same list writes.
+declarations :: [Q [Dec]] -> Q [Dec]
+declarations = fmap concat . sequence
 
 -- A synchronous import of one JavaScript expression over @$1@, @$2@, ...:
 -- on WebAssembly the expression itself, which the linker makes the body of
