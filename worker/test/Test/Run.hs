@@ -5,18 +5,24 @@
 -- | Jobs run where no worker can be made: natively, and under Node on both
 -- browser backends, where the page's configuration (and @Worker@) is
 -- missing. That is the fallback, through the same bytes as across
--- @postMessage@: the argument encoded, the job's function run on its
+-- @postMessage@: the arguments encoded, the job's function run on their
 -- bytes, the result's bytes decoded. And the worker's own side,
 -- 'Internal.answer', which finds a job by its static key in the program's
 -- static pointer table, is run here on requests made as a page makes them,
 -- and on one no page would send. And stopping a job there, which in the
 -- fallback is killing the thread 'Worker.start' forked for it.
 --
+-- A job takes its arguments one by one, of any number, and its type is
+-- inferred from a signature or from its function: the jobs below are each
+-- of the forms a program writes, and every one compiling is part of the
+-- test.
+--
 -- The jobs are exported, as "Halogen.Worker"'s documentation advises: GHC
 -- before 10.0 (issue #24773) can fail to link a module whose static binding
 -- is not exported and is used more than once, as several of these are.
 module Test.Run
   ( spec
+  , Tile (..)
   , double
   , flipTile
   , fails
@@ -26,6 +32,12 @@ module Test.Run
   , sleeper
   , spin
   , selfKilled
+  , minus
+  , labelled
+  , three
+  , ten
+  , addOne
+  , countSlowly
   )
 where
 
@@ -42,7 +54,7 @@ import GHC.Fingerprint (Fingerprint (..))
 import GHC.Generics (Generic)
 import GHC.StaticPtr (StaticPtr, deRefStaticPtr, staticKey)
 import Halogen.JSBits.Promise (JSError (..), mapConcurrently, poll, resolved, wait, waitCatch)
-import Halogen.Worker (Job, WorkerError (..))
+import Halogen.Worker (Fn, Job, WorkerError (..))
 import Halogen.Worker qualified as Worker
 import Halogen.Worker.Internal qualified as Internal
 import System.IO.Unsafe (unsafePerformIO)
@@ -62,28 +74,55 @@ instance Binary Broken where
   put Broken = pure ()
   get = fail "a Broken never decodes"
 
-double :: StaticPtr (Job Int Int)
+double :: StaticPtr (Job '[Int] Int)
 double = static (Worker.job (\n -> pure (n * 2)))
 
-flipTile :: StaticPtr (Job Tile Tile)
+flipTile :: StaticPtr (Job '[Tile] Tile)
 flipTile = static (Worker.job (\t -> pure t {x = t.y, y = t.x, rows = reverse t.rows}))
 
-fails :: StaticPtr (Job Int Int)
+fails :: StaticPtr (Job '[Int] Int)
 fails = static (Worker.job (\_ -> throwIO (userError "no luck")))
 
-lazyError :: StaticPtr (Job Int Int)
+lazyError :: StaticPtr (Job '[Int] Int)
 lazyError = static (Worker.job (\n -> pure (if n > 0 then error "found too late" else n)))
 
-broken :: StaticPtr (Job () Broken)
-broken = static (Worker.job (\() -> pure Broken))
+broken :: StaticPtr (Job '[] Broken)
+broken = static (Worker.job (pure Broken))
 
 -- A job that ends its thread with an exception 'runCall' does not catch:
 -- ThreadKilled counts as asynchronous, whoever throws it.
-selfKilled :: StaticPtr (Job () Int)
-selfKilled = static (Worker.job (\() -> throwIO ThreadKilled))
+selfKilled :: StaticPtr (Job '[] Int)
+selfKilled = static (Worker.job (throwIO ThreadKilled))
 
-where_ :: StaticPtr (Job () (Maybe Int))
-where_ = static (Worker.job (\() -> Worker.whichWorker))
+where_ :: StaticPtr (Job '[] (Maybe Int))
+where_ = static (Worker.job Worker.whichWorker)
+
+-- | Two arguments of one type, whose order the result tells; the lambda
+-- says nothing of its types, which come from the signature, and ends in
+-- 'pure', whose monad the job makes 'IO'.
+minus :: StaticPtr (Job '[Int, Int] Int)
+minus = static (Worker.job (\a b -> pure (a - b)))
+
+-- | Arguments of three types, a record among them.
+labelled :: StaticPtr (Job '[Int, Text, Tile] Text)
+labelled = static (Worker.job (\n t tile -> pure (Text.pack (show n) <> "/" <> t <> "/" <> tile.label)))
+
+-- | No argument: the job of an @IO Int@.
+three :: StaticPtr (Job '[] Int)
+three = static (Worker.job (pure 3))
+
+-- | Ten arguments, to show that there is no limit to reach.
+ten :: StaticPtr (Job '[Int, Int, Int, Int, Int, Int, Int, Int, Int, Text] Text)
+ten = static (Worker.job (\a b c d e f g h i j -> pure (Text.pack (show [a, b, c, d, e, f, g, h, i]) <> j)))
+
+-- | A top-level function, whose job's type is inferred from its own.
+addOne :: Int -> IO Int
+addOne n = pure (n + 1)
+
+-- | A job of a top-level function with no signature of its own; its type,
+-- @Job '[Int] Int@, is inferred from 'addOne''s.
+countSlowly :: StaticPtr (Job '[Int] Int)
+countSlowly = static (Worker.job addOne)
 
 -- | How many of 'sleeper''s sleeps have ended, and how many turns 'spin''s
 -- loop has made: what a test reads to see that a stopped job stopped.
@@ -97,12 +136,12 @@ bump :: IORef Int -> IO ()
 bump ref = atomicModifyIORef' ref (\n -> (n + 1, ()))
 
 -- | Sleeps for this many milliseconds, then counts the sleep.
-sleeper :: StaticPtr (Job Int ())
+sleeper :: StaticPtr (Job '[Int] ())
 sleeper = static (Worker.job (\ms -> threadDelay (ms * 1000) >> bump sleeps))
 
 -- | Counts its turns for ever, a checkpoint after each.
-spin :: StaticPtr (Job () ())
-spin = static (Worker.job (\() -> forever (bump spins >> Worker.checkpoint)))
+spin :: StaticPtr (Job '[] ())
+spin = static (Worker.job (forever (bump spins >> Worker.checkpoint)))
 
 -- | Whether the counter has stopped: what it reads now, and again a while
 -- later.
@@ -118,11 +157,23 @@ rejectedAs name = \case
   Left e -> e.name `shouldBe` name
   Right _ -> expectationFailure ("settled rather than rejected as " <> Text.unpack name)
 
--- | A request for one call, as the page makes it.
-request :: StaticPtr (Job a b) -> a -> ByteString
-request pointer argument =
-  Internal.encodeRequest
-    Internal.Request {key = staticKey pointer, arguments = [(deRefStaticPtr pointer).encodeArgument argument]}
+-- | A request for one call, as the page makes it, its arguments taken one
+-- by one as 'Worker.run' takes them.
+request :: StaticPtr (Job args b) -> Fn args ByteString
+request pointer =
+  Internal.curried (deRefStaticPtr pointer) $ \bytes ->
+    Internal.encodeRequest Internal.Request {key = staticKey pointer, arguments = [bytes]}
+
+-- | The bytes a call of the job sends for its arguments.
+argumentBytes :: StaticPtr (Job args b) -> Fn args ByteString
+argumentBytes pointer = Internal.curried (deRefStaticPtr pointer) id
+
+-- | A worker's reply to the request, decoded.
+replied :: ByteString -> IO (Maybe Internal.Reply)
+replied bytes = Internal.answer bytes >>= either (\problem -> expectationFailure (Text.unpack problem) >> pure Nothing) (pure . either (const Nothing) Just . Internal.decodeReply)
+
+bytesOf :: (Binary a) => a -> ByteString
+bytesOf = Lazy.toStrict . encode
 
 failsWith :: Text -> Selector WorkerError
 failsWith fragment e = "Test.Run:" `Text.isPrefixOf` e.job && fragment `Text.isInfixOf` e.message
@@ -147,7 +198,7 @@ spec = describe "Halogen.Worker" $ do
     Worker.run pool double 21 `shouldReturn` 42
     let tile = Tile {x = 1, y = 2, rows = [[0.5, 1], [2]], label = "a \"quoted\" ünïcode label"}
     Worker.run pool flipTile tile `shouldReturn` Tile {x = 2, y = 1, rows = [[2], [0.5, 1]], label = tile.label}
-    Worker.run pool where_ () `shouldReturn` Nothing
+    Worker.run pool where_ `shouldReturn` Nothing
 
   it "gives a job's exception back as a WorkerError naming where its static is" $ do
     pool <- Worker.newPool 1
@@ -155,8 +206,8 @@ spec = describe "Halogen.Worker" $ do
 
   it "settles the promise of a job whose thread ends by an exception it does not catch" $ do
     pool <- Worker.newPool 1
-    Worker.run pool selfKilled () `shouldThrow` failsWith "thread killed"
-    p <- Worker.start pool selfKilled ()
+    Worker.run pool selfKilled `shouldThrow` failsWith "thread killed"
+    p <- Worker.start pool selfKilled
     outcome <- waitCatch p
     either (.name) (const "resolved") outcome `shouldBe` "WorkerError"
 
@@ -167,7 +218,7 @@ spec = describe "Halogen.Worker" $ do
 
   it "says when the result does not decode" $ do
     pool <- Worker.newPool 1
-    Worker.run pool broken () `shouldThrow` failsWith "its result does not decode: a Broken never decodes"
+    Worker.run pool broken `shouldThrow` failsWith "its result does not decode: a Broken never decodes"
 
   it "gives a promise from start, rejected with a JSError named WorkerError" $ do
     pool <- Worker.newPool 1
@@ -186,7 +237,6 @@ spec = describe "Halogen.Worker" $ do
     mapConcurrently (Worker.start pool double) [1 .. 10] `shouldReturn` map (* 2) [1 .. 10]
 
   it "answers a request by the job's key, as a worker does" $ do
-    let replied bytes = Internal.answer bytes >>= either (\problem -> expectationFailure (Text.unpack problem) >> pure Nothing) (pure . either (const Nothing) Just . Internal.decodeReply)
     replied (request double 21) `shouldReturn` Just Internal.Reply {results = [Lazy.toStrict (encode (42 :: Int))], failure = Nothing}
     replied (request fails 1) `shouldReturn` Just Internal.Reply {results = [], failure = Just "user error (no luck)"}
 
@@ -208,10 +258,10 @@ spec = describe "Halogen.Worker" $ do
       Left problem -> Text.unpack problem `shouldContain` "there is no job with the key"
       Right _ -> expectationFailure "a key the table does not have was answered"
 
-  it "says when a job's argument does not decode" $ do
+  it "says when a job's arguments do not decode" $ do
     let wrong = Internal.encodeRequest Internal.Request {key = staticKey double, arguments = ["\1"]}
     (fmap Internal.decodeReply <$> Internal.answer wrong) >>= \case
-      Right (Right Internal.Reply {results = [], failure = Just problem}) -> Text.unpack problem `shouldContain` "its argument does not decode"
+      Right (Right Internal.Reply {results = [], failure = Just problem}) -> Text.unpack problem `shouldContain` "its arguments do not decode"
       other -> expectationFailure ("an argument that does not decode was answered: " <> show other)
 
   it "runs the job on a thread of its own: start returns before the job ends" $ do
@@ -240,12 +290,12 @@ spec = describe "Halogen.Worker" $ do
 
   it "stops a loop that checkpoints, by cancelling or killing it" $ do
     pool <- Worker.newPool 1
-    p <- Worker.start pool spin ()
+    p <- Worker.start pool spin
     threadDelay 20000
     Worker.cancel pool p
     waitCatch p >>= rejectedAs "Cancelled"
     stopped spins `shouldReturn` True
-    q <- Worker.start pool spin ()
+    q <- Worker.start pool spin
     threadDelay 20000
     Worker.kill pool q
     waitCatch q >>= rejectedAs "Killed"
@@ -274,7 +324,7 @@ spec = describe "Halogen.Worker" $ do
 
   it "ends the jobs it runs here when a pool is terminated" $ do
     pool <- Worker.newPool 1
-    p <- Worker.start pool spin ()
+    p <- Worker.start pool spin
     threadDelay 10000
     Worker.terminate pool
     waitCatch p >>= \case
@@ -286,3 +336,59 @@ spec = describe "Halogen.Worker" $ do
     pool <- Worker.newPool 1
     Worker.terminate pool
     Worker.run pool double 2 `shouldReturn` 4
+
+  describe "a job of several arguments" $ do
+    it "takes them one by one, in order, in run and start" $ do
+      pool <- Worker.newPool 2
+      Worker.run pool minus 10 3 `shouldReturn` 7
+      (wait =<< Worker.start pool minus 3 10) `shouldReturn` (-7)
+      let tile = Tile {x = 0, y = 0, rows = [], label = "a tile"}
+      Worker.run pool labelled 4 "two" tile `shouldReturn` "4/two/a tile"
+
+    it "takes none" $ do
+      pool <- Worker.newPool 1
+      Worker.run pool three `shouldReturn` 3
+      (wait =<< Worker.start pool three) `shouldReturn` 3
+
+    it "takes ten, with no limit to reach" $ do
+      pool <- Worker.newPool 1
+      Worker.run pool ten 1 2 3 4 5 6 7 8 9 "!" `shouldReturn` "[1,2,3,4,5,6,7,8,9]!"
+
+    it "infers the job's type from its function, with no signature anywhere" $ do
+      pool <- Worker.newPool 1
+      Worker.run pool (static (Worker.job (\() -> pure (3 :: Int)))) () `shouldReturn` 3
+      Worker.run pool (static (Worker.job (\(a :: Int) (b :: Int) -> pure (a + b)))) 1 2 `shouldReturn` 3
+      Worker.run pool (static (Worker.job addOne)) 41 `shouldReturn` 42
+      Worker.run pool countSlowly 1 `shouldReturn` 2
+
+    it "is passed to a helper of a concrete type" $ do
+      pool <- Worker.newPool 1
+      let viaHelper :: StaticPtr (Job '[Int] Int) -> Int -> IO Int
+          viaHelper pointer n = Worker.run pool pointer n
+      traverse (viaHelper double) [1, 2] `shouldReturn` [2, 4]
+
+    it "sends for one argument the bytes encode gives, as before arguments were several" $ do
+      argumentBytes double 21 `shouldBe` bytesOf (21 :: Int)
+      argumentBytes flipTile Tile {x = 1, y = 2, rows = [[3]], label = "t"} `shouldBe` bytesOf Tile {x = 1, y = 2, rows = [[3]], label = "t"}
+
+    it "sends the arguments' bytes one after another, and none for no argument" $ do
+      argumentBytes minus 10 3 `shouldBe` bytesOf (10 :: Int) <> bytesOf (3 :: Int)
+      argumentBytes three `shouldBe` ""
+
+    it "is answered by its key, its arguments in order, as a worker answers" $ do
+      replied (request minus 10 3) `shouldReturn` Just Internal.Reply {results = [bytesOf (7 :: Int)], failure = Nothing}
+      let tile = Tile {x = 0, y = 0, rows = [], label = "l"}
+      replied (request labelled 1 "t" tile) `shouldReturn` Just Internal.Reply {results = [bytesOf ("1/t/l" :: Text)], failure = Nothing}
+      replied (request three) `shouldReturn` Just Internal.Reply {results = [bytesOf (3 :: Int)], failure = Nothing}
+
+    it "fails a call whose arguments' bytes run out, or are left over, with BadArguments" $ do
+      let short = Internal.encodeRequest Internal.Request {key = staticKey minus, arguments = [bytesOf (10 :: Int)]}
+          long = Internal.encodeRequest Internal.Request {key = staticKey minus, arguments = [bytesOf (10 :: Int) <> bytesOf (3 :: Int) <> "\0"]}
+          extra = Internal.encodeRequest Internal.Request {key = staticKey three, arguments = ["\0"]}
+          failure bytes = fmap (fmap (.failure) . Internal.decodeReply) <$> Internal.answer bytes
+      failure short >>= (`shouldSatisfy` \case Right (Right (Just problem)) -> "its arguments do not decode" `Text.isPrefixOf` problem; _ -> False)
+      failure long >>= (`shouldSatisfy` \case Right (Right (Just problem)) -> "its arguments do not decode: 1 bytes are left over" `Text.isPrefixOf` problem; _ -> False)
+      failure extra >>= (`shouldSatisfy` \case Right (Right (Just problem)) -> "left over" `Text.isInfixOf` problem; _ -> False)
+      -- The same function, as the fallback runs it on the same bytes.
+      Internal.runCall (deRefStaticPtr minus).call (bytesOf (10 :: Int))
+        >>= (`shouldSatisfy` \case Left problem -> "its arguments do not decode" `Text.isPrefixOf` problem; Right _ -> False)
