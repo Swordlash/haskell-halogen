@@ -80,13 +80,13 @@ manyParts = [(lo, lo + sixteenth) | lo <- [0, sixteenth .. size - sixteenth]]
   where
     sixteenth = size `div` 16
 
-primes :: StaticPtr (Worker.Job Int Int)
+primes :: StaticPtr (Worker.Job '[Int] Int)
 primes = static (Worker.job (\n -> pure (countPrimes n)))
 
--- | The primes in one part of the range, and which worker counted them
--- ('Nothing' for the page).
-primesBetween :: StaticPtr (Worker.Job (Int, Int) (Maybe Int, Int))
-primesBetween = static (Worker.job (\(lo, hi) -> (,countBetween lo hi) <$> Worker.whichWorker))
+-- | The primes from @lo@ up to @hi@, one part of the range, and which
+-- worker counted them ('Nothing' for the page): a job of two arguments.
+primesBetween :: StaticPtr (Worker.Job '[Int, Int] (Maybe Int, Int))
+primesBetween = static (Worker.job (\lo hi -> (,countBetween lo hi) <$> Worker.whichWorker))
 
 -- | Where the slow count counts up to: some ten seconds of work in a
 -- worker, a chunk at a time.
@@ -101,7 +101,7 @@ raceSize = 1000000
 -- time, with a 'Worker.checkpoint' after each chunk: where a 'Worker.cancel'
 -- reaches the job. Each chunk is logged, so the console shows the count
 -- going on, and stopping.
-primesSlowly :: StaticPtr (Worker.Job Int Int)
+primesSlowly :: StaticPtr (Worker.Job '[Int] Int)
 primesSlowly = static (Worker.job countSlowly)
 
 countSlowly :: Int -> IO Int
@@ -118,9 +118,10 @@ countSlowly n = go 0 2
           Worker.checkpoint
           go (total + count) hi
 
--- | A job that always fails, to show what a failure looks like.
-failing :: StaticPtr (Worker.Job () Int)
-failing = static (Worker.job (\() -> throwIO (userError "this job always fails")))
+-- | A job that always fails, to show what a failure looks like: a job of
+-- no argument.
+failing :: StaticPtr (Worker.Job '[] Int)
+failing = static (Worker.job (throwIO (userError "this job always fails")))
 
 -- | One part of the range as it came back: the part, its count and the
 -- worker that counted it.
@@ -283,7 +284,7 @@ component pool =
         measure (if inWorker then "in both workers" else "in parts with Worker.start") size $ do
           (result, millis) <- liftIO $ do
             start <- getMonotonicTime
-            result <- try (Promise.mapConcurrently (Worker.start pool primesBetween) parts)
+            result <- try (Promise.mapConcurrently (uncurry (Worker.start pool primesBetween)) parts)
             end <- getMonotonicTime
             pure (result, (end - start) * 1000)
           case result of
@@ -302,7 +303,7 @@ component pool =
         measure (if inWorker then "in tasks" else "in tasks, here") size $ do
           (result, millis) <- liftIO $ do
             start <- getMonotonicTime
-            result <- try (runPar pool (traverse (task primesBetween) manyParts))
+            result <- try (runPar pool (traverse (uncurry (task primesBetween)) manyParts))
             end <- getMonotonicTime
             pure (result, (end - start) * 1000)
           case result of
@@ -312,7 +313,7 @@ component pool =
               modify (\st -> st {spread})
               pure (Right (sum (map (.count) spread)), millis)
       Fail -> measure "the failing job" size $ liftIO $ do
-        result <- try (Worker.run pool failing ())
+        result <- try (Worker.run pool failing)
         pure (first (\(e :: WorkerError) -> e.message) result, 0)
       Terminate -> do
         Worker.terminate pool
@@ -323,7 +324,7 @@ component pool =
     -- in the state, and waited for. Should the wait be interrupted (the
     -- component goes away meanwhile), the job is cancelled, as Worker.run
     -- does.
-    stoppable :: Text -> StaticPtr (Worker.Job Int Int) -> Int -> H.HalogenM State Action Empty o m ()
+    stoppable :: Text -> StaticPtr (Worker.Job '[Int] Int) -> Int -> H.HalogenM State Action Empty o m ()
     stoppable place pointer n = measure place n $ do
       -- Timed from before the start: where no worker can be made, the
       -- forked job can run to its end before this thread runs again.
