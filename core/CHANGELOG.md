@@ -19,8 +19,8 @@ test's own, read in `STM`, together. A socket has the same wait as
 `waitActivityWith`. A change of the value wakes the wait. Code that builds a
 `HalogenSocket` itself must now give this field too.
 
-`N.disabledControl` (`N` is `Halogen.VDom.DOM.Monad.Native`) says whether a
-page would dispatch no click to a node.
+`N.disabledControl` (`N` is `Halogen.VDom.DOM.Monad.Native`) tells whether a
+node is a disabled form control. A page sends no click to one.
 
 A native test can now give each component a page of its own. Create a page
 with `N.newPage`, make a container in it with `N.newContainerIn`, and mount
