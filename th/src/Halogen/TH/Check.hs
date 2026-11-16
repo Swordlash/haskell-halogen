@@ -19,7 +19,7 @@ import Halogen.TH.Clay (cssExp)
 import Halogen.TH.Haskell (Failure (..), parseExpAt, parsePatAt)
 import Halogen.TH.Html (htmlExp)
 import Halogen.TH.Html qualified as Html
-import Halogen.TH.Template (Env (..))
+import Halogen.TH.Template (Env (..), isWrittenAsList)
 import Language.Haskell.TH (Exp, Extension, Q, runIO, runQ)
 
 -- | The quoters of "Halogen.TH".
@@ -78,6 +78,7 @@ check exts quoter (startLine, startColumn) src =
         { expression = \origin s -> parsed origin (parseExpAt exts (inFile origin) s)
         , pattern = \origin s -> parsed origin (parsePatAt exts (inFile origin) s)
         , report = \ln msg -> complain (Complaint (fileLine ln) Nothing msg)
+        , writtenAsList = pure . isWrittenAsList
         , startColumn
         }
     -- Lines are the template's; a hole's columns are the file's already.

@@ -40,7 +40,7 @@ import GHC.ThToHs (convertToHsExpr)
 import GHC.Types.Error (Diagnostic (..), MsgEnvelope, addMessage, defaultDiagnosticOpts, getMessages, mkPlainError, mkSimpleUnknownDiagnostic, noHints, unDecorated)
 import GHC.Utils.Error (mkErrorMsgEnvelope)
 import Halogen.TH.Check (Complaint (Complaint), Quoter, quoted, quoterName, quoterNamed)
-import Halogen.TH.Haskell (Failure (..), parseHsExpAt, parseHsPatAt)
+import Halogen.TH.Haskell (Failure (..), hsWrittenAsList, parseHsExpAt, parseHsPatAt)
 import Halogen.TH.Template (Env (..))
 import Language.Haskell.TH (runIO, runQ)
 import Language.Haskell.TH.Syntax qualified as TH
@@ -128,6 +128,16 @@ expandQuote dflags quoter name at body = do
                 L _ (VarPat _ _) -> TH.VarP placeholder
                 _ -> TH.AsP placeholder TH.WildP
           , report = \ln what -> runIO (throwIO (Problems [complaint (Complaint (fileLine ln) Nothing what)]))
+          , -- An expression here is a placeholder: whether a loop takes
+            -- its source as a list is asked of what GHC parsed for it, so
+            -- the code is the quoter's.
+            writtenAsList = \case
+              TH.VarE v -> runIO $ do
+                m <- readIORef kept
+                pure $ case Map.lookup (TH.nameBase v) m of
+                  Just (AnExpression h) -> hsWrittenAsList h
+                  _ -> False
+              _ -> pure False
           , startColumn = startCol
           }
   made <- try (runQ (quoted quoter env (T.unpack body)))

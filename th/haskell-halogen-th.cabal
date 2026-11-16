@@ -80,6 +80,8 @@ test-suite th-test
                       Test.Check
                       Test.Clay
                       Test.Haskell
+                      Test.Loop
+                      Test.Overloaded
                       Test.Property
                       Test.Render
     default-extensions: QuasiQuotes

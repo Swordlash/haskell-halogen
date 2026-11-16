@@ -2,7 +2,7 @@
 {-# LANGUAGE QuasiQuotes #-}
 -- Quotes that parse but do not type check; the plugin expands them, so
 -- the type checker reports each error at its hole.
-module Typed (view, loop) where
+module Typed (view, loop, notFoldable) where
 
 import Data.Text (Text)
 import Halogen.HTML (HTML)
@@ -17,3 +17,6 @@ view n = [hh|
 
 loop :: [Text] -> [HTML w i]
 loop xs = [hhs|{% for (x, y) in xs %}<b>{{ x }}</b>{% end %}|]
+
+notFoldable :: Text -> [HTML w i]
+notFoldable t = [hhs|{% for c in t %}<b>{{ c }}</b>{% end %}|]

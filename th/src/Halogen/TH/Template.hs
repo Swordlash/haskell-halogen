@@ -16,7 +16,9 @@
 -- into 'Block's, and 'blocksExp' turns the groups into one list expression:
 -- the plain things are list literals, the values are spliced in through a
 -- function the caller gives, and the statements become conditionals, list
--- comprehensions and lets.
+-- comprehensions and lets. A loop's comprehension draws from its source
+-- through 'Data.Foldable.toList', so it ranges over any 'Foldable', unless
+-- the source is written as a list ('isWrittenAsList').
 module Halogen.TH.Template
   ( -- * The Haskell in a template
     Hole (..)
@@ -40,6 +42,7 @@ module Halogen.TH.Template
   , Env (..)
   , failAt
   , blocksExp
+  , isWrittenAsList
   , textExp
   , holeLine
   , position
@@ -47,6 +50,7 @@ module Halogen.TH.Template
 where
 
 import Data.Char (isAlphaNum, isDigit, isSpace)
+import Data.Foldable (toList)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
 import Data.List.NonEmpty qualified as NE
@@ -248,7 +252,7 @@ data Stmt
   | Elif Snippet
   | Else
   | End
-  | -- | A pattern, and the list it ranges over.
+  | -- | A pattern, and the 'Foldable' it ranges over.
     For Snippet Snippet
   | -- | A pattern, and what it is bound to.
     Let Snippet Snippet
@@ -383,6 +387,12 @@ data Env = Env
   { expression :: (Int, Int) -> Text -> Q Exp
   , pattern :: (Int, Int) -> Text -> Q Pat
   , report :: forall a. Int -> Text -> Q a
+  , writtenAsList :: Exp -> Q Bool
+  -- ^ Whether an expression 'expression' made is written as a list, which
+  -- a loop then draws from as it is ('isWrittenAsList'): an environment
+  -- whose expressions are the code itself asks 'isWrittenAsList' of them;
+  -- one whose expressions stand for code kept elsewhere (the compiler
+  -- plugin's placeholders) asks it of that code.
   , startColumn :: Int
   -- ^ The column of the file the template starts on, from 1.
   }
@@ -414,8 +424,10 @@ blocksExp env holes leaf splice = fmap join . mapM segment . group
       Splice i -> splice <$> value i
       Cond branches els -> foldr branch (maybe (pure (ListE [])) (blocksExp env holes leaf splice) els) branches
       Loop i body -> do
-        (p, list) <- loop i
+        (p, source) <- loop i
+        listed <- env.writtenAsList source
         inner <- blocksExp env holes leaf splice body
+        let list = if listed then source else AppE (VarE 'toList) source
         pure (AppE (VarE 'concat) (CompE [TH.BindS p list, TH.NoBindS inner]))
       Bind i rest -> do
         (p, rhs) <- binding i
@@ -453,6 +465,27 @@ blocksExp env holes leaf splice = fmap join . mapM segment . group
       case parseStmt h.code of
         Right (Let p rhs) -> (,) <$> snippetPat h p <*> snippetExp h rhs
         _ -> failAt env (holeLine holes i) "impossible: a binding that is not a let"
+
+-- | Whether a loop's source is written as a list: a list literal (@[]@
+-- too), a range, a comprehension or a string literal, in parentheses or
+-- not. A loop draws from any other source through 'toList', and from this
+-- one as it is: 'toList' leaves the container's type to be inferred from
+-- the source alone, and for these the source alone is not one type. Under
+-- @OverloadedLists@ a list literal and a range are any
+-- 'GHC.IsList.IsList', under @OverloadedStrings@ a string literal is any
+-- 'Data.String.IsString', under @MonadComprehensions@ a comprehension is
+-- any monad, and the loop was what made them lists. A source with a type
+-- signature is not one of these, since its type is the signature's:
+-- @([3, 1] :: Set Int)@ is a 'Foldable' like any other.
+isWrittenAsList :: Exp -> Bool
+isWrittenAsList = \case
+  ListE _ -> True
+  ConE n -> n == '[]
+  ArithSeqE _ -> True
+  CompE _ -> True
+  LitE (StringL _) -> True
+  ParensE e -> isWrittenAsList e
+  _ -> False
 
 -- | Text with holes as an expression of 'Text': the holes must be 'Text'
 -- too, and statements among them shape it (@class="a {% if b %}b{% end %}"@).
