@@ -26,11 +26,12 @@ package *
 -- So the cost is per splice: about 110 MiB each, plus about 800 MiB once.
 -- It does not depend on the module the splice is in, or on what it runs.
 -- Core had 103 splices. They took the compiler to 14.4 GB on the runner's
--- 16, and into swap. Now it has 39, one per module. The compacting collector (+RTS -c) changed
--- nothing, so the compiler holds that memory. The rule: one splice per
--- module. A module runs all its generators in one splice, through
--- Halogen.JSBits.declarations. A new binding goes into the module's splice,
--- not into a splice of its own. CI gives the job more swap
+-- 16, and into swap. Now it has 39, one per module. The compacting
+-- collector (+RTS -c) changed nothing, so the compiler holds that memory.
+--
+-- The rule: one splice per module. A module runs all its generators in one
+-- splice, through Halogen.JSBits.declarations. A new binding goes into the
+-- module's splice, not into a splice of its own. CI gives the job more swap
 -- (.github/workflows/build.yml).
 
 with-compiler: javascript-unknown-ghcjs-ghc-9.12.2
