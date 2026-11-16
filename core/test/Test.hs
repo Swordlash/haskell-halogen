@@ -35,6 +35,7 @@ import Test.Runtime qualified as Runtime
 import Test.Static qualified as Static
 import Test.Storage qualified as Storage
 import Test.SvgAttributes qualified as SvgAttributes
+import Test.Sync qualified as Sync
 import Test.ThunkSlots qualified as ThunkSlots
 import Test.Trace qualified as Trace
 import Test.WebFields qualified as WebFields
@@ -73,6 +74,7 @@ main = hspec $ do
   Static.spec
   Storage.spec
   SvgAttributes.spec
+  Sync.spec
   ThunkSlots.spec
   Trace.spec
   WebFields.spec

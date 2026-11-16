@@ -6,6 +6,7 @@ module Halogen.Trace.Internal
   , Event (..)
   , What (..)
   , summary
+  , slowSyncThreshold
   , subscribe
   , listening
   , emit
@@ -88,7 +89,16 @@ data What
     ForkEnded ForkId
   | -- | A fork was killed by its component.
     Killed ForkId
+  | -- | A 'Halogen.Query.HalogenM.sync' took this many milliseconds, more
+    -- than 'slowSyncThreshold'. Nothing else of the tree ran meanwhile.
+    SlowSync {took :: Double}
   deriving stock (Show)
+
+-- | How long a 'Halogen.Query.HalogenM.sync' may take before it is reported
+-- as 'SlowSync': 50 milliseconds. A tree that is held this long misses
+-- three frames, and the reader notices.
+slowSyncThreshold :: Double
+slowSyncThreshold = 50
 
 -- | What happened, as a few words for a log: @action@, @state changed@,
 -- @rendered in 0.4 ms@, @forked 3@.
@@ -107,6 +117,7 @@ summary = \case
   Forked fid -> "forked " <> show fid
   ForkEnded fid -> "fork " <> show fid <> " ended"
   Killed fid -> "killed fork " <> show fid
+  SlowSync took -> "a sync held the tree for " <> tenths took <> " ms"
 
 -- | Milliseconds to one decimal place.
 tenths :: Double -> Text

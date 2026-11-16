@@ -154,6 +154,37 @@ parentHooks _input = Hooks.do
 -- A component driven by something other than a query.
 ----------------------------------------------------------------------
 
+-- | Waits have a bound: a broken promise fails the test instead of hanging it.
+within :: Text -> IO a -> IO a
+within what io = timeout 5_000_000 io >>= maybe (panic ("timed out: " <> what)) pure
+
+data SyncAct
+  = Nudge
+  | -- | Holds the tree in a 'Hooks.sync': signals, waits, then notes the count.
+    InPlace (MVar ()) (MVar ())
+  | -- | Waits in a 'Hooks.async', then notes the count and signals.
+    Suspended (MVar ()) (MVar ())
+
+-- | Notes what its handlers do. Its count is what 'Nudge' moves.
+syncing :: IORef [Text] -> HS.Emitter IO SyncAct -> H.Component H.VoidF () Void IO
+syncing logRef acts = Hooks.component @Empty $ \_input -> Hooks.do
+  (count, countId) <- Hooks.useState (0 :: Int)
+  let write t = Hooks.sync (modifyIORef' logRef (<> [t]))
+      noteCount what = Hooks.get countId >>= \n -> write (what <> " saw " <> show n)
+      act = \case
+        Nudge -> Hooks.modify_ countId (+ 1) >> write "bump"
+        InPlace entered release -> do
+          Hooks.sync (putMVar entered () >> takeMVar release)
+          noteCount "after the sync"
+        Suspended gate done -> do
+          Hooks.async (takeMVar gate)
+          noteCount "after the async"
+          Hooks.sync (putMVar done ())
+  Hooks.useLifecycleEffect $ do
+    void $ Hooks.subscribe (map act acts)
+    pure Nothing
+  Hooks.pure $ HH.text (show count)
+
 -- | Subscribes to an emitter of numbers and adds them up. Every hook program a
 -- handler runs arrives the same way a DOM event's would.
 subscriber :: HS.Emitter IO Int -> H.Component H.VoidF () Void IO
@@ -330,6 +361,37 @@ spec = describe "hooks" $ do
     ("seen=42" `elem` rendered) `shouldBe` True
     dispose harness
 
+  it "runs a Hooks.sync in place: an event that arrives meanwhile is handled after" $ do
+    logRef <- newIORef []
+    source <- HS.create
+    harness <- start (syncing logRef source.emitter) ()
+    entered <- newEmptyMVar
+    release <- newEmptyMVar
+    returned <- newEmptyMVar
+    void $ forkIO $ HS.notify source.listener (InPlace entered release) >> putMVar returned ()
+    within "the sync" (takeMVar entered)
+    -- The tree is held: the bump is queued, and the call returns at once.
+    HS.notify source.listener Nudge
+    readIORef logRef >>= (`shouldBe` [])
+    putMVar release ()
+    within "the holder" (takeMVar returned)
+    readIORef logRef >>= (`shouldBe` ["after the sync saw 0", "bump"])
+    dispose harness
+
+  it "suspends at a Hooks.async: an event that arrives meanwhile is handled first" $ do
+    logRef <- newIORef []
+    source <- HS.create
+    harness <- start (syncing logRef source.emitter) ()
+    gate <- newEmptyMVar
+    done <- newEmptyMVar
+    HS.notify source.listener (Suspended gate done)
+    HS.notify source.listener Nudge
+    readIORef logRef >>= (`shouldBe` ["bump"])
+    putMVar gate ()
+    within "the handler" (takeMVar done)
+    readIORef logRef >>= (`shouldBe` ["bump", "after the async saw 1"])
+    dispose harness
+
   it "pauses with delay, which leaves the program quiet between ticks" $ do
     ticks <- newIORef 0
     before <- Activity.activity
@@ -337,7 +399,6 @@ spec = describe "hooks" $ do
     let reached n = do
           t <- readIORef ticks
           unless (t >= n) (threadDelay 1_000 >> reached n)
-        within what io = timeout 5_000_000 io >>= maybe (panic ("timed out: " <> what)) pure
     within "three ticks" (reached 3)
     -- The fork sleeps between ticks, uncounted: the program is quiet then,
     -- however long the ticker goes on.

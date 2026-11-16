@@ -23,13 +23,14 @@ import Data.Functor.Coyoneda
 import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict qualified as M
 import Data.NT
+import GHC.Clock (getMonotonicTime)
 import HPrelude hiding (Concurrently, finally, join, runConcurrently, state, throwIO)
 import Halogen.Activity.Control.Internal (awaitHeld, pause, unliftedRuns)
 import Halogen.Component
 import Halogen.IO.Driver.Runtime
 import Halogen.IO.Driver.State
 import Halogen.Query.ChildQuery qualified as CQ
-import Halogen.Query.HalogenM hiding (fork, join, kill, query, unsubscribe)
+import Halogen.Query.HalogenM hiding (async, catch, finally, fork, join, kill, query, sync, try, unsubscribe)
 import Halogen.Query.HalogenQ qualified as HQ
 import Halogen.Query.Input qualified as Input
 import Halogen.Subscription qualified as HS
@@ -92,7 +93,7 @@ evalM var (HalogenM hm) = foldF go hm
       DelayCounted d a -> withDriverState $ \ds -> a <$ pause ds.tree.control True d
       LiftEffect eff -> do
         ds <- sync (readIORef var)
-        sync (withinEffect ds.tree.loop (treeRunM ds.tree eff))
+        sync (timed ds.tag (withinEffect ds.tree.loop (treeRunM ds.tree eff)))
       Unlift q -> do
         ds <- sync (readIORef var)
         -- The body is arbitrary IO, run on a worker; each program it runs
@@ -183,6 +184,21 @@ evalM var (HalogenM hm) = foldF go hm
               -- Rendered before the program goes on, so that what it reads
               -- next (a ref, say) is the new state's.
               a <$ treeRender ds.tree var
+
+-- | Run a synchronous effect, and report it to "Halogen.Trace" when it held
+-- the tree longer than 'Trace.slowSyncThreshold'. The clock is read only
+-- while someone listens. An effect that throws is not reported.
+timed :: Trace.Tag -> IO a -> IO a
+timed tag io =
+  Trace.listening >>= \case
+    False -> io
+    True -> do
+      start <- getMonotonicTime
+      a <- io
+      end <- getMonotonicTime
+      let took = (end - start) * 1000
+      when (took > Trace.slowSyncThreshold) $ Trace.emit tag (Trace.SlowSync took)
+      pure a
 
 -- | A query answered by a component: 'Nothing' if it has gone away, or goes
 -- away before answering. Its own fiber, owned by that component, which the

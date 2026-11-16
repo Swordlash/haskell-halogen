@@ -23,7 +23,7 @@ Each option has a variant that accepts `Settings`: `openWith`, `openInWith` and 
 
 The component tree shows one row per component, nested under its parent. Rows include the label and ID, render/action/state-change counts and the last render duration. Labels default to the state type, such as `Example.Counter.State#3`, or use the name from `H.named`. Click a row to filter the log; click it again to clear the filter. Hovering outlines the component's element on the page.
 
-The log shows the most recent 200 events, newest first: mounting, initialization, finalization, renders, actions, state changes, queries, outputs, subscriptions and forks. Filter buttons select an event kind.
+The log shows the most recent 200 events, newest first: mounting, initialization, finalization, renders, actions, state changes, queries, outputs, subscriptions, forks and slow syncs. Filter buttons select an event kind.
 
 Register a type with `DevTools.showing @State` to display its state values. This requires `Show State` and enables a Restore button on each recorded state. Restoring behaves like `put` and triggers a render. Other state types still have their changes counted and listed by type name. Halogen does not require `Show` for component state, so displaying values is opt-in.
 

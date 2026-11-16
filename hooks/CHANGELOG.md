@@ -2,6 +2,11 @@
 
 ## 0.1.0.0 -- unreleased
 
+* `Hooks.sync` runs an action in place, as core's `H.sync` does.
+  `Hooks.async` suspends the handler while the action runs, as core's
+  `H.async` does. `Hooks.liftEffect` is `Hooks.sync`, and `lift` and
+  `liftIO` are `Hooks.async`. Nothing has to change yet. `HookM` cannot
+  catch, so it has no `try`, `catch` or `finally`.
 * `Hooks.delayCounted` pauses a handler as core's `H.delayCounted` does:
   counted as waiting, for a pause before work a test waits for, and moved on
   by a test's clock (`Halogen.Activity.Control.withTestClock`). The

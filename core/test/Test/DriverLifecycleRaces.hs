@@ -22,7 +22,7 @@ import Data.Kind (Type)
 import Data.Row (Empty, Row, type (.==))
 import Data.Text (Text)
 import Data.Void (Void)
-import Halogen as H
+import Halogen as H hiding (finally, try)
 import Halogen.Component (ComponentSlot (..))
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Core qualified as HC

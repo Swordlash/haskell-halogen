@@ -9,13 +9,13 @@ module Halogen
   )
 where
 
-import HPrelude
+import HPrelude hiding (async, catch, finally, try)
 import Halogen.Component (Component (..), ComponentInfo (..), ComponentSlot, ComponentSlotBox, ComponentSpec' (..), EvalSpec (..), Handler, componentSlot, componentSpec, defaultEval, hoist, mkComponent, mkEval, named, onAction, onFinalize, onInitialize, onQuery, onReceive)
 import Halogen.Data.Slot (Slot, VoidF)
 import Halogen.HTML (ComponentHTML)
 import Halogen.HTML.Core (AttrName (..), ClassName (..), ElemName (..), HTML, Namespace (..), PropName (..))
 import Halogen.IO.Driver (HalogenSocket (..))
-import Halogen.Query (ForkId, HalogenF (..), HalogenM (..), HalogenQ (..), RefLabel (..), Request, SubscriptionId, Tell, delay, delayCounted, fork, getHTMLElementRef, getRef, join, kill, liftEffect, mkRequest, mkTell, newRefLabel, query, queryAll, raise, request, requestAll, subscribe, subscribe', tell, tellAll, unsubscribe)
+import Halogen.Query (ForkId, HalogenF (..), HalogenM (..), HalogenQ (..), RefLabel (..), Request, SubscriptionId, Tell, async, asyncWith, catch, delay, delayCounted, finally, fork, getHTMLElementRef, getRef, join, kill, liftEffect, mkRequest, mkTell, newRefLabel, query, queryAll, raise, request, requestAll, send, subscribe, subscribe', sync, tell, tellAll, try, unsubscribe)
 
 -- | A component from its initial state, its render and its handlers:
 --

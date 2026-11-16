@@ -282,10 +282,12 @@ in play.
 A mounted tree runs on one loop (`Halogen.IO.Driver.Runtime`), as purescript-halogen runs on Aff:
 its state, children, renders and lifecycle are touched only there, one piece of work at a time, by
 whichever thread brings it work while it is idle. A component's program is a fiber: its
-synchronous parts run on the loop, and it waits only in `lift`/`liftIO`, which run on a worker
-thread while the rest of the tree goes on (as `liftAff`). What must happen at once — `preventDefault`,
-focusing, reading the DOM as it is, a synchronous API such as `localStorage`, a scene handed to a
-canvas in order — goes through `H.liftEffect` (hooks: `Hooks.liftEffect`), which must not wait. An
+synchronous parts run on the loop, and it waits only in `H.async` (also `lift`/`liftIO`; hooks: `Hooks.async`;
+`H.asyncWith` is `withRunInIO`), which runs on a worker thread while the rest of the tree goes on (as `liftAff`). What
+must happen at once — `preventDefault`, focusing, reading the DOM as it is, a synchronous API such as
+`localStorage`, a scene handed to a canvas in order — goes through `H.sync` (also `H.liftEffect`;
+hooks: `Hooks.sync`), which must not wait; one that takes over 50 ms is a
+`Halogen.Trace` `SlowSync`. Code written against `Halogen.Sync`'s `MonadSync` cannot suspend. An
 event such an effect dispatches is handled before the dispatch returns, nested in it
 (`enterCallback`), as the browser does, whether an element's handler or a subscription to a DOM
 listener (`HQE.eventListener`) hears it; that holds only on the thread of a callback the page called

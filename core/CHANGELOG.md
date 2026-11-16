@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+A program leaves its tree's loop in two ways, and each now has a name.
+`H.sync` runs an action in place: nothing else of the tree runs until it
+ends. `H.async` suspends the program: the action runs on a thread of its own,
+other events run meanwhile, and the program goes on later on a state that may
+have changed. `H.asyncWith` is `H.async` with a runner for programs of the
+component. The old names stay and mean the same: `H.liftEffect` is `H.sync`,
+`lift` and `liftIO` are `H.async`, and `withRunInIO` is `H.asyncWith`. Nothing
+has to change yet.
+
+`H.try`, `H.catch` and `H.finally` catch a program's failures, before and
+after an `H.async`. The second program of `H.finally` does not run when the
+program is killed or its component goes away. Release what must be released
+in `H.onFinalize`.
+
+`H.send` tells a child something and does not wait for it. When it returns,
+the child's handler has run up to its first `H.async`, or to its end. Two
+sends reach the child in order.
+
+`Halogen.Sync` is for code that must not suspend. Write it against the class
+`MonadSync` instead of `HalogenM`: then it cannot call `liftIO`, `H.async` or
+a query that waits. Its only instance is `HalogenM`, so a handler calls it
+as it calls any program. Import it qualified.
+
+`Halogen.Trace` reports an `H.sync` that held the tree longer than
+`slowSyncThreshold` (50 ms) as `SlowSync`. A program that matches every
+constructor of `What` must handle it. The clock is read only while someone
+listens.
+
+`Halogen` and `Halogen.Query` now export `sync`, `async`, `asyncWith`, `try`,
+`catch`, `finally` and `send`. A module that imports `Halogen` without
+`qualified` and uses `try`, `catch`, `finally` or `async` from another module
+must hide them: `import Halogen as H hiding (try, finally)`.
+
 `Halogen.Latest` keeps an old answer from replacing a newer one. A component
 takes a ticket with `asking` when it starts an ask, and takes the answer with
 `answered`. An answer is taken unless an answer to a later ask was taken
