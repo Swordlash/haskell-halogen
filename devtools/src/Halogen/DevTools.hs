@@ -403,6 +403,7 @@ kindOf = \case
   Trace.StateChanged _ -> States
   Trace.Queried -> Messages
   Trace.Raised -> Messages
+  Trace.SlowSync _ -> Effects
   _ -> Effects
 
 kindName :: Kind -> Text
@@ -412,7 +413,7 @@ kindName = \case
   Actions -> "actions"
   States -> "states"
   Messages -> "queries and outputs"
-  Effects -> "subscriptions and forks"
+  Effects -> "subscriptions, forks and slow syncs"
 
 -- | Where a node is in the window, by the browser's @getBoundingClientRect@.
 nodeRect :: Node -> IO Rect

@@ -1,8 +1,9 @@
 -- | A trace of what the program's component trees do: components made and
 -- gone, renders and how long they took, actions, state changes, queries,
 -- outputs, subscriptions and forks, as 'Event's that a listener receives as
--- they happen. It is what "Halogen.DevTools" shows, and what @hspec-halogen@
--- prints when a test fails.
+-- they happen. A 'Halogen.Query.HalogenM.sync' that held the tree too long
+-- is one too ('SlowSync'). It is what "Halogen.DevTools" shows, and what
+-- @hspec-halogen@ prints when a test fails.
 --
 -- It costs nothing when nobody listens: the driver asks 'listening' (one
 -- read of a reference) before it builds an event or reads the clock, and
@@ -25,6 +26,7 @@ module Halogen.Trace
   , Tag (..)
   , What (..)
   , summary
+  , slowSyncThreshold
 
     -- * Listening
   , subscribe

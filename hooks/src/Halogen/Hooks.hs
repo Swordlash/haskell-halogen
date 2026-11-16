@@ -113,6 +113,10 @@ module Halogen.Hooks
 
     -- ** Refs
   , getRef
+
+    -- ** Effects
+  , sync
+  , async
   , liftEffect
   )
 where
@@ -123,7 +127,7 @@ import Halogen.Hooks.Internal.Eval (HookState (..), evalHook, initialHookState)
 import Halogen.Hooks.Internal.Hook
 import Halogen.Hooks.Internal.HookM
 import Halogen.Hooks.Internal.Types (AtMostOneQuery, HookK (..), StateId)
-import Protolude hiding (fmap, get, gets, modify, pure, put, return, state, void, (<$>), (<*>), (>>), (>>=))
+import Protolude hiding (async, fmap, get, gets, modify, pure, put, return, state, void, (<$>), (<*>), (>>), (>>=))
 
 -- | Turn a hook program into a component.
 --

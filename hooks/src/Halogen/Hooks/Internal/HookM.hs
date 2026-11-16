@@ -46,6 +46,8 @@ module Halogen.Hooks.Internal.HookM
   , getRef
 
     -- * Effects
+  , sync
+  , async
   , liftEffect
   , effectIO
   )
@@ -64,7 +66,7 @@ import Halogen.Query.ChildQuery qualified as CQ
 import Halogen.Query.HalogenM (ForkId, SubscriptionId)
 import Halogen.Query.Input (RefLabel)
 import Halogen.Subscription qualified as HS
-import Protolude hiding (get, gets, modify, put, state)
+import Protolude hiding (async, get, gets, modify, put, state)
 import Web.DOM.Element (Element)
 
 type HookF :: Type -> Row Type -> Type -> (Type -> Type) -> Type -> Type
@@ -108,16 +110,33 @@ newtype HookM scope slots output m a = HookM (F (HookF scope slots output m) a)
 instance MonadTrans (HookM scope slots output) where
   lift mx = HookM $ liftF $ Lift mx identity
 
--- | As in 'Halogen.Query.HalogenM.HalogenM': 'lift' and 'liftIO' may wait,
--- and the rest of the tree goes on meanwhile; 'liftEffect' runs at once.
+-- | As in 'Halogen.Query.HalogenM.HalogenM': 'lift' and 'liftIO' are
+-- 'async', and the rest of the tree goes on meanwhile; 'sync' runs in place.
 instance (MonadIO m) => MonadIO (HookM scope slots output m) where
   liftIO = lift . liftIO
 
--- | Run an action of the component's monad at once, before anything else of
--- the tree runs (see 'Halogen.Query.HalogenM.liftEffect'): for
--- @preventDefault@, focusing an element, reading the DOM. It must not wait.
+-- | Run an action of the component's monad in place, as
+-- 'Halogen.Query.HalogenM.sync' does. Nothing else of the tree runs until it
+-- ends. Use it for @preventDefault@, focusing an element, reading the DOM.
+-- It must not wait.
+--
+-- > Hooks.sync (preventDefault event)
+sync :: m x -> HookM scope slots output m x
+sync mx = HookM $ liftF $ LiftEffect mx identity
+
+-- | Run an action of the component's monad and suspend the handler until it
+-- ends, as 'Halogen.Query.HalogenM.async' does. The rest of the tree goes on
+-- meanwhile, so read state cells again after it. 'lift' and 'liftIO' are the
+-- same thing.
+--
+-- > user <- Hooks.async (fetchUser userId)
+-- > Hooks.put userId' (Just user)
+async :: m x -> HookM scope slots output m x
+async mx = HookM $ liftF $ Lift mx identity
+
+-- | 'sync', by its older name.
 liftEffect :: m x -> HookM scope slots output m x
-liftEffect mx = HookM $ liftF $ LiftEffect mx identity
+liftEffect = sync
 
 -- | Pause the handler for this long (in seconds), not counted as waiting by
 -- "Halogen.Activity": 'Halogen.Query.HalogenM.delay', which says when to

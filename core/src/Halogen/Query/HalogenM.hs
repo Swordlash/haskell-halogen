@@ -1,14 +1,15 @@
 module Halogen.Query.HalogenM where
 
 import Control.Applicative.Free.Fast
-import Control.Monad.Catch (MonadCatch (..), MonadThrow (..))
+import Control.Monad.Catch (MonadCatch, MonadThrow (..))
+import Control.Monad.Catch qualified as Catch
 import Control.Monad.Free.Church
 import Control.Monad.Parallel
 import Data.Map.Strict qualified as M
 import Data.NT
 import Data.Row
 import Data.Time (NominalDiffTime)
-import HPrelude hiding (Ap)
+import HPrelude hiding (Ap, async, catch, finally, try)
 import Halogen.Data.Slot as Slot
 import Halogen.Query.ChildQuery qualified as CQ
 import Halogen.Query.Input
@@ -73,26 +74,32 @@ newtype HalogenM state action slots output m a
   = HalogenM (F (HalogenF state action slots output m) a)
   deriving (Functor, Applicative, Monad)
 
--- | 'lift' and 'liftIO' are where a component's program may wait, as
--- 'liftAff' is in purescript-halogen: the action runs on a thread of its own,
--- and until it is done the rest of the tree goes on (other events, other
--- components, this component's other programs); then the program goes on
--- where it left off. What has to happen at once, while nothing else runs --
--- @preventDefault@ in an event handler, focusing an element, reading the DOM
--- as it is now -- goes through 'liftEffect' instead.
+-- | 'lift' is 'async': the program suspends while the action runs.
 instance MonadTrans (HalogenM state' action slots' output) where
   lift = HalogenM . liftF . Lift
 
+-- | 'liftIO' is 'async': the program suspends while the action runs.
 instance (MonadIO m) => MonadIO (HalogenM state' action slots' output m) where
   liftIO = HalogenM . liftF . Lift . liftIO
 
--- | Run an action of the component's monad at once, as purescript-halogen's
--- 'liftEffect': the program does not let anything else of the tree run
--- until it is done. So it must not wait -- not on an 'MVar', a delay, a
--- JavaScript promise or a query to this tree -- or the whole tree waits
--- with it; use 'liftIO' for that.
+-- | Run an action of the component's monad in place. Nothing else of the
+-- tree runs until it ends: no other event, no other component, no other
+-- program of this component. So the program goes on with the state it saw.
 --
--- In an event's action, "at once" is inside the browser's dispatch of the
+-- > H.sync (preventDefault event)
+-- > H.sync (focus input)
+--
+-- Use it for what must happen now: @preventDefault@ in a handler, focusing
+-- an element, reading the DOM as it is, a synchronous API such as
+-- @localStorage@, a command handed to a canvas in order.
+--
+-- The action must not wait: not on an 'MVar', a delay, a JavaScript promise
+-- or a query to this tree. While it waits, the whole tree waits with it.
+-- Use 'async' for that. When someone listens to "Halogen.Trace", a 'sync'
+-- that takes longer than 'Halogen.Trace.slowSyncThreshold' is reported
+-- there as 'Halogen.Trace.SlowSync'.
+--
+-- In an event's action, "now" is inside the browser's dispatch of the
 -- event, so @preventDefault@ still counts, when the tree's loop is free as
 -- the event arrives. On WebAssembly it is also when the loop is held by
 -- work that was preempted between two of the page's tasks (a long render):
@@ -108,8 +115,78 @@ instance (MonadIO m) => MonadIO (HalogenM state' action slots' output m) where
 -- or stop propagation in every case declares it with
 -- 'Halogen.HTML.Events.preventingDefault' or
 -- 'Halogen.HTML.Events.stoppingPropagation'.
+sync :: forall state action slots output m a. (Functor m) => m a -> HalogenM state action slots output m a
+sync = HalogenM . liftF . LiftEffect
+
+-- | 'sync', by its older name.
 liftEffect :: forall state action slots output m a. (Functor m) => m a -> HalogenM state action slots output m a
-liftEffect = HalogenM . liftF . LiftEffect
+liftEffect = sync
+
+-- | Run an action of the component's monad and suspend the program until
+-- it ends. The action runs on a thread of its own. Meanwhile the rest of
+-- the tree goes on: other events, other components, this component's other
+-- programs. Then the program goes on where it left off.
+--
+-- > answer <- H.async (fetchUser userId)
+-- > modify (\s -> s {user = Just answer})
+--
+-- Use it for whatever takes time: a request, a file, a long computation, a
+-- worker's job. It is the only place a program waits, as @liftAff@ is in
+-- purescript-halogen. 'lift' and 'liftIO' are the same thing.
+--
+-- The state may have changed by the time the program goes on: another
+-- event may have run meanwhile. So read the state again after 'async', and
+-- do not carry a value read before it. An effect that must come right
+-- after another, with nothing in between, goes in one 'sync', not in an
+-- 'async' between two steps.
+--
+-- A program whose fork is killed, or whose component goes away, while it
+-- waits here never goes on: its thread is killed, and the rest of the
+-- program never runs.
+async :: forall state action slots output m a. (Functor m) => m a -> HalogenM state action slots output m a
+async = HalogenM . liftF . Lift
+
+-- | Run some 'IO' that can run programs of the component, and suspend the
+-- program until it ends. It is 'async' with a runner: the body runs on a
+-- thread of its own, and @run p@ hands @p@ to the component and waits for
+-- it to end.
+--
+-- > H.asyncWith $ \run -> withFile path ReadMode $ \h ->
+-- >   hGetLine h >>= \line -> run (modify (addLine line))
+--
+-- Each @run@ is a program of its own on the tree's loop. Other events can
+-- run between two @run@s, as they can around an 'async'. If the component
+-- goes away first, @run@ throws 'Halogen.IO.Driver.Eval.ComponentGone'.
+-- 'withRunInIO' is the same thing.
+asyncWith :: forall state action slots output m b. (Functor m) => ((forall x. HalogenM state action slots output m x -> IO x) -> IO b) -> HalogenM state action slots output m b
+asyncWith inner = HalogenM $ liftF $ Unlift $ \(UnliftIO run) -> inner run
+
+-- | Run the program and catch what it throws, as 'Left'. A failure after an
+-- 'async' is caught too. A program that is killed throws nothing: see
+-- 'finally'.
+try :: forall e state action slots output m a. (Exception e, Functor m) => HalogenM state action slots output m a -> HalogenM state action slots output m (Either e a)
+try body = catch (Right <$> body) (pure . Left)
+
+-- | Run the program, and the handler if the program throws an @e@. A
+-- failure after an 'async' is caught too. An exception of another type
+-- goes on up.
+catch :: forall e state action slots output m a. (Exception e, Functor m) => HalogenM state action slots output m a -> (e -> HalogenM state action slots output m a) -> HalogenM state action slots output m a
+catch = Catch.catch
+
+-- | Run the first program, then the second, whether the first ended or
+-- threw. If the first threw, the exception goes on up after the second.
+--
+-- The second program does not run when the program is killed: when its
+-- fork is killed ('kill'), or its component goes away. A killed program
+-- runs nothing more. So do not use 'finally' to release what must be
+-- released. Keep it in the component's state, and release it in
+-- 'Halogen.Component.onFinalize'.
+--
+-- > H.finally (do setBusy True; H.async (save draft)) (setBusy False)
+finally :: forall state action slots output m a b. (Functor m) => HalogenM state action slots output m a -> HalogenM state action slots output m b -> HalogenM state action slots output m a
+finally body after = do
+  a <- body `catch` \(e :: SomeException) -> after >> throwM e
+  a <$ after
 
 -- | Pause the program for this long (in seconds: @delay 3@ is three
 -- seconds, @delay 0.2@ a fifth of one), while the rest of the tree goes on.
@@ -168,9 +245,9 @@ delay d = HalogenM $ liftF $ Delay d ()
 delayCounted :: forall state action slots output m. (Functor m) => NominalDiffTime -> HalogenM state action slots output m ()
 delayCounted d = HalogenM $ liftF $ DelayCounted d ()
 
+-- | 'withRunInIO' is 'asyncWith'.
 instance (MonadUnliftIO m) => MonadUnliftIO (HalogenM state' action slots' output m) where
-  withRunInIO inner =
-    HalogenM $ liftF $ Unlift $ \(UnliftIO q) -> inner q
+  withRunInIO = asyncWith
 
 type HalogenIO state action slots output a = HalogenM state action slots output IO a
 

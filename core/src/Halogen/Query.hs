@@ -5,6 +5,7 @@ module Halogen.Query
   , mkTell
   , tell
   , tellAll
+  , send
   , Request
   , mkRequest
   , request
@@ -20,9 +21,9 @@ where
 import Control.Monad.UUID (MonadUUID (..))
 import Data.Row as Row
 import Data.UUID.Types qualified as UUID
-import HPrelude
+import HPrelude hiding (async, catch, finally, try)
 import Halogen.Data.Slot (Slot)
-import Halogen.Query.HalogenM (ForkId, HalogenF (..), HalogenM (..), SubscriptionId, delay, delayCounted, fork, getRef, join, kill, liftEffect, query, queryAll, raise, subscribe, subscribe', unsubscribe)
+import Halogen.Query.HalogenM (ForkId, HalogenF (..), HalogenM (..), SubscriptionId, async, asyncWith, catch, delay, delayCounted, finally, fork, getRef, join, kill, liftEffect, query, queryAll, raise, subscribe, subscribe', sync, try, unsubscribe)
 import Halogen.Query.HalogenQ (HalogenQ (..))
 import Halogen.Query.Input (RefLabel (..))
 import Web.DOM.Internal.Types
@@ -78,6 +79,31 @@ tellAll
   => Tell query
   -> HalogenM state action slots output m ()
 tellAll label req = void $ queryAll label (req ())
+
+-- | Tell a child something, and go on without waiting for it. 'tell' waits
+-- until the child's handler ends, so a child that suspends makes the parent
+-- wait too; 'send' does not.
+--
+-- > H.send "editor" () Editor.Save
+--
+-- When 'send' returns, the child's handler has run up to its first
+-- suspension (an 'async'), or to its end if it has none. Two 'send's
+-- reach the child in the order they were made. The parent does not hear how
+-- the handler ends: a failure goes to the console, as an unhandled one in a
+-- fork does. There is nothing to send to when the slot is empty.
+--
+-- It is @void (fork (tell label slot q))@, so "Halogen.Trace" shows it as a
+-- fork.
+send
+  :: forall label
+  ->forall state action output m slots query output' slot
+   . (HasType label (Slot query output' slot) slots, Functor m)
+  => (KnownSymbol label)
+  => (Ord slot)
+  => slot
+  -> Tell query
+  -> HalogenM state action slots output m ()
+send label slot req = void $ fork $ tell label slot req
 
 -- | Type synonym for an "request-style" query - queries that can cause effects
 -- | as well as fetching some information from a component.
