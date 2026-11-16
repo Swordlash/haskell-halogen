@@ -119,7 +119,7 @@ data ChildSlots ps m act r = ChildSlots
 -- | Mount a component. The tree runs on a loop of its own (see
 -- "Halogen.IO.Driver.Runtime"): the component's state, children, renders
 -- and lifecycle are only ever touched there, one piece of work at a time,
--- and its programs wait only in 'Halogen.Query.HalogenM.Lift' ('async').
+-- and its programs wait only in 'Halogen.Query.HalogenM.Async' ('async').
 --
 -- The tree is handed over once it has rendered and its components have
 -- run the synchronous part of their @Initialize@: what an @Initialize@

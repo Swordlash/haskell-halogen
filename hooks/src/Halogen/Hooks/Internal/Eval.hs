@@ -268,8 +268,8 @@ interpretHookMWith settleWrites (HookM program) = foldF go program
   where
     go :: forall x. HookF scope slots output m x -> Eval scope q input slots output m hooks x
     go = \case
-      Lift mx k -> map k (HM.async mx)
-      LiftEffect mx k -> map k (HM.sync mx)
+      Async mx k -> map k (HM.async mx)
+      Sync mx k -> map k (HM.sync mx)
       Delay d a -> HM.delay d $> a
       DelayCounted d a -> HM.delayCounted d $> a
       State (StateId ref) f k -> do

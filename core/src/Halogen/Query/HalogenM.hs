@@ -27,17 +27,18 @@ data HalogenF state action slots output m a
   = State (state -> (a, state))
   | Subscribe (SubscriptionId -> Emitter IO action) (SubscriptionId -> a)
   | Unsubscribe SubscriptionId a
-  | -- | Work that may wait: the component's other work goes on meanwhile.
-    Lift (m a)
-  | -- | Work done at once, before anything else of the component's tree.
-    LiftEffect (m a)
-  | -- | A pause: as a 'Lift' of a sleep, but not counted as waiting by
+  | -- | Work that may wait, while the rest of the tree goes on: 'async'.
+    Async (m a)
+  | -- | Work done in place, before anything else of the tree runs: 'sync'.
+    Sync (m a)
+  | -- | A pause: as an 'Async' of a sleep, but not counted as waiting by
     -- "Halogen.Activity" (see 'delay').
     Delay NominalDiffTime a
-  | -- | A pause counted as waiting, as a 'Lift' of a sleep is (see
+  | -- | A pause counted as waiting, as an 'Async' of a sleep is (see
     -- 'delayCounted').
     DelayCounted NominalDiffTime a
-  | Unlift (UnliftIO (HalogenM state action slots output m) -> IO a)
+  | -- | IO that may wait and runs programs of the component: 'asyncWith'.
+    AsyncWith (UnliftIO (HalogenM state action slots output m) -> IO a)
   | ChildQuery (CQ.ChildQuery slots a)
   | Raise output a
   | Par (HalogenAp state action slots output m a)
@@ -55,11 +56,11 @@ instance (Functor m) => Functor (HalogenF state' action slots' output m) where
     State g -> State (\s -> case g s of (a, s') -> (f a, s'))
     Subscribe es k -> Subscribe es (f . k)
     Unsubscribe sid a -> Unsubscribe sid (f a)
-    Lift m -> Lift (fmap f m)
-    LiftEffect m -> LiftEffect (fmap f m)
+    Async m -> Async (fmap f m)
+    Sync m -> Sync (fmap f m)
     Delay d a -> Delay d (f a)
     DelayCounted d a -> DelayCounted d (f a)
-    Unlift q -> Unlift (fmap f . q)
+    AsyncWith q -> AsyncWith (fmap f . q)
     ChildQuery cq -> ChildQuery (fmap f cq)
     Raise o a -> Raise o (f a)
     Par p -> Par (fmap f p)
@@ -76,11 +77,11 @@ newtype HalogenM state action slots output m a
 
 -- | 'lift' is 'async': the program suspends while the action runs.
 instance MonadTrans (HalogenM state' action slots' output) where
-  lift = HalogenM . liftF . Lift
+  lift = HalogenM . liftF . Async
 
 -- | 'liftIO' is 'async': the program suspends while the action runs.
 instance (MonadIO m) => MonadIO (HalogenM state' action slots' output m) where
-  liftIO = HalogenM . liftF . Lift . liftIO
+  liftIO = HalogenM . liftF . Async . liftIO
 
 -- | Run an action of the component's monad in place. Nothing else of the
 -- tree runs until it ends: no other event, no other component, no other
@@ -118,7 +119,7 @@ instance (MonadIO m) => MonadIO (HalogenM state' action slots' output m) where
 -- 'Halogen.HTML.Events.preventingDefault' or
 -- 'Halogen.HTML.Events.stoppingPropagation'.
 sync :: forall state action slots output m a. (Functor m) => m a -> HalogenM state action slots output m a
-sync = HalogenM . liftF . LiftEffect
+sync = HalogenM . liftF . Sync
 
 -- | 'sync', by its older name.
 liftEffect :: forall state action slots output m a. (Functor m) => m a -> HalogenM state action slots output m a
@@ -148,7 +149,7 @@ liftEffect = sync
 -- waits here never goes on: its thread is killed, and the rest of the
 -- program never runs.
 async :: forall state action slots output m a. (Functor m) => m a -> HalogenM state action slots output m a
-async = HalogenM . liftF . Lift
+async = HalogenM . liftF . Async
 
 -- | Run some 'IO' that can run programs of the component, and suspend the
 -- program until it ends. It is 'async' with a runner: the body runs on a
@@ -163,7 +164,7 @@ async = HalogenM . liftF . Lift
 -- goes away first, @run@ throws 'Halogen.IO.Driver.Eval.ComponentGone'.
 -- 'withRunInIO' is the same thing.
 asyncWith :: forall state action slots output m b. (Functor m) => ((forall x. HalogenM state action slots output m x -> IO x) -> IO b) -> HalogenM state action slots output m b
-asyncWith inner = HalogenM $ liftF $ Unlift $ \(UnliftIO run) -> inner run
+asyncWith inner = HalogenM $ liftF $ AsyncWith $ \(UnliftIO run) -> inner run
 
 -- | Run the program and catch what it throws, as 'Left'. A failure after an
 -- 'async' is caught too. A program that is killed throws nothing: see
@@ -446,11 +447,11 @@ mapHalogen lens fa fo nat (HalogenM alg) = HalogenM (hoistF go alg)
       State f -> State (\s' -> let (s, g) = lens s' in case f s of (a, s1) -> let s2 = g s1 in s2 `seq` (a, s2))
       Subscribe fes k -> Subscribe (map fa . fes) k
       Unsubscribe sid a -> Unsubscribe sid a
-      Lift q -> Lift (runNT nat q)
-      LiftEffect q -> LiftEffect (runNT nat q)
+      Async q -> Async (runNT nat q)
+      Sync q -> Sync (runNT nat q)
       Delay d a -> Delay d a
       DelayCounted d a -> DelayCounted d a
-      Unlift q -> Unlift $ q . mapUnliftIO (mapHalogen lens fa fo nat)
+      AsyncWith q -> AsyncWith $ q . mapUnliftIO (mapHalogen lens fa fo nat)
       ChildQuery cq -> ChildQuery cq
       Raise o a -> Raise (fo o) a
       Par (HalogenAp p) -> Par (HalogenAp $ hoistAp (mapHalogen lens fa fo nat) p)

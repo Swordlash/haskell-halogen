@@ -25,6 +25,11 @@ sends reach the child in order.
 a query that waits. Its only instance is `HalogenM`, so a handler calls it
 as it calls any program. Import it qualified.
 
+`HalogenF`'s constructors `Lift`, `LiftEffect` and `Unlift` are now
+`Async`, `Sync` and `AsyncWith`, after `H.async`, `H.sync` and `H.asyncWith`.
+Code that matches on `HalogenF`, such as an interpreter or a `hoist` of its
+own, must use the new names.
+
 `Halogen.Canvas`'s component now makes its event emitter in place, with
 `H.sync`. Before, it suspended there, and other events could run first.
 Mounting the canvas's backend still suspends.

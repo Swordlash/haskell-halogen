@@ -75,8 +75,10 @@ type HookF :: Type -> Row Type -> Type -> (Type -> Type) -> Type -> Type
 -- carrying a @Functor m@ constraint, so 'HookM' is a monad for any @m@ at all
 -- and the constraints appear only where the program is run.
 data HookF scope slots output m a where
-  Lift :: m x -> (x -> a) -> HookF scope slots output m a
-  LiftEffect :: m x -> (x -> a) -> HookF scope slots output m a
+  -- | Work that may wait, while the rest of the tree goes on: 'async'.
+  Async :: m x -> (x -> a) -> HookF scope slots output m a
+  -- | Work done in place, before anything else of the tree runs: 'sync'.
+  Sync :: m x -> (x -> a) -> HookF scope slots output m a
   Delay :: NominalDiffTime -> a -> HookF scope slots output m a
   DelayCounted :: NominalDiffTime -> a -> HookF scope slots output m a
   State :: StateId scope s -> (s -> (x, s)) -> (x -> a) -> HookF scope slots output m a
@@ -90,8 +92,8 @@ data HookF scope slots output m a where
 
 instance Functor (HookF scope slots output m) where
   fmap f = \case
-    Lift mx k -> Lift mx (f . k)
-    LiftEffect mx k -> LiftEffect mx (f . k)
+    Async mx k -> Async mx (f . k)
+    Sync mx k -> Sync mx (f . k)
     Delay d a -> Delay d (f a)
     DelayCounted d a -> DelayCounted d (f a)
     State sid g k -> State sid g (f . k)
@@ -108,7 +110,7 @@ newtype HookM scope slots output m a = HookM (F (HookF scope slots output m) a)
   deriving newtype (Functor, Applicative, Monad)
 
 instance MonadTrans (HookM scope slots output) where
-  lift mx = HookM $ liftF $ Lift mx identity
+  lift mx = HookM $ liftF $ Async mx identity
 
 -- | As in 'Halogen.Query.HalogenM.HalogenM': 'lift' and 'liftIO' are
 -- 'async', and the rest of the tree goes on meanwhile; 'sync' runs in place.
@@ -122,7 +124,7 @@ instance (MonadIO m) => MonadIO (HookM scope slots output m) where
 --
 -- > Hooks.sync (preventDefault event)
 sync :: m x -> HookM scope slots output m x
-sync mx = HookM $ liftF $ LiftEffect mx identity
+sync mx = HookM $ liftF $ Sync mx identity
 
 -- | Run an action of the component's monad and suspend the handler until it
 -- ends, as 'Halogen.Query.HalogenM.async' does. The rest of the tree goes on
@@ -132,7 +134,7 @@ sync mx = HookM $ liftF $ LiftEffect mx identity
 -- > user <- Hooks.async (fetchUser userId)
 -- > Hooks.put userId' (Just user)
 async :: m x -> HookM scope slots output m x
-async mx = HookM $ liftF $ Lift mx identity
+async mx = HookM $ liftF $ Async mx identity
 
 -- | 'sync', by its older name.
 liftEffect :: m x -> HookM scope slots output m x
