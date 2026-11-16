@@ -197,7 +197,7 @@ and wired into `test/Test.hs`.
   a background task, the program idle (`Halogen.Activity`, read in process), a `history.back()`'s
   `popstate` (`page.js` wraps `History`'s methods), the next animation frame (a dialog's `close`)
   and the program again, each wait a promise of the page's (`threadDelay` is a `setTimeout` on
-  wasm, but a Haskell loop without one holds the page); `waitQuiet` also waits for `liftIO`s.
+  wasm, but a Haskell loop without one holds the page); `waitQuiet` also waits for `H.async`s.
 - `examples/learn/browser-test` (`halogen-example-learn-browser-test`, native, through
   `haskell-halogen-playwright`; `npm run test-learn`) tests the deployed artefact rather than a component:
   it serves the built `dist-newstyle/wasm/public/learn`, the rootfs in its `rootfs/`, under
@@ -205,7 +205,7 @@ and wired into `test/Test.hs`.
   with nothing repaired (`shouldAdoptCleanly`'s check), the compiler loading in the page, every lesson's
   `Start.hs` and `Solution.hs` compiling there (two lessons at a time, on two pages, with `async`), back
   and forward, the Cache API and a narrow screen (`LEARN_ROOTFS_DIR` serves another rootfs in place of
-  the tree's). A compile, a check and the compiler's load are the app's fibers waiting in a `liftIO`,
+  the tree's). A compile, a check and the compiler's load are the app's fibers waiting in an `H.async`,
   and a compiled lesson is a second program in the page whose runtime answers the same probe, so after
   a click it waits for quiet and reads once; a lesson's timer that only ticks must be an `H.delay`
   (`Hooks.delay`), or the page is never quiet. Its modules are split by area (`Tutorial.*`).
@@ -282,11 +282,11 @@ in play.
 A mounted tree runs on one loop (`Halogen.IO.Driver.Runtime`), as purescript-halogen runs on Aff:
 its state, children, renders and lifecycle are touched only there, one piece of work at a time, by
 whichever thread brings it work while it is idle. A component's program is a fiber: its
-synchronous parts run on the loop, and it waits only in `H.async` (also `lift`/`liftIO`; hooks: `Hooks.async`;
-`H.asyncWith` is `withRunInIO`), which runs on a worker thread while the rest of the tree goes on (as `liftAff`). What
+synchronous parts run on the loop, and it waits only in `H.async` (hooks: `Hooks.async`; with a runner for
+programs of the component, `H.asyncWith`), which runs on a worker thread while the rest of the tree goes on (as `liftAff`). What
 must happen at once — `preventDefault`, focusing, reading the DOM as it is, a synchronous API such as
-`localStorage`, a scene handed to a canvas in order — goes through `H.sync` (also `H.liftEffect`;
-hooks: `Hooks.sync`), which must not wait; one that takes over 50 ms is a
+`localStorage`, a scene handed to a canvas in order — goes through `H.sync` (hooks:
+`Hooks.sync`), which must not wait; one that takes over 50 ms is a
 `Halogen.Trace` `SlowSync`. Code written against `Halogen.Sync`'s `MonadSync` cannot suspend. An
 event such an effect dispatches is handled before the dispatch returns, nested in it
 (`enterCallback`), as the browser does, whether an element's handler or a subscription to a DOM
@@ -373,13 +373,13 @@ A pause is the exception, on purpose. `H.delay` (`Hooks.delay`), which takes a `
 same suspension with a worker killed with its fiber, made by `Runtime.awaitUncounted`, which does not count it: while
 it sleeps the fiber is neither running nor waiting, and once it wakes its continuation is queued like any other. Only
 the application knows which pauses a test should wait for, so it says so by how it writes them: a pause before work
-a test waits for (a debounce before a request, an autosave) is `H.delayCounted` (`Hooks.delayCounted`; `liftIO
+a test waits for (a debounce before a request, an autosave) is `H.delayCounted` (`Hooks.delayCounted`; `H.async
 (threadDelay n)` counts the same, on the real clock only) and counted, so a quiet program means the request was
 answered; one that only takes something off the screen or ticks (a "Saved" notice, a clock,
 `forever (H.delay 1 >> tick)`) is `H.delay`, which `waitQuiet` does not wait for. A test of either kind is in
 `core/test/Test/Activity.hs`.
 
-`Halogen.Activity.Control` is a native test's hold on a program: inside `withHeldWaits` a tree's `liftIO`s wait
+`Halogen.Activity.Control` is a native test's hold on a program: inside `withHeldWaits` a tree's `H.async`s wait
 before their action until `release` (`pending` gives them, oldest first, once the trees are idle and every waiting
 fiber is held), and inside `withTestClock` its pauses sleep on a clock only `advance` moves (each due sleeper woken
 in turn, the trees let go idle after each). A bracket controls the trees its own thread mounts inside it: `mount`
@@ -459,7 +459,7 @@ before 10.0 (issue #24773) can fail to link a module whose static binding is not
 used more than once (with `-O` the binding stays internal, and the static pointer table's entry
 has nothing to link to). On wasm a computation
 that does not wait holds the page's thread until it ends, whichever Haskell thread runs it: in
-`examples/worker` two seconds of counting in a component's `liftIO` without a worker let the
+`examples/worker` two seconds of counting in a component's `H.async` without a worker let the
 page draw one frame, against about 120 in a worker.
 
 ### The tutorial compiles in the browser

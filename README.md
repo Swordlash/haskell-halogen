@@ -179,7 +179,7 @@ main = runBrowserDOM $ do
   ...
 ```
 
-The component tree uses `StoreT`, which `runStoreT` removes before `runUI` mounts it. `Store.subscribe` converts selected value changes into component actions. Store operations use `H.liftEffect`, so updates and notifications happen within the action that triggered them. See [store/README.md](store/README.md) and tutorial lesson 15.
+The component tree uses `StoreT`, which `runStoreT` removes before `runUI` mounts it. `Store.subscribe` converts selected value changes into component actions. Store operations use `H.sync`, so updates and notifications happen within the action that triggered them. See [store/README.md](store/README.md) and tutorial lesson 15.
 
 ## Components that arrive later
 
@@ -203,15 +203,15 @@ Server.serve Server.defaultSettings {Server.pages = [("/", "web/live.html", "tex
 
 ## Fetching
 
-`haskell-halogen-net`'s `Halogen.Net.Fetch` is the browser's `fetch`. A component waits for a response in `lift`, and the request is aborted if the component goes away first:
+`haskell-halogen-net`'s `Halogen.Net.Fetch` is the browser's `fetch`. A component waits for a response in `H.async`, and the request is aborted if the component goes away first:
 
 ```haskell
 Load -> do
-  outcome <- fetch (request GET "/api/notes") >>= either (pure . Left) text
+  outcome <- H.async (fetch (request GET "/api/notes") >>= either (pure . Left) text)
   modify $ \st -> st {notes = outcome}
 ```
 
-`start` begins a request inside an event's dispatch (`H.liftEffect`) and gives a handle to wait for or abort later. A rejection (no response, or an abort) is a `Left JSError`; an HTTP error status is a response whose `ok` is `False`.
+`start` begins a request inside an event's dispatch (`H.sync`) and gives a handle to wait for or abort later. A rejection (no response, or an abort) is a `Left JSError`; an HTTP error status is a response whose `ok` is `False`.
 
 ## Custom elements
 
@@ -268,9 +268,9 @@ main = Worker.program $ runBrowserDOM $ do
   pool <- Worker.newPool 2
   ...
 -- and in a component:
-  n <- liftIO (Worker.run pool primes 2000000)
+  n <- H.async (liftIO (Worker.run pool primes 2000000))
 -- or several at once, across the pool's workers:
-  counts <- liftIO (mapConcurrently (uncurry (Worker.start pool primesBetween)) parts)
+  counts <- H.async (liftIO (mapConcurrently (uncurry (Worker.start pool primesBetween)) parts))
 ```
 
 A job's argument types are given as a type-level list (needs `DataKinds`). Pass the arguments to `Worker.run` and `Worker.start` after the job, in order. `Worker.program` handles jobs inside a worker and starts the UI on the page. Configure the program's files in `globalThis.halogenWorker` before startup; see [worker/README.md](worker/README.md). Without that configuration, on native GHC or in GHCi, jobs run inside the current program using the same encoding.
@@ -286,7 +286,7 @@ Use `Worker.cancel` to stop a job at its next `Worker.checkpoint`, or `Worker.ki
 ```haskell
 Initialize -> void (H.subscribe (Progress <$> listen "download-progress"))
 Save -> do
-  outcome <- invoke "save_note" SaveNote {noteId = 7, text = "…"}
+  outcome <- H.async (invoke "save_note" SaveNote {noteId = 7, text = "…"})
   modify $ \st -> st {saved = outcome}
 ```
 
@@ -302,7 +302,7 @@ counter = Hooks.component @Empty $ \_input -> Hooks.do
   (count, countId) <- Hooks.useState (0 :: Int)
 
   Hooks.useTickEffect count $ do
-    liftIO $ putStrLn ("count is now " <> show count)
+    Hooks.sync (liftIO (putStrLn ("count is now " <> show count)))
     pure Nothing
 
   Hooks.pure $
