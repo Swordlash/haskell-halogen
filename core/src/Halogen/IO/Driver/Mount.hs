@@ -72,9 +72,10 @@ data HalogenSocket query output m = HalogenSocket
   -- finalizer has ended.
   , waitActivityWith :: forall s. (Eq s) => STM s -> (Activity.Activity -> s -> Bool) -> m ()
   -- ^ 'waitActivity' with a predicate that also sees a value of the
-  -- caller's, read in 'STM', as 'Halogen.Activity.waitActivityWith'. A
-  -- change of the value wakes the wait. Take it apart with a pattern: a
-  -- field of this type has no @socket.waitActivityWith@.
+  -- caller's, read in 'STM', as in 'Halogen.Activity.waitActivityWith'. A
+  -- change of the value wakes the wait. The field is polymorphic, so
+  -- @socket.waitActivityWith@ does not work: take it out with a pattern, as
+  -- for 'query'.
   }
 
 data RenderSpec (m :: Type -> Type) (r :: Type -> Type -> Row Type -> Type -> Type) = RenderSpec

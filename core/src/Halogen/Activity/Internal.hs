@@ -119,9 +119,9 @@ waitReading extra reading done = waitReadingWith extra reading (\a _ -> done a)
 -- | 'waitReading', with a predicate that also sees the value of @extra@.
 --
 -- The value is read before the reading and again after it. When the two
--- differ, the pair is not of one moment, so the wait reads again at once
--- rather than judge it. When they agree, the predicate sees both, and a
--- later change of either wakes the wait, as for 'waitReading'.
+-- differ, the value changed during the reading, and the wait reads again at
+-- once. When they agree, the predicate sees both. A later change of either
+-- wakes the wait, as for 'waitReading'.
 waitReadingWith :: (Eq s) => STM s -> IO (Activity, Bool) -> (Activity -> s -> Bool) -> IO ()
 waitReadingWith extra reading done = watching go
   where

@@ -160,10 +160,10 @@ import Halogen.Activity.Internal
 waitActivity :: (Activity -> Bool) -> IO ()
 waitActivity = waitReading (pure ()) ((,False) <$> activity)
 
--- | 'waitActivity' with a predicate that also sees a value of the test's
--- own, read in 'STM': for a test that holds some of what the program waits
--- for, and counts what it holds. Return once the predicate holds for the
--- reading and the value together.
+-- | Wait as 'waitActivity' does, with a predicate that also sees a value of
+-- the test's own, read in 'STM'. Use it when the test holds some of what the
+-- program waits for and counts what it holds. It returns once the predicate
+-- holds for the reading and the value together.
 --
 -- No change is missed. The value is read before and after the trees, and
 -- the predicate judges it only when it did not change in between. Any
