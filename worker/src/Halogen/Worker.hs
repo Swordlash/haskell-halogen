@@ -342,7 +342,9 @@ start pool pointer = curried (deRefStaticPtr pointer) $ \bytes -> liftIO @m $ do
 -- goes on; the page's thread is free meanwhile, since the work is in the
 -- worker's. Consecutive calls in one thread wait for one another; 'start'
 -- several to use several workers. The job's arguments come after it, one by
--- one: @Worker.run pool primesBetween lo hi@.
+-- one: @Worker.run pool primesBetween lo hi@. The monad is told by the
+-- result's type once the job's arguments are known; a function of a job
+-- whose arguments are a type variable names it: @Worker.run \@IO pool job@.
 --
 -- An exception in the job, arguments it cannot decode, a result the
 -- caller cannot, a key the worker's program does not have, a worker that
