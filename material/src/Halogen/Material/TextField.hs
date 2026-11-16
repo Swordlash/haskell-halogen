@@ -223,11 +223,11 @@ textField =
       Initialize ->
         gets (.ref) >>= H.getHTMLElementRef >>= \case
           Just el -> do
-            mdcTextField <- lift $ initTextField el
+            mdcTextField <- H.sync $ initTextField el
             modify $ \s -> s {mdcTextField = Just mdcTextField}
           Nothing -> panic "Cannot initialize text field, no HTMLElement found"
       Finalize ->
-        gets (.mdcTextField) >>= traverse_ (lift . destroyTextField)
+        gets (.mdcTextField) >>= traverse_ (H.sync . destroyTextField)
       InputChange t -> do
         modify $ \s -> s {text = t} :: TextFieldState
         H.raise $ InputChanged t

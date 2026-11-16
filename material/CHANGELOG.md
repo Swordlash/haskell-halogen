@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+* Every component now sets up and tears down its MDC widget in place, with
+  `H.sync`. Before, it did this in `lift`, which suspended the program and
+  let other events run first. Now the widget is there before anything else
+  in the tree runs.
 * **Fix:** the checkbox's wrapper was classed `mdc-touch-targer-wrapper`,
   so MDC's touch-target styles never reached it.
 * Every component labels its element ref with `newRefLabel` rather than a fixed

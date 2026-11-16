@@ -112,10 +112,10 @@ checkbox =
       Initialize -> do
         gets (.ref) >>= H.getHTMLElementRef >>= \case
           Just el -> do
-            mdcFormField <- lift $ initCheckbox el
+            mdcFormField <- H.sync $ initCheckbox el
             modify $ \s -> s {mdcFormField = Just mdcFormField}
           Nothing -> panic "Cannot initialize checkbox!"
-      Finalize -> gets (.mdcFormField) >>= traverse_ (lift . destroyCheckbox)
+      Finalize -> gets (.mdcFormField) >>= traverse_ (H.sync . destroyCheckbox)
       Checked checked -> do
         modify $ \s -> s {checked} :: CheckboxState
         H.raise $ CheckboxChange checked

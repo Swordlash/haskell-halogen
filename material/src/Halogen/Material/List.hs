@@ -149,7 +149,7 @@ list =
       Initialize ->
         gets (.ref) >>= H.getHTMLElementRef >>= \case
           Just el -> do
-            mdcList <- lift $ initList el
+            mdcList <- H.sync $ initList el
             modify $ \s -> s {mdcList = Just mdcList}
             handleAction InitRipples
           Nothing -> panic "Cannot initialize list, no HTML element found"
@@ -157,12 +157,12 @@ list =
         handleAction DestroyRipples -- first destroy old ones
         gets (.mdcList) >>= \case
           Just l ->
-            void $ lift $ initListItems l
+            void $ H.sync $ initListItems l
           Nothing -> panic "Cannot initialize ripples, MDCList not initialized"
       DestroyRipples ->
-        traverse_ (lift . destroyRipple) =<< gets (.mdcItems)
+        traverse_ (H.sync . destroyRipple) =<< gets (.mdcItems)
       Finalize -> do
         handleAction DestroyRipples
-        traverse_ (lift . destroyList) =<< gets (.mdcList)
+        traverse_ (H.sync . destroyList) =<< gets (.mdcList)
       ChildAction i -> H.raise $ ChildOutput i
       Clicked i -> H.raise $ ClickedIndex i

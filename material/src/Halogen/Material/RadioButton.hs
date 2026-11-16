@@ -98,8 +98,8 @@ radio =
       Initialize -> do
         gets (.ref) >>= H.getHTMLElementRef >>= \case
           Just el -> do
-            mdcFormField <- lift $ initRadioButton el
+            mdcFormField <- H.sync $ initRadioButton el
             modify $ \s -> s {mdcFormField = Just mdcFormField}
           Nothing -> panic "Cannot initialize radio button!"
-      Finalize -> traverse_ (lift . destroyRadioButton) =<< gets (.mdcFormField)
+      Finalize -> traverse_ (H.sync . destroyRadioButton) =<< gets (.mdcFormField)
       Clicked -> gets (.label) >>= H.raise . RadioClicked
