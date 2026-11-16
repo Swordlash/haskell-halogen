@@ -24,6 +24,6 @@ The quoter uses GHC's own parser. It supports the WebAssembly compiler running h
 
 ## Exercise
 
-1. Display `st.items` in `<ol class="items">`. Inside it, write `{% for item in st.items %}`, `<li>{{ item }}</li>` and `{% end %}` on separate lines. The loop repeats its body for each item.
+1. Display `st.items` in `<ol class="items">`. Inside it, write `{% for item in st.items %}`, `<li>{{ item }}</li>` and `{% end %}` on separate lines. The loop repeats its body for each item. It works over any `Foldable`, so a `Maybe` shows its body once or not at all.
 2. Import `clay` alongside `hh`, `Clay (Css)` and `Clay qualified as C`. Define `style :: Css` with a `[clay| ... |]` quote. Add a `.card` block containing `.liked { color: {{ accent }}; }` and styles for `.items`. Define `accent = C.rgb 0xc0 0x30 0x60`.
 3. Insert `{{ style }}` first inside the card. Compile and click Like: the count turns red.

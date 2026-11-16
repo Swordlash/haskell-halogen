@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+* `{% for pattern in e %}` takes any `Foldable`, not only a list: a
+  `Maybe` loops once or not at all (`{% for user in st.selected %}` with
+  no `maybeToList`), and a `NonEmpty`, a `Seq`, a `Set` or a `Map` (its
+  values) loop in their order. A pattern that can fail still skips what it
+  does not match. The source goes through `Data.Foldable.toList`, except
+  when it is written as a list (a list literal, a range, a comprehension
+  or a string literal, in parentheses or not, or an `if`, `case` or `let`
+  with one as a result), which is drawn from as before: under
+  `OverloadedLists` or `OverloadedStrings` such a literal is of any
+  `IsList` or `IsString` type, and `toList` alone would leave that type
+  undecided. A source that only the loop made a list in some other way is
+  now ambiguous and needs a type: `pure x`, or a name bound to a literal,
+  as in `{% let s = "ab" %}{% for c in s %}` under `OverloadedStrings`
+  (`{% let s = "ab" :: String %}`). A source that is not `Foldable` (a
+  `Text`, an `Int`) is a type error at `toList` (`Couldn't match expected
+  type 't0 a0' with actual type 'Text'`) where it was one at the
+  comprehension. For a tool that builds its own `Env`
+  (`Halogen.TH.Template`), `Env` has a new field, `writtenAsList`:
+  `pure . isWrittenAsList` for an environment whose expressions are the
+  code itself.
+
 * The Haskell inside a quote is parsed by the `ghc` library of the compiler
   that compiles the module, rather than by `ghc-lib-parser`: a hole is read
   by the same parser, with the same extensions and the same messages, as

@@ -60,7 +60,7 @@ The expected type depends on where the expression appears:
 Template statements work in child lists, attribute lists, attribute text and CSS rule blocks. For example, a class can be conditional: `class="item {% if done %}done{% end %}"`. Supported statements are:
 
 - `{% if c %} … {% elif c %} … {% else %} … {% end %}`
-- `{% for pattern in list %} … {% end %}`, with any pattern: `{% for (i, x) in zip [1 ..] xs %}`
+- `{% for pattern in e %} … {% end %}`, with any pattern: `{% for (i, x) in zip [1 ..] xs %}`. `e` can be any `Foldable`: a list, a `Maybe` (no `maybeToList` needed; a `Just` loops once, a `Nothing` not at all), a `NonEmpty`, a `Seq`, a `Set`. A `Map` loops over its values; use `Map.toList m` for its key-value pairs. A `Text` is not `Foldable`; loop over `T.unpack t` for its characters. A pattern that can fail skips what it does not match: `{% for Just x in xs %}`.
 - `{% let pattern = e %}`, which binds for the rest of its sequence
 - `{# a comment #}`
 
