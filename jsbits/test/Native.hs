@@ -19,7 +19,7 @@ import Data.IORef (atomicModifyIORef', newIORef, readIORef)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Halogen.JSBits (Inert, JSVal, NativeObject (..), jsNull, jsValText, textValue, toJSBool, toJSInt, withNativeObject)
-import Halogen.JSBits.Fields (Member (..), jsCast, jsFields)
+import Halogen.JSBits.Fields (Member (..), declarations, jsCast, jsFields)
 import Halogen.JSBits.Native (JSVal (JSVal))
 
 newtype Thing = Thing JSVal
@@ -28,24 +28,25 @@ newtype Thing = Thing JSVal
 newtype Other = Other JSVal
   deriving newtype (Inert)
 
-$( jsFields
-     ''Thing
-     [ Method "poke" [t|Int -> Text -> IO ()|]
-     , Method "count" [t|IO Int|]
-     , Writable "label" ''Text
-     , Fixed "other" ''Other
-     , Fixed "size" ''Int
-     , Live "status" ''Text
-     , Live "pending" [t|Maybe Text|]
-     , Live "next" [t|Maybe Other|]
-     , Live "width" ''Int
-     , Live "shown" ''Bool
-     , Method "has" [t|Text -> IO Bool|]
-     , Method "find" [t|Text -> IO (Maybe Other)|]
+$( declarations
+     [ jsFields
+         ''Thing
+         [ Method "poke" [t|Int -> Text -> IO ()|]
+         , Method "count" [t|IO Int|]
+         , Writable "label" ''Text
+         , Fixed "other" ''Other
+         , Fixed "size" ''Int
+         , Live "status" ''Text
+         , Live "pending" [t|Maybe Text|]
+         , Live "next" [t|Maybe Other|]
+         , Live "width" ''Int
+         , Live "shown" ''Bool
+         , Method "has" [t|Text -> IO Bool|]
+         , Method "find" [t|Text -> IO (Maybe Other)|]
+         ]
+     , jsCast "toOther" ''Thing ''Other
      ]
  )
-
-$(jsCast "toOther" ''Thing ''Other)
 
 main :: IO ()
 main = do

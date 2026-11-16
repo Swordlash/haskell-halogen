@@ -11,7 +11,7 @@ where
 import Data.Foreign (Foreign)
 import HPrelude
 import Halogen.JSBits (Inert)
-import Halogen.JSBits.Fields (Member (..), jsFieldFunctions, jsFields)
+import Halogen.JSBits.Fields (Member (..), declarations, jsFieldFunctions, jsFields)
 import Halogen.JSBits.Promise (Promise (..))
 
 -- | The navigator's @Clipboard@: @nav.clipboard@ ("Web.HTML.Navigator"),
@@ -19,15 +19,16 @@ import Halogen.JSBits.Promise (Promise (..))
 newtype Clipboard = Clipboard (Foreign Clipboard)
   deriving newtype (Inert)
 
-$( jsFields
-     ''Clipboard
-     [ -- Put text on the clipboard, and wait until it is there. The browser
-       -- may refuse (the page does not have the focus, or the reader has
-       -- not allowed it), and the refusal is thrown as a
-       -- 'Halogen.JSBits.Promise.JSError' when the promise is awaited.
-       -- Natively it does nothing.
-       Method "writeText" [t|Text -> IO (Promise ())|]
+$( declarations
+     [ jsFields
+         ''Clipboard
+         [ -- Put text on the clipboard, and wait until it is there. The browser
+           -- may refuse (the page does not have the focus, or the reader has
+           -- not allowed it), and the refusal is thrown as a
+           -- 'Halogen.JSBits.Promise.JSError' when the promise is awaited.
+           -- Natively it does nothing.
+           Method "writeText" [t|Text -> IO (Promise ())|]
+         ]
+     , jsFieldFunctions ''Clipboard []
      ]
  )
-
-$(jsFieldFunctions ''Clipboard [])

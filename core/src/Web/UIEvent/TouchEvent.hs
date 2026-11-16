@@ -24,7 +24,7 @@ where
 import Data.Foreign (Foreign)
 import HPrelude hiding (length)
 import Halogen.JSBits (Inert, JSVal, isNull)
-import Halogen.JSBits.Fields (Member (..), inlineJS, jsCast, jsFieldFunctions, jsFields)
+import Halogen.JSBits.Fields (Member (..), declarations, inlineJS, jsCast, jsFieldFunctions, jsFields)
 import Web.Event.Internal.Types
 
 newtype TouchEvent = TouchEvent Event
@@ -42,45 +42,38 @@ newtype TouchList = TouchList (Foreign TouchList)
 newtype Touch = Touch (Foreign Touch)
   deriving newtype (Inert)
 
--- Pure, because what an event says about its touches is fixed when it is
--- made.
-$( jsFields
-     ''TouchEvent
-     [ -- Every finger on the screen.
-       Fixed "touches" ''TouchList
-     , -- The fingers the event is about: the ones that came down, moved or
-       -- went up.
-       Fixed "changedTouches" ''TouchList
+$( declarations
+     [ -- Pure, because what an event says about its touches is fixed when it is
+       -- made.
+       jsFields
+         ''TouchEvent
+         [ -- Every finger on the screen.
+           Fixed "touches" ''TouchList
+         , -- The fingers the event is about: the ones that came down, moved or
+           -- went up.
+           Fixed "changedTouches" ''TouchList
+         ]
+     , jsFields
+         ''TouchList
+         [ -- How many touches: fixed, since the list is the event's.
+           Fixed "length" ''Int
+         , -- The touch at a position, from 0, or 'Nothing' past the end.
+           Method "item" [t|Int -> IO (Maybe Touch)|]
+         ]
+     , jsFields
+         ''Touch
+         [ -- Where the finger is, in CSS pixels from the top left corner of
+           -- the viewport.
+           Fixed "clientX" ''Double
+         , Fixed "clientY" ''Double
+         ]
+     , jsFieldFunctions ''TouchEvent []
+     , jsFieldFunctions ''TouchList []
+     , jsFieldFunctions ''Touch []
+     , jsCast "fromEvent" ''Event ''TouchEvent
+     , inlineJS "js_first_changed_touch" "($1.changedTouches[0] ?? null)" [t|TouchEvent -> JSVal|]
      ]
  )
-
-$( jsFields
-     ''TouchList
-     [ -- How many touches: fixed, since the list is the event's.
-       Fixed "length" ''Int
-     , -- The touch at a position, from 0, or 'Nothing' past the end.
-       Method "item" [t|Int -> IO (Maybe Touch)|]
-     ]
- )
-
-$( jsFields
-     ''Touch
-     [ -- Where the finger is, in CSS pixels from the top left corner of
-       -- the viewport.
-       Fixed "clientX" ''Double
-     , Fixed "clientY" ''Double
-     ]
- )
-
-$(jsFieldFunctions ''TouchEvent [])
-
-$(jsFieldFunctions ''TouchList [])
-
-$(jsFieldFunctions ''Touch [])
-
-$(jsCast "fromEvent" ''Event ''TouchEvent)
-
-$(inlineJS "js_first_changed_touch" "($1.changedTouches[0] ?? null)" [t|TouchEvent -> JSVal|])
 
 -- | The first of the touches the event is about, read purely, so that a
 -- handler can decide in the event's listener where a touch started or

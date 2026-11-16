@@ -86,7 +86,7 @@ import Data.ByteString (ByteString)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import GHC.Conc (STM, atomically, newTVarIO, orElse, readTVar, retry, throwSTM, writeTVar)
-import Halogen.JSBits.Inline (inlineJS)
+import Halogen.JSBits.Inline (declarations, inlineJS)
 import Halogen.JSBits.Value (Callback, Inert (..), JSError (..), JSVal, checkThrown, freeCallback, fromJSBytes, inBrowser, jsNull, jsValText, mkCallback)
 
 -- | A JavaScript promise and the wait for its outcome.
@@ -121,17 +121,19 @@ notInBrowser = JSError {name = "NotInBrowserError", message = "there is no JavaS
 instance Inert (Promise a) where
   inert = rejected notInBrowser
 
-$( inlineJS
-     "js_then"
-     "Promise.resolve($1).then($2, (error) => $3({ ok: false, error: error }))"
-     [t|JSVal -> Callback -> Callback -> IO ()|]
+$( declarations
+     [ inlineJS
+         "js_then"
+         "Promise.resolve($1).then($2, (error) => $3({ ok: false, error: error }))"
+         [t|JSVal -> Callback -> Callback -> IO ()|]
+     , inlineJS "js_as_int" "Number($1)" [t|JSVal -> IO Int|]
+     , inlineJS "js_as_double" "Number($1)" [t|JSVal -> IO Double|]
+     , inlineJS "js_as_bool" "$1 === true" [t|JSVal -> IO Bool|]
+     , inlineJS "js_absent" "$1 === null || $1 === undefined" [t|JSVal -> IO Bool|]
+     , inlineJS "js_array_length" "Array.isArray($1) ? $1.length : 0" [t|JSVal -> IO Int|]
+     , inlineJS "js_array_index" "$1[$2]" [t|JSVal -> Int -> IO JSVal|]
+     ]
  )
-$(inlineJS "js_as_int" "Number($1)" [t|JSVal -> IO Int|])
-$(inlineJS "js_as_double" "Number($1)" [t|JSVal -> IO Double|])
-$(inlineJS "js_as_bool" "$1 === true" [t|JSVal -> IO Bool|])
-$(inlineJS "js_absent" "$1 === null || $1 === undefined" [t|JSVal -> IO Bool|])
-$(inlineJS "js_array_length" "Array.isArray($1) ? $1.length : 0" [t|JSVal -> IO Int|])
-$(inlineJS "js_array_index" "$1[$2]" [t|JSVal -> Int -> IO JSVal|])
 
 -- | How a promise's resolved value is read as a Haskell value. A newtype
 -- over a 'JSVal' (an object's type) derives it:

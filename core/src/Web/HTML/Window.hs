@@ -30,12 +30,14 @@ module Web.HTML.Window
 where
 
 import HPrelude hiding (print)
-import Halogen.JSBits.Fields (inlineJS, jsFieldFunctions)
+import Halogen.JSBits.Fields (declarations, inlineJS, jsFieldFunctions)
 import Web.DOM.Internal.Types (Window (..))
 
-$(jsFieldFunctions ''Window ["innerWidth", "innerHeight"])
-
-$(inlineJS "js_window" "window" [t|IO Window|])
+$( declarations
+     [ jsFieldFunctions ''Window ["innerWidth", "innerHeight"]
+     , inlineJS "js_window" "window" [t|IO Window|]
+     ]
+ )
 
 -- | The window the program runs in. Natively there is none, and this gives
 -- a placeholder whose every field has its inert answer: nothing done,

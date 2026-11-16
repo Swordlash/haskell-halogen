@@ -23,18 +23,18 @@ where
 import Data.Foreign (foreignToBool, readProp)
 import HPrelude
 import Halogen.JSBits (JSText, inBrowser, toJSText)
-import Halogen.JSBits.Fields (inlineJS, jsFieldFunctions)
+import Halogen.JSBits.Fields (declarations, inlineJS, jsFieldFunctions)
 import Web.Event.Internal.Types
 
 newtype EventType = EventType Text
 
-$(jsFieldFunctions ''Event ["preventDefault", "stopPropagation", "stopImmediatePropagation"])
-
-$(jsFieldFunctions ''EventTarget [])
-
-$(inlineJS "js_new_event" "new Event($1, { bubbles: $2 })" [t|JSText -> Bool -> IO Event|])
-
-$(inlineJS "js_default_prevented_now" "$1.defaultPrevented" [t|Event -> Bool|])
+$( declarations
+     [ jsFieldFunctions ''Event ["preventDefault", "stopPropagation", "stopImmediatePropagation"]
+     , jsFieldFunctions ''EventTarget []
+     , inlineJS "js_new_event" "new Event($1, { bubbles: $2 })" [t|JSText -> Bool -> IO Event|]
+     , inlineJS "js_default_prevented_now" "$1.defaultPrevented" [t|Event -> Bool|]
+     ]
+ )
 
 -- | 'defaultPrevented', read purely, as the event is when the answer is
 -- forced: for a handler that decides in the event's listener

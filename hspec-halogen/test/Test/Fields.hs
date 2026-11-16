@@ -13,7 +13,7 @@ module Test.Fields (spec) where
 import Data.MediaType (MediaType (..))
 import Data.Text qualified as T
 import Halogen.JSBits (JSText, toJSText)
-import Halogen.JSBits.Fields (inlineJS)
+import Halogen.JSBits.Fields (declarations, inlineJS)
 import Halogen.JSBits.Promise (JSError (..), wait, waitCatch)
 import Halogen.VDom.DOM.Monad (MonadBrowserDOM, window)
 import Protolude hiding (wait, waitCatch)
@@ -41,19 +41,19 @@ import Web.UIEvent.MouseEvent qualified as ME
 import Web.UIEvent.TouchEvent qualified as TE
 import Web.URL qualified as URL
 
--- Values only a page can make: a file, and events that nobody dispatches.
-$(inlineJS "js_new_file" "new File([$1], $2, { type: $3 })" [t|JSText -> JSText -> JSText -> IO File|])
-$(inlineJS "js_new_event" "new Event($1)" [t|JSText -> IO Event|])
-$(inlineJS "js_new_keydown" "new KeyboardEvent(\"keydown\", { key: $1, shiftKey: true })" [t|JSText -> IO Event|])
-$(inlineJS "js_new_custom_event" "new CustomEvent(\"fields-test\", { detail: $1 })" [t|JSText -> IO Event|])
-
--- A FileList, which only a drop, a paste or a file input makes, through a
--- DataTransfer of the test's own; a touch; and a change of focus.
-$(inlineJS "js_new_file_list" "(() => { const transfer = new DataTransfer(); transfer.items.add($1); return transfer.files; })()" [t|File -> IO FileList|])
-
-$(inlineJS "js_new_touchstart" "new TouchEvent(\"touchstart\", { changedTouches: [new Touch({ identifier: 1, target: $1, clientX: 5, clientY: 6 })] })" [t|DOM.Element -> IO Event|])
-
-$(inlineJS "js_new_focusout" "new FocusEvent(\"focusout\", { relatedTarget: $1 })" [t|DOM.Element -> IO Event|])
+$( declarations
+     [ -- Values only a page can make: a file, and events that nobody dispatches.
+       inlineJS "js_new_file" "new File([$1], $2, { type: $3 })" [t|JSText -> JSText -> JSText -> IO File|]
+     , inlineJS "js_new_event" "new Event($1)" [t|JSText -> IO Event|]
+     , inlineJS "js_new_keydown" "new KeyboardEvent(\"keydown\", { key: $1, shiftKey: true })" [t|JSText -> IO Event|]
+     , inlineJS "js_new_custom_event" "new CustomEvent(\"fields-test\", { detail: $1 })" [t|JSText -> IO Event|]
+     , -- A FileList, which only a drop, a paste or a file input makes, through a
+       -- DataTransfer of the test's own; a touch; and a change of focus.
+       inlineJS "js_new_file_list" "(() => { const transfer = new DataTransfer(); transfer.items.add($1); return transfer.files; })()" [t|File -> IO FileList|]
+     , inlineJS "js_new_touchstart" "new TouchEvent(\"touchstart\", { changedTouches: [new Touch({ identifier: 1, target: $1, clientX: 5, clientY: 6 })] })" [t|DOM.Element -> IO Event|]
+     , inlineJS "js_new_focusout" "new FocusEvent(\"focusout\", { relatedTarget: $1 })" [t|DOM.Element -> IO Event|]
+     ]
+ )
 
 spec :: forall m -> (MonadBrowserTest m, MonadBrowserDOM m) => Spec
 spec m = do
