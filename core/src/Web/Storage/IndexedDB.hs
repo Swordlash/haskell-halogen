@@ -39,8 +39,9 @@
 -- another; it closes itself when another tab upgrades the database (so as
 -- not to block it), and the next call then opens it again, failing with
 -- 'VersionTooLow' if this program is now older than the database. The
--- in-memory instance ('MemDOM') keeps every database in one global
--- 'Data.IORef.IORef', and behaves the same.
+-- in-memory instance ('MemDOM') keeps the databases in the program's page
+-- (each page has its own, see "Halogen.VDom.DOM.Monad.Native"), and behaves
+-- the same.
 --
 -- Calls made one after another happen in that order. Calls made at once
 -- from different threads happen in the order they reach the browser (and
@@ -77,8 +78,8 @@ import HPrelude hiding (get, getAll, put, waitCatch)
 import Halogen.JSBits (JSText, JSVal, Safety (..), browserJS, fromJSBytes, inBrowser, isNull, jsValText, toJSBytes, toJSText)
 import Halogen.JSBits.Promise (JSError (..), Promise (..), waitCatch)
 import Halogen.VDom.DOM.Monad.Browser (BrowserDOM)
-import Halogen.VDom.DOM.Monad.Mem (MemDOM)
-import System.IO.Unsafe (unsafePerformIO)
+import Halogen.VDom.DOM.Monad.Mem (MemDOM (..))
+import Halogen.VDom.DOM.Monad.Mem.Internal (MemDatabase (..), Page (..))
 import Web.Storage.Serialize
 
 -- | What a program expects a database to be.
@@ -322,21 +323,16 @@ elements array = do
 --------------------------------------------------------------------------------
 -- In memory
 
--- | A database as the in-memory instance keeps it.
-data MemDatabase = MemDatabase
-  { version :: Int
-  , stores :: Map StoreName (Map Text ByteString)
-  }
-
--- | Every database the in-memory instance holds, by name.
+-- | Every database the in-memory instance holds, by name: the program's
+-- page's.
 --
--- One global, as the browser has one IndexedDB per origin: every 'MemDOM' in
--- a process sees the same databases, which is how a test watches something
--- persist from one program to the next, and why a test that wants to start
--- from nothing deletes its database first (or uses a name of its own).
-{-# NOINLINE ambientDatabases #-}
-ambientDatabases :: IORef (Map Text MemDatabase)
-ambientDatabases = unsafePerformIO (newIORef M.empty)
+-- Each page has its own, as each browser profile has its own. Every program
+-- in the ambient page ('Halogen.VDom.DOM.Monad.runMemDOM') sees the same
+-- databases. That is how a test watches something persist from one program
+-- to the next. A test that wants to start from nothing deletes its database
+-- first, uses a name of its own, or uses a page of its own.
+pageDatabases :: MemDOM (IORef (Map Text MemDatabase))
+pageDatabases = MemDOM (asks (.databases))
 
 -- | IndexedDB as the browser has it, in memory: the same upgrades, the same
 -- failures for a version that is too low or a store that was never made,
@@ -353,13 +349,15 @@ instance MonadIndexedDB MemDOM where
 
   writeMany _ [] = pure ()
   writeMany db writes = withDatabase db $ \present ->
-    case find (`M.notMember` present) [store | (store, _, _) <- writes] of
+    case find ((`M.notMember` present) . storeKey) [store | (store, _, _) <- writes] of
       Just missing -> Left (StoreNotFound missing)
       Nothing -> Right (foldl' write present writes, ())
     where
-      write present (store, key, value) = M.adjust (M.alter (const value) key) store present
+      write present (store, key, value) = M.adjust (M.alter (const value) key) (storeKey store) present
 
-  deleteDatabase name = liftIO $ atomicModifyIORef'_ ambientDatabases (M.delete name)
+  deleteDatabase name = do
+    databases <- pageDatabases
+    liftIO $ atomicModifyIORef'_ databases (M.delete name)
 
 -- | How IndexedDB orders keys of text: by their UTF-16 code units, as
 -- JavaScript compares strings. 'Text' compares code points, which agrees
@@ -375,16 +373,21 @@ utf16Order = comparing (concatMap units . T.unpack)
 
 -- | Do something to one store of a database.
 withStore :: Database -> StoreName -> (Map Text ByteString -> (Map Text ByteString, a)) -> MemDOM a
-withStore db store f = withDatabase db $ \present -> case M.lookup store present of
+withStore db store f = withDatabase db $ \present -> case M.lookup (storeKey store) present of
   Nothing -> Left (StoreNotFound store)
-  Just entries -> Right (first (\changed -> M.insert store changed present) (f entries))
+  Just entries -> Right (first (\changed -> M.insert (storeKey store) changed present) (f entries))
+
+-- | A store's name as the page keeps it.
+storeKey :: StoreName -> Text
+storeKey (StoreName name) = name
 
 -- | Open a database, as the browser would, and do something to its stores,
 -- all in one step. An upgrade that opening it makes is kept even if what is
 -- done then fails, as in the browser, where opening is a step of its own.
-withDatabase :: Database -> (Map StoreName (Map Text ByteString) -> Either IndexedDBFailure (Map StoreName (Map Text ByteString), a)) -> MemDOM a
-withDatabase db f = liftIO $ do
-  outcome <- atomicModifyIORef' ambientDatabases $ \databases ->
+withDatabase :: Database -> (Map Text (Map Text ByteString) -> Either IndexedDBFailure (Map Text (Map Text ByteString), a)) -> MemDOM a
+withDatabase db f = do
+  page <- pageDatabases
+  outcome <- liftIO $ atomicModifyIORef' page $ \databases ->
     case opened (M.lookup db.name databases) of
       Left failure -> (databases, Left failure)
       Right current -> case f current.stores of
@@ -407,5 +410,5 @@ withDatabase db f = liftIO $ do
     upgraded current =
       MemDatabase
         { version = db.version
-        , stores = M.union current.stores (M.fromSet (const M.empty) (S.fromList db.stores))
+        , stores = M.union current.stores (M.fromSet (const M.empty) (S.fromList (map storeKey db.stores)))
         }
