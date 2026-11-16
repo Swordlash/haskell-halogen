@@ -38,6 +38,13 @@
 --   rendered is connected and an event reaches the listeners a component
 --   put on the document or the window; an element made with 'newElement'
 --   is in no document.
+-- * To run tests side by side, give each one a page of its own. Each page
+--   has its own document and storage. Events in one page do not reach
+--   listeners in another:
+--
+-- > page <- N.newPage
+-- > container <- N.newContainerIn page
+-- > socket <- N.runMemDOMIn page (runUI component input (N.fromNative container))
 -- * 'dispatch' an event at a node: it bubbles as in a page, with the node
 --   as its target, and the handlers' actions are handled before it returns
 --   when the tree's loop is free. What a program then waits for in a
@@ -64,6 +71,14 @@ module Halogen.VDom.DOM.Monad.Native
   , NodeKind (..)
   , PropScalar (..)
   , Listener (..)
+
+    -- * Pages
+  , Page
+  , newPage
+  , ambientPage
+  , runMemDOMIn
+  , pageDocument
+  , newContainerIn
 
     -- * Constructing documents
   , newDocument
@@ -101,7 +116,7 @@ where
 import Control.Exception.Safe (throwString)
 import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as KeyMap
-import Data.Dynamic (fromDynamic)
+import Data.Dynamic (fromDynamic, toDyn)
 import Data.Foreign (toForeign, unsafeFromForeign)
 import Data.Map.Strict qualified as M
 import Data.Text qualified as T
@@ -113,6 +128,7 @@ import Halogen.JSBits.Native (Callback (..), JSVal (JSVal))
 import Halogen.VDom.DOM.Monad.Class hiding (querySelector)
 import Halogen.VDom.DOM.Monad.Class qualified as Class
 import Halogen.VDom.DOM.Monad.Mem
+import Halogen.VDom.DOM.Monad.Mem.Internal (Page (..), ambientPage, newPageWith)
 import Halogen.VDom.DOM.Monad.Native.Selector (Refusal (..), Selector, Subject (..), matches, parseSelector)
 import Halogen.VDom.Types
 import Numeric (floatToDigits)
@@ -185,31 +201,46 @@ identSource = unsafePerformIO (newIORef 0)
 nextIdent :: IO Int
 nextIdent = atomicModifyIORef' identSource $ \n -> (n + 1, n)
 
--- | The ambient document, which is also the window: what
+-- | The ambient page's document, which is also its window. In 'runMemDOM',
 -- 'Halogen.VDom.DOM.Monad.window' and 'Halogen.VDom.DOM.Monad.document'
--- give. They take no arguments, so the class can only be satisfied by a
--- global. A component that listens on the document or the window listens
--- on it, and 'newContainer' makes the elements to mount into in it; a test
--- that wants a tree of its own, which no component's document listener
--- hears, builds a root with 'newDocument' instead.
+-- return it. There is one for the process. 'newContainer' makes its
+-- containers in it.
 {-# NOINLINE ambientDocument #-}
 ambientDocument :: NativeNode
 ambientDocument = unsafePerformIO newDocument
 
--- | What the in-memory DOM keeps instead of the browser's stores.
+-- | Create a page. It has its own document, which is also its window, and
+-- its own local storage, session storage and IndexedDB, all empty.
 --
--- One global, for the same reason 'ambientDocument' is one: the class hands a
--- backend a 'StorageKind' and nothing else to key on. It is never emptied
--- between components, which is the point — that is how a test watches
--- something persist across a remount — so a test that cares about starting
--- from nothing should 'Web.Storage.Storage.clear' first.
-{-# NOINLINE ambientStorage #-}
-ambientStorage :: IORef (Map StorageKind (Map Text Text))
-ambientStorage = unsafePerformIO (newIORef M.empty)
+-- Make a container in it with 'newContainerIn', then mount with
+-- 'runMemDOMIn'. Events in one page do not reach listeners in another. A
+-- tree stays in the page it was mounted in: its listeners, fibers and
+-- finalizers see this page's window and storage.
+--
+-- Nothing global holds a page. It is garbage once its trees are disposed of
+-- and the test drops it.
+newPage :: IO Page
+newPage = newDocument >>= newPageWith . toDyn
 
--- | One of the two stores, empty until something is written to it.
-store :: StorageKind -> Map StorageKind (Map Text Text) -> Map Text Text
-store kind = M.findWithDefault M.empty kind
+-- | Run a program in a page. 'Halogen.VDom.DOM.Monad.window',
+-- 'Halogen.VDom.DOM.Monad.document' and storage return the page's.
+-- 'runMemDOM' does the same with the ambient page.
+runMemDOMIn :: Page -> MemDOM a -> IO a
+runMemDOMIn page (MemDOM m) = runReaderT m page
+
+-- | The page's document, which is also its window.
+pageDocument :: Page -> NativeNode
+pageDocument page = fromMaybe ambientDocument (fromDynamic =<< page.document)
+
+-- | The page a program runs in.
+currentPage :: MemDOM Page
+currentPage = MemDOM ask
+
+-- | The page's local or session storage.
+storageOf :: StorageKind -> Page -> IORef (Map Text Text)
+storageOf = \case
+  LocalStorage -> (.localStore)
+  SessionStorage -> (.sessionStore)
 
 -- | A fresh document containing @\<html>\<head>\<\/head>\<body>\<\/body>\<\/html>@,
 -- so 'Halogen.IO.Util.awaitBody' finds a body the way it would in a browser.
@@ -243,19 +274,21 @@ newElement ns name = newNode (ElementNode ns name)
 -- or a "Halogen.Query.Event.Window" emitter, hears it.
 --
 -- The ambient document is the one 'Halogen.VDom.DOM.Monad.window' and
--- 'Halogen.VDom.DOM.Monad.document' give, one for the whole program: every
--- container is in it, every component's document listeners are on it, and
--- an event that reaches it reaches all of them, as in one page. A test that
--- mounts components side by side whose document listeners must not hear
--- each other's events mounts them one after another, and disposes of each
--- (taking its container out with the DOM's @remove@ if it likes) before
--- the next.
+-- 'Halogen.VDom.DOM.Monad.document' return in 'runMemDOM'. There is one for
+-- the whole program. Every container made here is in it, and an event that
+-- reaches it reaches every component's document listeners. For tests that
+-- run side by side, use 'newPage' and 'newContainerIn' instead.
 newContainer :: IO NativeNode
-newContainer = do
+newContainer = newContainerIn ambientPage
+
+-- | Add a new @div@ at the end of a page's @body@, like 'newContainer'.
+-- Mount into it with 'runMemDOMIn' and the same page.
+newContainerIn :: Page -> IO NativeNode
+newContainerIn page = do
   container <- newElement Nothing "div"
   body <-
-    documentChild "body" ambientDocument
-      >>= maybe (throwString "Halogen.VDom.DOM.Monad.Native.newContainer: the ambient document has no body") pure
+    documentChild "body" (pageDocument page)
+      >>= maybe (throwString "Halogen.VDom.DOM.Monad.Native.newContainerIn: the page's document has no body") pure
   insertNative container Nothing body
   pure container
 
@@ -1565,9 +1598,12 @@ instance MonadDOM MemDOM where
   elementToEventTarget el = pure (fromNative (toNative el))
 
   -- The event type is not known until addEventListener; it is filled in there.
-  mkEventListener f = liftIO $ do
-    i <- nextIdent
-    pure $ fromListener $ Listener {ident = i, eventType = "", fire = f}
+  -- A listener runs in the page it was made in, whoever dispatches the
+  -- event. So a tree's listeners stay in the tree's page.
+  mkEventListener f = do
+    page <- currentPage
+    i <- liftIO nextIdent
+    pure $ fromListener $ Listener {ident = i, eventType = "", fire = liftIO . runMemDOMIn page . f}
 
   createTextNode txt _ = liftIO $ do
     node <- newNode TextNode
@@ -1611,20 +1647,23 @@ instance MonadDOM MemDOM where
     ElementNode {} -> Just (fromNative (toNative node))
     _ -> Nothing
 
+  -- Trees on different threads can add listeners to one document at the
+  -- same time, so the change is atomic.
   addEventListener (EventType ty) listener target =
     liftIO
-      $ modifyIORef' (toNative target).listeners (<> [(toListener listener) {eventType = ty}])
+      $ atomicModifyIORef'_ (toNative target).listeners (<> [(toListener listener) {eventType = ty}])
 
   removeEventListener (EventType ty) listener target = liftIO $ do
     let gone = toListener listener
-    modifyIORef' (toNative target).listeners
+    atomicModifyIORef'_ (toNative target).listeners
       $ filter (\l -> not (l.ident == gone.ident && l.eventType == ty))
 
 -- Nothing to wait for: the tree is built synchronously.
 
 -- | The in-memory tree answers the browser-shaped queries too, so that the
 -- driver and Halogen.IO.Util compile and can be exercised natively. There is
--- no window here; 'ambientDocument' stands in for one.
+-- no window here: the page's document stands in for one. The window, the
+-- document and storage belong to the page the program runs in ('newPage').
 instance MonadBrowserDOM MemDOM where
   insertBefore inserted sibling parent = liftIO $ do
     let child = toNative inserted
@@ -1644,19 +1683,25 @@ instance MonadBrowserDOM MemDOM where
       detach old
   windowToEventTarget w = pure (coerce w)
   documentToNode d = pure (coerce d)
-  window = liftIO $ pure (fromNative ambientDocument)
-  document _ = liftIO $ pure (fromNative ambientDocument)
+  window = fromNative . pageDocument <$> currentPage
+  document _ = fromNative . pageDocument <$> currentPage
   querySelector (QuerySelector selector) parent =
     liftIO
       $ fmap fromNative
       <$> querySelector selector (toNative parent)
   readyState _ = liftIO $ pure ReadyState.Complete
-  readStorageItem kind key = liftIO $ M.lookup key . store kind <$> readIORef ambientStorage
-  writeStorageItem kind key text =
-    liftIO $ atomicModifyIORef'_ ambientStorage $ M.insertWith M.union kind (M.singleton key text)
-  removeStorageItem kind key =
-    liftIO $ atomicModifyIORef'_ ambientStorage $ M.adjust (M.delete key) kind
-  storageItemKeys kind = liftIO $ M.keys . store kind <$> readIORef ambientStorage
+  readStorageItem kind key = do
+    stored <- storageOf kind <$> currentPage
+    liftIO $ M.lookup key <$> readIORef stored
+  writeStorageItem kind key text = do
+    stored <- storageOf kind <$> currentPage
+    liftIO $ atomicModifyIORef'_ stored (M.insert key text)
+  removeStorageItem kind key = do
+    stored <- storageOf kind <$> currentPage
+    liftIO $ atomicModifyIORef'_ stored (M.delete key)
+  storageItemKeys kind = do
+    stored <- storageOf kind <$> currentPage
+    liftIO $ M.keys <$> readIORef stored
 
 instance MonadAttributes MemDOM where
   setAttribute ns (AttrName name) val el =

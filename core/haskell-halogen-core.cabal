@@ -238,6 +238,7 @@ library
       Halogen.Activity.Signal
       Halogen.IO.Driver.Mount
       Halogen.Trace.Internal
+      Halogen.VDom.DOM.Monad.Mem.Internal
     
     hs-source-dirs:   src
 
@@ -322,6 +323,7 @@ test-suite Halogen-core-test
                     Test.NativeDispatch
                     Test.NativeDom
                     Test.NativeEvents
+                    Test.Pages
                     Test.Refs
                     Test.RenderRecovery
                     Test.Runtime

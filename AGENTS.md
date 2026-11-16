@@ -249,7 +249,8 @@ A component evaluates in the monad the DOM is spoken in. Each backend is a newty
 `BrowserDOM` (instances in `Halogen.VDom.DOM.Monad.JSFFI`, one module for both browser backends),
 `MemDOM` (in-memory tree, instance in `.Native`, native only — this is what native tests render into, and drive
 as a page: `N.dispatch` bubbles an event from a node with it as the target, `N.newContainer` mounts in the ambient
-document so that document listeners hear it and `isConnected` holds, `N.querySelectorAll`/`textContent`/`attribute`
+document so that document listeners hear it and `isConnected` holds (`N.newPage` and `N.newContainerIn` give a test a
+page of its own, with its own document and storage, and `N.runMemDOMIn` mounts there), `N.querySelectorAll`/`textContent`/`attribute`
 read the tree, with the selectors `.Native.Selector` understands and an exception for any other),
 `PixiDOM` in `pixi`, `ThreeDOM` in `three` and `RemoteDOM` in `remote` (whose DOM is a mirror of a page
 across a wire; its handles hold node numbers). Natively a `JSVal` is a `Dynamic` of what it was made
