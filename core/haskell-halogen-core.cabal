@@ -119,6 +119,7 @@ library
       Halogen
       Halogen.Activity
       Halogen.Activity.Control
+      Halogen.Latest
 
       Halogen.VDom
       Halogen.Data.Slot
@@ -321,6 +322,7 @@ test-suite Halogen-core-test
                     Test.Hydrate
                     Test.IndexedDB
                     Test.IndexedRows
+                    Test.Latest
                     Test.NativeAnswers
                     Test.NativeDispatch
                     Test.NativeDom

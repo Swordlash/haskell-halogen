@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+`Halogen.Latest` keeps an old answer from replacing a newer one. A component
+takes a ticket with `asking` when it starts an ask, and takes the answer with
+`answered`. An answer is taken unless an answer to a later ask was taken
+already. `supersede` drops every answer still out, for when the input changes.
+
 `Halogen.Test.Native` is a harness for testing a component natively, on the
 in-memory DOM. Mount a component with `withView`. It gets a page of its own,
 so tests can run side by side. Click with `click`, type with `typeInto`, and
