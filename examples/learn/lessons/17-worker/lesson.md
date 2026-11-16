@@ -22,7 +22,7 @@ primes :: StaticPtr (Worker.Job '[Int] Int)
 primes = static (Worker.job (\n -> pure (countPrimes n)))
 ```
 
-`Worker.job` wraps a function returning its result in `IO`. The function can take any number of arguments. `'[Int]` is the list of their types, a type-level list, which needs `DataKinds`: a job of two arguments is a `Worker.Job '[Int, Int] Int`, and one of none a `Worker.Job '[] Int`. Arguments and result must have `Binary` instances from `Data.Binary`; the job stores their codecs. Encoded bytes travel in transferred buffers.
+`Worker.job` wraps a function returning its result in `IO`. The function can take any number of arguments, specified as a type-level list (needs `-XDataKinds`). An action with no arguments uses `'[]`. All the arguments and result must have `Binary` instances from `Data.Binary`; the job stores their codecs. Encoded bytes travel in transferred buffers.
 
 `static` expressions may use top-level functions such as `countPrimes`, but cannot capture local variables. GHC checks this. Pass runtime data as the job's arguments.
 
@@ -37,13 +37,13 @@ main = Worker.program $ runBrowserDOM $ do
 
 On the page, `Worker.program` runs the UI setup. Inside a worker, it serves job requests instead. The pool starts each worker on its first job using `globalThis.halogenWorker` configuration. Here the tutorial configures a custom compiler-loading script, so `Worker.available` reports `True`.
 
-`Worker.run pool primes 50000` submits the job and waits for its result. The job's arguments follow it, one by one, as in a function call. Call it through `liftIO` so the component loop can continue handling actions. `H.liftEffect` must not wait.
+`Worker.run pool primes 50000` submits the job and waits for its result. The job's arguments follow it in order, one by one. Call it through `liftIO` so the component loop can continue handling actions. `H.liftEffect` must not wait.
 
 When workers are unavailable, the job runs on a Haskell thread in the current program using the same encoding. That fallback does not move computation off the browser thread. For concurrent jobs, `Worker.start` returns a promise without waiting; the compiled example uses it across several workers.
 
 ## Exercise
 
-Define `primes` as above, import `GHC.StaticPtr (StaticPtr)` and export `primes` alongside `component`. The lesson's file already turns on `DataKinds`. Exporting static bindings avoids a GHC linker issue described in the worker documentation.
+Define `primes` as above, import `GHC.StaticPtr (StaticPtr)` and export `primes` alongside `component`. Exporting static bindings avoids a GHC linker issue described in the worker documentation.
 
 Replace the calculation in `Count` with:
 
@@ -61,7 +61,7 @@ Now try capturing a local value. After `before <- gets (.frame)` in `Count`, use
 outcome <- liftIO (try (Worker.run pool (static (Worker.job (pure (countPrimes (50000 + before)))))))
 ```
 
-Compilation fails because `before` is local to the handler. The worker cannot access it. Pass any such value as an argument instead. This job takes none, so `Worker.run` takes nothing after it.
+Compilation fails because `before` is local to the handler. The worker cannot access it. Pass any such value as an argument instead.
 
 ## Stopping a job
 
@@ -95,7 +95,7 @@ both <- liftIO $ runPar pool $ do
   pure (a, b, c)
 ```
 
-`task` takes the job's arguments like `Worker.run`; `primesBetween` takes two, the ends of a part. `traverse` creates one task per part. `runPar` groups calls by job and splits them into batches. Workers take the next batch when ready, so faster workers can process more batches. Results preserve input order.
+`task` takes the same arguments as `Worker.run`; `primesBetween` here takes two - start and end of a part. `traverse` creates one task per part. `runPar` groups calls by job and splits them into batches. Workers take the next batch when ready, so faster workers can process more batches. Results preserve input order.
 
 With `ApplicativeDo`, independent statements run together: `a` and `b` can start at once, while `c` waits for both. A failed call ends `runPar` with a `Worker.WorkerError` identifying the job and call index, and cancels remaining batches.
 

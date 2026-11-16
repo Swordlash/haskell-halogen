@@ -6,7 +6,7 @@ Run expensive Haskell functions in Web Workers so the browser can keep drawing a
 
 ## Define a job and run it
 
-A job wraps a function that returns its result in `IO`. It can take any number of arguments, and its type lists them: `Worker.Job '[Int, Int] Int` is the job of an `Int -> Int -> IO Int`, `Worker.Job '[Int] Int` takes one argument and `Worker.Job '[] Int` none. The list is a type-level list, so the module needs `DataKinds`. The page and the worker communicate through `postMessage`, and this library uses `Data.Binary` to encode the values they exchange. The arguments and the result must therefore have `Binary` instances. You can derive these with `Generic` and `deriving anyclass (Binary)`.
+A job wraps a function that returns its result in `IO`. It can take any number of arguments, specified in a type-level list (first type argument of `Worker.Job`). For instance, `Worker.Job '[Int, Int] Int` is a job wrapping `Int -> Int -> IO Int` action, `Worker.Job '[Int] Int` takes one argument and `Worker.Job '[] Int` takes none. The page and the worker communicate through `postMessage`, and this library uses `Data.Binary` to encode the values they exchange. The arguments and the result must therefore have `Binary` instances. You can derive these with `Generic` and `deriving anyclass (Binary)`.
 
 Create the job with `Worker.job`, then use `static` to give it a static pointer. This requires GHC's `StaticPointers` extension:
 
@@ -24,7 +24,7 @@ primesBetween :: StaticPtr (Worker.Job '[Int, Int] Int)
 primesBetween = static (Worker.job (\lo hi -> pure (countBetween lo hi)))
 ```
 
-GHC can also infer the job's type from the function. `static (Worker.job countSlowly)` with `countSlowly :: Int -> IO Int` is a `Worker.Job '[Int] Int`, and a lambda that ends in `pure` runs in `IO`.
+The list of argument types needs the `DataKinds` extension. The type signature is optional: GHC can infer the job's type from the function. For example, `static (Worker.job countSlowly)` with `countSlowly :: Int -> IO Int` has type `StaticPtr (Worker.Job '[Int] Int)`.
 
 Wrap your `main` in `Worker.program`. Inside it, create a pool and pass it to the components that need workers:
 
@@ -45,7 +45,7 @@ handleAction Count = do
   modify (\st -> st {primes = Just n})
 ```
 
-The job's arguments follow it, one by one, as in a function call: `Worker.run pool primesBetween 0 1000000`.
+Pass the job's arguments after the job, in order: `Worker.run pool primesBetween 0 1000000`. `run` and `start` return in `IO`, so call them through `liftIO` in a component.
 
 `run` submits a job and waits for its result. `start` submits a job and immediately returns a `Halogen.JSBits.Promise`. This lets you submit several jobs before waiting, so the pool can run them in parallel. Use the functions from `Halogen.JSBits.Promise` to wait for their results:
 
@@ -171,7 +171,7 @@ counts <- liftIO (runPar pool (traverse (uncurry (task primesBetween)) parts))
   pure (a, b, c)
 ```
 
-`task job arguments...` describes one job call, with the job's arguments one by one, as in `run`. Applicative composition (`<*>`) collects independent tasks so they can be submitted together. Monadic composition (`>>=`) waits for earlier results before creating dependent tasks. With `ApplicativeDo`, GHC can group independent statements in a `do` block automatically. Results are not cached: requesting the same task twice runs it twice.
+`task job arg1 arg2 ...` describes one job call. It takes the same arguments as `Worker.run`. Applicative composition (`<*>`) collects independent tasks so they can be submitted together. Monadic composition (`>>=`) waits for earlier results before creating dependent tasks. With `ApplicativeDo`, GHC can group independent statements in a `do` block automatically. Results are not cached: requesting the same task twice runs it twice.
 
 `runPar pool computation` executes the computation in rounds. In each round, it collects the tasks that are ready to run, groups them by job, and splits each group into batches. It creates up to four batches per worker for each job, with fewer batches when there are fewer calls. Each batch is one request, and its calls run sequentially inside a worker.
 
@@ -185,7 +185,7 @@ Batching is most useful when the calls in each batch add up to seconds of work, 
 
 ## Data on the wire
 
-The library encodes arguments and results with `Data.Binary`. A request contains the job's static key and a list with the encoded arguments of each call: a call's arguments are encoded one after another, so a call of one argument sends what `encode` gives for it. The page sends it in an `ArrayBuffer` and transfers ownership of that buffer to the worker, avoiding a copy during `postMessage`. The worker sends the encoded results back the same way.
+The library encodes arguments and results with `Data.Binary`. A request contains the job's static key and the encoded arguments of each call. The arguments of one call are encoded one after another. The page sends it in an `ArrayBuffer` and transfers ownership of that buffer to the worker, avoiding a copy during `postMessage`. The worker sends the encoded results back the same way.
 
 A reply contains the results up to the first failed call, followed by the failure if there was one. This lets `Par` send several calls in a single request.
 
@@ -199,7 +199,7 @@ Use hspec-halogen's isolated browser contexts to run UI tests in parallel. Use t
 
 ## Tests
 
-`Halogen-worker-test` covers encoding, decoding, jobs of none, one, several and ten arguments with their types inferred, static key lookup, errors, promises, cancellation, the `Par` planner, `runPar` and fallback execution. It runs natively and under Node on both browser backends.
+`Halogen-worker-test` covers encoding, decoding, jobs with zero to ten arguments, type inference, static key lookup, errors, promises, cancellation, the `Par` planner, `runPar` and fallback execution. It runs natively and under Node on both browser backends.
 
 The native test suite in `examples/worker/test` uses haskell-halogen-playwright to test real workers in Chromium. Build the example and run it with:
 

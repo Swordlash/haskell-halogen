@@ -273,7 +273,7 @@ main = Worker.program $ runBrowserDOM $ do
   counts <- liftIO (mapConcurrently (uncurry (Worker.start pool primesBetween)) parts)
 ```
 
-A job's type lists its arguments (`'[Int, Int]` is a type-level list, which needs `DataKinds`), and `Worker.run` and `Worker.start` take them one by one after the job. `Worker.program` handles jobs inside a worker and starts the UI on the page. Configure the program's files in `globalThis.halogenWorker` before startup; see [worker/README.md](worker/README.md). Without that configuration, on native GHC or in GHCi, jobs run inside the current program using the same encoding.
+A job's argument types are given as a type-level list (needs `DataKinds`). Pass the arguments to `Worker.run` and `Worker.start` after the job, in order. `Worker.program` handles jobs inside a worker and starts the UI on the page. Configure the program's files in `globalThis.halogenWorker` before startup; see [worker/README.md](worker/README.md). Without that configuration, on native GHC or in GHCi, jobs run inside the current program using the same encoding.
 
 Use `Worker.cancel` to stop a job at its next `Worker.checkpoint`, or `Worker.kill` to terminate its worker immediately. `Worker.run` cancels its job if its wait is interrupted. For many independent tasks, `Halogen.Worker.Par` batches them across the pool: `runPar pool (traverse (uncurry (task primesBetween)) parts)`.
 

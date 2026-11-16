@@ -329,7 +329,7 @@ component pool =
       -- Timed from before the start: where no worker can be made, the
       -- forked job can run to its end before this thread runs again.
       start <- liftIO getMonotonicTime
-      job <- Worker.start pool pointer n
+      job <- liftIO (Worker.start pool pointer n)
       modify (\st -> st {current = Just job})
       result <- liftIO (Promise.waitCatch job `onException` Worker.cancel pool job)
       end <- liftIO getMonotonicTime

@@ -61,15 +61,18 @@ binding is not exported and is used more than once. The types a job takes and gi
 (Binary)` with `Generic`) in place of `FromJSON` and `ToJSON`. And `Worker.program` and
 `Worker.serve` take no table: `SomeJob` and `some` are gone.
 
-A job is a function of any number of arguments, curried: `Job '[Int, Text] Int` is the job of an
-`Int -> Text -> IO Int`, and `run pool job 1 "a"`, `start pool job 1 "a"` and `task job 1 "a"`
-take the arguments one by one after the job. The list of a job's arguments is a type-level list,
-which needs `DataKinds`. Code written for jobs of one argument, `Job a b` of an `a -> IO b`,
-changes its types: a `Job Int Int` is now a `Job '[Int] Int`, and a job that took `()` for want of
-an argument can be a `Job '[] b` of an `IO b`, run with `run pool job`. A tuple or a record that
-only packed several arguments into one can become arguments of their own: the job's function takes
-them as a function does (`\lo hi -> ...` for `\(lo, hi) -> ...`), and a call that had them in a
-pair, as in `mapConcurrently (start pool job) pairs`, uncurries it (`uncurry (start pool job)`).
-`job` infers the job's type from its function when there is no signature, and a lambda that ends in
-`pure` runs in `IO`. The bytes on the wire do not change: a call's arguments are encoded one after
-another, which for one argument is what `encode` gave before.
+A job can now take any number of arguments. The first type argument of `Job` is a type-level list
+of the argument types (needs `DataKinds`): `Job '[Int, Text] Int` wraps an `Int -> Text -> IO Int`.
+`run`, `start` and `task` take the arguments after the job, in order: `run pool job 1 "a"`.
+
+To upgrade:
+
+- `Job Int Int` becomes `Job '[Int] Int`. Calls of the job stay the same.
+- A job that took `()` can become a `Job '[] b`, made from an `IO b` and run with `run pool job`.
+- A job that took a tuple can take separate arguments: `\lo hi -> ...` in place of
+  `\(lo, hi) -> ...`. Where the arguments arrive as pairs, use `uncurry (start pool job)`.
+- `run` and `start` return in `IO` (before, in any `MonadIO`). In a component, call them through
+  `liftIO`.
+
+The signature of a job is optional: GHC can infer the job's type from the function. The encoding
+did not change: the arguments of a call are encoded one after another.

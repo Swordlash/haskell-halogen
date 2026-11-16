@@ -428,11 +428,11 @@ glue and the WASI shim; on the JavaScript backend its `all.js`; or, for a progra
 binary, `halogenWorker.script`, a module of the page's own that the worker imports, with
 `halogenWorker.data` copied to it) and runs `main`, whose
 `Worker.program`/`serve` finds the number the script set in `halogenWorker.worker` and answers
-`{id, request}` messages instead of going on to the UI. A job is `static (Worker.job f)` of a
-curried `f`, `Job '[Int, Text] b` (`run`/`start`/`task` take the arguments one by one, by
-induction on the function's type and on the list), its `Binary` codecs inside the `Job`: the
-request's bytes (`Halogen.Worker.Internal`) are the pointer's `StaticKey` and a list of each
-call's arguments, their `put`s one after another, which the worker looks up with
+`{id, request}` messages instead of going on to the UI. A job is `static (Worker.job f)`, with
+the types of `f`'s arguments in a type-level list (`Job '[Int, Text] b`; `run`, `start` and `task`
+take the arguments after the job, in order), its `Binary` codecs inside the `Job`: the
+request's bytes (`Halogen.Worker.Internal`) are the pointer's `StaticKey` and the encoded
+arguments of each call (a call's arguments one after another), which the worker looks up with
 `unsafeLookupStaticPtr`, and the reply is the list of results, each crossing in a transferred
 `ArrayBuffer`. `start` gives a `Halogen.JSBits.Promise` (rejected with a `JSError` named
 `WorkerError`), `run` waits and throws a `WorkerError`; the fallback (no configuration,

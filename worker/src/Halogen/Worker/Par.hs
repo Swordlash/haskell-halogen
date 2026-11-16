@@ -20,8 +20,8 @@
 --
 -- > counts <- liftIO (runPar pool (traverse (task primes) limits))
 --
--- A job of several arguments takes them one by one, as in
--- 'Halogen.Worker.run': @task primesBetween lo hi@.
+-- 'task' takes the same arguments as 'Halogen.Worker.run':
+-- @task primesBetween lo hi@.
 --
 -- 'runPar' runs the computation until every part of it waits for a task,
 -- groups the tasks it has by job, cuts each job's into batches (several for
@@ -110,8 +110,8 @@ instance Monad Par where
 
 -- | A call of the job, made on one of the pool's workers when 'runPar' sends
 -- the tasks it has collected. Each 'task' is a call of its own: there is no
--- cache, and the same task twice is two calls. The job's arguments come
--- after it, one by one, as they do in 'Halogen.Worker.run'.
+-- cache, and the same task twice is two calls. It takes the same arguments
+-- as 'Halogen.Worker.run': the job, then the job's arguments in order.
 task :: StaticPtr (Job args b) -> Fn args (Par b)
 task pointer = curried theJob (\bytes -> Par (call bytes))
   where
