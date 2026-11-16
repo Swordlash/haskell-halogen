@@ -78,12 +78,17 @@ newtype HalogenM state action slots output m a
   = HalogenM (F (HalogenF state action slots output m) a)
   deriving (Functor, Applicative, Monad)
 
--- | 'lift' is 'async': the program suspends while the action runs.
-instance MonadTrans (HalogenM state' action slots' output) where
+-- | 'lift' is 'async': the program suspends while the action runs. The
+-- instance is deprecated, so that each use says which it means: write
+-- 'async', or 'sync' to run the action in place.
+instance {-# DEPRECATED "lift suspends the program. Write H.async, or H.sync to run the action in place." #-} MonadTrans (HalogenM state' action slots' output) where
   lift = HalogenM . liftF . Async
 
--- | 'liftIO' is 'async': the program suspends while the action runs.
-instance (MonadIO m) => MonadIO (HalogenM state' action slots' output m) where
+-- | 'liftIO' is 'async': the program suspends while the action runs. The
+-- instance is deprecated: write @async (liftIO io)@, or @sync (liftIO io)@
+-- to run the action in place. A function that asks for @MonadIO m@ is
+-- called inside one of the two, not in the handler itself.
+instance {-# DEPRECATED "liftIO suspends the program. Write H.async (liftIO io), or H.sync (liftIO io) to run it in place." #-} (MonadIO m) => MonadIO (HalogenM state' action slots' output m) where
   liftIO = HalogenM . liftF . Async . liftIO
 
 -- | Run an action of the component's monad in place. Nothing else of the
@@ -253,8 +258,11 @@ delay d = HalogenM $ liftF $ Delay NotCounted d ()
 delayCounted :: forall state action slots output m. (Functor m) => NominalDiffTime -> HalogenM state action slots output m ()
 delayCounted d = HalogenM $ liftF $ Delay Counted d ()
 
--- | 'withRunInIO' is 'asyncWith'.
-instance (MonadUnliftIO m) => MonadUnliftIO (HalogenM state' action slots' output m) where
+-- | 'withRunInIO' is 'asyncWith'. The instance is deprecated. Everything
+-- built on it suspends the program too: @UnliftIO@'s @try@, @catch@,
+-- @finally@ and @bracket@, its @MVar@ functions and its @async@. Write
+-- 'asyncWith', and 'try', 'catch' and 'finally' for exceptions.
+instance {-# DEPRECATED "withRunInIO suspends the program, and so does what UnliftIO builds on it. Write H.asyncWith, and H.try, H.catch or H.finally for exceptions." #-} (MonadUnliftIO m) => MonadUnliftIO (HalogenM state' action slots' output m) where
   withRunInIO = asyncWith
 
 type HalogenIO state action slots output a = HalogenM state action slots output IO a

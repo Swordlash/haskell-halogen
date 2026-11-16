@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+`HalogenM`'s `MonadTrans`, `MonadIO` and `MonadUnliftIO` instances are now
+deprecated. `lift`, `liftIO` and `withRunInIO` still work, and each still
+suspends the program. But each use now warns, and the warning names what to
+write: `H.async` for an action that waits, `H.sync` for one that must run in
+place, `H.asyncWith` for `withRunInIO`. A function that asks for `MonadIO m`
+warns when a handler calls it directly: call it inside `H.sync` or `H.async`.
+`UnliftIO`'s `try`, `catch`, `finally`, `bracket`, `MVar` functions and
+`async` go through `withRunInIO`, so they warn too: write `H.try`, `H.catch`
+and `H.finally`. A class of yours that has `MonadIO` as a superclass warns
+at its `HalogenM` instance: drop the superclass, as `MonadStore` did.
+
 A program leaves its tree's loop in two ways, and each now has a name.
 `H.sync` runs an action in place: nothing else of the tree runs until it
 ends. `H.async` suspends the program: the action runs on a thread of its own,

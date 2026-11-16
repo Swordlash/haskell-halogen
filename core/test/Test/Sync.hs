@@ -6,7 +6,7 @@
 -- use handshakes, not timing, except the slow 'H.sync', which is about time.
 -- They run with a render spec that touches no DOM, on every backend.
 -- "Halogen.Sync" is tested natively, on the harness ("Halogen.Test.Native").
-module Test.Sync (spec) where
+module Test.Sync (spec, walking, within) where
 
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar
