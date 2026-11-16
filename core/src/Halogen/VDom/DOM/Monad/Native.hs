@@ -1647,13 +1647,15 @@ instance MonadDOM MemDOM where
     ElementNode {} -> Just (fromNative (toNative node))
     _ -> Nothing
 
+  -- Trees on different threads can add listeners to one document at the
+  -- same time, so the change is atomic.
   addEventListener (EventType ty) listener target =
     liftIO
-      $ modifyIORef' (toNative target).listeners (<> [(toListener listener) {eventType = ty}])
+      $ atomicModifyIORef'_ (toNative target).listeners (<> [(toListener listener) {eventType = ty}])
 
   removeEventListener (EventType ty) listener target = liftIO $ do
     let gone = toListener listener
-    modifyIORef' (toNative target).listeners
+    atomicModifyIORef'_ (toNative target).listeners
       $ filter (\l -> not (l.ident == gone.ident && l.eventType == ty))
 
 -- Nothing to wait for: the tree is built synchronously.

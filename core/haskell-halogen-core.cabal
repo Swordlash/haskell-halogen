@@ -323,6 +323,7 @@ test-suite Halogen-core-test
                     Test.NativeDispatch
                     Test.NativeDom
                     Test.NativeEvents
+                    Test.Pages
                     Test.Refs
                     Test.RenderRecovery
                     Test.Runtime
