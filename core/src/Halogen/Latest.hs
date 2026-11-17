@@ -84,6 +84,15 @@
 -- twice is two visits. A view mounted again is a new view. The same text
 -- quoted twice is two quotes. Use a ticket or a counter wherever identity
 -- matters.
+--
+-- = What was learnt another way
+--
+-- A channel can tell a view something while a read is out. Nothing in the
+-- read's answer says whether it was read before or after that. So keep
+-- what the channel told with a copy of the 'Asks' as they were then: a
+-- snapshot. When an answer is taken, apply again what was told since its
+-- ask was made: 'madeAfter' says which. Drop a kept item once no answer
+-- still out can be older than it: 'stillAnswerable' says when.
 module Halogen.Latest
   ( -- * Tickets
     Asks
@@ -92,6 +101,10 @@ module Halogen.Latest
   , newAsk
   , takes
   , supersede
+
+    -- * Against a snapshot
+  , madeAfter
+  , stillAnswerable
 
     -- * In a handler
   , asking
@@ -139,6 +152,21 @@ takes (Ask n) asks
 -- after it are taken as usual.
 supersede :: Asks -> Asks
 supersede asks = asks {settled = asks.next - 1}
+
+-- | Whether this ask was made after the snapshot: after the 'Asks' were as
+-- given. What was learnt another way at the snapshot's moment is then older
+-- than this ask's answer, and the answer already has it. For an ask made
+-- before the snapshot it is 'False': apply what was learnt again onto its
+-- answer.
+madeAfter :: Ask -> Asks -> Bool
+madeAfter (Ask n) snapshot = n >= snapshot.next
+
+-- | Whether an ask made before the snapshot can still be taken now. The
+-- first 'Asks' are the snapshot, and the second are the 'Asks' now. When it
+-- is 'False', no answer that can still be taken is older than the snapshot:
+-- drop what was kept with it.
+stillAnswerable :: Asks -> Asks -> Bool
+stillAnswerable snapshot now = snapshot.next - 1 > now.settled
 
 -- | Take a ticket in a handler, in one step of the program. The first two
 -- arguments read and write the component's 'Asks'.

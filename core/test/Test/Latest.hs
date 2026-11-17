@@ -7,6 +7,7 @@ module Test.Latest (spec) where
 import Control.Monad.State (State, modify, runState)
 import Data.List (delete)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe, isJust)
 import Halogen.Latest
 import Prelude
 import Test.Hspec (Spec, describe, it, shouldBe)
@@ -38,6 +39,15 @@ spec = describe "Halogen.Latest" $ do
             Just why -> (n + 1, take 5 (bad <> [(run, why)]))
       failures `shouldBe` []
       count `shouldBe` 151126
+
+  describe "against a snapshot, at every point of every order of up to four asks" $ do
+    it "madeAfter says which asks were made after it, and stillAnswerable whether one made before it can still be taken" $ do
+      let (count, failures) = foldl' check (0 :: Int, []) (concatMap runsOf [0 .. 4])
+          check (n, bad) run = case judgeSnapshots run of
+            Nothing -> let n' = n + 1 in n' `seq` (n', bad)
+            Just why -> (n + 1, take 5 (bad <> [(run, why)]))
+      failures `shouldBe` []
+      count `shouldBe` 11229
 
   describe "supersede" $ do
     it "drops an answer to an ask made before it" $ do
@@ -95,7 +105,11 @@ data Event = Make | Answer Int | Supersede
 -- after it is made, in any order. Up to two supersedes come at any point,
 -- never two in a row.
 runs :: [[Event]]
-runs = concatMap (\n -> go n 0 [] (0 :: Int) False) [0 .. 5]
+runs = concatMap runsOf [0 .. 5]
+
+-- | Every such run of exactly this many asks.
+runsOf :: Int -> [[Event]]
+runsOf total = go total 0 [] (0 :: Int) False
   where
     go :: Int -> Int -> [Int] -> Int -> Bool -> [[Event]]
     go n made out sups justSuperseded =
@@ -145,6 +159,36 @@ judge = walk Model {asks = noAsks, tickets = Map.empty, made = 0, cut = 0, lates
               Nothing
                 | shouldTake -> Just ("the answer to ask " <> show k <> " was dropped, but nothing newer was taken")
                 | otherwise -> walk m' rest
+
+-- | A snapshot is the 'Asks' at some point of a run, with how many asks
+-- were made by then. At every point of the run, against every snapshot
+-- taken so far: 'madeAfter' holds exactly for the tickets made after the
+-- snapshot, and 'stillAnswerable' holds exactly when 'takes' would take
+-- some ticket made before it. 'Nothing' when both agree throughout, or
+-- what went wrong.
+judgeSnapshots :: [Event] -> Maybe String
+judgeSnapshots = walk noAsks [] []
+  where
+    walk :: Asks -> [(Int, Ask)] -> [(Int, Asks)] -> [Event] -> Maybe String
+    walk now tickets earlier events =
+      let snapshots = (length tickets, now) : earlier
+          wrong =
+            [ "madeAfter says " <> show (madeAfter t snapshot) <> " for ask " <> show k <> " and the snapshot after " <> show madeThen <> " asks"
+            | (madeThen, snapshot) <- snapshots
+            , (k, t) <- tickets
+            , madeAfter t snapshot /= (k > madeThen)
+            ]
+              <> [ "stillAnswerable says " <> show (stillAnswerable snapshot now) <> " for the snapshot after " <> show madeThen <> " asks, with " <> show (length tickets) <> " made"
+                 | (madeThen, snapshot) <- snapshots
+                 , stillAnswerable snapshot now /= any (\(k, t) -> k <= madeThen && isJust (takes t now)) tickets
+                 ]
+       in case wrong of
+            why : _ -> Just why
+            [] -> case events of
+              [] -> Nothing
+              Make : rest -> let (t, now') = newAsk now in walk now' (tickets <> [(length tickets + 1, t)]) snapshots rest
+              Supersede : rest -> walk (supersede now) tickets snapshots rest
+              Answer k : rest -> walk (fromMaybe now (lookup k tickets >>= (`takes` now))) tickets snapshots rest
 
 ----------------------------------------------------------------------
 -- A component
