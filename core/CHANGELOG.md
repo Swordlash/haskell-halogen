@@ -7,10 +7,14 @@
 every tree in the process, so views that run side by side would see each
 other there.
 
-`T.settleWithin` and `T.settleHoldingWithin` are `T.settle` and
-`T.settleHolding` with a deadline in seconds. When the deadline passes, the
-`Failure` says what the view is still doing and shows its HTML.
-`T.withinFor` is `T.within` with a deadline of the test's own.
+`T.settle`, `T.settleHolding` and `T.waitHeld` now give up after 10 seconds,
+and so does `T.waitActivity`. Before, a view that never settled hung the
+test. The `Failure` says what the view is still doing, how many asks the
+gates hold, and shows the view's HTML. `T.settleWithin`,
+`T.settleHoldingWithin`, `T.waitHeldWithin` and `T.waitActivityWithin` take
+another deadline, in seconds. A `T.within` around these waits is no longer
+needed. `T.withinFor` is `T.within` with a deadline of the test's own, for
+any other wait.
 
 `T.pressWith` and `T.pressNodeWith` press a key with other keys held:
 `T.pressWith [T.Ctrl] view "textarea" "Enter"`. The events say so in

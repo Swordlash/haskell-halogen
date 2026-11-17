@@ -706,10 +706,15 @@ spec = describe "the harness for the in-memory DOM" $ do
         T.settleWithin 5 view
         T.textOf view ".answers" >>= (`shouldBe` 2) . length . Text.splitOn ","
 
-    it "gives up on any wait after the time the test names" $ do
+    it "gives up on a gate that never holds what the test waits for" $ do
       gate <- T.newGate @Text @Text
-      waited <- failure (T.withinFor 0.1 (pure "nothing asked") (T.waitHeld gate (not . null)))
-      waited `shouldBe` "gave up after 0.1 seconds: nothing asked"
+      waited <- failure (T.waitHeldWithin 0.1 gate (not . null))
+      waited `shouldBe` "gave up after 0.1 seconds: the gate does not hold the asks the test waits for. It holds 0."
+
+    it "gives up on any other wait after the time the test names" $ do
+      never <- newEmptyMVar
+      waited <- failure (T.withinFor 0.1 (pure "nothing came") (takeMVar never :: IO ()))
+      waited `shouldBe` "gave up after 0.1 seconds: nothing came"
 
   describe "a view's activity" $ do
     it "counts the view's own tree, and not a view beside it" $ do
@@ -720,6 +725,9 @@ spec = describe "the harness for the in-memory DOM" $ do
           T.activity busy `shouldReturn` T.Activity {trees = 1, running = 0, waiting = 2}
           guarded calm (T.settle calm)
           T.activity calm `shouldReturn` T.Activity {trees = 1, running = 0, waiting = 0}
+          -- The view beside it waits, and this one does not wait for it.
+          late <- failure (T.waitActivityWithin 0.1 calm (\a -> a.waiting == 2))
+          ("the view is not doing what the test waits for: 0 running or queued, 0 waiting." `isInfixOf` late) `shouldBe` True
 
     it "reads no tree once the view is disposed of" $ do
       logged <- newIORef []

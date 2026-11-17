@@ -13,7 +13,7 @@
 -- >   T.withView id editor () $ \view -> do
 -- >     T.typeInto view "input.title" "Notes"
 -- >     T.click view "button.save"
--- >     T.settleWithin 2 view
+-- >     T.settle view
 -- >     T.textOf view ".status" `shouldReturn` "Saved"
 --
 -- Each view has a page of its own, with its own document and storage. So
@@ -26,6 +26,9 @@
 --
 -- A selector that finds nothing throws a 'Failure'. Its message names the
 -- selector and shows the view's HTML.
+--
+-- A wait gives up after 10 seconds. Its 'Failure' says what the view is
+-- still doing, and shows the view's HTML. So a test never hangs.
 --
 -- = Holding what the program asks for
 --
@@ -101,6 +104,7 @@ module Halogen.Test.Native
   , Activity (..)
   , activity
   , waitActivity
+  , waitActivityWithin
 
     -- * Holding what the program asks for
   , Gate
@@ -109,6 +113,7 @@ module Halogen.Test.Native
   , hold
   , held
   , waitHeld
+  , waitHeldWithin
   , answer
   , Holds
   , holds
@@ -741,20 +746,29 @@ describe node =
 
 -- | Wait until the view's tree is quiet: nothing running or queued, and no
 -- fiber waiting in an @H.async@. Other trees in the process do not count.
--- It waits for the program, never for a clock, and has no deadline: use
--- 'settleWithin', or wrap it in 'within'. It does not return while the
--- tree waits for something the test holds; use 'settleHolding' then.
+--
+-- It waits for the program, never for a clock. If the view is still not
+-- quiet after 10 seconds, it gives up: it throws a 'Failure' that says what
+-- the view is still doing, and shows its HTML. 'settleWithin' takes another
+-- deadline.
+--
+-- A view that waits for something the test holds never gets quiet. Use
+-- 'settleHolding' then.
 settle :: View q i o -> IO ()
-settle View {waitWith} = waitWith (pure ()) (\a () -> quiet a)
+settle = settleWithin patience
 
--- | 'settle', but give up after this long, in seconds. It then throws a
--- 'Failure' that says what the view is still doing, and shows its HTML:
+-- | 'settle', but give up after this long, in seconds:
 --
 -- > T.settleWithin 2 view
 --
 -- The deadline is on the real clock, under 'withTestClock' too.
 settleWithin :: NominalDiffTime -> View q i o -> IO ()
-settleWithin limit view = withinFor limit (stuck view "is not quiet" "") (settle view)
+settleWithin limit view@View {waitWith} =
+  withinFor limit (stuck view "is not quiet" "") (waitWith (pure ()) (\a () -> quiet a))
+
+-- | How long a wait goes on when the test names no deadline, in seconds.
+patience :: NominalDiffTime
+patience = 10
 
 -- | What a view that did not settle is doing, for a 'Failure'.
 stuck :: View q i o -> Text -> Text -> IO Text
@@ -767,15 +781,18 @@ stuck view what more = do
   pure ("the view " <> what <> ": " <> doing <> ". The view's HTML:\n" <> shown)
 
 -- | Run the action, but give up after 10 seconds: throw a 'Failure' with
--- the text the first argument gives. A guard against a test that hangs:
+-- the text the first argument gives. A guard for a wait that has no
+-- deadline of its own, such as 'pending':
 --
--- > T.within (("still busy:\n" <>) <$> T.html view) (T.settle view)
+-- > held <- T.within (T.html view) (T.pending waits)
+--
+-- The waits of this module give up by themselves, so they need none.
 within :: IO Text -> IO a -> IO a
-within = withinFor 10
+within = withinFor patience
 
 -- | 'within', with a deadline of the test's own, in seconds:
 --
--- > T.withinFor 0.5 (T.html view) (T.waitHeld gate (not . null))
+-- > held <- T.withinFor 0.5 (T.html view) (T.pending waits)
 withinFor :: NominalDiffTime -> IO Text -> IO a -> IO a
 withinFor limit what io =
   timeout (ceiling (limit * 1_000_000)) io >>= \case
@@ -810,10 +827,16 @@ activity View {reading} = reading
 --
 -- > T.waitActivity view (\a -> a.running == 0 && a.waiting == 2)
 --
--- It is woken by a change in the tree, never by a clock, and has no
--- deadline: wrap it in 'within'.
+-- It is woken by a change in the tree, never by a clock. It gives up
+-- after 10 seconds, as 'settle' does. 'waitActivityWithin' takes another
+-- deadline.
 waitActivity :: View q i o -> (Activity -> Bool) -> IO ()
-waitActivity View {waitWith} done = waitWith (pure ()) (\a () -> done a)
+waitActivity = waitActivityWithin patience
+
+-- | 'waitActivity', but give up after this long, in seconds.
+waitActivityWithin :: NominalDiffTime -> View q i o -> (Activity -> Bool) -> IO ()
+waitActivityWithin limit view@View {waitWith} done =
+  withinFor limit (stuck view "is not doing what the test waits for" "") (waitWith (pure ()) (\a () -> done a))
 
 ----------------------------------------------------------------------
 -- Gates
@@ -864,14 +887,24 @@ held gate = map (\(number, (asked, _)) -> Held {number, asked}) . IntMap.toAscLi
 
 -- | Wait until the asks the gate holds pass the test, and return them,
 -- oldest first. Use it when the test knows which asks it expects: after a
--- step that kills an ask and makes another, say. No deadline: wrap it in
--- 'within'.
+-- step that kills an ask and makes another, say.
 --
--- > asks <- T.within (T.html view) (T.waitHeld gate (\hs -> map (.asked) hs == ["preview xy"]))
+-- > asks <- T.waitHeld gate (\hs -> map (.asked) hs == ["preview xy"])
+--
+-- It gives up after 10 seconds: it throws a 'Failure' that says how many
+-- asks the gate holds. 'waitHeldWithin' takes another deadline.
 waitHeld :: Gate q r -> ([Held q r] -> Bool) -> IO [Held q r]
-waitHeld gate expected = atomically $ do
+waitHeld = waitHeldWithin patience
+
+-- | 'waitHeld', but give up after this long, in seconds.
+waitHeldWithin :: NominalDiffTime -> Gate q r -> ([Held q r] -> Bool) -> IO [Held q r]
+waitHeldWithin limit gate expected = withinFor limit holding $ atomically $ do
   hs <- map (\(number, (asked, _)) -> Held {number, asked}) . IntMap.toAscList <$> readTVar gate.asks
   if expected hs then pure hs else retry
+  where
+    holding =
+      readTVarIO gate.asks <&> \asks ->
+        "the gate does not hold the asks the test waits for. It holds " <> T.pack (show (IntMap.size asks)) <> "."
 
 -- | Answer a held ask: the program that asked goes on with the answer.
 -- Throws a 'Failure' if the ask is not held any more.
@@ -906,8 +939,9 @@ holds gate = Holds ((,) <$> (IntMap.size <$> readTVar gate.asks) <*> readTVar ga
 
 -- | Wait until the view's tree has done all it can while the gates hold
 -- their asks: nothing running or queued, and every fiber that waits is
--- waiting for a held ask. No deadline: use 'settleHoldingWithin', or wrap
--- it in 'within'.
+-- waiting for a held ask. It gives up after 10 seconds, as 'settle' does,
+-- and its 'Failure' also says how many asks the gates hold.
+-- 'settleHoldingWithin' takes another deadline.
 --
 -- It reads the tree and the gates together, in one wait. A fiber counts
 -- as waiting a moment before its ask reaches the gate, and an answered ask
@@ -915,25 +949,22 @@ holds gate = Holds ((,) <$> (IntMap.size <$> readTVar gate.asks) <*> readTVar ga
 -- the two counts differ, so the wait goes on.
 --
 -- Each held ask must be the wait of one fiber of this view. An ask held
--- for another view, or two asks held by one @H.async@ at once, keep this
--- from returning.
+-- for another view, or two asks held by one @H.async@ at once, keep the
+-- view from settling.
 --
 -- A killed ask leaves the gate a moment after its fiber stops waiting. So
 -- when one step kills an ask and makes another, this can return while the
 -- gate still holds the killed ask and not yet the new one: the counts are
 -- equal. After such a step, wait for the asks you expect with 'waitHeld'.
 settleHolding :: View q i o -> Holds -> IO ()
-settleHolding View {waitWith} (Holds counts) =
-  waitWith counts (\a (n, _) -> a.running == 0 && a.waiting == n)
+settleHolding = settleHoldingWithin patience
 
--- | 'settleHolding', but give up after this long, in seconds. It then
--- throws a 'Failure' that says what the view is still doing and how many
--- asks the gates hold, and shows the view's HTML.
+-- | 'settleHolding', but give up after this long, in seconds:
 --
 -- > T.settleHoldingWithin 2 view (T.holds gate)
 settleHoldingWithin :: NominalDiffTime -> View q i o -> Holds -> IO ()
-settleHoldingWithin limit view gates@(Holds counts) =
-  withinFor limit (heldNow >>= stuck view "has not settled") (settleHolding view gates)
+settleHoldingWithin limit view@View {waitWith} (Holds counts) =
+  withinFor limit (heldNow >>= stuck view "has not settled") (waitWith counts (\a (n, _) -> a.running == 0 && a.waiting == n))
   where
     heldNow = atomically counts <&> \(n, _) -> ", and the gates hold " <> T.pack (show n)
 
