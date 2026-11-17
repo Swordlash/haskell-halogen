@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+`Halogen.Test.Native` reads and waits on one view's own activity:
+`T.activity view` and `T.waitActivity view test`. `Halogen.Activity` reads
+every tree in the process, so views that run side by side would see each
+other there.
+
+`T.settleWithin` and `T.settleHoldingWithin` are `T.settle` and
+`T.settleHolding` with a deadline in seconds. When the deadline passes, the
+`Failure` says what the view is still doing and shows its HTML.
+`T.withinFor` is `T.within` with a deadline of the test's own.
+
+`T.pressWith` and `T.pressNodeWith` press a key with other keys held:
+`T.pressWith [T.Ctrl] view "textarea" "Enter"`. The events say so in
+`ctrlKey`, `shiftKey`, `altKey` and `metaKey`.
+
 `Halogen.Latest` has `madeAfter` and `stillAnswerable`, for what a view
 learns another way while a read is out, such as a push from a channel. Keep
 it with a copy of the `Asks` from that moment. `madeAfter` says whether an

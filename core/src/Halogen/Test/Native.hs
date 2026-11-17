@@ -13,7 +13,7 @@
 -- >   T.withView id editor () $ \view -> do
 -- >     T.typeInto view "input.title" "Notes"
 -- >     T.click view "button.save"
--- >     T.within (T.html view) (T.settle view)
+-- >     T.settleWithin 2 view
 -- >     T.textOf view ".status" `shouldReturn` "Saved"
 --
 -- Each view has a page of its own, with its own document and storage. So
@@ -66,6 +66,9 @@ module Halogen.Test.Native
   , typeIntoNode
   , press
   , pressNode
+  , Modifier (..)
+  , pressWith
+  , pressNodeWith
   , focus
   , focusNode
   , blur
@@ -90,7 +93,14 @@ module Halogen.Test.Native
 
     -- * Waiting for the program
   , settle
+  , settleWithin
   , within
+  , withinFor
+
+    -- * What the view is doing
+  , Activity (..)
+  , activity
+  , waitActivity
 
     -- * Holding what the program asks for
   , Gate
@@ -103,6 +113,7 @@ module Halogen.Test.Native
   , Holds
   , holds
   , settleHolding
+  , settleHoldingWithin
 
     -- * Controlling the program
   , module Halogen.Activity.Control
@@ -130,6 +141,7 @@ import Data.Maybe (fromMaybe, isJust)
 import Data.Row (type (.==))
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Time (NominalDiffTime)
 import Data.Traversable (for)
 import Data.Void (Void)
 import Halogen qualified as H
@@ -160,6 +172,7 @@ data View q i o = View
   , ask :: forall a. Driven q i a -> IO (Maybe a)
   , end :: IO ()
   , waitWith :: forall s. (Eq s) => STM s -> (Activity -> s -> Bool) -> IO ()
+  , reading :: IO Activity
   , raised :: IORef [o]
   -- ^ The outputs, newest first.
   }
@@ -206,7 +219,7 @@ mountIn page run component input = do
   raised <- newIORef []
   let inPage :: forall a. m a -> IO a
       inPage = N.runMemDOMIn page . run
-  H.HalogenSocket {H.query = send, H.dispose = stop, H.waitActivityWith = wait} <-
+  H.HalogenSocket {H.query = send, H.dispose = stop, H.activity = reading, H.waitActivityWith = wait} <-
     inPage (runUI (driven raised component) input (N.fromNative container))
   pure
     View
@@ -215,6 +228,7 @@ mountIn page run component input = do
       , ask = inPage . send
       , end = inPage stop >> takeAway page container
       , waitWith = \extra done -> inPage (wait extra done)
+      , reading = inPage reading
       , raised
       }
 
@@ -486,18 +500,35 @@ typeIntoNode at text = do
 -- | Press a key on the first element in the view that the selector
 -- matches. See 'pressNode'.
 press :: View q i o -> Text -> Text -> IO ()
-press view selector key = do
-  node <- matching "press" view selector
-  pressNode node key
+press = pressWith []
 
 -- | Press a key on a node: @keydown@, then @keyup@, with the key's name as
 -- @key@ (@\"Enter\"@, @\"Escape\"@, @\"a\"@). Nothing happens by default:
 -- the key types no character, and Enter submits no form.
 pressNode :: N.NativeNode -> Text -> IO ()
-pressNode at key = do
+pressNode = pressNodeWith []
+
+-- | A key the reader holds while pressing another. An event says which are
+-- held in @altKey@, @ctrlKey@, @metaKey@ and @shiftKey@.
+data Modifier = Alt | Ctrl | Meta | Shift
+  deriving (Eq, Show)
+
+-- | 'press', with these keys held:
+--
+-- > T.pressWith [T.Ctrl] view "textarea" "Enter"
+pressWith :: [Modifier] -> View q i o -> Text -> Text -> IO ()
+pressWith holding view selector key = do
+  node <- matching "press" view selector
+  pressNodeWith holding node key
+
+-- | 'pressNode', with these keys held. Both events say so, the @keyup@ too.
+-- The held keys send no events of their own: a browser would send a
+-- @keydown@ for Control first, and a @keyup@ for it last.
+pressNodeWith :: [Modifier] -> N.NativeNode -> Text -> IO ()
+pressNodeWith holding at key = do
   target <- pointedAt at
-  N.dispatch "keydown" (keyEvent key) target
-  N.dispatch "keyup" (keyEvent key) target
+  N.dispatch "keydown" (keyEvent holding key) target
+  N.dispatch "keyup" (keyEvent holding key) target
 
 -- | Focus the first element in the view that the selector matches. See
 -- 'focusNode'.
@@ -535,10 +566,16 @@ mouseFields buttons detail =
   , "clientX" .= (0 :: Int)
   , "clientY" .= (0 :: Int)
   ]
-    <> modifiers
+    <> modifiers []
 
-modifiers :: [(Aeson.Key, Aeson.Value)]
-modifiers = ["altKey" .= False, "ctrlKey" .= False, "metaKey" .= False, "shiftKey" .= False]
+-- | Which modifier keys are held, as an event's fields.
+modifiers :: [Modifier] -> [(Aeson.Key, Aeson.Value)]
+modifiers holding =
+  [ "altKey" .= (Alt `elem` holding)
+  , "ctrlKey" .= (Ctrl `elem` holding)
+  , "metaKey" .= (Meta `elem` holding)
+  , "shiftKey" .= (Shift `elem` holding)
+  ]
 
 -- | A mouse event: the main button, and the buttons held.
 mouseEvent :: Int -> Aeson.Value
@@ -549,8 +586,8 @@ pointerEvent :: Int -> Aeson.Value
 pointerEvent buttons =
   object (mouseFields buttons 0 <> ["pointerId" .= (1 :: Int), "pointerType" .= ("mouse" :: Text), "isPrimary" .= True])
 
-keyEvent :: Text -> Aeson.Value
-keyEvent key = object (["key" .= key, "repeat" .= False] <> modifiers)
+keyEvent :: [Modifier] -> Text -> Aeson.Value
+keyEvent holding key = object (["key" .= key, "repeat" .= False] <> modifiers holding)
 
 ----------------------------------------------------------------------
 -- The tree
@@ -704,23 +741,79 @@ describe node =
 
 -- | Wait until the view's tree is quiet: nothing running or queued, and no
 -- fiber waiting in an @H.async@. Other trees in the process do not count.
--- It waits for the program, never for a clock, and has no deadline: wrap
--- it in 'within'. It does not return while the tree waits for something
--- the test holds; use 'settleHolding' then.
+-- It waits for the program, never for a clock, and has no deadline: use
+-- 'settleWithin', or wrap it in 'within'. It does not return while the
+-- tree waits for something the test holds; use 'settleHolding' then.
 settle :: View q i o -> IO ()
 settle View {waitWith} = waitWith (pure ()) (\a () -> quiet a)
+
+-- | 'settle', but give up after this long, in seconds. It then throws a
+-- 'Failure' that says what the view is still doing, and shows its HTML:
+--
+-- > T.settleWithin 2 view
+--
+-- The deadline is on the real clock, under 'withTestClock' too.
+settleWithin :: NominalDiffTime -> View q i o -> IO ()
+settleWithin limit view = withinFor limit (stuck view "is not quiet" "") (settle view)
+
+-- | What a view that did not settle is doing, for a 'Failure'.
+stuck :: View q i o -> Text -> Text -> IO Text
+stuck view what more = do
+  doingNow <- try (activity view)
+  shown <- htmlForMessage view
+  let doing = case doingNow of
+        Right a -> T.pack (show a.running) <> " running or queued, " <> T.pack (show a.waiting) <> " waiting" <> more
+        Left (e :: SomeException) -> "its activity cannot be read: " <> T.pack (show e)
+  pure ("the view " <> what <> ": " <> doing <> ". The view's HTML:\n" <> shown)
 
 -- | Run the action, but give up after 10 seconds: throw a 'Failure' with
 -- the text the first argument gives. A guard against a test that hangs:
 --
 -- > T.within (("still busy:\n" <>) <$> T.html view) (T.settle view)
 within :: IO Text -> IO a -> IO a
-within what io =
-  timeout 10_000_000 io >>= \case
+within = withinFor 10
+
+-- | 'within', with a deadline of the test's own, in seconds:
+--
+-- > T.withinFor 0.5 (T.html view) (T.waitHeld gate (not . null))
+withinFor :: NominalDiffTime -> IO Text -> IO a -> IO a
+withinFor limit what io =
+  timeout (ceiling (limit * 1_000_000)) io >>= \case
     Just a -> pure a
     Nothing -> do
       shown <- what
-      throwIO (Failure ("gave up after 10 seconds: " <> shown))
+      throwIO (Failure ("gave up after " <> seconds <> ": " <> shown))
+  where
+    seconds
+      | limit == 1 = "1 second"
+      | limit == fromInteger (round limit) = T.pack (show (round limit :: Integer)) <> " seconds"
+      | otherwise = T.pack (show (realToFrac limit :: Double)) <> " seconds"
+
+----------------------------------------------------------------------
+-- What the view is doing
+
+-- | What the view's tree is doing now: whether it is running or has work
+-- queued, and how many of its fibers wait in an @H.async@. It counts this
+-- view's tree only. "Halogen.Activity" reads every tree in the process, so
+-- views that run side by side on threads would see each other there.
+--
+-- > T.activity view `shouldReturn` T.Activity {trees = 1, running = 0, waiting = 2}
+--
+-- After 'dispose' it reads no tree, and what of the view is still at work:
+-- a finalizer that waits.
+activity :: View q i o -> IO Activity
+activity View {reading} = reading
+
+-- | Wait until the view's activity passes the test. 'settle' and
+-- 'settleHolding' are this wait with a test of their own. Use it for
+-- another one: two fibers waiting, say, with no gate to count them.
+--
+-- > T.waitActivity view (\a -> a.running == 0 && a.waiting == 2)
+--
+-- It is woken by a change in the tree, never by a clock, and has no
+-- deadline: wrap it in 'within'.
+waitActivity :: View q i o -> (Activity -> Bool) -> IO ()
+waitActivity View {waitWith} done = waitWith (pure ()) (\a () -> done a)
 
 ----------------------------------------------------------------------
 -- Gates
@@ -813,7 +906,8 @@ holds gate = Holds ((,) <$> (IntMap.size <$> readTVar gate.asks) <*> readTVar ga
 
 -- | Wait until the view's tree has done all it can while the gates hold
 -- their asks: nothing running or queued, and every fiber that waits is
--- waiting for a held ask. No deadline: wrap it in 'within'.
+-- waiting for a held ask. No deadline: use 'settleHoldingWithin', or wrap
+-- it in 'within'.
 --
 -- It reads the tree and the gates together, in one wait. A fiber counts
 -- as waiting a moment before its ask reaches the gate, and an answered ask
@@ -831,6 +925,17 @@ holds gate = Holds ((,) <$> (IntMap.size <$> readTVar gate.asks) <*> readTVar ga
 settleHolding :: View q i o -> Holds -> IO ()
 settleHolding View {waitWith} (Holds counts) =
   waitWith counts (\a (n, _) -> a.running == 0 && a.waiting == n)
+
+-- | 'settleHolding', but give up after this long, in seconds. It then
+-- throws a 'Failure' that says what the view is still doing and how many
+-- asks the gates hold, and shows the view's HTML.
+--
+-- > T.settleHoldingWithin 2 view (T.holds gate)
+settleHoldingWithin :: NominalDiffTime -> View q i o -> Holds -> IO ()
+settleHoldingWithin limit view gates@(Holds counts) =
+  withinFor limit (heldNow >>= stuck view "has not settled") (settleHolding view gates)
+  where
+    heldNow = atomically counts <&> \(n, _) -> ", and the gates hold " <> T.pack (show n)
 
 ----------------------------------------------------------------------
 -- Failures
