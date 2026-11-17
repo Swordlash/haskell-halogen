@@ -80,8 +80,9 @@ data Fx
   | -- | Release every resource the state keeps.
     ReleaseAll
   | -- | Run the action in place for a resource's number, keep the resource
-    -- in the state, and then carry out the effect made from the number.
-    Make (IO Int) (Int -> Fx)
+    -- in the state, and ask with the number, under a key or not. The
+    -- answer's step returns the effects.
+    Make (IO Int) (Maybe Text) Text (Int -> M.Work ScriptSlots IO Text) [Fx]
 
 data Ev
   = Ev Text [Fx]
@@ -160,11 +161,14 @@ scripted notes listener acts final =
       AskChild fx -> M.Ask (M.child "child" () GetNumber) (\r -> Answer "child" (T.pack . show <$> r) fx)
       Raise t -> M.Now (Sync.raise t)
       Acquire n -> M.Now (acquire n)
-      Make making next -> M.NowThen (Sync.sync making >>= \n -> n <$ acquire n) (carry . next)
+      Make making Nothing name work fx -> M.AskWith (made making) work (\r -> Answer name r fx)
+      Make making (Just key) name work fx -> M.AskUnderWith key (made making) work (\r -> Answer name r fx)
       ReleaseAll -> M.Now $ do
         s <- get
         Sync.sync (modifyIORef' notes.open (\o -> foldr Set.delete o s.held))
         put s {held = []}
+    made :: (Sync.MonadSync Scripted ScriptAct ScriptSlots Text IO h) => IO Int -> h Int
+    made making = Sync.sync making >>= \n -> n <$ acquire n
     acquire :: (Sync.MonadSync Scripted ScriptAct ScriptSlots Text IO h) => Int -> h ()
     acquire n = do
       Sync.sync (modifyIORef' notes.open (Set.insert n))
@@ -398,7 +402,7 @@ gatedWith gate n = (<> T.pack (show n)) <$> gated gate
 madeThenAsked :: IO ()
 madeThenAsked = withScripted (Ev "finished" []) $ \run -> do
   gate <- newEmptyMVar
-  run.send (Ev "fetch" [Make (pure 7) (\n -> Fetch Nothing "x" (gatedWith gate n) []), Note "after the ask"])
+  run.send (Ev "fetch" [Make (pure 7) Nothing "x" (gatedWith gate) [], Note "after the ask"])
   waitAsks run.socket 1
   -- The state holds the resource while the work waits.
   readIORef run.notes.open >>= assertEqual "open during the wait" (Set.fromList [7])
@@ -409,14 +413,14 @@ madeThenAsked = withScripted (Ev "finished" []) $ \run -> do
       "the work got what the first part made, and its answer is a later step"
       ["stepped fetch", "after the ask", "stepped answer x v7 saw 1"]
 
--- | The first part brings an event, and the ask's work answers without
--- waiting. Both come while the step's effects are carried out, in that
--- order, and both are stepped after them. A runner that stepped between
--- the two parts would step the event before the note.
+-- | The first part brings an event, and the work answers without waiting.
+-- Both come while the step's effects are carried out, in that order, and
+-- both are stepped after them. A runner that stepped between the two parts
+-- would step the event before the note.
 nothingBetweenTheParts :: IO ()
 nothingBetweenTheParts = withScripted (Ev "finished" []) $ \run -> do
   let bringing = 7 <$ run.send (Ev "inner" [])
-  run.send (Ev "outer" [Make bringing (\_ -> Fetch Nothing "child" childNumber []), Note "outer two"])
+  run.send (Ev "outer" [Make bringing Nothing "child" (const childNumber) [], Note "outer two"])
   waitAsks run.socket 0
   run.logged
     >>= assertEqual
@@ -426,22 +430,45 @@ nothingBetweenTheParts = withScripted (Ev "finished" []) $ \run -> do
 madeThenAskedUnderAKey :: IO ()
 madeThenAskedUnderAKey = withScripted (Ev "finished" []) $ \run -> do
   gate <- newEmptyMVar
-  run.send (Ev "fetch" [Make (pure 7) (\n -> Fetch (Just "k") "x" (gatedWith gate n) [])])
+  run.send (Ev "fetch" [Make (pure 7) (Just "k") "x" (gatedWith gate) []])
   waitAsks run.socket 1
   run.send (Ev "stop" [Stop "k"])
   waitAsks run.socket 0
   run.logged >>= assertEqual "the ask was cancelled: no answer" ["stepped fetch", "stepped stop"]
 
+-- | Making the resource fails. No work starts, and the failure is the
+-- ask's answer, a later step. The step's other effects still run, and
+-- nothing goes up from 'M.happen'.
 failingFirstPart :: IO ()
 failingFirstPart = withScripted (Ev "finished" []) $ \run -> do
-  run.trying (Ev "boom" [Make (throwIO (ErrorCall "no owner")) (\_ -> Fetch Nothing "x" (M.run (pure "v")) []), Note "dropped"])
+  let failing = throwIO (ErrorCall "no owner")
+  run.trying (Ev "fetch" [Make failing Nothing "x" (const (M.run (pure "v"))) [], Note "kept"])
   run.send (Ev "next" [])
   waitAsks run.socket 0
   run.logged
     >>= assertEqual
-      "no ask started, the rest of the step dropped, the failure gone up"
-      ["stepped boom", "caught no owner", "stepped next"]
+      "the failure answered, after the step's effects"
+      ["stepped fetch", "kept", "stepped answer x failed saw 1", "nothing caught", "stepped next"]
   readIORef run.notes.open >>= assertEqual "nothing was made" Set.empty
+
+-- | The failure of an ask under a key is out under that key until it is
+-- stepped. So a cancel in the same step stops it, and without one it
+-- answers and leaves the key.
+failingFirstPartUnderAKey :: IO ()
+failingFirstPartUnderAKey = withScripted (Ev "finished" []) $ \run -> do
+  let failing name = Make (throwIO (ErrorCall "no owner")) (Just "k") name (const (M.run (pure "v"))) []
+  run.send (Ev "stopped" [failing "x", Stop "k"])
+  run.send (Ev "answered" [failing "y"])
+  -- Nothing is out under the key any more: the cancel stops nothing.
+  gate <- newEmptyMVar
+  run.send (Ev "other" [Stop "k", Fetch (Just "k") "z" (gated gate) []])
+  waitAsks run.socket 1
+  putMVar gate "v"
+  waitAsks run.socket 0
+  run.logged
+    >>= assertEqual
+      "one failure cancelled, one answered"
+      ["stepped stopped", "stepped answered", "stepped answer y failed saw 2", "stepped other", "stepped answer z v saw 4"]
 
 -- | The view closes while the work waits. The state held the resource
 -- before the work started, so the finalizer's step releases it.
@@ -451,7 +478,7 @@ closedDuringTheWait = do
   HS.Subscribe {HS.listener, HS.emitter} <- HS.create
   gate <- newEmptyMVar
   socket <- AD.runUI walking (scripted notes listener emitter (Ev "finished" [ReleaseAll])) ()
-  HS.notify listener (Happen (Ev "fetch" [Make (pure 7) (\n -> Fetch Nothing "x" (gatedWith gate n) [])]))
+  HS.notify listener (Happen (Ev "fetch" [Make (pure 7) Nothing "x" (gatedWith gate) []]))
   waitAsks socket 1
   readIORef notes.open >>= assertEqual "open during the wait" (Set.fromList [7])
   socket.dispose
@@ -460,18 +487,18 @@ closedDuringTheWait = do
   readIORef notes.open >>= assertEqual "released" Set.empty
   readIORef notes.logged >>= assertEqual "no answer was stepped" ["stepped fetch", "stepped finished"]
 
--- | In the finalizer's step the first part still runs, and the ask that
--- follows it is not started.
+-- | In the finalizer's step neither part runs: nothing is made that no
+-- later step could release.
 madeInTheFinalizer :: IO ()
 madeInTheFinalizer = do
   notes <- newNotes
   HS.Subscribe {HS.listener, HS.emitter} <- HS.create
-  let final = Ev "finished" [Make (pure 9) (\_ -> Fetch Nothing "late" childNumber []), Note "after"]
+  let final = Ev "finished" [Make (pure 9) Nothing "late" (const childNumber) [], Note "after"]
   socket <- AD.runUI walking (scripted notes listener emitter final) ()
   socket.dispose
   let AD.HalogenSocket {AD.waitActivity = w} = socket
   within "the finalizer" (w (\a -> a.running == 0 && a.waiting == 0))
-  readIORef notes.open >>= assertEqual "the first part ran" (Set.fromList [9])
+  readIORef notes.open >>= assertEqual "nothing was made" Set.empty
   readIORef notes.logged >>= assertEqual "no ask was started" ["stepped finished", "after"]
 
 -- | A child whose step raises an output that makes the parent remove it.
@@ -853,12 +880,13 @@ spec = describe "Halogen.Machine" $ do
     it "sends to a child, and asks a child" child
     it "keeps a resource made in one step, and releases it in the finalizer" resources
     it "steps the finalizer's event when the component went away in the middle of a step" cutShort
-  describe "NowThen" $ do
-    it "makes something in place, keeps it, and starts the ask with it" madeThenAsked
+  describe "AskWith" $ do
+    it "makes something in place, keeps it, and starts the work with it" madeThenAsked
     it "steps no event of the machine between its two parts" nothingBetweenTheParts
-    it "can ask under a key, which Cancel stops" madeThenAskedUnderAKey
-    it "starts no ask when its first part fails, and drops the rest of the step" failingFirstPart
+    it "under a key is stopped by Cancel" madeThenAskedUnderAKey
+    it "answers with the failure when its first part fails, and the step goes on" failingFirstPart
+    it "under a key, lets Cancel stop the failure of its first part too" failingFirstPartUnderAKey
     it "lets the finalizer release what it made when the view closes during the wait" closedDuringTheWait
-    it "in the finalizer runs its first part and starts no ask" madeInTheFinalizer
+    it "in the finalizer runs neither part" madeInTheFinalizer
   it "keeps the model and the order of effects in every order of up to five moves" everyOrder
   harnessSpec

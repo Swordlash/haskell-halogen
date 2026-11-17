@@ -28,9 +28,8 @@
 --   failure is an answer too. The work can only wait and answer: it cannot
 --   change the component's state, raise or send ('Work').
 --
--- An effect can also be both, in that order ('NowThen'): something made in
--- place, then an ask that uses it. "Resources with a lifetime" below shows
--- when it is needed.
+-- An ask can need something made in place first ('AskWith'). "Resources
+-- with a lifetime" below shows when.
 --
 -- A handler written by hand can break the promise. One effect that waits in
 -- the middle of the list is enough: the effects after it run after later
@@ -145,17 +144,18 @@
 --
 -- Some work needs such a resource before it starts: a download that puts
 -- what it fetches under an owner, which must be released. Make the owner in
--- place, keep it in the state, and then start the work with it. 'NowThen'
+-- place, keep it in the state, and then start the work with it. 'AskWith'
 -- does the two in one effect:
 --
 -- > Fetch n url ->
--- >   M.NowThen
+-- >   M.AskWith
 -- >     ( do
 -- >         owner <- Sync.sync newOwner
 -- >         modify (\s -> s {owners = Map.insert n owner s.owners})
 -- >         pure owner
 -- >     )
--- >     (\owner -> M.Ask (M.run (fetch owner url)) (Fetched n))
+-- >     (\owner -> M.run (fetch owner url))
+-- >     (Fetched n)
 --
 -- The state holds the owner before the work starts. So when the view closes
 -- during the wait, the finalizer's step still releases it. An owner made
@@ -278,26 +278,31 @@ data Carry key st act slots out m ev where
   -- been stepped yet. An ask whose answer is being stepped is not out any
   -- more, so a step can cancel its own key and still run to its end.
   Cancel :: key -> Carry key st act slots out m ev
-  -- | Done in place, as 'Now' is, and then the effect that the function
-  -- makes from what the first part returned. Use it for an ask that needs
-  -- something made in place first: a resource the state must hold before
-  -- the work starts.
+  -- | 'Ask', for work that needs something made in place first: a resource
+  -- that the state must hold before the work starts. The first argument
+  -- makes it, in place, as a 'Now' does. The work gets what it made.
   --
-  -- > M.NowThen makeOwner (\owner -> M.Ask (M.run (fetch owner)) Fetched)
+  -- > M.AskWith makeOwner (\owner -> M.run (fetch owner)) Fetched
   --
-  -- The second part is carried out at once. No event of the machine is
-  -- stepped between the two. It can be any effect: an 'AskUnder' that a
-  -- 'Cancel' stops, or another 'NowThen'.
+  -- The work starts at once. No event of the machine is stepped between
+  -- the two parts.
   --
-  -- When the first part throws, the second part is not carried out, and the
-  -- rest of the step's effects are dropped, as after a 'Now' that throws.
+  -- What the first part throws is the ask's answer, as 'Left'. No work
+  -- starts then, and the answer is stepped later, like any other. So the
+  -- model hears of every ask it made. The step's other effects still run.
   --
-  -- In 'finish' the first part still runs, and an ask that follows it is
-  -- not started. So do not make a resource in the finalizer's step: no work
-  -- would use it.
-  NowThen
-    :: (forall h. (MonadSync st act slots out m h) => h a)
-    -> (a -> Carry key st act slots out m ev)
+  -- In 'finish' neither part runs.
+  AskWith
+    :: (forall h. (MonadSync st act slots out m h) => h made)
+    -> (made -> Work slots m a)
+    -> (Either SomeException a -> ev)
+    -> Carry key st act slots out m ev
+  -- | 'AskWith', under a key, so that 'Cancel' can stop it.
+  AskUnderWith
+    :: key
+    -> (forall h. (MonadSync st act slots out m h) => h made)
+    -> (made -> Work slots m a)
+    -> (Either SomeException a -> ev)
     -> Carry key st act slots out m ev
 
 -- | What an ask waits for. Make one with 'run', 'child', 'delay' or
@@ -386,11 +391,10 @@ data Spec key st act slots out m ev fx model = Spec
 --   machine are ordered. A handler that changes the state outside the
 --   machine is not.
 --
--- When a 'Now' throws, or the first part of a 'NowThen', the rest of that
--- step's effects are dropped. The events that came meanwhile are still
--- stepped. Then the exception goes on up from 'happen', and the machine
--- steps the next event as usual. If more than one step fails, the first
--- failure goes up.
+-- When a 'Now' throws, the rest of that step's effects are dropped. The
+-- events that came meanwhile are still stepped. Then the exception goes on
+-- up from 'happen', and the machine steps the next event as usual. If more
+-- than one step fails, the first failure goes up.
 --
 -- A step is cut short when the component goes away in the middle of it:
 -- for instance, a raise whose parent removes the component at once. A
@@ -480,24 +484,61 @@ carryFrom spec failed = \case
 carryOut :: (Ord key, Functor m) => Spec key st act slots out m ev fx model -> Carry key st act slots out m ev -> HalogenM st act slots out m ()
 carryOut spec = \case
   Now effect -> effect
-  NowThen effect next -> effect >>= carryOut spec . next
-  Ask (Work work) answer -> unlessFinishing $ void $ fork $ try work >>= arrive spec False . Answer Nothing . answer
-  AskUnder key (Work work) answer -> unlessFinishing $ do
-    n <- state $ \st ->
-      let m = spec.get st
-       in (m.next, spec.set m {next = m.next + 1, asksOut = Map.insertWith IntMap.union key (IntMap.singleton m.next Nothing) m.asksOut} st)
-    fid <- fork $ try work >>= arrive spec False . Answer (Just (key, n)) . answer
-    -- If the work did not suspend, its answer has come already and waits
-    -- to be stepped. The ask is still out until then, so a 'Cancel' can
-    -- still stop it.
-    modify $ \st -> let m = spec.get st in spec.set m {asksOut = Map.adjust (IntMap.adjust (const (Just fid)) n) key m.asksOut} st
+  Ask work answer -> unlessFinishing (start spec Nothing work answer)
+  AskUnder key work answer -> unlessFinishing (start spec (Just key) work answer)
+  AskWith making work answer -> unlessFinishing (startWith spec Nothing making work answer)
+  AskUnderWith key making work answer -> unlessFinishing (startWith spec (Just key) making work answer)
   Cancel key -> do
     forks <- state $ \st ->
       let m = spec.get st
        in (Map.findWithDefault IntMap.empty key m.asksOut, spec.set m {asksOut = Map.delete key m.asksOut} st)
     traverse_ kill (catMaybes (IntMap.elems forks))
   where
-    unlessFinishing start = gets (\st -> (spec.get st).finishing) >>= \finishing -> unless finishing start
+    unlessFinishing starting = gets (\st -> (spec.get st).finishing) >>= \finishing -> unless finishing starting
+
+-- | Start an ask's work in a fork. Its answer comes to the machine as an
+-- event.
+start
+  :: (Ord key, Functor m)
+  => Spec key st act slots out m ev fx model
+  -> Maybe key
+  -> Work slots m a
+  -> (Either SomeException a -> ev)
+  -> HalogenM st act slots out m ()
+start spec key (Work work) answer = do
+  named <- traverse (enter spec) key
+  fid <- fork $ try work >>= arrive spec False . Answer named . answer
+  -- If the work did not suspend, its answer has come already and waits to
+  -- be stepped. A keyed ask is still out until then, so a 'Cancel' can
+  -- still stop it.
+  for_ named $ \(under, n) ->
+    modify $ \st -> let m = spec.get st in spec.set m {asksOut = Map.adjust (IntMap.adjust (const (Just fid)) n) under m.asksOut} st
+
+-- | Make something in place, then start the ask's work with it. If making
+-- it throws, that is the ask's answer, and no work starts. A keyed ask is
+-- out all the same until its answer is stepped, so a 'Cancel' stops that
+-- answer too.
+startWith
+  :: (Ord key, Functor m)
+  => Spec key st act slots out m ev fx model
+  -> Maybe key
+  -> HalogenM st act slots out m made
+  -> (made -> Work slots m a)
+  -> (Either SomeException a -> ev)
+  -> HalogenM st act slots out m ()
+startWith spec key making work answer =
+  try making >>= \case
+    Right made -> start spec key (work made) answer
+    Left failed -> do
+      named <- traverse (enter spec) key
+      arrive spec False (Answer named (answer (Left failed)))
+
+-- | Put a new ask out under a key, with no fork yet, and give it its
+-- number.
+enter :: (Ord key, Functor m) => Spec key st act slots out m ev fx model -> key -> HalogenM st act slots out m (key, Int)
+enter spec key = state $ \st ->
+  let m = spec.get st
+   in ((key, m.next), spec.set m {next = m.next + 1, asksOut = Map.insertWith IntMap.union key (IntMap.singleton m.next Nothing) m.asksOut} st)
 
 -- | Take an answered ask out of the map. 'Nothing' when it is not there:
 -- it was cancelled.
