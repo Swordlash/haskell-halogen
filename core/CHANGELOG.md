@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+`Halogen.Latest` has `madeAfter` and `stillAnswerable`, for what a view
+learns another way while a read is out, such as a push from a channel. Keep
+it with a copy of the `Asks` from that moment. `madeAfter` says whether an
+ask was made after that copy, so its answer already has what was learnt.
+`stillAnswerable` says whether an ask made before the copy can still be
+taken; when none can, drop what was kept.
+
 `Halogen.Sync.getHTMLElementRef` reads a ref as an HTML element, as
 `H.getHTMLElementRef` does, in code written against `MonadSync`.
 
