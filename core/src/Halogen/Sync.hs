@@ -32,6 +32,7 @@
 module Halogen.Sync
   ( MonadSync (sync, raise, subscribe, unsubscribe, getRef)
   , send
+  , getHTMLElementRef
   )
 where
 
@@ -41,6 +42,7 @@ import Halogen.Data.Slot (Slot)
 import Halogen.Query qualified as H
 import Halogen.Subscription qualified as HS
 import Web.DOM.Element (Element)
+import Web.HTML.HTMLElement (HTMLElement, fromElement)
 
 -- | A monad that runs a component's program and cannot suspend. Its only
 -- instance is 'Halogen.HalogenM': @h@ is
@@ -89,3 +91,9 @@ send
   -> H.Tell query
   -> h ()
 send label slot req = start (H.tell label slot req)
+
+-- | The HTML element rendered with this ref, as
+-- 'Halogen.Query.getHTMLElementRef'. 'Nothing' when nothing is rendered
+-- with it, or what is rendered is not an HTML element.
+getHTMLElementRef :: (MonadSync st act slots out m h) => H.RefLabel -> h (Maybe HTMLElement)
+getHTMLElementRef label = (>>= fromElement) <$> getRef label

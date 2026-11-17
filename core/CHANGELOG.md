@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+`Halogen.Sync.getHTMLElementRef` reads a ref as an HTML element, as
+`H.getHTMLElementRef` does, in code written against `MonadSync`.
+
 `Halogen.Test.Native.waitHeld` waits until a gate holds the asks a test
 expects. A killed ask leaves its gate a moment after its fiber stops waiting,
 so after a step that kills an ask and makes another, `settleHolding` can
