@@ -37,7 +37,7 @@ step event model = case event of
   Found _ text found -> (model {shown = text, results = found}, [])
   Cleared -> ((cleared model) {typed = ""}, [StopPause, FocusField])
 
--- No words shown, and no answer still out may show.
+-- Show no words, and make every search still out too old.
 cleared :: Model -> Model
 cleared model = model {shown = "", results = [], searches = supersede model.searches}
 

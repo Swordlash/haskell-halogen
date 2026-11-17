@@ -1,6 +1,6 @@
 title: A view's logic as a pure step
 
-This lesson builds search as you type. The reader types a word, and the view lists the words that start with it. A search starts after a short pause in typing, and an older answer must never replace a newer one. The view's rules are written as a pure function, and `Halogen.Machine` runs it.
+This lesson builds search as you type. You type a word, and the view lists the words that start with it. A search starts after a short pause in typing, and an older answer must never replace a newer one. You write the view's rules as a pure function, and `Halogen.Machine` runs it.
 
 This way of writing a view is optional. A view with one ask is simpler as a plain handler, as in lesson 7.
 
@@ -18,7 +18,7 @@ The top of the module is plain Haskell. `Model` is what the view knows. `Event` 
 step :: Event -> Model -> (Model, [Effect])
 ```
 
-`step` imports nothing of Halogen. A test can call it with any order of events, with no component and no browser.
+`step` uses nothing from Halogen. A test can call it with any order of events, with no component and no browser.
 
 `Halogen.Machine` makes one promise: the effects of one step do not mix with later events. It carries out a step's effects in the list's order, before it steps the next event.
 
@@ -29,11 +29,11 @@ step :: Event -> Model -> (Model, [Effect])
 - `M.Now` runs in place, before the next effect. `FocusField` uses it to put the cursor back in the field. Its code cannot wait, and the compiler checks that.
 - `M.Ask` starts work that takes time, such as `M.run (liftIO (search text))`. The work cannot change the view. Its answer comes back later as an event, here `Found`, and `step` handles it like any other event.
 
-A pause is an ask too. `M.AskUnder Pausing (M.delayCounted 0.3)` waits 0.3 seconds under the key `Pausing`, then brings `Paused`. `M.Cancel Pausing` stops every ask under that key, and its answer never comes. `M.delayCounted` is a pause the tutorial's tests wait for, since a search follows it.
+A pause is an ask too. `M.AskUnder Pausing (M.delayCounted 0.3)` waits 0.3 seconds under the key `Pausing`, then brings `Paused`. `M.Cancel Pausing` stops every ask under that key, and their answers never come. `M.delayCounted` is a pause the tutorial's tests wait for, since a search follows it.
 
 ## The component
 
-The component keeps the machine in its state, made with `M.new`. `M.Spec` names the step, `carry`, and where the machine is in the state. `H.onAction (M.happen spec)` brings each event to the machine. `render` reads the model with `M.current`.
+The component keeps the machine in its state, made with `M.new`. `M.Spec` names `step`, `carry`, and where the state keeps the machine. `H.onAction (M.happen spec)` brings each event to the machine. `render` reads the model with `M.current`.
 
 ## Tickets
 
@@ -46,7 +46,7 @@ The component keeps the machine in its state, made with `M.new`. `M.Spec` names 
 Change only `step`:
 
 1. In `Typed`, put `StopPause` before `Pause text`. Each key then cancels the pause still out, and typing "ab" quickly starts one search.
-2. In `Found`, take the answer only when `takes ticket model.searches` gives `Just` the new `Asks`. Keep those in the model. On `Nothing`, change nothing.
+2. In `Found`, take the answer only when `takes ticket model.searches` gives `Just` the new `Asks`. Put that value in the model's `searches`. On `Nothing`, change nothing.
 
 Compile and type "ab" quickly. Then type "a", wait half a second, and type "b". The list ends on the words for "ab" both times. Without step 2, the second try still ends on "a".
 
