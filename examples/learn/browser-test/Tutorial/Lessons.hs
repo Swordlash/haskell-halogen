@@ -116,7 +116,33 @@ sees result css text = do
 -- compiled).
 pageLessons :: Site -> [(Text, (Page -> IO (), Page -> IO ()))]
 pageLessons site =
-  [ -- Lesson 21's component is mounted in RemoteDOM through the loopback:
+  [ -- Lesson 22's search answers a one-letter query in 0.9 s and a longer
+    -- one in 0.3 s, after a pause of 0.3 s. Typing "ab" a key at a time
+    -- starts a pause for each key before the program is waited for. In
+    -- Start.hs both pauses end and both searches go out, and the answer for
+    -- "a" comes last and stays. In Solution.hs the second key cancels the
+    -- first pause, and a ticket would drop a late answer anyway, so the
+    -- words for "ab" stay. Clear empties the field and puts the focus back
+    -- in it. The pauses and searches are counted waits, so each action's
+    -- settle waits for them.
+
+    ( "22-machine"
+    ,
+      ( onResult $ \_ result -> do
+          typeText (locator result "input") "ab"
+          sees result "p" "Words for \"a\":"
+          sees result "li" "acorn"
+      , onResult $ \page result -> do
+          typeText (locator result "input") "ab"
+          sees result "p" "Words for \"ab\":"
+          locator result "li" `shouldHaveCount` 3
+          click (withText "Clear" (locator result "button"))
+          sees result "p" "Type a word."
+          focused :: Maybe Text <- evaluate page "document.activeElement?.closest('#learn-result input') ? 'input' : null"
+          unless (focused == Just "input") $ expectationFailure "Clear did not put the focus back in the field"
+      )
+    )
+  , -- Lesson 21's component is mounted in RemoteDOM through the loopback:
     -- the client, not the app, fills its element (data-halogen-remote says
     -- it is attached), and the wire under it shows each message as it
     -- crosses. In Start.hs the input has no handler, so what is typed
