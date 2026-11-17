@@ -117,22 +117,25 @@ sees result css text = do
 pageLessons :: Site -> [(Text, (Page -> IO (), Page -> IO ()))]
 pageLessons site =
   [ -- Lesson 22's search answers a one-letter query in 0.9 s and a longer
-    -- one in 0.3 s, after a pause of 0.3 s. The pauses and searches are
-    -- counted waits, so each action's settle waits for them. Start.hs is
-    -- given one letter: what it shows for two depends on how fast the keys
-    -- come, which is the lesson's point and no test's business. In
-    -- Solution.hs the words for "ab" stay however the keys come: the
-    -- second key cancels the first pause, and a ticket drops a late answer.
-    -- Clear empties the field and puts the focus back in it.
+    -- one in 0.3 s, after a pause of 0.3 s. Typing returns once the program
+    -- is idle, which it is while it pauses. The pauses and searches are
+    -- counted waits, so the page then waits for quiet and reads once.
+    -- Start.hs is given one letter: what it shows for two depends on how
+    -- fast the keys come, which is the lesson's point and no test's
+    -- business. In Solution.hs the words for "ab" stay however the keys
+    -- come: the second key cancels the first pause, and a ticket drops a
+    -- late answer. Clear empties the field and puts the focus back in it.
 
     ( "22-machine"
     ,
-      ( onResult $ \_ result -> do
+      ( onResult $ \page result -> do
           typeText (locator result "input") "a"
+          waitQuiet page
           sees result "p" "Words for \"a\":"
           sees result "li" "acorn"
       , onResult $ \page result -> do
           typeText (locator result "input") "ab"
+          waitQuiet page
           sees result "p" "Words for \"ab\":"
           locator result "li" `shouldHaveCount` 3
           click (withText "Clear" (locator result "button"))
