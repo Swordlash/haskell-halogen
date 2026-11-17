@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+`Halogen.Test.Native.waitHeld` waits until a gate holds the asks a test
+expects. A killed ask leaves its gate a moment after its fiber stops waiting,
+so after a step that kills an ask and makes another, `settleHolding` can
+return too early. Wait with `waitHeld` there.
+
 `Halogen.Machine` runs a component whose logic is a pure step: an event and
 the model give a new model and a list of effects. You say how each effect is
 carried out. `M.Now` runs in place and is written against `Halogen.Sync`, so

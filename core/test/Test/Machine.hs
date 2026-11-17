@@ -10,7 +10,7 @@ module Test.Machine (spec) where
 
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar
-import Control.Exception (ErrorCall (..), SomeException, displayException, throwIO)
+import Control.Exception (ErrorCall (..), SomeException, displayException, fromException, throwIO)
 import Control.Monad (forM, forM_, void, when)
 import Control.Monad.State.Class (get, gets, modify, put)
 import Data.IORef
@@ -119,6 +119,13 @@ data Notes = Notes {logged :: IORef [Text], open :: IORef (Set Int)}
 note :: Notes -> Text -> IO ()
 note notes t = modifyIORef' notes.logged (<> [t])
 
+-- | What was thrown, as its message. 'displayException' of a
+-- 'SomeException' is not the same text on every compiler.
+thrown :: SomeException -> Text
+thrown e = case fromException e of
+  Just (ErrorCall message) -> T.pack message
+  Nothing -> T.pack (displayException e)
+
 -- | The scripted machine. Its events come through the emitter. In its
 -- finalizer it steps the event given.
 scripted :: Notes -> HS.Listener IO ScriptAct -> HS.Emitter IO ScriptAct -> Ev -> H.Component H.VoidF () Text IO
@@ -131,7 +138,7 @@ scripted notes listener acts final =
         Happen ev -> happen ev
         Trying ev ->
           H.try (happen ev) >>= \case
-            Left (e :: SomeException) -> H.sync (note notes ("caught " <> T.pack (displayException e)))
+            Left (e :: SomeException) -> H.sync (note notes ("caught " <> thrown e))
             Right () -> H.sync (note notes "nothing caught")
     , H.onFinalize (M.finish machine final)
     ]
@@ -691,6 +698,9 @@ example = do
     T.typeInto view "input.draft" "x"
     holding
     T.typeInto view "input.draft" "xy"
+    -- The step killed one ask and made another. The killed one leaves the
+    -- gate a moment later, so wait for the gate to hold the new one alone.
+    _ <- T.within (T.html view) (T.waitHeld gate (\hs -> map (.asked) hs == ["preview xy"]))
     holding
     asked gate `shouldReturn` ["preview xy"]
     answerAsk gate "preview xy" "<xy>"

@@ -98,6 +98,7 @@ module Halogen.Test.Native
   , newGate
   , hold
   , held
+  , waitHeld
   , answer
   , Holds
   , holds
@@ -768,6 +769,17 @@ hold gate q = do
 held :: Gate q r -> IO [Held q r]
 held gate = map (\(number, (asked, _)) -> Held {number, asked}) . IntMap.toAscList <$> readTVarIO gate.asks
 
+-- | Wait until the asks the gate holds pass the test, and return them,
+-- oldest first. Use it when the test knows which asks it expects: after a
+-- step that kills an ask and makes another, say. No deadline: wrap it in
+-- 'within'.
+--
+-- > asks <- T.within (T.html view) (T.waitHeld gate (\hs -> map (.asked) hs == ["preview xy"]))
+waitHeld :: Gate q r -> ([Held q r] -> Bool) -> IO [Held q r]
+waitHeld gate expected = atomically $ do
+  hs <- map (\(number, (asked, _)) -> Held {number, asked}) . IntMap.toAscList <$> readTVar gate.asks
+  if expected hs then pure hs else retry
+
 -- | Answer a held ask: the program that asked goes on with the answer.
 -- Throws a 'Failure' if the ask is not held any more.
 answer :: Gate q r -> Held q r -> r -> IO ()
@@ -811,6 +823,11 @@ holds gate = Holds ((,) <$> (IntMap.size <$> readTVar gate.asks) <*> readTVar ga
 -- Each held ask must be the wait of one fiber of this view. An ask held
 -- for another view, or two asks held by one @H.async@ at once, keep this
 -- from returning.
+--
+-- A killed ask leaves the gate a moment after its fiber stops waiting. So
+-- when one step kills an ask and makes another, this can return while the
+-- gate still holds the killed ask and not yet the new one: the counts are
+-- equal. After such a step, wait for the asks you expect with 'waitHeld'.
 settleHolding :: View q i o -> Holds -> IO ()
 settleHolding View {waitWith} (Holds counts) =
   waitWith counts (\a (n, _) -> a.running == 0 && a.waiting == n)
