@@ -200,19 +200,31 @@ data Machine key ev model = Machine
   { modelNow :: model
   , stepping :: Bool
   -- ^ Whether a step's effects are being carried out.
-  , waiting :: Seq ev
-  -- ^ Events that came while a step's effects were carried out, oldest
-  -- first. They are stepped once those effects are done.
+  , waiting :: Seq (Arrived key ev)
+  -- ^ What came while a step's effects were carried out, oldest first. It
+  -- is stepped once those effects are done.
   , asksOut :: Map key (IntMap (Maybe ForkId))
   -- ^ The asks out under each key, by number. An ask's fork is 'Nothing'
   -- until 'fork' returns it.
   , next :: Int
   -- ^ The next ask's number.
+  , finishing :: Bool
+  -- ^ Whether 'finish' has been called: the component is going away. No
+  -- ask is started any more, and no answer is stepped.
   }
+
+-- | What comes to a machine to be stepped.
+data Arrived key ev
+  = -- | An event from a handler.
+    Event ev
+  | -- | An ask's answer. A keyed ask is named: its answer is stepped only if
+    -- the ask is still out then, so that a 'Cancel' can stop an answer
+    -- that has come and waits.
+    Answer (Maybe (key, Int)) ev
 
 -- | A machine with this model, before any event.
 new :: model -> Machine key ev model
-new model = Machine {modelNow = model, stepping = False, waiting = Seq.empty, asksOut = Map.empty, next = 0}
+new model = Machine {modelNow = model, stepping = False, waiting = Seq.empty, asksOut = Map.empty, next = 0, finishing = False}
 
 -- | The model as the last step left it. Render from it.
 current :: Machine key ev model -> model
@@ -350,7 +362,7 @@ data Spec key st act slots out m ev fx model = Spec
 -- can cause. Bring the stop to the machine as an event instead, and let
 -- its step 'Cancel' what must stop.
 happen :: (Ord key, Functor m) => Spec key st act slots out m ev fx model -> ev -> HalogenM st act slots out m ()
-happen spec = arrive spec False Just
+happen spec = arrive spec False . Event
 
 -- | 'happen', for 'Halogen.Component.onFinalize': it steps the event even
 -- when a step was cut short because the component went away in the middle
@@ -359,39 +371,51 @@ happen spec = arrive spec False Just
 -- > H.onFinalize (M.finish machine Finished)
 --
 -- In a finalizer, 'Now' effects run as usual: release resources there. An
--- ask's work starts and is killed as soon as the finalizer ends. Its answer
--- is never stepped. Asks started earlier were cancelled when the component
--- began to go away, and their answers never come either.
+-- ask is not started: its work would be killed as soon as the finalizer
+-- ends. No answer is stepped any more either, not even one that had come
+-- and was waiting. Asks started earlier were cancelled when the component
+-- began to go away. So after 'finish' nothing can take a resource again.
 finish :: (Ord key, Functor m) => Spec key st act slots out m ev fx model -> ev -> HalogenM st act slots out m ()
-finish spec = arrive spec True Just
+finish spec = arrive spec True . Event
 
--- | Bring an event to the machine. @admit@ changes the machine first, in
--- the same step, or drops the event ('Nothing'). With @anyway@ the event is
--- stepped even while a step's effects are carried out.
+-- | Bring an event or an answer to the machine. It joins the ones that
+-- wait. If no step's effects are being carried out, they are stepped now.
+-- With @finishing@ they are stepped even so, and the machine is finishing
+-- from then on.
 arrive
   :: (Ord key, Functor m)
   => Spec key st act slots out m ev fx model
   -> Bool
-  -> (Machine key ev model -> Maybe (Machine key ev model))
-  -> ev
+  -> Arrived key ev
   -> HalogenM st act slots out m ()
-arrive spec anyway admit ev = do
-  carries <- state $ \st -> case admit (spec.get st) of
-    Nothing -> (Nothing, st)
-    Just m
-      | m.stepping && not anyway -> (Nothing, spec.set m {waiting = m.waiting |> ev} st)
-      | otherwise -> advance spec st m {waiting = m.waiting |> ev}
+arrive spec finishing arrived = do
+  carries <- state $ \st ->
+    let before = spec.get st
+        m = before {waiting = before.waiting |> arrived, finishing = before.finishing || finishing}
+     in if m.stepping && not finishing then (Nothing, spec.set m st) else advance spec st m
   carryFrom spec Nothing carries
 
--- | Step the waiting events up to the first whose step has effects, and
--- return those effects. 'Nothing' when no event is waiting: the machine is
--- then idle.
-advance :: Spec key st act slots out m ev fx model -> st -> Machine key ev model -> (Maybe [Carry key st act slots out m ev], st)
+-- | Step what waits, up to the first step that has effects, and return
+-- those effects. 'Nothing' when nothing waits: the machine is then idle.
+advance :: (Ord key) => Spec key st act slots out m ev fx model -> st -> Machine key ev model -> (Maybe [Carry key st act slots out m ev], st)
 advance spec st m = case viewl m.waiting of
   EmptyL -> (Nothing, spec.set m {stepping = False} st)
-  ev :< rest -> case spec.step ev m.modelNow of
-    (model, []) -> advance spec st m {modelNow = model, waiting = rest}
-    (model, fx) -> (Just (map spec.carry fx), spec.set m {modelNow = model, waiting = rest, stepping = True} st)
+  arrived :< rest -> case admit arrived m {waiting = rest} of
+    Nothing -> advance spec st m {waiting = rest}
+    Just (ev, admitted) -> case spec.step ev admitted.modelNow of
+      (model, []) -> advance spec st admitted {modelNow = model}
+      (model, fx) -> (Just (map spec.carry fx), spec.set admitted {modelNow = model, stepping = True} st)
+
+-- | The event to step, or 'Nothing' for an answer that is dropped: its ask
+-- was cancelled, or the machine is finishing. A keyed ask leaves the map
+-- here, in the same step that steps its answer. Then a 'Cancel' of its own
+-- key in that step does not kill the fork that carries the step out.
+admit :: (Ord key) => Arrived key ev -> Machine key ev model -> Maybe (ev, Machine key ev model)
+admit arrived m = case arrived of
+  Event ev -> Just (ev, m)
+  Answer _ _ | m.finishing -> Nothing
+  Answer Nothing ev -> Just (ev, m)
+  Answer (Just (key, n)) ev -> (ev,) <$> leave key n m
 
 -- | Carry out a step's effects, then step the events that came meanwhile,
 -- until none is waiting. The first failure goes on up at the end.
@@ -411,26 +435,26 @@ carryFrom spec failed = \case
 carryOut :: (Ord key, Functor m) => Spec key st act slots out m ev fx model -> Carry key st act slots out m ev -> HalogenM st act slots out m ()
 carryOut spec = \case
   Now effect -> effect
-  Ask (Work work) answer -> void $ fork $ try work >>= happen spec . answer
-  AskUnder key (Work work) answer -> do
+  Ask (Work work) answer -> unlessFinishing $ void $ fork $ try work >>= arrive spec False . Answer Nothing . answer
+  AskUnder key (Work work) answer -> unlessFinishing $ do
     n <- state $ \st ->
       let m = spec.get st
        in (m.next, spec.set m {next = m.next + 1, asksOut = Map.insertWith IntMap.union key (IntMap.singleton m.next Nothing) m.asksOut} st)
-    -- The ask leaves the map before its answer is stepped, in the same
-    -- step: then a 'Cancel' of its own key in that step does not kill the
-    -- fork that carries the step out.
-    fid <- fork $ try work >>= arrive spec False (leave key n) . answer
-    -- The fork may have answered already, if its work did not suspend.
-    -- Then it has left, and nothing is recorded.
+    fid <- fork $ try work >>= arrive spec False . Answer (Just (key, n)) . answer
+    -- If the work did not suspend, its answer has come already and waits
+    -- to be stepped. The ask is still out until then, so a 'Cancel' can
+    -- still stop it.
     modify $ \st -> let m = spec.get st in spec.set m {asksOut = Map.adjust (IntMap.adjust (const (Just fid)) n) key m.asksOut} st
   Cancel key -> do
     forks <- state $ \st ->
       let m = spec.get st
        in (Map.findWithDefault IntMap.empty key m.asksOut, spec.set m {asksOut = Map.delete key m.asksOut} st)
     traverse_ kill (catMaybes (IntMap.elems forks))
+  where
+    unlessFinishing start = gets (\st -> (spec.get st).finishing) >>= \finishing -> unless finishing start
 
 -- | Take an answered ask out of the map. 'Nothing' when it is not there:
--- it was cancelled, and its answer is dropped.
+-- it was cancelled.
 leave :: (Ord key) => key -> Int -> Machine key ev model -> Maybe (Machine key ev model)
 leave key n m = do
   under <- Map.lookup key m.asksOut

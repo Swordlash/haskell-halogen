@@ -338,6 +338,29 @@ cancelsItsOwnKey = withScripted (Ev "finished" []) $ \run -> do
       "the step ran to its end, and the other ask under the key stopped"
       ["stepped fetch", "stepped answer x v saw 1", "after the cancel", "stepped later"]
 
+-- | An ask of the child that answers without waiting: its answer has come
+-- before the step's next effect runs.
+childNumber :: M.Work ScriptSlots IO Text
+childNumber = maybe "none" (T.pack . show) <$> M.child "child" () GetNumber
+
+-- | The ask's work does not wait, so its answer comes while the step's
+-- effects are still carried out, and waits to be stepped. A cancel that
+-- runs before it is stepped still stops it: in the same step, or in the
+-- step of an event that waits in front of it.
+cancelsAnAnswerThatWaits :: IO ()
+cancelsAnAnswerThatWaits = withScripted (Ev "finished" []) $ \run -> do
+  run.send (Ev "same step" [Fetch (Just "k") "here" childNumber [], Stop "k", Note "after the cancel"])
+  waitAsks run.socket 0
+  run.send (Ev "next step" [Poke (Ev "stopper" [Stop "k"]), Fetch (Just "k") "there" childNumber []])
+  waitAsks run.socket 0
+  -- Not cancelled, the same ask is answered.
+  run.send (Ev "kept" [Fetch (Just "k") "kept" childNumber []])
+  waitAsks run.socket 0
+  run.logged
+    >>= assertEqual
+      "neither cancelled answer was stepped"
+      ["stepped same step", "after the cancel", "stepped next step", "stepped stopper", "stepped kept", "stepped answer kept 0 saw 4"]
+
 child :: IO ()
 child = withScripted (Ev "finished" []) $ \run -> do
   run.send (Ev "tell" [SendChild 5, AskChild [Note "after the answer"]])
@@ -348,7 +371,8 @@ resources :: IO ()
 resources = do
   notes <- newNotes
   HS.Subscribe {HS.listener, HS.emitter} <- HS.create
-  let final = Ev "finished" [ReleaseAll, Note "released", Fetch Nothing "late" (M.run (pure "v")) []]
+  -- One ask of the finalizer waits, and one answers without waiting.
+  let final = Ev "finished" [ReleaseAll, Note "released", Fetch Nothing "late" (M.run (pure "v")) [], Fetch Nothing "at once" childNumber []]
   socket <- AD.runUI walking (scripted notes listener emitter final) ()
   HS.notify listener (Happen (Ev "acquire" [Acquire 1, Acquire 2]))
   readIORef notes.open >>= assertEqual "both open" (Set.fromList [1, 2])
@@ -358,7 +382,7 @@ resources = do
   readIORef notes.open >>= assertEqual "both released" Set.empty
   readIORef notes.logged
     >>= assertEqual
-      "the finalizer's effects ran, and its ask was never answered"
+      "the finalizer's effects ran, and neither of its asks was answered"
       ["stepped acquire", "stepped finished", "released"]
 
 -- | A child whose step raises an output that makes the parent remove it.
@@ -732,6 +756,7 @@ spec = describe "Halogen.Machine" $ do
     it "stops an ask whose work ended but whose answer is not stepped yet" cancelledAfterTheWork
     it "stops every ask under the key, and no other" cancelsEveryAskUnderTheKey
     it "of its own key, in an answer's step, lets that step run to its end" cancelsItsOwnKey
+    it "stops an answer that has come and waits to be stepped" cancelsAnAnswerThatWaits
   describe "a pause" $ do
     it "under a key, cancelled before it ends, never fires; the one that ends fires once" debounced
     it "that is not counted lets the tree read as quiet while it sleeps" notCounted
