@@ -10,6 +10,24 @@ release it when the view closes during the wait. No event of the machine is
 stepped between the two parts. If the first part throws, no work starts and
 the failure is the ask's answer. `M.AskUnderWith` is the same under a key.
 
+`Halogen.Test.Native` reads and waits on one view's own activity:
+`T.activity view` and `T.waitActivity view test`. `Halogen.Activity` reads
+every tree in the process, so views that run side by side would see each
+other there.
+
+`T.settle`, `T.settleHolding` and `T.waitHeld` now give up after 10 seconds,
+and so does `T.waitActivity`. Before, a view that never settled hung the
+test. The `Failure` says what the view is still doing, how many asks the
+gates hold, and shows the view's HTML. `T.settleWithin`,
+`T.settleHoldingWithin`, `T.waitHeldWithin` and `T.waitActivityWithin` take
+another deadline, in seconds. A `T.within` around these waits is no longer
+needed. `T.withinFor` is `T.within` with a deadline of the test's own, for
+any other wait.
+
+`T.pressWith` and `T.pressNodeWith` press a key with other keys held:
+`T.pressWith [T.Ctrl] view "textarea" "Enter"`. The events say so in
+`ctrlKey`, `shiftKey`, `altKey` and `metaKey`.
+
 `Halogen.Latest` has `madeAfter` and `stillAnswerable`, for what a view
 learns another way while a read is out, such as a push from a channel. Keep
 it with a copy of the `Asks` from that moment. `madeAfter` says whether an

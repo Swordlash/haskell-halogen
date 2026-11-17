@@ -42,6 +42,7 @@ import Halogen.HTML.Properties qualified as HP
 import Halogen.Query.Event qualified as HQE
 import Halogen.Subscription qualified as HS
 import Halogen.Test.Native qualified as T
+import Halogen.VDom.DOM.HandlerOptions (KeyMatch (..), keyMatch)
 import Halogen.VDom.DOM.Monad qualified as DOM
 import Halogen.VDom.DOM.Monad.Native qualified as N
 import System.Mem (performMajorGC)
@@ -50,6 +51,8 @@ import Test.Hspec (Spec, describe, it, shouldBe, shouldReturn)
 import Web.DOM.Element qualified as Element
 import Web.Event.Event (EventType (..))
 import Web.Event.Event qualified as Event
+import Web.UIEvent.KeyboardEvent (KeyboardEvent)
+import Web.UIEvent.KeyboardEvent qualified as KE
 
 -- | Note a line in a log, at once.
 note :: (MonadIO m) => IORef [Text] -> Text -> H.HalogenM s a ps o m ()
@@ -386,6 +389,34 @@ loading =
         ]
 
 --------------------------------------------------------------------------------
+-- Keys
+--------------------------------------------------------------------------------
+
+data KeyAction = Down KeyboardEvent | Up KeyboardEvent | CtrlS
+
+-- | A field that notes each key event with the keys held. Around it, a
+-- handler that hears only Ctrl+S.
+typing :: forall m. (MonadIO m) => IORef [Text] -> H.Component H.VoidF () Void m
+typing logged =
+  H.component
+    (\() -> pure ())
+    render
+    [ H.onAction $ \case
+        Down e -> note logged (shown "keydown" e)
+        Up e -> note logged (shown "keyup" e)
+        CtrlS -> note logged "save"
+    ]
+  where
+    shown name e =
+      Text.unwords
+        (name : KE.key e : [held | (held, True) <- [("alt", KE.altKey e), ("ctrl", KE.ctrlKey e), ("meta", KE.metaKey e), ("shift", KE.shiftKey e)]])
+    render :: () -> H.ComponentHTML KeyAction Empty m
+    render () =
+      HH.div
+        [HE.matching (HE.keysWith [(keyMatch "s") {ctrlKey = Just True}]) (HE.onKeyDown (const CtrlS))]
+        [HH.input [HP.class_ (HH.ClassName "box"), HE.onKeyDown Down, HE.onKeyUp Up]]
+
+--------------------------------------------------------------------------------
 -- Views side by side
 --------------------------------------------------------------------------------
 
@@ -637,12 +668,71 @@ spec = describe "the harness for the in-memory DOM" $ do
         refused <- failure (T.typeInto view "input.box" "x")
         ("not a text field" `isInfixOf` refused) `shouldBe` True
 
+  describe "a key press" $ do
+    it "says which keys are held, in keydown and in keyup, to a handler that asks for them too" $ do
+      logged <- newIORef []
+      T.withView id (typing logged) () $ \view -> do
+        T.press view "input.box" "s"
+        T.pressWith [T.Ctrl] view "input.box" "s"
+        T.pressWith [T.Shift, T.Alt, T.Meta] view "input.box" "Enter"
+        readIORef logged
+          `shouldReturn` [ "keydown s"
+                         , "keyup s"
+                         , "keydown s ctrl"
+                         , "save"
+                         , "keyup s ctrl"
+                         , "keydown Enter alt meta shift"
+                         , "keyup Enter alt meta shift"
+                         ]
+
   describe "settle" $ do
     it "waits for what a handler waits for in H.async" $ do
       T.withView id field () $ \view -> do
         T.click view "button.save"
         guarded view (T.settle view)
         T.textOf view ".status" `shouldReturn` "saved"
+
+    it "with a deadline lets a quiet view pass, and says what a view that waits is doing" $ do
+      gate <- T.newGate
+      T.withView id (asking gate) () $ \view -> do
+        T.settleHoldingWithin 5 view (T.holds gate)
+        late <- failure (T.settleWithin 0.2 view)
+        ("gave up after 0.2 seconds: the view is not quiet: 0 running or queued, 2 waiting. The view's HTML:" `isInfixOf` late) `shouldBe` True
+        ("answers" `isInfixOf` late) `shouldBe` True
+        -- No gate is named, so nothing accounts for the two waits.
+        unheld <- failure (T.settleHoldingWithin 0.2 view mempty)
+        ("the view has not settled: 0 running or queued, 2 waiting, and the gates hold 0." `isInfixOf` unheld) `shouldBe` True
+        T.held gate >>= mapM_ (\h -> T.answer gate h h.asked)
+        T.settleWithin 5 view
+        T.textOf view ".answers" >>= (`shouldBe` 2) . length . Text.splitOn ","
+
+    it "gives up on a gate that never holds what the test waits for" $ do
+      gate <- T.newGate @Text @Text
+      waited <- failure (T.waitHeldWithin 0.1 gate (not . null))
+      waited `shouldBe` "gave up after 0.1 seconds: the gate does not hold the asks the test waits for. It holds 0."
+
+    it "gives up on any other wait after the time the test names" $ do
+      never <- newEmptyMVar
+      waited <- failure (T.withinFor 0.1 (pure "nothing came") (takeMVar never :: IO ()))
+      waited `shouldBe` "gave up after 0.1 seconds: nothing came"
+
+  describe "a view's activity" $ do
+    it "counts the view's own tree, and not a view beside it" $ do
+      gate <- T.newGate
+      T.withView id (asking gate) () $ \busy ->
+        T.withView id field () $ \calm -> do
+          guarded busy (T.waitActivity busy (\a -> a.running == 0 && a.waiting == 2))
+          T.activity busy `shouldReturn` T.Activity {trees = 1, running = 0, waiting = 2}
+          guarded calm (T.settle calm)
+          T.activity calm `shouldReturn` T.Activity {trees = 1, running = 0, waiting = 0}
+          -- The view beside it waits, and this one does not wait for it.
+          late <- failure (T.waitActivityWithin 0.1 calm (\a -> a.waiting == 2))
+          ("the view is not doing what the test waits for: 0 running or queued, 0 waiting." `isInfixOf` late) `shouldBe` True
+
+    it "reads no tree once the view is disposed of" $ do
+      logged <- newIORef []
+      view <- T.withView id (counter logged) "a" pure
+      T.activity view `shouldReturn` T.Activity {trees = 0, running = 0, waiting = 0}
 
   describe "a gate" $ do
     it "holds asks until the test answers them, in the order it chooses" $ do
