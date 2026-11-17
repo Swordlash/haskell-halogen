@@ -287,7 +287,7 @@ programs of the component, `H.asyncWith`), which runs on a worker thread while t
 must happen at once — `preventDefault`, focusing, reading the DOM as it is, a synchronous API such as
 `localStorage`, a scene handed to a canvas in order — goes through `H.sync` (hooks:
 `Hooks.sync`), which must not wait; one that takes over 50 ms is a
-`Halogen.Trace` `SlowSync`. Code written against `Halogen.Sync`'s `MonadSync` cannot suspend. `lift`, `liftIO`
+`Halogen.Trace` `SlowSync`. Code written against `Halogen.Sync`'s `MonadSync` cannot suspend. `Halogen.Machine` uses it to carry out a pure step's effects: a `Now` in place, an `Ask`'s answer as a later step, an event an effect brings after the step's effects. `lift`, `liftIO`
 and `withRunInIO` in `HalogenM` and `HookM` suspend too, and their instances are deprecated so that each use
 warns (an error here, with `-Werror`): write `H.async`, `H.sync` or `H.asyncWith`. An
 event such an effect dispatches is handled before the dispatch returns, nested in it

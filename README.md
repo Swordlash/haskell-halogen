@@ -181,6 +181,10 @@ main = runBrowserDOM $ do
 
 The component tree uses `StoreT`, which `runStoreT` removes before `runUI` mounts it. `Store.subscribe` converts selected value changes into component actions. Store operations use `H.sync`, so updates and notifications happen within the action that triggered them. See [store/README.md](store/README.md) and tutorial lesson 15.
 
+## Logic as a pure step
+
+`Halogen.Machine` runs a component whose logic is a pure function, `step :: Event -> Model -> (Model, [Effect])`. The step imports nothing of Halogen, so a test can run it over any order of events. You say how each effect is carried out: in place (`M.Now`, code that cannot suspend), or as an ask whose answer comes back later as an event (`M.Ask`, and `M.AskUnder` with a key that `M.Cancel` stops). An ask waits for an action (`M.run`), a child's answer (`M.child`) or a pause (`M.delay`, `M.delayCounted`), and it cannot change the component's state. Then `M.happen` steps the model and carries out the step's effects, with no other event in between. A view with one ask is simpler as a plain handler. The module's header has a complete example.
+
 ## Components that arrive later
 
 `haskell-halogen-lazy` displays a placeholder while a component loads. Put `Lazy.lazy loading loader` in a slot: it shows `loading.placeholder`, runs the loader, then mounts the loaded component with its normal input, outputs and queries. This is similar to React's `lazy` and `Suspense`. Use `Lazy.memo` to share one load across mounts.
