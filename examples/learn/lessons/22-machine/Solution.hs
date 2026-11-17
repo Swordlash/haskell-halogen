@@ -19,7 +19,7 @@ import Halogen.Machine qualified as M
 import Halogen.Sync qualified as Sync
 import Web.HTML.HTMLElement qualified as HTMLElement
 
--- The view's logic. It is plain Haskell: nothing here is Halogen's.
+-- The view's logic. It is plain Haskell: no component and no effects.
 data Model = Model {typed :: Text, shown :: Text, results :: [Text], searches :: Asks}
 
 data Event = Typed Text | Paused Text | Found Ask Text [Text] | Cleared
@@ -70,8 +70,8 @@ component = H.component initialState render [H.onAction (M.happen spec)]
       StopPause -> M.Cancel Pausing
       Search ticket text -> M.Ask (M.run (liftIO (search text))) (Found ticket text . either (const []) id)
       FocusField -> M.Now $ do
-        found <- gets (.field) >>= Sync.getRef
-        traverse_ (Sync.sync . liftIO . HTMLElement.focus) (found >>= HTMLElement.fromElement)
+        found <- gets (.field) >>= Sync.getHTMLElementRef
+        traverse_ (Sync.sync . liftIO . HTMLElement.focus) found
     render state =
       let model = M.current state.machine
        in HH.div_
