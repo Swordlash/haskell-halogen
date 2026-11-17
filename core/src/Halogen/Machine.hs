@@ -28,6 +28,10 @@
 --   failure is an answer too. The work can only wait and answer: it cannot
 --   change the component's state, raise or send ('Work').
 --
+-- An effect can also be both, in that order ('NowThen'): something made in
+-- place, then an ask that uses it. "Resources with a lifetime" below shows
+-- when it is needed.
+--
 -- A handler written by hand can break the promise. One effect that waits in
 -- the middle of the list is enough: the effects after it run after later
 -- events, on a model the step never saw. Here an effect cannot wait.
@@ -138,6 +142,25 @@
 -- Release what the model still holds when the component goes away: in
 -- 'Halogen.Component.onFinalize', tell the model with 'finish', and have
 -- its step return the effects that release each one.
+--
+-- Some work needs such a resource before it starts: a download that puts
+-- what it fetches under an owner, which must be released. Make the owner in
+-- place, keep it in the state, and then start the work with it. 'NowThen'
+-- does the two in one effect:
+--
+-- > Fetch n url ->
+-- >   M.NowThen
+-- >     ( do
+-- >         owner <- Sync.sync newOwner
+-- >         modify (\s -> s {owners = Map.insert n owner s.owners})
+-- >         pure owner
+-- >     )
+-- >     (\owner -> M.Ask (M.run (fetch owner url)) (Fetched n))
+--
+-- The state holds the owner before the work starts. So when the view closes
+-- during the wait, the finalizer's step still releases it. An owner made
+-- inside the work would be in no state until the answer came, and a view
+-- that closed first would leak it.
 --
 -- = When not to use it
 --
@@ -255,6 +278,27 @@ data Carry key st act slots out m ev where
   -- been stepped yet. An ask whose answer is being stepped is not out any
   -- more, so a step can cancel its own key and still run to its end.
   Cancel :: key -> Carry key st act slots out m ev
+  -- | Done in place, as 'Now' is, and then the effect that the function
+  -- makes from what the first part returned. Use it for an ask that needs
+  -- something made in place first: a resource the state must hold before
+  -- the work starts.
+  --
+  -- > M.NowThen makeOwner (\owner -> M.Ask (M.run (fetch owner)) Fetched)
+  --
+  -- The second part is carried out at once. No event of the machine is
+  -- stepped between the two. It can be any effect: an 'AskUnder' that a
+  -- 'Cancel' stops, or another 'NowThen'.
+  --
+  -- When the first part throws, the second part is not carried out, and the
+  -- rest of the step's effects are dropped, as after a 'Now' that throws.
+  --
+  -- In 'finish' the first part still runs, and an ask that follows it is
+  -- not started. So do not make a resource in the finalizer's step: no work
+  -- would use it.
+  NowThen
+    :: (forall h. (MonadSync st act slots out m h) => h a)
+    -> (a -> Carry key st act slots out m ev)
+    -> Carry key st act slots out m ev
 
 -- | What an ask waits for. Make one with 'run', 'child', 'delay' or
 -- 'delayCounted', and change its answer with 'fmap'.
@@ -342,10 +386,11 @@ data Spec key st act slots out m ev fx model = Spec
 --   machine are ordered. A handler that changes the state outside the
 --   machine is not.
 --
--- When a 'Now' throws, the rest of that step's effects are dropped. The
--- events that came meanwhile are still stepped. Then the exception goes on
--- up from 'happen', and the machine steps the next event as usual. If more
--- than one step fails, the first failure goes up.
+-- When a 'Now' throws, or the first part of a 'NowThen', the rest of that
+-- step's effects are dropped. The events that came meanwhile are still
+-- stepped. Then the exception goes on up from 'happen', and the machine
+-- steps the next event as usual. If more than one step fails, the first
+-- failure goes up.
 --
 -- A step is cut short when the component goes away in the middle of it:
 -- for instance, a raise whose parent removes the component at once. A
@@ -435,6 +480,7 @@ carryFrom spec failed = \case
 carryOut :: (Ord key, Functor m) => Spec key st act slots out m ev fx model -> Carry key st act slots out m ev -> HalogenM st act slots out m ()
 carryOut spec = \case
   Now effect -> effect
+  NowThen effect next -> effect >>= carryOut spec . next
   Ask (Work work) answer -> unlessFinishing $ void $ fork $ try work >>= arrive spec False . Answer Nothing . answer
   AskUnder key (Work work) answer -> unlessFinishing $ do
     n <- state $ \st ->

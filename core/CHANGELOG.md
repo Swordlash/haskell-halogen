@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+`Halogen.Machine` has `M.NowThen`, an effect in two parts. The first part
+runs in place, as `M.Now` does. The second is the effect a function makes
+from what the first returned, carried out at once. Use it for an ask that
+needs a resource made first: make the resource, keep it in the state, and
+start the ask with it. Then the finalizer's step can release the resource
+when the view closes during the wait. No event of the machine is stepped
+between the two parts.
+
 `Halogen.Latest` has `madeAfter` and `stillAnswerable`, for what a view
 learns another way while a read is out, such as a push from a channel. Keep
 it with a copy of the `Asks` from that moment. `madeAfter` says whether an
