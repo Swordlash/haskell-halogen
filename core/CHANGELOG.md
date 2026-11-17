@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+`Halogen.Machine` has `M.AskWith`, an ask for work that needs something made
+in place first. Its first argument runs in place, as `M.Now` does, and may
+change the state. The work gets what it made. Use it for a resource the
+state must hold before the work starts: then the finalizer's step can
+release it when the view closes during the wait. No event of the machine is
+stepped between the two parts. If the first part throws, no work starts and
+the failure is the ask's answer. `M.AskUnderWith` is the same under a key.
+
 `Halogen.Test.Native` reads and waits on one view's own activity:
 `T.activity view` and `T.waitActivity view test`. `Halogen.Activity` reads
 every tree in the process, so views that run side by side would see each
