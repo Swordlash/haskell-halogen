@@ -9,6 +9,49 @@ function halogen_test_workers() {
   return globalThis.__halogenTestWorkers ?? 0;
 }
 
+// How long an action, a settle and a waitQuiet wait for the page, in
+// milliseconds: the runner's HSPEC_HALOGEN_DEADLINE_MS, 5000 without a
+// runner or a setting. Read at each use, as the next two are.
+function halogen_test_deadline() {
+  return globalThis.__halogenTestDeadlineOverMs ?? globalThis.__halogenTestDeadlineMs ?? 5000;
+}
+
+// Set a deadline for a part of a test (withDeadline) over the runner's, or
+// take it away with 0, and return the one set before, 0 if none was. The
+// runner's own is never changed, so a suite started again after a run
+// interrupted inside a withDeadline gets it back by taking this away.
+function halogen_test_set_deadline(ms) {
+  const before = globalThis.__halogenTestDeadlineOverMs ?? 0;
+  if (ms > 0) globalThis.__halogenTestDeadlineOverMs = ms;
+  else delete globalThis.__halogenTestDeadlineOverMs;
+  return before;
+}
+
+// Whether the runner asked for the retries to be reported
+// (HSPEC_HALOGEN_RETRIES=1).
+function halogen_test_retries() {
+  return globalThis.__halogenTestRetries === true;
+}
+
+// A line of the retry report. Kept in the page's list when there is one,
+// for the harness's own tests of the report; otherwise handed to the
+// runner, which writes it to its standard error. The suite's own standard
+// error does not get there on every backend: the JavaScript backend writes
+// it with console.log, which the runner passes on as standard output. False
+// without a list or a runner (browser GHCi, a page with no runner): the
+// suite then writes the line to standard error itself.
+function halogen_test_report(line) {
+  const into = globalThis.__halogenTestReportInto;
+  if (Array.isArray(into)) {
+    into.push(line);
+    return true;
+  }
+  const report = globalThis.__halogenTest?.report;
+  if (!report) return false;
+  Promise.resolve(report(line)).catch(() => {});
+  return true;
+}
+
 function halogen_test_has_document() {
   return typeof document !== 'undefined';
 }
@@ -95,7 +138,7 @@ async function halogen_test_act_now(action, element, text) {
   const target = 'halogen-test-' + (globalThis.__halogenTestTargets = (globalThis.__halogenTestTargets ?? 0) + 1);
   element.setAttribute('data-halogen-test-target', target);
   try {
-    await bridge.act(action, '[data-halogen-test-target="' + target + '"]', text);
+    await bridge.act(action, '[data-halogen-test-target="' + target + '"]', text, halogen_test_deadline());
   } finally {
     element.removeAttribute('data-halogen-test-target');
   }
@@ -112,7 +155,7 @@ async function halogen_test_drag_now(source, target) {
   source.setAttribute('data-halogen-test-target', from);
   target.setAttribute('data-halogen-test-target', to);
   try {
-    await bridge.drag('[data-halogen-test-target="' + from + '"]', '[data-halogen-test-target="' + to + '"]');
+    await bridge.drag('[data-halogen-test-target="' + from + '"]', '[data-halogen-test-target="' + to + '"]', halogen_test_deadline());
   } finally {
     source.removeAttribute('data-halogen-test-target');
     target.removeAttribute('data-halogen-test-target');
@@ -146,12 +189,14 @@ function halogen_test_visible(element) {
 
 // Playwright's actionability checks, as far as a page can make them: the
 // element is in the document, visible and not disabled, and for an action
-// that edits it (editable), not read-only, or becomes so within five seconds
-// (the runner's timeout for an action), else the action fails as it would
+// that edits it (editable), not read-only, or becomes so within the
+// runner's deadline for an action (five seconds unless set), else the action
+// fails as it would
 // under the runner, with Playwright's words for it. Whether something
 // covers it is not checked.
 async function halogen_test_actionable(element, what, editable) {
-  const deadline = Date.now() + 5000;
+  const within = halogen_test_deadline();
+  const deadline = Date.now() + within;
   for (;;) {
     const problem = !element.isConnected
       ? 'is not in the page'
@@ -164,7 +209,7 @@ async function halogen_test_actionable(element, what, editable) {
             : null;
     if (!problem) return;
     if (Date.now() > deadline) {
-      throw Object.assign(new Error(what + ': Timeout 5000ms exceeded: the element ' + problem + ': ' + element.outerHTML.slice(0, 200)), {name: 'TimeoutError'});
+      throw Object.assign(new Error(what + ': Timeout ' + within + 'ms exceeded: the element ' + problem + ': ' + element.outerHTML.slice(0, 200)), {name: 'TimeoutError'});
     }
     await new Promise((resolve) => setTimeout(resolve, 50));
   }

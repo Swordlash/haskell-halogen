@@ -12,11 +12,14 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 const runner = fileURLToPath(new URL("./runner.mjs", import.meta.url));
+const opener = fileURLToPath(new URL("./open.mjs", import.meta.url));
 
 // Run the fixture suite with this many pages and workers. Every parallel
 // page and every worker fetches from the server, which answers none of them
 // until all have asked: `meet` of them, by default all.
-async function exercise(mode, jobs = "2", workers = "0", meet = Number(jobs) + Number(workers)) {
+async function exercise(mode, jobs = "2", workers = "0", meet = Number(jobs) + Number(workers), settings = {}) {
+  const deadline = Number(settings.HSPEC_HALOGEN_DEADLINE_MS ?? 5000);
+  const retries = settings.HSPEC_HALOGEN_RETRIES === "1";
   const dir = mkdtempSync(join(tmpdir(), "halogen-runner-test-"));
   const suite = join(dir, "suite");
   mkdirSync(`${suite}.jsexe`);
@@ -38,6 +41,8 @@ async function exercise(mode, jobs = "2", workers = "0", meet = Number(jobs) + N
   if (mode !== "unsupported") globalThis.__halogenTestShardSupported = true;
   const check = (condition, text) => { if (!condition) throw new Error(text); };
   check(globalThis.__halogenTestWorkers === ${Number(workers)}, "the shard was not told how many workers there are");
+  check(globalThis.__halogenTestDeadlineMs === ${deadline}, "the shard was not told the deadline");
+  check(globalThis.__halogenTestRetries === ${retries}, "the shard was not told whether to report retries");
   if (shard.startsWith("worker/")) {
     check(typeof document === "undefined", "a worker had a document");
     check(typeof globalThis.__halogenTest.act === "undefined", "a worker was given the page's actions");
@@ -51,6 +56,7 @@ async function exercise(mode, jobs = "2", workers = "0", meet = Number(jobs) + N
       return;
     }
     if (mode === "worker-timeout" && shard === "worker/0/2") return;
+    if (mode === "report") await globalThis.__halogenTest.report("HSPEC_HALOGEN_RETRY\\tfrom " + shard);
     console.log("finished " + shard + "\\n");
     await globalThis.__halogenTest.done(mode === "worker-failure" && shard === "worker/0/2" ? 1 : 0);
     return;
@@ -70,6 +76,19 @@ async function exercise(mode, jobs = "2", workers = "0", meet = Number(jobs) + N
     await globalThis.__halogenTest.press("End");
     check(input.value === shard, "input crossed pages");
     check(trusted, "input was not trusted");
+    if (mode === "deadline") {
+      // An element that never becomes visible: the action fails at the
+      // deadline the page names, or without one (a suite built before
+      // actions named it) at the runner's.
+      const hidden = document.body.appendChild(document.createElement("button"));
+      hidden.id = "hidden";
+      hidden.style.visibility = "hidden";
+      const failure = (timeout) => globalThis.__halogenTest.act("click", "#hidden", "", timeout).then(() => "clicked", (error) => String(error));
+      const named = await failure(200);
+      check(named.includes("Timeout 200ms exceeded"), "the named deadline was not Playwright's: " + named);
+      const unnamed = await failure(undefined);
+      check(unnamed.includes("Timeout ${deadline}ms exceeded"), "the runner's deadline was not Playwright's: " + unnamed);
+    }
   }
   if (mode === "crash" && shard === "0/2") throw new Error("fixture crashed");
   if (mode === "missing" && shard === "0/2") {
@@ -77,6 +96,7 @@ async function exercise(mode, jobs = "2", workers = "0", meet = Number(jobs) + N
     return;
   }
   if (mode === "timeout" && shard === "0/2") return;
+  if (mode === "report") await globalThis.__halogenTest.report("HSPEC_HALOGEN_RETRY\\tfrom " + shard);
   console.log("finished " + shard + "\\n");
   await globalThis.__halogenTest.done(mode === "failure" && shard === "0/2" ? 1 : 0);
 })().catch((error) => globalThis.__halogenTestFinished
@@ -86,7 +106,7 @@ async function exercise(mode, jobs = "2", workers = "0", meet = Number(jobs) + N
   try {
     const result = await new Promise((resolve, reject) => {
       const child = spawn(process.execPath, [runner, suite, "-"], {
-        env: { ...process.env, HSPEC_HALOGEN_JOBS: jobs, HSPEC_HALOGEN_WORKERS: workers, HSPEC_HALOGEN_TIMEOUT: "3" },
+        env: { ...process.env, HSPEC_HALOGEN_DEADLINE_MS: undefined, HSPEC_HALOGEN_RETRIES: undefined, HSPEC_HALOGEN_JOBS: jobs, HSPEC_HALOGEN_WORKERS: workers, HSPEC_HALOGEN_TIMEOUT: "3", ...settings },
         stdio: ["ignore", "pipe", "pipe"],
       });
       let stdout = "", stderr = "";
@@ -164,6 +184,63 @@ for (const mode of ["worker-failure", "worker-error", "worker-missing", "worker-
     if (mode === "worker-timeout") assert.match(result.stderr, /no result after/);
   });
 }
+test("the deadline and the retry report reach the pages and the workers", async () => {
+  const result = await exercise("deadline", "2", "2", 4, { HSPEC_HALOGEN_DEADLINE_MS: "300", HSPEC_HALOGEN_RETRIES: "1" });
+  assert.equal(result.code, 0, result.stdout + result.stderr);
+});
+// The suite's report of its retries goes to the runner's standard error
+// from the pages and the workers alike, and not to its standard output,
+// where a JavaScript-backend suite's own standard error would end up.
+test("the retry report reaches standard error from the pages and the workers", async () => {
+  const result = await exercise("report", "2", "2", 4, { HSPEC_HALOGEN_RETRIES: "1" });
+  assert.equal(result.code, 0, result.stdout + result.stderr);
+  for (const shard of ["serial", "0/2", "1/2", "worker/0/2", "worker/1/2"]) {
+    assert.match(result.stderr, new RegExp(`^HSPEC_HALOGEN_RETRY\\tfrom ${shard}$`, "m"));
+  }
+  assert.doesNotMatch(result.stdout, /HSPEC_HALOGEN_RETRY/);
+});
+test("an invalid deadline fails before launching a browser", async () => {
+  const result = await exercise("pass", "1", "0", 0, { HSPEC_HALOGEN_DEADLINE_MS: "0" });
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /HSPEC_HALOGEN_DEADLINE_MS must be a positive integer/);
+});
+// hspec-halogen open, headless, on a page that prints the deadline it was
+// given and what a click on a hidden button says, the button's deadline
+// named as the suite's page.js names it; the process is stopped once both
+// are printed, as a user closing the window would.
+test("the deadline reaches the page hspec-halogen open opens, and its actions", async () => {
+  const server = createServer((request, response) => {
+    response.setHeader("Content-Type", "text/html");
+    response.end(`<!doctype html><button id="hidden" style="visibility: hidden">hidden</button><script>
+console.log("deadline " + globalThis.__halogenTestDeadlineMs);
+// The deadline as page.js names it with each action.
+globalThis.__halogenTest.act("click", "#hidden", "", globalThis.__halogenTestDeadlineMs ?? 5000)
+  .then(() => console.log("clicked"), (error) => console.log("click " + String(error).split("\\n")[0]));
+</script>`);
+  });
+  await new Promise((ready) => server.listen(0, "127.0.0.1", ready));
+  try {
+    const output = await new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, [opener, `http://127.0.0.1:${server.address().port}/`], {
+        env: { ...process.env, HSPEC_HALOGEN_HEADLESS: "1", HSPEC_HALOGEN_DEADLINE_MS: "300" },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let stdout = "";
+      child.stdout.on("data", (text) => {
+        stdout += text;
+        if (/^click /m.test(stdout) || /^clicked$/m.test(stdout)) child.kill();
+      });
+      const deadline = setTimeout(() => { child.kill("SIGKILL"); reject(new Error("open did not print the page's lines: " + stdout)); }, 20000);
+      child.on("error", reject);
+      child.on("exit", () => { clearTimeout(deadline); resolve(stdout); });
+    });
+    assert.match(output, /^deadline 300$/m);
+    assert.match(output, /^click .*Timeout 300ms exceeded/m);
+  } finally {
+    server.closeAllConnections();
+    server.close();
+  }
+});
 test("invalid worker counts fail before launching a browser", async () => {
   const result = await exercise("pass", "1", "-1", 0);
   assert.equal(result.code, 1);

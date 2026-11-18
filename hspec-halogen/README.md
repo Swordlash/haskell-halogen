@@ -123,6 +123,8 @@ If cabal complains of a version mismatch between `ghc` and `ghc-pkg`, it has cac
 | `HSPEC_HALOGEN_HEADED=1` | show the browser while the suite runs |
 | `HSPEC_HALOGEN_SLOWMO=<ms>` | wait this long before every browser action |
 | `HSPEC_HALOGEN_TIMEOUT=<s>` | how long the whole suite may take (600) |
+| `HSPEC_HALOGEN_DEADLINE_MS=<ms>` | how long an action, `settle` and `waitQuiet` may wait for the page (5000), see [The deadline](#the-deadline) |
+| `HSPEC_HALOGEN_RETRIES=1` | report the waits that retried, on standard error, see [Finding the reads that retry](#finding-the-reads-that-retry) |
 | `HSPEC_HALOGEN_JOBS=<n>` | pages for the examples marked `parallel` (1), see [Parallel tests](#parallel-tests) |
 | `HSPEC_HALOGEN_WORKERS=<m>` | Web Workers for the examples marked `inWorker` (0), see [Parallel tests](#parallel-tests) |
 | `HSPEC_HALOGEN_WASM_GHC` | the wasm GHC whose post-linker to use (`wasm32-wasi-ghc`) |
@@ -179,11 +181,11 @@ The suite and its components share one program. `Halogen.Activity` reports wheth
 4. Wait for the next animation frame and a task after it. Events such as dialog `close`, `resize` and `ResizeObserver` callbacks can arrive here. Hidden pages are skipped. If a frame takes more than 100 ms, later attempts wait at most 20 ms until frames resume.
 5. Check the program again and repeat if those events made it busy.
 
-After an action, one read is enough to inspect its rendered result. Call `settle` explicitly after custom actions, such as an `unsafeIOToPageM` operation that dispatches an event. Settling usually costs one frame, about 17 ms at 60 Hz. It waits through browser promises, allowing the page to continue running. If the program is still busy after five seconds, the test fails with activity counts and a trace.
+After an action, one read is enough to inspect its rendered result. Call `settle` explicitly after custom actions, such as an `unsafeIOToPageM` operation that dispatches an event. Settling usually costs one frame, about 17 ms at 60 Hz. It waits through browser promises, allowing the page to continue running. If the program is still busy at the deadline, five seconds unless set otherwise (see below), the test fails with activity counts and a trace.
 
 `settle` does not wait for fibers suspended in `H.async`, such as a request or a counted debounce. Use these APIs when the result depends on them:
 
-- `waitQuiet` settles the page, waits until no fibers remain in `H.async`, then settles again. It has a five-second deadline; `waitQuietWithin ms` overrides it. Failures report running trees and waiting fibers.
+- `waitQuiet` settles the page, waits until no fibers remain in `H.async`, then settles again. It has the same deadline as `settle`; `waitQuietWithin ms` gives one of its own. Failures report running trees and waiting fibers.
 - `H.delay` and `Hooks.delay` are excluded intentionally. Use them for transient notices and repeating timers. Use `H.delayCounted` for delays before observable work, such as debounced requests or autosaves. `H.async (threadDelay n)` also counts, but a test clock cannot advance it.
 - `activity` returns the raw reading: trees, running trees and waiting fibers. Import its fields from `Halogen.Activity (Activity (..))`.
 
@@ -194,6 +196,28 @@ find ui "button.save" >>= click
 waitQuiet
 find ui ".status" >>= textContent >>= (`shouldBe` "Saved")
 ```
+
+#### The deadline
+
+One deadline bounds every wait for the page: an action's wait for its element to be visible and enabled (Playwright's timeout, or the page's own check without the runner), `settle` after it, and `waitQuiet`. It is five seconds unless the runner is given `HSPEC_HALOGEN_DEADLINE_MS`:
+
+```sh
+HSPEC_HALOGEN_DEADLINE_MS=30000 cabal test browser-test --test-wrapper="$(command -v hspec-halogen)" …
+```
+
+A part of a test can have a deadline of its own: `withDeadline 1000 settle` checks that a watchdog fires without waiting a slow machine's thirty seconds for it, and gives the runner's deadline back afterwards.
+
+The deadline is a watchdog against a program that never finishes, not a measure of how fast it should be. A suite that passes on a developer's machine can run out of five seconds on a loaded CI runner, where the same click takes several times as long; there, raise it in one place. A test that checks the program stays busy for a while, or waits for a request known to be slow, names its own with `waitQuietWithin`. The deadline does not change `eventually`, whose two seconds are its own (`eventuallyWithin` sets another). haskell-halogen-playwright's `HALOGEN_PLAYWRIGHT_TIMEOUT` is the same setting for that harness.
+
+#### Finding the reads that retry
+
+`find` and the `should…` expectations retry for two seconds, so a read can pass only because it caught the program a moment later, and a loaded machine then fails it. With `HSPEC_HALOGEN_RETRIES=1`, each wait whose first attempt failed writes a tab-separated line to standard error:
+
+```
+HSPEC_HALOGEN_RETRY  <example>  <function>  <file:line>  <trees/running/waiting>  <ok|timeout|cut>  <attempts>  <ms>  <first failure>  <last failure>
+```
+
+with what the program was doing at the first failure (`Halogen.Activity`): a tree still running means an action or a mount had not settled, a fiber waiting means the read wanted `waitQuiet`. A `settle` or `waitQuiet` that took longer than a second, or ran out of time, writes an `HSPEC_HALOGEN_SETTLE` line, and the suite ends with an `HSPEC_HALOGEN_READS` line for every place that waited: how many of its waits succeeded at once and how many retried. A wait inside another (a `find` in an `eventually`) reports itself at its own line; one cut short by the enclosing wait's deadline says `cut`, and the enclosing wait reports only its own attempts, so no retry is counted twice. Without the variable nothing is written.
 
 ### Without the runner
 
@@ -208,7 +232,7 @@ Synthetic input respects event cancellation. Preventing `keydown` stops later ke
 
 Read-only inputs still receive key events, focus and selection, but their contents do not change. `maxlength` limits insertion using Chromium's UTF-16 code-unit count. A character that does not fit is omitted completely, so an emoji is not split to fill one remaining unit.
 
-Each synthetic action waits up to five seconds for an attached, visible and enabled target. `dragTo` checks both elements. Timeout failures include `Timeout 5000ms exceeded`. Visibility follows Playwright's definition: the element needs a layout box and must not be hidden by `display` or `visibility`; opacity does not matter. Covered elements are not detected, and disabled elements cannot receive focus for `press`.
+Each synthetic action waits up to [the deadline](#the-deadline) for an attached, visible and enabled target. `dragTo` checks both elements. Timeout failures name it, as Playwright's do: `Timeout 5000ms exceeded`. Visibility follows Playwright's definition: the element needs a layout box and must not be hidden by `display` or `visibility`; opacity does not matter. Covered elements are not detected, and disabled elements cannot receive focus for `press`.
 
 These events have `isTrusted = false`. Synthetic actions do not reproduce every browser behaviour, such as arrow-key caret movement, mouse text selection or label-driven focus. Passing here does not replace testing under the real runner.
 

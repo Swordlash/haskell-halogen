@@ -103,10 +103,10 @@ spec m = do
     typeText field "😀"
     getProperty field "value" `shouldReturn` ""
 
-  -- Five seconds, the runner's timeout for an action, before it fails.
+  -- The deadline for an action, here the test's own, before it fails.
   it "does not click a button hidden by visibility, and fails as the runner does" $
-    runPage (mount m Editing.component () >>= (`find` "button.invisible") >>= click)
-      `shouldThrow` \(JSError _ message) -> "Timeout 5000ms exceeded" `T.isInfixOf` message
+    runPage (mount m Editing.component () >>= (`find` "button.invisible") >>= withDeadline 1000 . click)
+      `shouldThrow` \(JSError _ message) -> "Timeout 1000ms exceeded" `T.isInfixOf` message
 
   -- What the actions wait for is what isVisible reports: visibility: hidden
   -- hides an element from both.
@@ -117,10 +117,10 @@ spec m = do
     shouldBeHidden invisible
     find ui "button.tab-first" >>= shouldBeVisible
 
-  -- Five seconds too: a read-only field never becomes editable.
+  -- The same deadline: a read-only field never becomes editable.
   it "does not clear a read-only field, and fails as the runner does" $
-    runPage (mount m Editing.component () >>= (`find` "input.readonly") >>= clear)
-      `shouldThrow` \(JSError _ message) -> "Timeout 5000ms exceeded" `T.isInfixOf` message
+    runPage (mount m Editing.component () >>= (`find` "input.readonly") >>= withDeadline 1000 . clear)
+      `shouldThrow` \(JSError _ message) -> "Timeout 1000ms exceeded" `T.isInfixOf` message
 
   it "tabs in tabindex order, past tabindex -1" $ runPage $ do
     ui <- mount m Editing.component ()

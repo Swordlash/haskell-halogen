@@ -14,6 +14,10 @@ module Test.Hspec.Halogen.Internal.Page
   , runnerArgs
   , runnerShard
   , runnerWorkers
+  , runnerRetries
+  , runnerDeadline
+  , setDeadline
+  , reportLine
   , reportDone
   , removeLeftovers
   , createContainer
@@ -56,6 +60,10 @@ $( browserJS
      , ("js_shard", "halogen_test_shard", Safe, [t|IO JSText|])
      , ("js_test_args", "halogen_test_test_args", Safe, [t|IO JSVal|])
      , ("js_workers", "halogen_test_workers", Safe, [t|IO Int|])
+     , ("js_retries", "halogen_test_retries", Safe, [t|IO Bool|])
+     , ("js_deadline", "halogen_test_deadline", Safe, [t|IO Int|])
+     , ("js_set_deadline", "halogen_test_set_deadline", Safe, [t|Int -> IO Int|])
+     , ("js_report", "halogen_test_report", Safe, [t|JSText -> IO Bool|])
      , ("js_remove_leftovers", "halogen_test_remove_leftovers", Safe, [t|IO ()|])
      , ("js_test_done", "halogen_test_test_done", Safe, [t|Int -> IO ()|])
      , ("js_create_container", "halogen_test_create_container", Safe, [t|IO JSVal|])
@@ -112,6 +120,30 @@ runnerShard = fromJSText <$> js_shard
 -- the runner, and with a runner that predates them.
 runnerWorkers :: IO Int
 runnerWorkers = js_workers
+
+-- | Whether the runner asked the suite to report its retries
+-- (@HSPEC_HALOGEN_RETRIES=1@; see 'Test.Hspec.Halogen.eventually').
+runnerRetries :: IO Bool
+runnerRetries = js_retries
+
+-- | How long an action, a settle and a waitQuiet wait for the page, in
+-- milliseconds, as the runner was told (@HSPEC_HALOGEN_DEADLINE_MS@): 5000
+-- without a runner or a setting, and natively.
+runnerDeadline :: IO Int
+runnerDeadline = (\ms -> if ms > 0 then ms else 5000) <$> js_deadline
+
+-- | Set the deadline the page's actions and settles take for a while, in
+-- milliseconds, over the runner's (0 to give the runner's back), and return
+-- the one set before, 0 if none was.
+setDeadline :: Int -> IO Int
+setDeadline = js_set_deadline
+
+-- | Hand a line of the retry report to the page's list, if a test of the
+-- harness set one up, or else to the runner, which writes it to its
+-- standard error whatever the backend: 'True' if one took it, 'False' if
+-- the suite is to write it to standard error itself (no runner).
+reportLine :: Text -> IO Bool
+reportLine = js_report . toJSText
 
 -- | Tell the runner how many tests failed. Outside the runner (a page opened
 -- by hand) there is nobody to tell.

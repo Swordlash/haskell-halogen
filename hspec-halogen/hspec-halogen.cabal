@@ -43,6 +43,7 @@ library
     exposed-modules:  Test.Hspec.Halogen
     other-modules:    Test.Hspec.Halogen.Internal.Monad
                       Test.Hspec.Halogen.Internal.Page
+                      Test.Hspec.Halogen.Internal.Report
                       Test.Hspec.Halogen.Internal.Shard
     build-depends:
         base,
@@ -131,6 +132,7 @@ test-suite hspec-halogen-test
                       Test.Probe
                       Test.Promised
                       Test.Reconcile
+                      Test.Settings
                       Test.Timeline
                       Test.Todo
                       Test.Waiting
@@ -162,7 +164,8 @@ test-suite hspec-halogen-test
     -- The Busy example's click, the Islands example's wait, the
     -- Promised example's work, the Late example's dialog and history, the
     -- Waiting example's request, the frames the Late tests take away, the
-    -- in-page tests' hiding of the runner and what the worker tests ask of
+    -- in-page tests' hiding of the runner, the settings tests' setting of
+    -- what the runner sets in the page and what the worker tests ask of
     -- where they run are JavaScript of the suite's own (test/jsbits),
     -- declared with browserJS as a package's is.
     if arch(javascript)
@@ -175,6 +178,7 @@ test-suite hspec-halogen-test
                     test/jsbits/late.js
                     test/jsbits/probe.js
                     test/jsbits/promised.js
+                    test/jsbits/settings.js
                     test/jsbits/waiting.js
                     test/jsbits/window.js
                     test/jsbits/worker.js
@@ -200,8 +204,9 @@ test-suite shard-test
     default-language: GHC2024
     hs-source-dirs: unit src
     main-is: Main.hs
-    other-modules: Test.Hspec.Halogen.Internal.Shard
+    other-modules: Test.Hspec.Halogen.Internal.Report
+                   Test.Hspec.Halogen.Internal.Shard
     ghc-options: -Wall -Wextra
-    build-depends: base, hspec, hspec-core >= 2.11.17 && < 2.12
+    build-depends: base, containers, text, hspec, hspec-core >= 2.11.17 && < 2.12
     if arch(wasm32) || arch(javascript)
         buildable: False
