@@ -110,6 +110,7 @@ module Test.Hspec.Halogen
   , settle
   , waitQuiet
   , waitQuietWithin
+  , withDeadline
   , activity
   , Activity
 
@@ -694,6 +695,16 @@ waitQuiet = unsafeIOToPageM Page.runnerDeadline >>= waitQuietWithin
 waitQuietWithin :: (HasCallStack) => Int -> PageM s ()
 waitQuietWithin ms = void (settleUntil Quiet ms)
 
+-- | Run part of a test with a deadline of its own, in milliseconds, for its
+-- actions, 'settle' and 'waitQuiet', in place of the runner's
+-- (@HSPEC_HALOGEN_DEADLINE_MS@, five seconds unless set), which is given
+-- back afterwards. For a test that checks that the deadline fires: it
+-- should not wait thirty seconds where a slow machine's suite is given
+-- them, nor fail where it is given less than it assumed.
+withDeadline :: Int -> PageM s a -> PageM s a
+withDeadline ms (PageM body) = PageM $ ReaderT $ \env ->
+  bracket (Page.setDeadline ms) Page.setDeadline (const (runReaderT body env))
+
 -- | What the program is doing at this moment ("Halogen.Activity"): the trees
 -- mounted, those running or with work queued, the fibers waiting in an
 -- @H.async@. For a test that has to check the reading itself; to wait for
@@ -754,8 +765,11 @@ settleUntil wanted ms = unsafeIOToPageM $ do
         a <- Activity.activity
         moving <- Page.historyMoving
         if done a && not moving then a <$ whenM Page.runnerRetries (reportSettle wanted started "ok" a) else overdue a moving >> go
-  Page.settleTasks
-  go
+  -- Cut short by an enclosing wait's deadline (an 'eventually' around it):
+  -- reported as such, since its own end never comes.
+  (Page.settleTasks >> go) `catch` \(e :: SomeAsyncException) -> do
+    whenM Page.runnerRetries (Activity.activity >>= reportSettle wanted started "cut")
+    throwIO e
 
 -- | What a settle that ran out of time says.
 --
@@ -1006,16 +1020,24 @@ namingExamples = Spec.mapSpecForest (map (named []))
 -- so on standard error, tab-separated, with a fixed first word to cut it out
 -- of a log:
 --
--- > HSPEC_HALOGEN_RETRY  <example>  <function>  <file:line>  <trees/running/waiting>  <ok|timeout>  <attempts>  <ms>  <first failure>
+-- > HSPEC_HALOGEN_RETRY  <example>  <function>  <file:line>  <trees/running/waiting>  <ok|timeout|cut>  <attempts>  <ms>  <first failure>  <last failure>
 --
 -- the example's path; the library function the test called and where (the
 -- first frame of the call stack outside this module); what the program was
 -- doing at the first failure ("Halogen.Activity"); how the wait ended,
--- after how many attempts and how long; and the first failure's message,
--- on one line. A 'settle' or 'waitQuiet' that took longer than a second,
--- or ran out of time, says:
+-- after how many attempts and how long; and the first and the last
+-- failure's messages, each on one line. A 'settle' or 'waitQuiet' that took
+-- longer than a second, or ran out of time, says:
 --
--- > HSPEC_HALOGEN_SETTLE  <example>  <settle|waitQuiet>  <file:line>  <ok|deadline>  <ms>  <trees/running/waiting>
+-- > HSPEC_HALOGEN_SETTLE  <example>  <settle|waitQuiet>  <file:line>  <ok|deadline|cut>  <ms>  <trees/running/waiting>
+--
+-- Waits inside waits (a 'find' in an 'eventually', a 'settle' in one) each
+-- report themselves, once, at their own call site. One that the enclosing
+-- wait's deadline cuts short reports then, with @cut@ for how it ended. The
+-- enclosing wait writes a line only if one of its own attempts finished
+-- and failed: an attempt cut short is the inner wait's to report. So no
+-- retry is counted twice, and the counts below count each wait once, at
+-- its own site.
 --
 -- And at the end of the suite, for every place that waited, how many of its
 -- waits succeeded at the first attempt and how many retried:
@@ -1032,11 +1054,12 @@ reportedWithin timeoutMs action env = do
       report outcome = do
         now <- getMonotonicTime
         n <- readIORef attempts
+        final <- readIORef lastFailure
         readIORef firstFailure
           >>= traverse_
             ( \(a, e) -> do
                 example <- readIORef currentExample
-                let line = [example, function, site, readingText a, outcome, show n, show (floor ((now - started) * 1000) :: Int), T.take 200 (T.unwords (T.words (toS (displayException e))))]
+                let line = [example, function, site, readingText a, outcome, show n, show (floor ((now - started) * 1000) :: Int), failureText e, maybe "" failureText final]
                 reportLine (T.intercalate "\t" ("HSPEC_HALOGEN_RETRY" : line))
             )
         count (n > 1 || outcome /= "ok")
@@ -1056,7 +1079,9 @@ reportedWithin timeoutMs action env = do
             threadDelay (pollMs * 1000)
             go
   atomicWriteIORef env.retried Nothing
-  withinMs timeoutMs go >>= \case
+  -- Cut short by an enclosing wait's deadline: this wait's own end never
+  -- comes, so it reports itself now.
+  (withinMs timeoutMs go `catch` \(e :: SomeAsyncException) -> report "cut" >> throwIO e) >>= \case
     Just a -> pure a
     Nothing -> do
       report "timeout"
@@ -1070,6 +1095,17 @@ reportedWithin timeoutMs action env = do
     notAsync e = case fromException e of
       Just (_ :: SomeAsyncException) -> Nothing
       Nothing -> Just e
+
+-- | A failure on one line of at most 200 characters: hspec's own words for
+-- an expectation (what was expected, what was got), 'displayException' for
+-- anything else.
+failureText :: SomeException -> Text
+failureText e =
+  T.take 200 . T.unwords . T.words $ case fromException e of
+    Just (HUnitFailure _ (Reason message)) -> toS message
+    Just (HUnitFailure _ (ExpectedButGot prefix expected got)) ->
+      toS (maybe "" (<> " ") prefix <> "expected: " <> expected <> " but got: " <> got)
+    Nothing -> toS (displayException e)
 
 -- | A settle that took longer than a second, or ran out of time, reported.
 reportSettle :: (HasCallStack) => Until -> Double -> Text -> Activity -> IO ()

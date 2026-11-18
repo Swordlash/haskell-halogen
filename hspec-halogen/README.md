@@ -205,6 +205,8 @@ One deadline bounds every wait for the page: an action's wait for its element to
 HSPEC_HALOGEN_DEADLINE_MS=30000 cabal test browser-test --test-wrapper="$(command -v hspec-halogen)" …
 ```
 
+A part of a test can have a deadline of its own: `withDeadline 1000 settle` checks that a watchdog fires without waiting a slow machine's thirty seconds for it, and gives the runner's deadline back afterwards.
+
 The deadline is a watchdog against a program that never finishes, not a measure of how fast it should be. A suite that passes on a developer's machine can run out of five seconds on a loaded CI runner, where the same click takes several times as long; there, raise it in one place. A test that checks the program stays busy for a while, or waits for a request known to be slow, names its own with `waitQuietWithin`. The deadline does not change `eventually`, whose two seconds are its own (`eventuallyWithin` sets another). haskell-halogen-playwright's `HALOGEN_PLAYWRIGHT_TIMEOUT` is the same setting for that harness.
 
 #### Finding the reads that retry
@@ -212,10 +214,10 @@ The deadline is a watchdog against a program that never finishes, not a measure 
 `find` and the `should…` expectations retry for two seconds, so a read can pass only because it caught the program a moment later, and a loaded machine then fails it. With `HSPEC_HALOGEN_RETRIES=1`, each wait whose first attempt failed writes a tab-separated line to standard error:
 
 ```
-HSPEC_HALOGEN_RETRY  <example>  <function>  <file:line>  <trees/running/waiting>  <ok|timeout>  <attempts>  <ms>  <first failure>
+HSPEC_HALOGEN_RETRY  <example>  <function>  <file:line>  <trees/running/waiting>  <ok|timeout|cut>  <attempts>  <ms>  <first failure>  <last failure>
 ```
 
-with what the program was doing at the first failure (`Halogen.Activity`): a tree still running means an action or a mount had not settled, a fiber waiting means the read wanted `waitQuiet`. A `settle` or `waitQuiet` that took longer than a second, or ran out of time, writes an `HSPEC_HALOGEN_SETTLE` line, and the suite ends with an `HSPEC_HALOGEN_READS` line for every place that waited: how many of its waits succeeded at once and how many retried. Without the variable nothing is written.
+with what the program was doing at the first failure (`Halogen.Activity`): a tree still running means an action or a mount had not settled, a fiber waiting means the read wanted `waitQuiet`. A `settle` or `waitQuiet` that took longer than a second, or ran out of time, writes an `HSPEC_HALOGEN_SETTLE` line, and the suite ends with an `HSPEC_HALOGEN_READS` line for every place that waited: how many of its waits succeeded at once and how many retried. A wait inside another (a `find` in an `eventually`) reports itself at its own line; one cut short by the enclosing wait's deadline says `cut`, and the enclosing wait reports only its own attempts, so no retry is counted twice. Without the variable nothing is written.
 
 ### Without the runner
 

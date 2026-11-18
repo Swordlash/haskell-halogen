@@ -16,6 +16,15 @@ function halogen_test_deadline() {
   return globalThis.__halogenTestDeadlineMs ?? 5000;
 }
 
+// Set the deadline for a part of a test (withDeadline), or unset it with 0,
+// and return the one set before, 0 if none was.
+function halogen_test_set_deadline(ms) {
+  const before = globalThis.__halogenTestDeadlineMs ?? 0;
+  if (ms > 0) globalThis.__halogenTestDeadlineMs = ms;
+  else delete globalThis.__halogenTestDeadlineMs;
+  return before;
+}
+
 // Whether the runner asked for the retries to be reported
 // (HSPEC_HALOGEN_RETRIES=1).
 function halogen_test_retries() {

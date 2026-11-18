@@ -78,6 +78,17 @@ spec m = around_ (bracket_ js_save js_restore) $ do
         waitQuiet
       message `Hspec.shouldSatisfy` T.isPrefixOf ("waitQuiet: the program was not quiet after " <> show deadline <> " ms")
 
+    -- A part of a test with a deadline of its own gives the runner's back.
+    it "is given back after withDeadline" $ do
+      message <- failure $ do
+        ui <- mount m (Waiting.spinner :: H.Component H.VoidF Double Void m) 1.5
+        spins <- find ui ".spins"
+        eventually (textContent spins >>= (`shouldNotBe` "0"))
+        unsafeIOToPageM (js_deadline deadline)
+        withDeadline 200 (pure ())
+        settle
+      message `Hspec.shouldSatisfy` T.isPrefixOf ("settle: the program was still busy after " <> show deadline <> " ms")
+
     -- Playwright's: the page names its deadline with each action.
     it "is an action's" $ hiddenClick m
 
@@ -89,7 +100,7 @@ spec m = around_ (bracket_ js_save js_restore) $ do
       js_retries True
       runPage thirdTime
       reported "HSPEC_HALOGEN_RETRY" >>= \case
-        [["HSPEC_HALOGEN_RETRY", example, function, site, _reading, outcome, attempts, _ms, firstFailure]] -> do
+        [["HSPEC_HALOGEN_RETRY", example, function, site, _reading, outcome, attempts, _ms, firstFailure, _lastFailure]] -> do
           example `Hspec.shouldSatisfy` T.isSuffixOf "/says that a wait retried and then succeeded"
           function `Hspec.shouldBe` "eventually"
           site `Hspec.shouldSatisfy` T.isPrefixOf "test/Test/Settings.hs:"
@@ -102,7 +113,7 @@ spec m = around_ (bracket_ js_save js_restore) $ do
       js_retries True
       _ <- failure (eventuallyWithin 200 (expectationFailure "never"))
       reported "HSPEC_HALOGEN_RETRY" >>= \case
-        [["HSPEC_HALOGEN_RETRY", _example, function, _site, _reading, outcome, attempts, _ms, _firstFailure]] -> do
+        [["HSPEC_HALOGEN_RETRY", _example, function, _site, _reading, outcome, attempts, _ms, _firstFailure, _lastFailure]] -> do
           function `Hspec.shouldBe` "eventuallyWithin"
           outcome `Hspec.shouldBe` "timeout"
           attempts `Hspec.shouldSatisfy` maybe False (> (1 :: Int)) . readMaybe
@@ -134,6 +145,48 @@ spec m = around_ (bracket_ js_save js_restore) $ do
       js_retries True
       runPage (eventually (True `shouldBe` True))
       reported "HSPEC_HALOGEN_RETRY" `Hspec.shouldReturn` []
+
+    -- A wait inside another, cut short by the outer one's deadline, writes
+    -- its own line; the outer one, none of whose attempts finished, none.
+    it "says that a wait inside another was cut short by the outer one's deadline" $ do
+      js_retries True
+      _ <- try @SomeException $ runPage $ do
+        here <- htmlContainer "<p>here</p>"
+        p <- findIn here "p"
+        eventuallyWithin 300 (p `shouldHaveText` "never")
+      reported "HSPEC_HALOGEN_RETRY" >>= \case
+        [["HSPEC_HALOGEN_RETRY", _example, function, _site, _reading, outcome, attempts, _ms, firstFailure, lastFailure]] -> do
+          function `Hspec.shouldBe` "shouldHaveText"
+          outcome `Hspec.shouldBe` "cut"
+          attempts `Hspec.shouldSatisfy` maybe False (> (1 :: Int)) . readMaybe
+          firstFailure `Hspec.shouldSatisfy` T.isInfixOf "expected text \"never\", found \"here\""
+          lastFailure `Hspec.shouldSatisfy` T.isInfixOf "expected text \"never\", found \"here\""
+        other -> Hspec.expectationFailure ("not one line of the report: " <> show other)
+
+    -- hspec's failure, as it says it, not as Haskell shows the value.
+    it "says what was expected and what was got" $ do
+      js_retries True
+      _ <- try @SomeException (runPage (eventuallyWithin 200 ((1 :: Int) `shouldBe` 2)))
+      reported "HSPEC_HALOGEN_RETRY" >>= \case
+        [["HSPEC_HALOGEN_RETRY", _example, _function, _site, _reading, outcome, _attempts, _ms, firstFailure, lastFailure]] -> do
+          outcome `Hspec.shouldBe` "timeout"
+          for_ [firstFailure, lastFailure] $ \said -> do
+            said `Hspec.shouldSatisfy` T.isInfixOf "expected: 2"
+            said `Hspec.shouldSatisfy` T.isInfixOf "but got: 1"
+        other -> Hspec.expectationFailure ("not one line of the report: " <> show other)
+
+    it "says that a settle was cut short by an enclosing deadline" $ do
+      js_retries True
+      _ <- try @SomeException $ runPage $ do
+        ui <- mount m (Waiting.spinner :: H.Component H.VoidF Double Void m) 2
+        spins <- find ui ".spins"
+        eventually (textContent spins >>= (`shouldNotBe` "0"))
+        eventuallyWithin 300 settle
+      reported "HSPEC_HALOGEN_SETTLE" >>= \case
+        [["HSPEC_HALOGEN_SETTLE", _example, what, _site, outcome, _ms, _reading]] -> do
+          what `Hspec.shouldBe` "settle"
+          outcome `Hspec.shouldBe` "cut"
+        other -> Hspec.expectationFailure ("not one line of the report: " <> show other)
 
     -- What is checked absent is shown present above, with the same read.
     it "writes nothing without the setting" $ do

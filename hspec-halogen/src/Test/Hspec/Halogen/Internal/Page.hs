@@ -16,6 +16,7 @@ module Test.Hspec.Halogen.Internal.Page
   , runnerWorkers
   , runnerRetries
   , runnerDeadline
+  , setDeadline
   , reportLine
   , reportDone
   , removeLeftovers
@@ -61,6 +62,7 @@ $( browserJS
      , ("js_workers", "halogen_test_workers", Safe, [t|IO Int|])
      , ("js_retries", "halogen_test_retries", Safe, [t|IO Bool|])
      , ("js_deadline", "halogen_test_deadline", Safe, [t|IO Int|])
+     , ("js_set_deadline", "halogen_test_set_deadline", Safe, [t|Int -> IO Int|])
      , ("js_report", "halogen_test_report", Safe, [t|JSText -> IO Bool|])
      , ("js_remove_leftovers", "halogen_test_remove_leftovers", Safe, [t|IO ()|])
      , ("js_test_done", "halogen_test_test_done", Safe, [t|Int -> IO ()|])
@@ -129,6 +131,12 @@ runnerRetries = js_retries
 -- without a runner or a setting, and natively.
 runnerDeadline :: IO Int
 runnerDeadline = (\ms -> if ms > 0 then ms else 5000) <$> js_deadline
+
+-- | Set the deadline the page's actions and settles take, in milliseconds
+-- (0 for none set: five seconds), and return the one set before, 0 if none
+-- was.
+setDeadline :: Int -> IO Int
+setDeadline = js_set_deadline
 
 -- | Hand a line of the retry report to the page's list, if a test of the
 -- harness set one up, or else to the runner, which writes it to its

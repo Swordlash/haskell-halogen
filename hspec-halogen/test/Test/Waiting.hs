@@ -78,14 +78,15 @@ spec m = do
     lastMay shown `Hspec.shouldSatisfy` maybe False (\l -> "The program then: 1 tree, " `T.isPrefixOf` l && "1 fiber waiting in liftIO." `T.isSuffixOf` l)
 
   -- A tree whose loop always has work: an action, and so the test, fails
-  -- at the deadline rather than waiting for ever. The spinner stops a
-  -- second later, which its unmounting waits for.
+  -- at the deadline rather than waiting for ever. The deadline is the
+  -- test's own, a second, whatever the runner's is; the spinner stops two
+  -- seconds after that, which its unmounting waits for.
   it "fails an action on a program that never finishes, at the deadline, saying it was busy" $ do
     (shown, took) <- failing $ do
-      ui <- mount m (Waiting.spinner :: H.Component H.VoidF Double Void m) 6
+      ui <- mount m (Waiting.spinner :: H.Component H.VoidF Double Void m) 3
       spins <- find ui ".spins"
       eventually (textContent spins >>= (`shouldNotBe` "0"))
-      settle
-    took `Hspec.shouldSatisfy` (\t -> t >= 5 && t < 7.5)
-    take 1 shown `Hspec.shouldSatisfy` all (T.isPrefixOf "settle: the program was still busy after 5000 ms: 1 of 1 tree running or with work queued")
+      withDeadline 1000 settle
+    took `Hspec.shouldSatisfy` (\t -> t >= 1 && t < 3.5)
+    take 1 shown `Hspec.shouldSatisfy` all (T.isPrefixOf "settle: the program was still busy after 1000 ms: 1 of 1 tree running or with work queued")
     lastMay shown `Hspec.shouldSatisfy` maybe False (T.isPrefixOf "The program then: 1 tree, 1 running or with work queued")
