@@ -80,10 +80,12 @@ spec m = do
   -- A tree whose loop always has work: an action, and so the test, fails
   -- at the deadline rather than waiting for ever. The deadline is the
   -- test's own, a second, whatever the runner's is; the spinner stops two
-  -- seconds after that, which its unmounting waits for.
+  -- seconds after that, which its unmounting waits for. It is mounted
+  -- unsettled: it starts a moment after its mount, which a mount that
+  -- settles would wait out.
   it "fails an action on a program that never finishes, at the deadline, saying it was busy" $ do
     (shown, took) <- failing $ do
-      ui <- mount m (Waiting.spinner :: H.Component H.VoidF Double Void m) 3
+      ui <- mountUnsettled m (Waiting.spinner :: H.Component H.VoidF Double Void m) 3
       spins <- find ui ".spins"
       eventually (textContent spins >>= (`shouldNotBe` "0"))
       withDeadline 1000 settle
