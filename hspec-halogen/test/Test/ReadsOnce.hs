@@ -5,22 +5,25 @@
 -- and 'mountUnsettled', for a program busy from its start.
 module Test.ReadsOnce (spec) where
 
-import Data.IORef (atomicModifyIORef', newIORef)
+import Data.IORef (atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.Row (Empty)
 import Data.Text qualified as T
 import Example.Waiting qualified as Waiting
 import GHC.Clock (getMonotonicTime)
 import Halogen qualified as H
 import Halogen.Activity (Activity (..))
+import Halogen.Activity.Control (advance, withTestClock)
 import Halogen.HTML qualified as HH
+import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
+import Halogen.Subscription qualified as HS
 import Protolude hiding (find)
 import GHC.Stack (SrcLoc (..))
 import System.Timeout (timeout)
 import Test.HUnit.Lang (FailureReason (..), HUnitFailure (..))
 import Test.Hspec qualified as Hspec
 import Test.Hspec.Halogen
-import Test.Settings (keepingSettings, reportedFrom, reportingRetries)
+import Test.Settings (keepingSettings, reportedFrom, reportingRetries, spinning)
 
 -- | The loader, with its ticker, which pauses in 'H.delay' and so never
 -- keeps the program from being quiet.
@@ -45,6 +48,42 @@ failingAt test =
     Left other -> panic ("another failure: " <> show other)
     Right () -> panic "the test passed"
 
+-- | A status that work started outside the test's steps changes: a message
+-- pushed to its listener (which the test asks for, and sends to as a
+-- server would) and a pause in 'H.delay' after a click ('later'). Each message loads until the test opens the gate
+-- it is given, so that it is under way for as long as the test needs.
+data Pushing = Pushing {status :: Text, listener :: Maybe (HS.Listener IO Text), gate :: MVar ()}
+
+data PushAction = StartPushing | Arrived Text | Later
+
+newtype PushQuery a = GetListener (HS.Listener IO Text -> a)
+
+pushing :: forall o m. (MonadIO m) => H.Component PushQuery (MVar ()) o m
+pushing =
+  H.component
+    (\gate -> pure Pushing {status = "idle", listener = Nothing, gate})
+    render
+    [H.onInitialize (onPush StartPushing), H.onAction onPush, H.onQuery (\(GetListener reply) -> fmap reply <$> gets (.listener))]
+  where
+    render :: Pushing -> H.ComponentHTML PushAction Empty m
+    render st =
+      HH.div_
+        [ HH.p [HP.class_ (HH.ClassName "status")] [HH.text st.status]
+        , HH.button [HP.class_ (HH.ClassName "later"), HE.onClick (const Later)] [HH.text "later"]
+        ]
+    onPush :: PushAction -> H.HalogenM Pushing PushAction Empty o m ()
+    onPush = \case
+      StartPushing -> do
+        HS.Subscribe {emitter, listener} <- H.sync (liftIO HS.create)
+        void (H.subscribe (Arrived <$> emitter))
+        modify (\st -> st {listener = Just listener})
+      Arrived label -> do
+        modify (\st -> st {status = label <> ": loading"})
+        gate <- gets (.gate)
+        H.async (liftIO (readMVar gate))
+        modify (\st -> st {status = label <> ": loaded"})
+      Later -> H.delay 0.01 >> onPush (Arrived "later")
+
 -- | A count that a query adds one to.
 data Bump a = Bump a
 
@@ -67,41 +106,37 @@ spec m = do
       find ui ".load-promise" >>= click
       textContent status `shouldReturn` "loaded from a promise"
 
-    -- The slow load is held on purpose: the read waits for nothing more.
+    -- A load that never comes back, held on purpose: the read and the
+    -- waitQuiet wait for nothing more. Without the count both would fail
+    -- at their deadline.
     it "takes the waits the test holds as done" $ runPage $ do
       ui <- loader m
       countHeld (pure 1)
       status <- find ui ".status"
-      started <- unsafeIOToPageM getMonotonicTime
-      find ui ".load-slowly" >>= click
+      find ui ".load-forever" >>= click
       textContent status `shouldReturn` "loading"
       waitQuiet
-      took <- (subtract started) <$> unsafeIOToPageM getMonotonicTime
-      took `shouldSatisfy` (< 1.5)
 
     it "says, when a read fails, at which rest it looked and what it found" $ do
-      (message, took) <- failing $ do
+      (message, _) <- failing $ do
         ui <- loader m
         find ui ".load" >>= click
         find ui ".status" >>= (`shouldHaveText` "never")
       message `Hspec.shouldSatisfy` T.isPrefixOf "Read once, at rest: quiet after "
       message `Hspec.shouldSatisfy` T.isInfixOf "expected text \"never\", found \"loaded\""
-      -- One look, not two seconds of them.
-      took `Hspec.shouldSatisfy` (< 1.5)
 
   describe "at idle" $ readsOnce Idle $ do
-    -- Idle does not wait for the load's answer: the read sees the program
-    -- as the click left it, and looks once.
+    -- Idle does not wait for the load's answer, which never comes: the
+    -- read sees the program as the click left it, and looks once.
     it "reads what a click rendered, and not what its answer will" $ do
-      (message, took) <- failing $ do
+      (message, _) <- failing $ do
         ui <- loader m
-        find ui ".load" >>= click
+        find ui ".load-forever" >>= click
         status <- find ui ".status"
         status `shouldHaveText` "loading"
-        status `shouldHaveText` "loaded"
+        status `shouldHaveText` "never loaded"
       message `Hspec.shouldSatisfy` T.isPrefixOf "Read once, at rest: idle after "
-      message `Hspec.shouldSatisfy` T.isInfixOf "expected text \"loaded\", found \"loading\""
-      took `Hspec.shouldSatisfy` (< 1.5)
+      message `Hspec.shouldSatisfy` T.isInfixOf "expected text \"never loaded\", found \"loading\""
 
     it "rests again after a query" $ runPage $ do
       ui <- mount m bumper ()
@@ -158,29 +193,29 @@ spec m = do
         find ui ".status" >>= (`shouldHaveText` "never")
       nothingOf ["HSPEC_HALOGEN_RETRY", "HSPEC_HALOGEN_SETTLE", "HSPEC_HALOGEN_COUNTED"]
 
-    -- The slow load waits two seconds; the rest has 300 ms.
+    -- The load never comes back; the rest has 300 ms.
     readsOnce Quiet $ it "a read whose rest runs out writes its rest's line, and counts nothing" $ do
       reportingRetries
       (message, _) <- failing $ do
         ui <- loader m
         status <- find ui ".status"
-        find ui ".load-slowly" >>= click
-        withDeadline 300 (status `shouldHaveText` "loaded slowly")
+        find ui ".load-forever" >>= click
+        withDeadline 300 (status `shouldHaveText` "never loaded")
       message `Hspec.shouldSatisfy` T.isPrefixOf "waitQuiet: the program was not quiet after 300 ms"
       ours "HSPEC_HALOGEN_SETTLE" >>= \case
         [[_, _, what, _, outcome, _, _]] -> (what, outcome) `Hspec.shouldBe` ("waitQuiet", "deadline")
         other -> Hspec.expectationFailure ("not one line of the report: " <> show other)
       nothingOf ["HSPEC_HALOGEN_RETRY", "HSPEC_HALOGEN_COUNTED"]
 
-    -- Its attempts look without resting, so nothing waits two seconds for
-    -- the slow load, and no rest is cut.
+    -- Its attempts look without resting, so nothing waits for the load,
+    -- and no rest is cut.
     readsOnce Quiet $ it "an eventually writes and counts as a read, and the read inside it neither" $ do
       reportingRetries
       _ <- failing $ do
         ui <- loader m
         status <- find ui ".status"
-        find ui ".load-slowly" >>= click
-        eventuallyWithin 300 (status `shouldHaveText` "loaded slowly")
+        find ui ".load-forever" >>= click
+        eventuallyWithin 300 (status `shouldHaveText` "never loaded")
       ours "HSPEC_HALOGEN_RETRY" >>= \case
         [[_, _, function, _, _, outcome, _, _, _, _]] -> (function, outcome) `Hspec.shouldBe` ("eventuallyWithin", "timeout")
         other -> Hspec.expectationFailure ("not one line of the report: " <> show other)
@@ -211,7 +246,7 @@ spec m = do
       (message, at) <- failingAt $ do
         ui <- loader m
         status <- find ui ".status"
-        find ui ".load-slowly" >>= click
+        find ui ".load-forever" >>= click
         _ <- withDeadline 300 (textContent status)
         pure ()
       message `Hspec.shouldSatisfy` T.isPrefixOf "waitQuiet: the program was not quiet after 300 ms"
@@ -222,10 +257,14 @@ spec m = do
           Just site `Hspec.shouldBe` at
         other -> Hspec.expectationFailure ("not one line of the report: " <> show other)
 
+    -- The spinner, already spinning, keeps the program busy until the
+    -- mount's settle has run out (its line in the report): the mount
+    -- cannot settle, at any speed.
     it "names the test's line, from a mount" $ do
       reportingRetries
       (message, at) <- failingAt $ do
-        _ <- withDeadline 300 (mount m (Waiting.spinnerFromMount :: H.Component H.VoidF Double Void m) 1.5)
+        spinning m
+        _ <- withDeadline 300 (mount m bumper ())
         pure ()
       message `Hspec.shouldSatisfy` T.isPrefixOf "settle: the program was still busy after 300 ms"
       at `Hspec.shouldSatisfy` maybe False (T.isPrefixOf "test/Test/ReadsOnce.hs:")
@@ -235,22 +274,67 @@ spec m = do
           Just site `Hspec.shouldBe` at
         other -> Hspec.expectationFailure ("not one line of the report: " <> show other)
 
+  -- A read looks at a program at rest when it looks, whatever started the
+  -- work since the last read: not only the test's steps.
+  --
+  -- Each load waits on a gate the test opens with a raw call just before
+  -- the read, so the load is surely under way when the gate opens, and the
+  -- read finds the program at work unless it waits for it to finish.
+  -- (The 30 s bounds below are watchdogs: what they wait for comes at once.)
+  describe "work the program started by itself" $ readsOnce Quiet $ do
+    it "is waited for after an eventually saw a push start it" $ runPage $ do
+      gate <- unsafeIOToPageM newEmptyMVar
+      ui <- mount m pushing gate
+      Just listener <- query ui (H.mkRequest GetListener)
+      status <- find ui ".status"
+      status `shouldHaveText` "idle"
+      -- A message pushed while the eventually looks, as a server's would.
+      sent <- unsafeIOToPageM (newIORef False)
+      eventuallyWithin 30000 $ do
+        unsafeIOToPageM (unlessM (readIORef sent) (writeIORef sent True >> HS.notify listener "pushed"))
+        status `shouldHaveText` "pushed: loading"
+      unsafeIOToPageM (putMVar gate ())
+      status `shouldHaveText` "pushed: loaded"
+
+    -- The pause sleeps on the test's clock, so that it is surely still
+    -- asleep at the first read, and ends when the test advances the clock.
+    it "is waited for when a pause in delay started it between two reads" $
+      withTestClock $ \clock -> runPage $ do
+        gate <- unsafeIOToPageM newEmptyMVar
+        ui <- mount m pushing gate
+        status <- find ui ".status"
+        find ui ".later" >>= click
+        status `shouldHaveText` "idle"
+        -- The pause ends, and its load is under way: no read in between.
+        unsafeIOToPageM (advance clock 0.01 >> putMVar gate ())
+        status `shouldHaveText` "later: loaded"
+
+    it "is waited for when a raw call of the test's started it" $ runPage $ do
+      gate <- unsafeIOToPageM newEmptyMVar
+      ui <- mount m pushing gate
+      Just listener <- query ui (H.mkRequest GetListener)
+      status <- find ui ".status"
+      status `shouldHaveText` "idle"
+      unsafeIOToPageM (HS.notify listener "raw" >> putMVar gate ())
+      status `shouldHaveText` "raw: loaded"
+
   -- One attempt and no retrying is still an eventually's attempt: it looks
   -- at the page as it is, without waiting for the slow load.
+  -- Were it to rest, it would wait for a load that never comes back, and
+  -- fail at the deadline.
   describe "eventuallyWithin 0 inside it" $ readsOnce Quiet $
     it "looks at the page as it is" $ runPage $ do
       ui <- loader m
       status <- find ui ".status"
-      find ui ".load-slowly" >>= click
-      started <- unsafeIOToPageM getMonotonicTime
+      find ui ".load-forever" >>= click
       eventuallyWithin 0 (textContent status) `shouldReturn` "loading"
-      took <- subtract started <$> unsafeIOToPageM getMonotonicTime
-      took `shouldSatisfy` (< 1)
 
   -- The spinner starts a moment after it is mounted and then keeps its tree
   -- busy for a second: mountUnsettled gives the test the page meanwhile.
   it "mountUnsettled returns while the program is busy" $ runPage $ do
-    ui <- mountUnsettled m (Waiting.spinner :: H.Component H.VoidF Double Void m) 1
+    stop <- unsafeIOToPageM (newIORef False)
+    ui <- mountUnsettled m (Waiting.spinner :: H.Component H.VoidF (IO Bool) Void m) (not <$> readIORef stop)
     spins <- find ui ".spins"
     eventually (textContent spins >>= (`shouldNotBe` "0"))
     (.running) <$> activity >>= (`shouldSatisfy` (> 0))
+    unsafeIOToPageM (writeIORef stop True)

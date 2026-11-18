@@ -309,10 +309,6 @@ data PageEnv = PageEnv
   , readMode :: Maybe Rest
   -- ^ The rest this example's reads wait for, when it is in a 'readsOnce'
   -- group; 'Nothing' for reads that retry, as they always have.
-  , rested :: IORef (Maybe Rest)
-  -- ^ The rest the program has reached since the last step that did
-  -- something (an action, a mount, a query, 'perform'); 'Nothing' from such
-  -- a step until a settle.
   , lastRest :: IORef (Maybe (Rest, Int, Activity))
   -- ^ The last rest reached: which, how many milliseconds it took, and the
   -- program's reading then, for what a read that fails says.
@@ -367,10 +363,9 @@ runPage (PageM test) = do
       container <- maybe Page.createContainer Page.createRootIn =<< readIORef pagesIn
       teardowns <- newIORef []
       retried <- newIORef Nothing
-      rested <- newIORef Nothing
       lastRest <- newIORef Nothing
       held <- newIORef (pure 0)
-      pure PageEnv {container, teardowns, retried, readMode, rested, lastRest, held, resting = True}
+      pure PageEnv {container, teardowns, retried, readMode, lastRest, held, resting = True}
     close env = do
       atomicWriteIORef pageHolder Nothing
       pending <- atomicModifyIORef' env.teardowns ([],)
@@ -428,14 +423,18 @@ withEvents timeline (HUnitFailure location reason) = do
 --
 -- > The program then: 1 tree, 0 running or with work queued, 1 fiber waiting in liftIO.
 activityText :: Activity.Activity -> [Char]
-activityText now =
-  "The program then: "
-    <> counted now.trees "tree"
+activityText now = "The program then: " <> readingWords now <> "."
+
+-- | A reading of the program in words: @1 tree, 0 running or with work
+-- queued, 1 fiber waiting in liftIO@.
+readingWords :: Activity.Activity -> [Char]
+readingWords now =
+  counted now.trees "tree"
     <> ", "
     <> show now.running
     <> " running or with work queued, "
     <> counted now.waiting "fiber"
-    <> " waiting in liftIO."
+    <> " waiting in liftIO"
   where
     counted n what = show n <> " " <> what <> (if n == 1 then "" else "s")
 
@@ -517,7 +516,6 @@ mountUnsettled :: forall m -> (MonadBrowserTest m) => Component q i o m -> i -> 
 mountUnsettled _ component input = do
   env <- pageEnv
   element <- unsafeIOToPageM (Page.createContainerIn env.container)
-  moved
   mountWith mountInto element component input
 
 -- | A container on the page holding this HTML, parsed as the browser parses
@@ -539,7 +537,7 @@ htmlContainer html = do
 -- ('htmlContainer'): the component adopts it, with
 -- 'Halogen.VDom.Driver.hydrateUI', rather than building its own.
 hydrate :: forall m -> (HasCallStack, MonadBrowserTest m) => Element s -> Component q i o m -> i -> PageM s (Mounted s q o m)
-hydrate _ (Element element) component input = moved >> mountWith hydrateInto element component input <* settle
+hydrate _ (Element element) component input = mountWith hydrateInto element component input <* settle
 
 -- | Mount a component into this element with one of the class's ways, and
 -- collect its outputs from then on.
@@ -563,7 +561,7 @@ mountWith into element component input = do
 -- | Unmount a component before the test ends, running its finalisers and
 -- removing what it rendered, to check what happens once it is gone.
 unmount :: (MonadBrowserTest m) => Mounted s q o m -> PageM s ()
-unmount ui = moved >> unsafeIOToPageM (runTest ui.socket.dispose >> Page.removeElement ui.container)
+unmount ui = unsafeIOToPageM (runTest ui.socket.dispose >> Page.removeElement ui.container)
 
 -- | Send the component a query, as a parent would, and settle: what the
 -- query made the program do has rendered when it returns. A tell is a
@@ -572,7 +570,7 @@ unmount ui = moved >> unsafeIOToPageM (runTest ui.socket.dispose >> Page.removeE
 -- (its input is fixed at 'mount', and what it raises is read with
 -- 'outputs').
 query :: (HasCallStack, MonadBrowserTest m) => Mounted s q o m -> q a -> PageM s (Maybe a)
-query Mounted {socket = HalogenSocket {query = send}} q = moved >> unsafeIOToPageM (runTest (send q)) <* settle
+query Mounted {socket = HalogenSocket {query = send}} q = unsafeIOToPageM (runTest (send q)) <* settle
 
 -- | Everything the component has raised since it was mounted, oldest first.
 outputs :: (HasCallStack) => Mounted s q o m -> PageM s [o]
@@ -633,7 +631,7 @@ click = viaRunner "click" ""
 -- Playwright does it, so the page sees pointer and mouse events along the
 -- way, and Chromium's HTML5 @dragstart@, @dragover@ and @drop@.
 dragTo :: (HasCallStack) => Element s -> Element s -> PageM s ()
-dragTo (Element source) (Element target) = moved >> unsafeIOToPageM (Page.drag source target) >> settle
+dragTo (Element source) (Element target) = unsafeIOToPageM (Page.drag source target) >> settle
 
 -- | Type text into an element key by key, after what it already holds.
 typeText :: (HasCallStack) => Element s -> Text -> PageM s ()
@@ -646,18 +644,18 @@ clear = viaRunner "clear" ""
 -- | Press a key, or a chord such as @Shift+Tab@, on the focused element. Key
 -- names are Playwright's: @Enter@, @Backspace@, @ArrowDown@, …
 press :: (HasCallStack) => Text -> PageM s ()
-press key = moved >> unsafeIOToPageM (Page.pressKey key) >> settle
+press key = unsafeIOToPageM (Page.pressKey key) >> settle
 
 focus :: (HasCallStack) => Element s -> PageM s ()
-focus (Element element) = moved >> unsafeIOToPageM (Page.focusElement element) >> settle
+focus (Element element) = unsafeIOToPageM (Page.focusElement element) >> settle
 
 blur :: (HasCallStack) => Element s -> PageM s ()
-blur (Element element) = moved >> unsafeIOToPageM (Page.blurElement element) >> settle
+blur (Element element) = unsafeIOToPageM (Page.blurElement element) >> settle
 
 -- The runner acts on a selector, so the element is tagged with one for the
 -- length of the call.
 viaRunner :: (HasCallStack) => Text -> Text -> Element s -> PageM s ()
-viaRunner action argument (Element element) = moved >> unsafeIOToPageM (Page.act action element argument) >> settle
+viaRunner action argument (Element element) = unsafeIOToPageM (Page.act action element argument) >> settle
 
 --------------------------------------------------------------------------------
 -- Waiting for the program
@@ -780,18 +778,13 @@ activity = unsafeIOToPageM Activity.activity
 frameBoundMs :: Int
 frameBoundMs = 100
 
--- | Tell 'settle' that something was done to the page: what the program
--- reached before is no longer known ('rested').
-moved :: PageM s ()
-moved = pageEnv >>= \env -> unsafeIOToPageM (atomicWriteIORef env.rested Nothing)
-
 -- | Run the test's own call on the page (a JavaScript call that dispatches an
 -- event, a message its fake server sends, a request it lets go) and settle,
--- as an action does. Under 'readsOnce' the reads after it rest again. Use it
--- rather than 'unsafeIOToPageM' for a call that makes the program do
--- something: the harness cannot tell whether an 'unsafeIOToPageM' did.
+-- as an action does. Use it rather than 'unsafeIOToPageM' for a call that
+-- makes the program do something, so that what the call set off has
+-- rendered when it returns, as after an action.
 perform :: (HasCallStack) => IO a -> PageM s a
-perform io = moved >> unsafeIOToPageM io <* settle
+perform io = unsafeIOToPageM io <* settle
 
 -- | Say how many of the program's waits the test holds on purpose, counted
 -- afresh at each reading: requests its own server keeps unanswered until
@@ -852,7 +845,6 @@ settleUntil wanted ms =
             then do
               whenM Page.runnerRetries (reportSettle wanted started "ok" a)
               now <- getMonotonicTime
-              atomicModifyIORef' env.rested (\r -> (Just (maybe wanted (max wanted) r), ()))
               atomicWriteIORef env.lastRest (Just (wanted, floor ((now - started) * 1000), a))
               pure a
             else overdue a moving >> go
@@ -915,12 +907,12 @@ data Rest
 -- ('findAll' finding nothing) is read at rest too, which is where it means
 -- something.
 --
--- The program comes to rest once after each step that did something to it
--- (an action, 'mount', 'hydrate', 'unmount', 'query', 'perform'): the reads
--- after a step share one rest, and cost nothing more. A call through
--- 'unsafeIOToPageM' is not such a step: the harness cannot tell what it
--- did, so a call that makes the program do something goes through
--- 'perform'.
+-- A read looks at a program that is at the group's rest at the moment it
+-- looks. Each read checks it with one reading of the program, which costs
+-- no frame and no task, and settles the program only when it is not there:
+-- after an action that settled, the check passes at once, and work the
+-- program started by itself since the last read (a push, a timer, a raw
+-- call of the test's) is waited for before the look.
 --
 -- 'eventually' stays what it is, the named wait for what the program does
 -- not know of (the clipboard's answer, a pause in 'Halogen.Query.HalogenM.delay'
@@ -957,8 +949,8 @@ readModes = unsafePerformIO (newIORef mempty)
 {-# NOINLINE readModes #-}
 
 -- | A read of the page. In a 'readsOnce' group: the program brought to the
--- group's rest, if a step has done something since the last one, then one
--- look, and a failure that says which rest it was made at; inside an
+-- group's rest, if it is not there now, then one look, and a failure
+-- that says which rest it was made at; inside an
 -- 'eventually' there, one look as the page is. Otherwise as it always was:
 -- an 'eventually' for a read that retries, one look for one that does not.
 reading :: (HasCallStack) => Bool -> PageM s a -> PageM s a
@@ -967,8 +959,13 @@ reading retries look@(PageM body) =
     Nothing -> if retries then eventually look else look
     Just _ | not env.resting -> look
     Just rest -> do
-      reached <- unsafeIOToPageM (readIORef env.rested)
-      unless (maybe False (>= rest) reached) $
+      -- A program at rest after the last step can have started work since
+      -- (a push, a timer, a pause in 'Halogen.Query.HalogenM.delay', a raw
+      -- call of the test's): every read checks the rest at the moment it
+      -- looks. The check is one reading of the program, with no frame or
+      -- task waited for; only a program not at rest is settled.
+      now <- unsafeIOToPageM (restNow env rest)
+      unless now $
         void . settleUntil rest =<< unsafeIOToPageM Page.runnerDeadline
       -- The look itself, and what its failure message reads, see the page
       -- as it is: the program is at rest, and a read inside a read must
@@ -982,6 +979,21 @@ reading retries look@(PageM body) =
       Reason message -> Reason (said <> "\n" <> message)
       ExpectedButGot prefix expected got -> ExpectedButGot (Just (maybe said ((said <> "\n") <>) prefix)) expected got
 
+-- | Whether the program is at this rest now, from one reading of it and
+-- of the history's moves: idle, and for 'Quiet' no more fibers waiting
+-- than the test holds ('countHeld'). When it is, that is the rest a read
+-- in a 'readsOnce' group looks at, as a failure then says.
+restNow :: PageEnv -> Rest -> IO Bool
+restNow env rest = do
+  a <- Activity.activity
+  moving <- Page.historyMoving
+  h <- case rest of
+    Idle -> pure 0
+    Quiet -> join (readIORef env.held)
+  let at = Activity.idle a && not moving && (rest == Idle || a.waiting <= h)
+  when at $ atomicWriteIORef env.lastRest (Just (rest, 0, a))
+  pure at
+
 -- | What a read that failed in a 'readsOnce' group says first.
 --
 -- > Read once, at rest: quiet after 12 ms, with 1 tree, 0 running or with work queued, 0 fibers waiting.
@@ -994,7 +1006,7 @@ restNote = \case
       <> " after "
       <> show ms
       <> " ms, with "
-      <> activityText a
+      <> readingWords a
       <> "."
 
 --------------------------------------------------------------------------------
@@ -1271,9 +1283,10 @@ namingExamples = Spec.mapSpecForest (map (named []))
 -- | an enclosing deadline cut it                  | @cut@                        | none                          |
 -- +-----------------------------------------------+------------------------------+-------------------------------+
 --
--- In a 'readsOnce' group a read is not a wait: it brings the program to
--- rest, which is a settle of its own (reported as one, at the read's call
--- site, as @settle@ or @waitQuiet@), and then looks once.
+-- In a 'readsOnce' group a read is not a wait: it checks that the program
+-- is at rest now, and when it is not, brings it there with a settle of its
+-- own (reported as one, at the read's call site, as @settle@ or
+-- @waitQuiet@), and then looks once.
 --
 -- +-----------------------------------------------+------------------------------+-------------------------------+
 -- | in a 'readsOnce' group                        | line                         | totals                        |

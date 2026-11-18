@@ -211,7 +211,7 @@ describe "the editor" $ readsOnce Idle $ do
 ```
 
 - `readsOnce Idle` brings the program to `settle`'s rest before a read; `readsOnce Quiet` to `waitQuiet`'s, so the reads also wait for requests and counted pauses.
-- The rest is reached once after each step that did something: an action, `mount`, `hydrate`, `unmount`, `query`, `perform`. The reads after a step share it.
+- A read looks at a program at rest at the moment it looks. It checks with one reading of the program (no frame, no task) and settles the program only when it is not at rest, so the reads after an action that settled cost nothing, and work the program started by itself since (a push, a timer, a raw call) is waited for.
 - The reads are `find`, `findIn`, `findAll`, `findAllIn`, `textContent`, `getProperty`, `getAttribute`, `classes`, `outerHTML`, `isVisible`, `isAttached`, `outputs`, `shouldBeSameElement` and the `should…` helpers on elements. An absence (`findAll` finding nothing) is read at rest too.
 - A read that fails says which rest it looked at, how long reaching it took and what the program was doing, before what it found.
 - `eventually` stays the explicit wait for what the program does not know of: the clipboard's answer, a notice taken away in `H.delay`, a message the server pushes. Its attempts look at the page as it is. With `HSPEC_HALOGEN_RETRIES=1` it is still reported.

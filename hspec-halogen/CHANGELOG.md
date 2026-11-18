@@ -6,8 +6,8 @@ New: a group of examples can have its reads look once instead of
 retrying. In `readsOnce Idle` or `readsOnce Quiet`, every read (`find`,
 `findAll`, `textContent`, an attribute, `outputs`, the `should…` helpers on
 elements) first brings the program to the group's rest, idle as `settle`
-leaves it or quiet as `waitQuiet` does, once after each step that did
-something, then looks once. A failed read says which rest it looked at, how
+leaves it or quiet as `waitQuiet` does, if it is not there at that
+moment, then looks once. A failed read says which rest it looked at, how
 long reaching it took and what the program was doing, before what it found.
 A test then says where it waits: click, wait for the answer if it needs it,
 check. `eventually` stays the explicit wait for what the program does not
