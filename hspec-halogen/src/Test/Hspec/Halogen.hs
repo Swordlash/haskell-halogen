@@ -703,8 +703,14 @@ activity = unsafeIOToPageM Activity.activity
 -- | How long an action, and 'waitQuiet', waits for the program before it
 -- fails: as long as the runner gives Playwright to find an element it acts
 -- on, and haskell-halogen-playwright an action.
+--
+-- Five seconds unless the runner is given @HSPEC_HALOGEN_DEADLINE_MS@, which
+-- sets Playwright's deadline for the actions too: one deadline a suite raises
+-- on a machine slower than the one it was written on, as a watchdog against a
+-- hang rather than a bound on rightful work. Read once.
 actionDeadlineMs :: Int
-actionDeadlineMs = 5000
+actionDeadlineMs = unsafePerformIO Page.runnerDeadline
+{-# NOINLINE actionDeadlineMs #-}
 
 -- | How long a frame is waited for before the page is taken to draw none.
 frameBoundMs :: Int

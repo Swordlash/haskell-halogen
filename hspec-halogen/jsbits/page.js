@@ -9,6 +9,13 @@ function halogen_test_workers() {
   return globalThis.__halogenTestWorkers ?? 0;
 }
 
+// How long an action, a settle and a waitQuiet wait for the page, in
+// milliseconds: the runner's HSPEC_HALOGEN_DEADLINE_MS, 5000 without a
+// runner or a setting.
+function halogen_test_deadline() {
+  return globalThis.__halogenTestDeadlineMs ?? 5000;
+}
+
 // Whether the runner asked for the retries to be reported
 // (HSPEC_HALOGEN_RETRIES=1).
 function halogen_test_retries() {
@@ -152,12 +159,14 @@ function halogen_test_visible(element) {
 
 // Playwright's actionability checks, as far as a page can make them: the
 // element is in the document, visible and not disabled, and for an action
-// that edits it (editable), not read-only, or becomes so within five seconds
-// (the runner's timeout for an action), else the action fails as it would
+// that edits it (editable), not read-only, or becomes so within the
+// runner's deadline for an action (five seconds unless set), else the action
+// fails as it would
 // under the runner, with Playwright's words for it. Whether something
 // covers it is not checked.
 async function halogen_test_actionable(element, what, editable) {
-  const deadline = Date.now() + 5000;
+  const within = halogen_test_deadline();
+  const deadline = Date.now() + within;
   for (;;) {
     const problem = !element.isConnected
       ? 'is not in the page'
@@ -170,7 +179,7 @@ async function halogen_test_actionable(element, what, editable) {
             : null;
     if (!problem) return;
     if (Date.now() > deadline) {
-      throw Object.assign(new Error(what + ': Timeout 5000ms exceeded: the element ' + problem + ': ' + element.outerHTML.slice(0, 200)), {name: 'TimeoutError'});
+      throw Object.assign(new Error(what + ': Timeout ' + within + 'ms exceeded: the element ' + problem + ': ' + element.outerHTML.slice(0, 200)), {name: 'TimeoutError'});
     }
     await new Promise((resolve) => setTimeout(resolve, 50));
   }

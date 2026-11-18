@@ -115,6 +115,15 @@ const workers = Number(process.env.HSPEC_HALOGEN_WORKERS ?? 0);
 // wait of an 'eventually' whose first attempt failed, and every settle that
 // took longer than a second, as lines on standard error.
 const retries = process.env.HSPEC_HALOGEN_RETRIES === "1";
+// How long an action, a settle and a waitQuiet wait for the page before they
+// fail (HSPEC_HALOGEN_DEADLINE_MS, 5000 by default): one deadline, which
+// Playwright's actions take here and the suite's settles in the page, so a
+// suite run on a slow machine raises it in one place.
+const deadlineMs = Number(process.env.HSPEC_HALOGEN_DEADLINE_MS ?? 5000);
+if (!Number.isInteger(deadlineMs) || deadlineMs <= 0) {
+  process.stderr.write("HSPEC_HALOGEN_DEADLINE_MS must be a positive integer\n");
+  process.exit(2);
+}
 if (!Number.isSafeInteger(workers) || workers < 0) {
   process.stderr.write("HSPEC_HALOGEN_WORKERS must be a non-negative integer\n");
   process.exit(1);
@@ -219,6 +228,7 @@ globalThis.__halogenTestArgs = ${JSON.stringify(args)};
 globalThis.__halogenTestShard = shard;
 globalThis.__halogenTestWorkers = ${workers};
 globalThis.__halogenTestRetries = ${retries};
+globalThis.__halogenTestDeadlineMs = ${deadlineMs};
 globalThis.__halogenTest = { done: (count) => post({ kind: "done", count, supported: supported() }) };
 const runtimeWritesToLog = ${!isWasm};
 for (const type of ["log", "info", "warn", "error", "debug"]) {
@@ -358,8 +368,9 @@ async function runShard(shard) {
   const context = await browser.newContext();
   const tab = await context.newPage();
   // Long enough for a real page, short enough that an element which never
-  // becomes clickable fails its test rather than the run.
-  tab.setDefaultTimeout(5000);
+  // becomes clickable fails its test rather than the run: the deadline the
+  // suite's settles have too (HSPEC_HALOGEN_DEADLINE_MS).
+  tab.setDefaultTimeout(deadlineMs);
 
   const pageErrors = [];
   tab.on("pageerror", (error) => pageErrors.push(error.stack ?? error.message));
@@ -399,18 +410,19 @@ async function runShard(shard) {
   // Chromium HTML5 drag and drop's too.
   await tab.exposeFunction("__halogenTestDrag", (source, target) => tab.locator(source).dragTo(tab.locator(target)));
   await tab.exposeFunction("__halogenTestPress", (key) => tab.keyboard.press(key));
-  await tab.addInitScript(({ args, shard, workers, retries }) => {
+  await tab.addInitScript(({ args, shard, workers, retries, deadlineMs }) => {
     globalThis.__halogenTestArgs = args;
     globalThis.__halogenTestShard = shard;
     globalThis.__halogenTestWorkers = workers;
     globalThis.__halogenTestRetries = retries;
+    globalThis.__halogenTestDeadlineMs = deadlineMs;
     globalThis.__halogenTest = {
       act: (action, selector, text) => globalThis.__halogenTestAct(action, selector, text),
       drag: (source, target) => globalThis.__halogenTestDrag(source, target),
       press: (key) => globalThis.__halogenTestPress(key),
       done: (count) => globalThis.__halogenTestDone(count),
     };
-  }, { args, shard, workers, retries });
+  }, { args, shard, workers, retries, deadlineMs });
 
   const { port } = server.address();
   await tab.goto(`http://127.0.0.1:${port}/`);
