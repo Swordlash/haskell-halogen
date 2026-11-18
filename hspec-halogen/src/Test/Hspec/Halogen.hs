@@ -145,10 +145,12 @@ where
 import Control.Monad.Fail qualified as Fail
 import Data.Coerce (coerce)
 import Data.IORef (IORef, atomicModifyIORef', atomicWriteIORef, modifyIORef', newIORef, readIORef)
+import Data.Map.Strict qualified as Map
 import Data.Sequence qualified as Seq
 import Data.Text qualified as T
 import Data.Unique (Unique, newUnique)
 import GHC.Clock (getMonotonicTime)
+import GHC.Stack (SrcLoc (..))
 import Halogen.Activity (Activity (..))
 import Halogen.Activity qualified as Activity
 import Halogen.Component (Component)
@@ -162,6 +164,7 @@ import System.IO.Unsafe (unsafePerformIO)
 import Test.HUnit.Lang (FailureReason (..), HUnitFailure (..), assertFailure)
 import Test.Hspec (Spec, SpecWith, context, describe, it, parallel, sequential, specify, xit)
 import Test.Hspec qualified as Hspec
+import Test.Hspec.Core.Spec qualified as Spec
 import Test.Hspec.Halogen.Internal.Monad (MonadBrowserTest (..))
 import Test.Hspec.Halogen.Internal.Page qualified as Page
 import Test.Hspec.Halogen.Internal.Shard (Shard (..), Workers (..), inWorker, onePage, shardSpec)
@@ -221,7 +224,8 @@ runSuite parent spec =
           args <- Page.runnerArgs
           workers <- (\count -> if count > 0 then WithWorkers else WithoutWorkers) <$> Page.runnerWorkers
           let selected = maybe spec (\s -> shardSpec workers s spec) shard
-              run = maybe identity (withArgs . map toS) args $ hspecWithResult defaultConfig (onePage selected)
+              reported = if reportingRetries then namingExamples selected else selected
+              run = maybe identity (withArgs . map toS) args $ hspecWithResult defaultConfig (onePage reported)
               -- The tests' pages go where this suite was told, while it runs,
               -- and a worker opens none.
               inParent =
@@ -231,6 +235,7 @@ runSuite parent spec =
           -- The runner is told how it went even if the suite itself throws;
           -- otherwise it would wait for a report until it timed out.
           summary <- inParent run `onException` (hFlush stdout >> Page.reportDone (-1))
+          when reportingRetries reportReads
           hFlush stdout
           Page.reportDone (summaryFailures summary)
 
@@ -722,7 +727,8 @@ settleUntil wanted ms = unsafeIOToPageM $ do
         Quiet -> (Activity.quiet, True)
       overdue a moving = do
         now <- getMonotonicTime
-        when ((now - started) * 1000 > fromIntegral ms) $
+        when ((now - started) * 1000 > fromIntegral ms) $ do
+          when reportingRetries (reportSettle wanted started "deadline" a)
           assertFailure (toS (overdueText wanted ms a moving))
       -- On wasm a thread that does not wait for the page holds it: each
       -- reading after the first waits for a promise of the page's.
@@ -747,7 +753,7 @@ settleUntil wanted ms = unsafeIOToPageM $ do
         Page.nextFrame frameBoundMs
         a <- Activity.activity
         moving <- Page.historyMoving
-        if done a && not moving then pure a else overdue a moving >> go
+        if done a && not moving then a <$ when reportingRetries (reportSettle wanted started "ok" a) else overdue a moving >> go
   Page.settleTasks
   go
 
@@ -880,7 +886,7 @@ shouldBeSameElement actual expected =
 
 -- | Retry until it stops failing, for up to two seconds, then fail as it last
 -- did. Any expectation can be wrapped in it.
-eventually :: PageM s a -> PageM s a
+eventually :: (HasCallStack) => PageM s a -> PageM s a
 eventually = eventuallyWithin 2000
 
 -- | 'eventually' with a timeout in milliseconds. The timeout is a deadline
@@ -894,9 +900,13 @@ eventually = eventuallyWithin 2000
 -- seconds) is cut short by this deadline a moment before its own: then this
 -- fails as that one's last attempt did, which is what was wrong all along,
 -- rather than saying that no attempt of its own finished.
-eventuallyWithin :: Int -> PageM s a -> PageM s a
+--
+-- With @HSPEC_HALOGEN_RETRIES=1@ in the runner's environment, each wait
+-- reports itself (see 'reportingRetries').
+eventuallyWithin :: (HasCallStack) => Int -> PageM s a -> PageM s a
 eventuallyWithin timeoutMs (PageM action)
   | timeoutMs <= 0 = PageM action
+  | reportingRetries = PageM $ ReaderT $ \env -> reportedWithin timeoutMs (runReaderT action env) env
   | otherwise = PageM $ ReaderT $ \env -> do
       lastFailure <- newIORef Nothing
       let go =
@@ -951,3 +961,143 @@ instance Show Expired where
 instance Exception Expired where
   toException = asyncExceptionToException
   fromException = asyncExceptionFromException
+
+--------------------------------------------------------------------------------
+-- Reporting the retries
+--------------------------------------------------------------------------------
+
+-- | Whether the suite reports its waits: the runner was started with
+-- @HSPEC_HALOGEN_RETRIES=1@. Read once, as the runner sets it in the page
+-- before the program starts; off, nothing below runs and an 'eventually'
+-- is as it always was.
+--
+-- A suite that wants every read to look once and fail, with the waiting
+-- said where it is meant ('settle', 'waitQuiet', a wait on a named thing
+-- outside the program), needs first to know which of its reads only pass
+-- because they retry. Reported, each wait whose first attempt failed says
+-- so on standard error, tab-separated, with a fixed first word to cut it out
+-- of a log:
+--
+-- > HSPEC_HALOGEN_RETRY  <example>  <function>  <file:line>  <trees/running/waiting>  <ok|timeout>  <attempts>  <ms>  <first failure>
+--
+-- the example's path; the library function the test called and where (the
+-- first frame of the call stack outside this module); what the program was
+-- doing at the first failure ("Halogen.Activity"); how the wait ended,
+-- after how many attempts and how long; and the first failure's message,
+-- on one line. A 'settle' or 'waitQuiet' that took longer than a second,
+-- or ran out of time, says:
+--
+-- > HSPEC_HALOGEN_SETTLE  <example>  <settle|waitQuiet>  <file:line>  <ok|deadline>  <ms>  <trees/running/waiting>
+--
+-- And at the end of the suite, for every place that waited, how many of its
+-- waits succeeded at the first attempt and how many retried:
+--
+-- > HSPEC_HALOGEN_READS  <function>  <file:line>  <first attempts>  <retried>
+reportingRetries :: Bool
+reportingRetries = unsafePerformIO Page.runnerRetries
+{-# NOINLINE reportingRetries #-}
+
+-- | The example running now, by its path, while the retries are reported:
+-- a page runs one example at a time.
+currentExample :: IORef Text
+currentExample = unsafePerformIO (newIORef "")
+{-# NOINLINE currentExample #-}
+
+-- | Every place that waited, with how many of its waits succeeded at once
+-- and how many retried.
+readsAt :: IORef (Map (Text, Text) (Int, Int))
+readsAt = unsafePerformIO (newIORef mempty)
+{-# NOINLINE readsAt #-}
+
+-- | The spec with each example telling 'currentExample' its path as it
+-- starts.
+namingExamples :: Spec -> Spec
+namingExamples = Spec.mapSpecForest (map (named []))
+  where
+    named path = \case
+      Spec.Node name children -> Spec.Node name (map (named (path <> [toS name])) children)
+      Spec.NodeWithCleanup loc cleanup children -> Spec.NodeWithCleanup loc cleanup (map (named path) children)
+      Spec.Leaf item ->
+        let here = T.intercalate "/" (path <> [toS (Spec.itemRequirement item)])
+         in Spec.Leaf item {Spec.itemExample = \params around progress -> atomicWriteIORef currentExample here >> Spec.itemExample item params around progress}
+
+-- | 'eventuallyWithin', reporting its wait.
+reportedWithin :: (HasCallStack) => Int -> IO a -> PageEnv -> IO a
+reportedWithin timeoutMs action env = do
+  lastFailure <- newIORef Nothing
+  attempts <- newIORef (0 :: Int)
+  firstFailure <- newIORef Nothing
+  started <- getMonotonicTime
+  let (function, site) = callSite
+      count retried = atomicModifyIORef' readsAt (\m -> (Map.insertWith (\(a, b) (c, d) -> (a + c, b + d)) (function, site) (if retried then (0, 1) else (1, 0)) m, ()))
+      report outcome = do
+        now <- getMonotonicTime
+        n <- readIORef attempts
+        readIORef firstFailure
+          >>= traverse_
+            ( \(a, e) -> do
+                example <- readIORef currentExample
+                let line = [example, function, site, readingText a, outcome, show n, show (floor ((now - started) * 1000) :: Int), T.take 200 (T.unwords (T.words (toS (displayException e))))]
+                hPutStrLn stderr (T.intercalate "\t" ("HSPEC_HALOGEN_RETRY" : line))
+            )
+        count (n > 1 || outcome /= "ok")
+      go =
+        tryJust notAsync action >>= \case
+          Right a -> do
+            modifyIORef' attempts (+ 1)
+            atomicWriteIORef env.retried Nothing
+            a <$ report "ok"
+          Left e -> do
+            modifyIORef' attempts (+ 1)
+            whenM (isNothing <$> readIORef firstFailure) $ do
+              a <- Activity.activity
+              atomicWriteIORef firstFailure (Just (a, e))
+            atomicWriteIORef lastFailure (Just e)
+            atomicWriteIORef env.retried (Just e)
+            threadDelay (pollMs * 1000)
+            go
+  atomicWriteIORef env.retried Nothing
+  withinMs timeoutMs go >>= \case
+    Just a -> pure a
+    Nothing -> do
+      report "timeout"
+      readIORef lastFailure >>= \case
+        Just e -> throwIO e
+        Nothing ->
+          readIORef env.retried
+            >>= maybe (assertFailure ("no attempt finished within " <> show timeoutMs <> " ms")) throwIO
+  where
+    pollMs = 20
+    notAsync e = case fromException e of
+      Just (_ :: SomeAsyncException) -> Nothing
+      Nothing -> Just e
+
+-- | A settle that took longer than a second, or ran out of time, reported.
+reportSettle :: (HasCallStack) => Until -> Double -> Text -> Activity -> IO ()
+reportSettle wanted started outcome a = do
+  now <- getMonotonicTime
+  let ms = floor ((now - started) * 1000) :: Int
+      what = case wanted of
+        Idle -> "settle"
+        Quiet -> "waitQuiet"
+  when (outcome /= "ok" || ms > 1000) $ do
+    example <- readIORef currentExample
+    hPutStrLn stderr (T.intercalate "\t" ["HSPEC_HALOGEN_SETTLE", example, what, snd callSite, outcome, show ms, readingText a])
+
+-- | The function of this library a test called, and where: the first frame
+-- of the call stack outside this module.
+callSite :: (HasCallStack) => (Text, Text)
+callSite = case [(toS f, toS (srcLocFile l) <> ":" <> show (srcLocStartLine l)) | (f, l) <- getCallStack callStack, srcLocModule l /= "Test.Hspec.Halogen"] of
+  here : _ -> here
+  [] -> ("?", "?")
+
+-- | A reading as @trees/running/waiting@.
+readingText :: Activity -> Text
+readingText a = show a.trees <> "/" <> show a.running <> "/" <> show a.waiting
+
+-- | Every place that waited, at the end of the suite.
+reportReads :: IO ()
+reportReads = do
+  places <- readIORef readsAt
+  for_ (Map.toList places) $ \((function, site), (once, retried)) ->
+    hPutStrLn stderr (T.intercalate "\t" ["HSPEC_HALOGEN_READS", function, site, show once, show retried])

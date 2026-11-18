@@ -9,6 +9,12 @@ function halogen_test_workers() {
   return globalThis.__halogenTestWorkers ?? 0;
 }
 
+// Whether the runner asked for the retries to be reported
+// (HSPEC_HALOGEN_RETRIES=1).
+function halogen_test_retries() {
+  return globalThis.__halogenTestRetries === true;
+}
+
 function halogen_test_has_document() {
   return typeof document !== 'undefined';
 }
