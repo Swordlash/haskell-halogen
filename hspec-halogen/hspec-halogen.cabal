@@ -130,6 +130,7 @@ test-suite hspec-halogen-test
                       Test.Late
                       Test.Probe
                       Test.Promised
+                      Test.ReadsOnce
                       Test.Reconcile
                       Test.Settings
                       Test.Timeline

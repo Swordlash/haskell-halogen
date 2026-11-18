@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+New: a group of examples can have its reads look once instead of
+retrying. In `readsOnce Idle` or `readsOnce Quiet`, every read (`find`,
+`findAll`, `textContent`, an attribute, `outputs`, the `should…` helpers on
+elements) first brings the program to the group's rest, idle as `settle`
+leaves it or quiet as `waitQuiet` does, once after each step that did
+something, then looks once. A failed read says which rest it looked at, how
+long reaching it took and what the program was doing, before what it found.
+A test then says where it waits: click, wait for the answer if it needs it,
+check. `eventually` stays the explicit wait for what the program does not
+know of, and its attempts look at the page as it is. Outside a `readsOnce`
+group nothing changes, so a suite moves over one group at a time.
+
+With it:
+
+- `mount` and `hydrate` now settle before they return, as an action does,
+  so the first read after them finds what they rendered, children included.
+  `mountUnsettled` returns at once, for a component busy from its start.
+- `query` settles after the query, as an action does.
+- `perform io` runs the test's own call on the page (an event it
+  dispatches, a request its fake server lets go) and settles. An
+  `unsafeIOToPageM` stays as it is: the harness cannot tell whether it did
+  something.
+- `countHeld n` says how many of the program's waits the test holds on
+  purpose. `waitQuiet`, and reads in `readsOnce Quiet`, then take the
+  program as quiet with that many fibers still waiting, instead of running
+  out of time. It compares counts: a held request whose fiber was cancelled
+  hides one other fiber's wait.
+
 New: a suite sets how long its actions and settles wait for the page, in one
 place. `HSPEC_HALOGEN_DEADLINE_MS` in the runner's environment (milliseconds,
 5000 if unset, as before) is the deadline of an action's wait for its element
