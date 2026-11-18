@@ -11,6 +11,7 @@ import Protolude hiding (find)
 import Test.HUnit.Lang (FailureReason (..), HUnitFailure (..))
 import Test.Hspec qualified as Hspec
 import Test.Hspec.Halogen
+import Test.Settings (keepingSettings, reportingRetries, spinning)
 
 -- | Seconds an action takes.
 timed :: IO a -> IO (a, Double)
@@ -53,22 +54,22 @@ spec m = do
     textContent status `shouldReturn` "loaded from a promise"
 
   -- The ticker beside them pauses in H.delay for ever: were it counted,
-  -- the program would never be quiet.
+  -- the program would never be quiet, and each waitQuiet would fail at its
+  -- deadline. That they return is the check, at any speed.
   it "does not wait for a pause in delay" $ runPage $ do
     ui <- loader m
     ticks <- find ui ".ticks"
     eventually (textContent ticks >>= (`shouldSatisfy` (maybe False (> (2 :: Int)) . readMaybe . T.unpack)))
-    started <- unsafeIOToPageM getMonotonicTime
     replicateM_ 5 waitQuiet
-    finished <- unsafeIOToPageM getMonotonicTime
-    (finished - started) `shouldSatisfy` (< 1)
 
+  -- A request that never comes back: the wait fails at its deadline, at
+  -- any speed, and says what the program was waiting for.
   it "fails at its deadline, saying what still waits, with the tree's events and the program's reading" $ do
     (shown, took) <- failing $ do
       ui <- loader m
-      find ui ".load-slowly" >>= click
+      find ui ".load-forever" >>= click
       waitQuietWithin 200
-    took `Hspec.shouldSatisfy` (< 1.5)
+    took `Hspec.shouldSatisfy` (>= 0.2)
     case shown of
       line : _ -> do
         line `Hspec.shouldSatisfy` T.isPrefixOf "waitQuiet: the program was not quiet after 200 ms: "
@@ -79,14 +80,15 @@ spec m = do
 
   -- A tree whose loop always has work: an action, and so the test, fails
   -- at the deadline rather than waiting for ever. The deadline is the
-  -- test's own, a second, whatever the runner's is; the spinner stops two
-  -- seconds after that, which its unmounting waits for.
-  it "fails an action on a program that never finishes, at the deadline, saying it was busy" $ do
+  -- test's own, a second, whatever the runner's is. The spinner spins until
+  -- the settle has run out (its line in the report), so it is busy for the
+  -- whole second at any speed: the failure says it was still running, and
+  -- the lower bound follows from the deadline.
+  keepingSettings $ it "fails an action on a program that never finishes, at the deadline, saying it was busy" $ do
+    reportingRetries
     (shown, took) <- failing $ do
-      ui <- mount m (Waiting.spinner :: H.Component H.VoidF Double Void m) 3
-      spins <- find ui ".spins"
-      eventually (textContent spins >>= (`shouldNotBe` "0"))
+      spinning m
       withDeadline 1000 settle
-    took `Hspec.shouldSatisfy` (\t -> t >= 1 && t < 3.5)
+    took `Hspec.shouldSatisfy` (>= 1)
     take 1 shown `Hspec.shouldSatisfy` all (T.isPrefixOf "settle: the program was still busy after 1000 ms: 1 of 1 tree running or with work queued")
     lastMay shown `Hspec.shouldSatisfy` maybe False (T.isPrefixOf "The program then: 1 tree, 1 running or with work queued")

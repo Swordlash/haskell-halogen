@@ -6,7 +6,15 @@
 -- report of the waits that retried (@HSPEC_HALOGEN_RETRIES@). The report's
 -- lines are kept in a list for the test to read, rather than written to
 -- standard error.
-module Test.Settings (spec) where
+module Test.Settings
+  ( spec
+  , keepingSettings
+  , reportingRetries
+  , reportedFrom
+  , untilASettleIsReported
+  , spinning
+  )
+where
 
 import Data.IORef (atomicModifyIORef', newIORef)
 import Data.Text qualified as T
@@ -50,7 +58,39 @@ deadline = 400
 -- into its fields. The harness's own waits (a 'find' in 'mount') report
 -- too.
 reported :: Text -> IO [[Text]]
-reported kind = filter (\fields -> take 1 fields == [kind]) . map (T.splitOn "\t") . filter (T.isInfixOf "Test/Settings.hs:") . T.lines . fromJSText <$> js_report
+reported = reportedFrom "Test/Settings.hs:"
+
+-- | The report's lines of one kind about the waits made at places matching
+-- this text (a file's name), each cut into its fields.
+reportedFrom :: Text -> Text -> IO [[Text]]
+reportedFrom place kind = filter (\fields -> take 1 fields == [kind]) . map (T.splitOn "\t") . filter (T.isInfixOf place) . T.lines . fromJSText <$> js_report
+
+-- | Every example of a spec with the runner's settings as they were before
+-- it, and the report's lines kept for it to read ('reportedFrom').
+keepingSettings :: SpecWith a -> SpecWith a
+keepingSettings = around_ (bracket_ js_save js_restore)
+
+-- | Whether a spinner ('Waiting.spinner') goes on: until the report keeps
+-- a settle's line, which a settle writes as it runs out of time or is cut
+-- short, before it fails. So the program is busy for the whole of the
+-- deadline a test checks, whatever the machine's speed, and stops before
+-- the page is taken down. The examples that use it turn the report on.
+untilASettleIsReported :: IO Bool
+untilASettleIsReported = not . any (T.isPrefixOf "HSPEC_HALOGEN_SETTLE\t") . T.lines . fromJSText <$> js_report
+
+-- | A spinner, mounted without settling, that spins until a settle is
+-- reported, once it is spinning: the program is busy from here on, by
+-- construction, until the settle a test checks has run out or been cut.
+spinning :: forall m -> (MonadBrowserTest m) => PageM s ()
+spinning m = do
+  ui <- mountUnsettled m (Waiting.spinner :: H.Component H.VoidF (IO Bool) Void m) untilASettleIsReported
+  spins <- find ui ".spins"
+  eventually (textContent spins >>= (`shouldNotBe` "0"))
+
+-- | Turn the retry report on, as @HSPEC_HALOGEN_RETRIES=1@ does, for an
+-- example inside 'keepingSettings'.
+reportingRetries :: IO ()
+reportingRetries = js_retries True
 
 -- | A read that fails twice and then succeeds.
 thirdTime :: PageM s ()
@@ -59,13 +99,12 @@ thirdTime = do
   eventually (unsafeIOToPageM (atomicModifyIORef' tries (\n -> (n + 1, n))) >>= (`shouldSatisfy` (>= 2)))
 
 spec :: forall m -> (MonadBrowserTest m) => Spec
-spec m = around_ (bracket_ js_save js_restore) $ do
+spec m = keepingSettings $ do
   describe "the deadline (HSPEC_HALOGEN_DEADLINE_MS)" $ do
     it "is settle's" $ do
+      js_retries True
       message <- failure $ do
-        ui <- mount m (Waiting.spinner :: H.Component H.VoidF Double Void m) 1.5
-        spins <- find ui ".spins"
-        eventually (textContent spins >>= (`shouldNotBe` "0"))
+        spinning m
         unsafeIOToPageM (js_deadline deadline)
         settle
       message `Hspec.shouldSatisfy` T.isPrefixOf ("settle: the program was still busy after " <> show deadline <> " ms")
@@ -73,17 +112,16 @@ spec m = around_ (bracket_ js_save js_restore) $ do
     it "is waitQuiet's" $ do
       message <- failure $ do
         ui <- mount m (Waiting.component :: H.Component H.VoidF () Void m) ()
-        find ui ".load-slowly" >>= click
+        find ui ".load-forever" >>= click
         unsafeIOToPageM (js_deadline deadline)
         waitQuiet
       message `Hspec.shouldSatisfy` T.isPrefixOf ("waitQuiet: the program was not quiet after " <> show deadline <> " ms")
 
     -- A part of a test with a deadline of its own gives the runner's back.
     it "is given back after withDeadline" $ do
+      js_retries True
       message <- failure $ do
-        ui <- mount m (Waiting.spinner :: H.Component H.VoidF Double Void m) 1.5
-        spins <- find ui ".spins"
-        eventually (textContent spins >>= (`shouldNotBe` "0"))
+        spinning m
         unsafeIOToPageM (js_deadline deadline)
         withDeadline 200 (pure ())
         settle
@@ -123,7 +161,7 @@ spec m = around_ (bracket_ js_save js_restore) $ do
       js_retries True
       _ <- failure $ do
         ui <- mount m (Waiting.component :: H.Component H.VoidF () Void m) ()
-        find ui ".load-slowly" >>= click
+        find ui ".load-forever" >>= click
         waitQuietWithin 200
       reported "HSPEC_HALOGEN_SETTLE" >>= \case
         [["HSPEC_HALOGEN_SETTLE", _example, what, _site, outcome, _ms, _reading]] -> do
@@ -162,6 +200,10 @@ spec m = around_ (bracket_ js_save js_restore) $ do
           firstFailure `Hspec.shouldSatisfy` T.isInfixOf "expected text \"never\", found \"here\""
           lastFailure `Hspec.shouldSatisfy` T.isInfixOf "expected text \"never\", found \"here\""
         other -> Hspec.expectationFailure ("not one line of the report: " <> show other)
+      -- Counted once, at the inner wait's place, as retried; not at the
+      -- outer's. (The findIn before it passed at once.)
+      (map (\fields -> (take 1 (drop 1 fields), drop 3 fields)) <$> reported "HSPEC_HALOGEN_COUNTED")
+        `Hspec.shouldReturn` [(["findIn"], ["once"]), (["shouldHaveText"], ["retried"])]
 
     -- hspec's failure, as it says it, not as Haskell shows the value.
     it "says what was expected and what was got" $ do
@@ -178,9 +220,7 @@ spec m = around_ (bracket_ js_save js_restore) $ do
     it "says that a settle was cut short by an enclosing deadline" $ do
       js_retries True
       _ <- try @SomeException $ runPage $ do
-        ui <- mount m (Waiting.spinner :: H.Component H.VoidF Double Void m) 2
-        spins <- find ui ".spins"
-        eventually (textContent spins >>= (`shouldNotBe` "0"))
+        spinning m
         eventuallyWithin 300 settle
       reported "HSPEC_HALOGEN_SETTLE" >>= \case
         [["HSPEC_HALOGEN_SETTLE", _example, what, _site, outcome, _ms, _reading]] -> do

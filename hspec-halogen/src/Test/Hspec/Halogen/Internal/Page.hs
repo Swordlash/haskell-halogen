@@ -18,6 +18,7 @@ module Test.Hspec.Halogen.Internal.Page
   , runnerDeadline
   , setDeadline
   , reportLine
+  , keepLine
   , reportDone
   , removeLeftovers
   , createContainer
@@ -64,6 +65,7 @@ $( browserJS
      , ("js_deadline", "halogen_test_deadline", Safe, [t|IO Int|])
      , ("js_set_deadline", "halogen_test_set_deadline", Safe, [t|Int -> IO Int|])
      , ("js_report", "halogen_test_report", Safe, [t|JSText -> IO Bool|])
+     , ("js_keep", "halogen_test_report_keep", Safe, [t|JSText -> IO ()|])
      , ("js_remove_leftovers", "halogen_test_remove_leftovers", Safe, [t|IO ()|])
      , ("js_test_done", "halogen_test_test_done", Safe, [t|Int -> IO ()|])
      , ("js_create_container", "halogen_test_create_container", Safe, [t|IO JSVal|])
@@ -144,6 +146,11 @@ setDeadline = js_set_deadline
 -- the suite is to write it to standard error itself (no runner).
 reportLine :: Text -> IO Bool
 reportLine = js_report . toJSText
+
+-- | Keep a line in the page's list if a test of the harness set one up, and
+-- otherwise drop it: for what only those tests read.
+keepLine :: Text -> IO ()
+keepLine = js_keep . toJSText
 
 -- | Tell the runner how many tests failed. Outside the runner (a page opened
 -- by hand) there is nobody to tell.

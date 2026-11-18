@@ -40,6 +40,13 @@ function halogen_test_retries() {
 // it with console.log, which the runner passes on as standard output. False
 // without a list or a runner (browser GHCi, a page with no runner): the
 // suite then writes the line to standard error itself.
+// A line only the harness's own tests read (what the report counted): kept
+// in their list, and dropped without one.
+function halogen_test_report_keep(line) {
+  const into = globalThis.__halogenTestReportInto;
+  if (Array.isArray(into)) into.push(line);
+}
+
 function halogen_test_report(line) {
   const into = globalThis.__halogenTestReportInto;
   if (Array.isArray(into)) {

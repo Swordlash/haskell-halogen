@@ -83,6 +83,7 @@ module Test.Hspec.Halogen
   , MonadBrowserTest (..)
   , Mounted
   , mount
+  , mountUnsettled
   , htmlContainer
   , hydrate
   , unmount
@@ -111,8 +112,14 @@ module Test.Hspec.Halogen
   , waitQuiet
   , waitQuietWithin
   , withDeadline
+  , perform
+  , countHeld
   , activity
   , Activity
+
+    -- * Reading once
+  , readsOnce
+  , Rest (..)
 
     -- * Reading
   , textContent
@@ -146,6 +153,7 @@ where
 import Control.Monad.Fail qualified as Fail
 import Data.Coerce (coerce)
 import Data.IORef (IORef, atomicModifyIORef', atomicWriteIORef, modifyIORef', newIORef, readIORef)
+import Data.Map.Strict qualified as Map
 import Data.Sequence qualified as Seq
 import Data.Text qualified as T
 import Data.Unique (Unique, newUnique)
@@ -298,6 +306,18 @@ data PageEnv = PageEnv
   -- ^ How the attempt of an 'eventually' under way last failed, until one
   -- succeeds: what an 'eventually' around it says when its own deadline
   -- cuts that one short (see 'eventuallyWithin').
+  , readMode :: Maybe Rest
+  -- ^ The rest this example's reads wait for, when it is in a 'readsOnce'
+  -- group; 'Nothing' for reads that retry, as they always have.
+  , lastRest :: IORef (Maybe (Rest, Int, Activity))
+  -- ^ The last rest reached: which, how many milliseconds it took, and the
+  -- program's reading then, for what a read that fails says.
+  , held :: IORef (IO Int)
+  -- ^ How many waits the test holds on purpose ('countHeld'); none unless
+  -- told.
+  , resting :: Bool
+  -- ^ Whether a read under 'readsOnce' brings the program to rest first:
+  -- not inside an 'eventually', whose attempts look as they are.
   }
 
 -- | Run a test in a page of its own, and tear down everything mounted on it
@@ -338,7 +358,14 @@ runPage (PageM test) = do
       -- Before the test's first action, so that a move through the history
       -- one of its handlers asks for is seen (see 'settle').
       Page.watchHistory
-      PageEnv <$> (maybe Page.createContainer Page.createRootIn =<< readIORef pagesIn) <*> newIORef [] <*> newIORef Nothing
+      me <- myThreadId
+      readMode <- Map.lookup me <$> readIORef readModes
+      container <- maybe Page.createContainer Page.createRootIn =<< readIORef pagesIn
+      teardowns <- newIORef []
+      retried <- newIORef Nothing
+      lastRest <- newIORef Nothing
+      held <- newIORef (pure 0)
+      pure PageEnv {container, teardowns, retried, readMode, lastRest, held, resting = True}
     close env = do
       atomicWriteIORef pageHolder Nothing
       pending <- atomicModifyIORef' env.teardowns ([],)
@@ -396,14 +423,18 @@ withEvents timeline (HUnitFailure location reason) = do
 --
 -- > The program then: 1 tree, 0 running or with work queued, 1 fiber waiting in liftIO.
 activityText :: Activity.Activity -> [Char]
-activityText now =
-  "The program then: "
-    <> counted now.trees "tree"
+activityText now = "The program then: " <> readingWords now <> "."
+
+-- | A reading of the program in words: @1 tree, 0 running or with work
+-- queued, 1 fiber waiting in liftIO@.
+readingWords :: Activity.Activity -> [Char]
+readingWords now =
+  counted now.trees "tree"
     <> ", "
     <> show now.running
     <> " running or with work queued, "
     <> counted now.waiting "fiber"
-    <> " waiting in liftIO."
+    <> " waiting in liftIO"
   where
     counted n what = show n <> " " <> what <> (if n == 1 then "" else "s")
 
@@ -469,8 +500,20 @@ instance Eq (Element s) where
 --
 -- The monad is the first argument, @mount BrowserDOM component input@, so a
 -- spec polymorphic in it passes it on as @mount m@.
-mount :: forall m -> (MonadBrowserTest m) => Component q i o m -> i -> PageM s (Mounted s q o m)
-mount _ component input = do
+--
+-- It returns once the program has settled, as an action does ('settle'): a
+-- read just after it finds what the mount rendered, children and all. A
+-- component busy from its start, whose program would not settle, is
+-- mounted with 'mountUnsettled'.
+mount :: forall m -> (HasCallStack, MonadBrowserTest m) => Component q i o m -> i -> PageM s (Mounted s q o m)
+mount m component input = mountUnsettled m component input <* settle
+
+-- | 'mount', returning as soon as the component has rendered, without
+-- settling: for a component whose program is busy from its start (a loop
+-- that keeps queueing work, a spinner), which 'settle' would wait out, or
+-- for a test that checks what the program does in the meantime.
+mountUnsettled :: forall m -> (MonadBrowserTest m) => Component q i o m -> i -> PageM s (Mounted s q o m)
+mountUnsettled _ component input = do
   env <- pageEnv
   element <- unsafeIOToPageM (Page.createContainerIn env.container)
   mountWith mountInto element component input
@@ -493,8 +536,8 @@ htmlContainer html = do
 -- | 'mount', into a container that holds the component's HTML already
 -- ('htmlContainer'): the component adopts it, with
 -- 'Halogen.VDom.Driver.hydrateUI', rather than building its own.
-hydrate :: forall m -> (MonadBrowserTest m) => Element s -> Component q i o m -> i -> PageM s (Mounted s q o m)
-hydrate _ (Element element) = mountWith hydrateInto element
+hydrate :: forall m -> (HasCallStack, MonadBrowserTest m) => Element s -> Component q i o m -> i -> PageM s (Mounted s q o m)
+hydrate _ (Element element) component input = mountWith hydrateInto element component input <* settle
 
 -- | Mount a component into this element with one of the class's ways, and
 -- collect its outputs from then on.
@@ -518,17 +561,20 @@ mountWith into element component input = do
 -- | Unmount a component before the test ends, running its finalisers and
 -- removing what it rendered, to check what happens once it is gone.
 unmount :: (MonadBrowserTest m) => Mounted s q o m -> PageM s ()
-unmount ui = unsafeIOToPageM $ do
-  runTest ui.socket.dispose
-  Page.removeElement ui.container
+unmount ui = unsafeIOToPageM (runTest ui.socket.dispose >> Page.removeElement ui.container)
 
--- | Send the component a query, as a parent would.
-query :: (MonadBrowserTest m) => Mounted s q o m -> q a -> PageM s (Maybe a)
-query Mounted {socket = HalogenSocket {query = send}} q = unsafeIOToPageM $ runTest (send q)
+-- | Send the component a query, as a parent would, and settle: what the
+-- query made the program do has rendered when it returns. A tell is a
+-- query whose answer is dropped (@query ui (H.mkTell Go)@), so it settles
+-- too; the harness has no other way to send a mounted component anything
+-- (its input is fixed at 'mount', and what it raises is read with
+-- 'outputs').
+query :: (HasCallStack, MonadBrowserTest m) => Mounted s q o m -> q a -> PageM s (Maybe a)
+query Mounted {socket = HalogenSocket {query = send}} q = unsafeIOToPageM (runTest (send q)) <* settle
 
 -- | Everything the component has raised since it was mounted, oldest first.
-outputs :: Mounted s q o m -> PageM s [o]
-outputs ui = unsafeIOToPageM $ readIORef ui.raised
+outputs :: (HasCallStack) => Mounted s q o m -> PageM s [o]
+outputs ui = reading False (unsafeIOToPageM (readIORef ui.raised))
 
 -- | The container the component renders into.
 root :: Mounted s q o m -> Element s
@@ -544,12 +590,12 @@ find :: (HasCallStack) => Mounted s q o m -> Text -> PageM s (Element s)
 find ui = findIn (root ui)
 
 -- | Every element in the component matching a CSS selector, as it is now.
-findAll :: Mounted s q o m -> Text -> PageM s [Element s]
+findAll :: (HasCallStack) => Mounted s q o m -> Text -> PageM s [Element s]
 findAll ui = findAllIn (root ui)
 
 -- | 'find' within one element rather than the whole component.
 findIn :: (HasCallStack) => Element s -> Text -> PageM s (Element s)
-findIn scope@(Element element) selector = eventually $ do
+findIn scope@(Element element) selector = reading True $ do
   unsafeIOToPageM (Page.querySelector element selector) >>= \case
     Just found -> pure (Element found)
     Nothing -> do
@@ -557,8 +603,8 @@ findIn scope@(Element element) selector = eventually $ do
       unsafeIOToPageM $ assertFailure $ toS $ "No element matches " <> show selector <> " in\n" <> html
 
 -- | 'findAll' within one element rather than the whole component.
-findAllIn :: Element s -> Text -> PageM s [Element s]
-findAllIn (Element element) selector = unsafeIOToPageM $ map Element <$> Page.querySelectorAll element selector
+findAllIn :: (HasCallStack) => Element s -> Text -> PageM s [Element s]
+findAllIn (Element element) selector = reading False (unsafeIOToPageM (map Element <$> Page.querySelectorAll element selector))
 
 --------------------------------------------------------------------------------
 -- Acting
@@ -693,6 +739,10 @@ settle = void (unsafeIOToPageM Page.runnerDeadline >>= settleUntil Idle)
 -- A fiber that waits for ever (a subscription's loop written as a
 -- @H.async@ that never returns) keeps the program from ever being quiet:
 -- 'settle' is the wait for such a program.
+--
+-- The waits a test holds on purpose (a request its own server does not
+-- answer yet) count as done once the test says how many there are
+-- ('countHeld').
 waitQuiet :: (HasCallStack) => PageM s ()
 waitQuiet = unsafeIOToPageM Page.runnerDeadline >>= waitQuietWithin
 
@@ -728,61 +778,87 @@ activity = unsafeIOToPageM Activity.activity
 frameBoundMs :: Int
 frameBoundMs = 100
 
--- | What a settle waits for the program to be.
-data Until
-  = -- | 'settle''s: no tree running or with work queued.
-    Idle
-  | -- | 'waitQuiet''s: idle, and no fiber waiting in a @liftIO@.
-    Quiet
+-- | Run the test's own call on the page (a JavaScript call that dispatches an
+-- event, a message its fake server sends, a request it lets go) and settle,
+-- as an action does. Use it rather than 'unsafeIOToPageM' for a call that
+-- makes the program do something, so that what the call set off has
+-- rendered when it returns, as after an action.
+perform :: (HasCallStack) => IO a -> PageM s a
+perform io = unsafeIOToPageM io <* settle
+
+-- | Say how many of the program's waits the test holds on purpose, counted
+-- afresh at each reading: requests its own server keeps unanswered until
+-- the test lets them go. 'waitQuiet', and a read under @'readsOnce'
+-- 'Quiet'@, then take the program as quiet once it is idle and no more
+-- fibers wait than this count, instead of waiting for the held ones until
+-- the deadline. Set once in a page (a fake server sets it when it starts);
+-- the last one set counts.
+--
+-- It compares counts, not the waits themselves, which neither the harness
+-- nor the server can name: a held request whose fiber was cancelled (its
+-- component went away) still counts as held, and so hides one other fiber's
+-- wait, which is then not waited for.
+countHeld :: PageM s Int -> PageM s ()
+countHeld (PageM count) = pageEnv >>= \env -> unsafeIOToPageM (atomicWriteIORef env.held (runReaderT count env {resting = False}))
 
 -- | 'settle' until the program is as asked, failing at the deadline; the
 -- last reading.
-settleUntil :: (HasCallStack) => Until -> Int -> PageM s Activity
-settleUntil wanted ms = unsafeIOToPageM $ do
-  started <- getMonotonicTime
-  let (done, quiet) = case wanted of
-        Idle -> (Activity.idle, False)
-        Quiet -> (Activity.quiet, True)
-      overdue a moving = do
-        now <- getMonotonicTime
-        when ((now - started) * 1000 > fromIntegral ms) $ do
-          whenM Page.runnerRetries (reportSettle wanted started "deadline" a)
-          assertFailure (toS (overdueText wanted ms a moving))
-      -- On wasm a thread that does not wait for the page holds it: each
-      -- reading after the first waits for a promise of the page's.
-      untilDone = do
-        a <- Activity.activity
-        unless (done a) $ do
-          overdue a False
-          if quiet then Page.sleepMs 5 else Page.settleTasks
+settleUntil :: (HasCallStack) => Rest -> Int -> PageM s Activity
+settleUntil wanted ms =
+  pageEnv >>= \env -> unsafeIOToPageM $ do
+    started <- getMonotonicTime
+    let quiet = wanted == Quiet
+        heldNow = if quiet then join (readIORef env.held) else pure 0
+        -- Idle, and for 'Quiet' no more fibers waiting than the test holds.
+        isDone a = (\h -> Activity.idle a && (not quiet || a.waiting <= h)) <$> heldNow
+        overdue a moving = do
+          now <- getMonotonicTime
+          when ((now - started) * 1000 > fromIntegral ms) $ do
+            whenM Page.runnerRetries (reportSettle wanted started "deadline" a)
+            h <- heldNow
+            assertFailure (toS (overdueText wanted ms h a moving))
+        -- On wasm a thread that does not wait for the page holds it: each
+        -- reading after the first waits for a promise of the page's.
+        untilDone = do
+          a <- Activity.activity
+          unlessM (isDone a) $ do
+            overdue a False
+            if quiet then Page.sleepMs 5 else Page.settleTasks
+            untilDone
+        -- What is left of the deadline, in milliseconds.
+        left = do
+          now <- getMonotonicTime
+          pure (max 0 (ms - floor ((now - started) * 1000)))
+        go = do
           untilDone
-      -- What is left of the deadline, in milliseconds.
-      left = do
-        now <- getMonotonicTime
-        pure (max 0 (ms - floor ((now - started) * 1000)))
-      go = do
-        untilDone
-        -- For what is left of the deadline and no longer: a page that
-        -- never stops moving through its history fails like a program that
-        -- never goes idle, and a move does not outlast a shorter deadline.
-        Page.historyLanded =<< left
-        still <- Page.historyMoving
-        when still $ Activity.activity >>= \a -> overdue a True
-        Page.nextFrame frameBoundMs
-        a <- Activity.activity
-        moving <- Page.historyMoving
-        if done a && not moving then a <$ whenM Page.runnerRetries (reportSettle wanted started "ok" a) else overdue a moving >> go
-  -- Cut short by an enclosing wait's deadline (an 'eventually' around it):
-  -- reported as such, since its own end never comes.
-  (Page.settleTasks >> go) `catch` \(e :: SomeAsyncException) -> do
-    whenM Page.runnerRetries (Activity.activity >>= reportSettle wanted started "cut")
-    throwIO e
+          -- For what is left of the deadline and no longer: a page that
+          -- never stops moving through its history fails like a program that
+          -- never goes idle, and a move does not outlast a shorter deadline.
+          Page.historyLanded =<< left
+          still <- Page.historyMoving
+          when still $ Activity.activity >>= \a -> overdue a True
+          Page.nextFrame frameBoundMs
+          a <- Activity.activity
+          moving <- Page.historyMoving
+          finished <- (&& not moving) <$> isDone a
+          if finished
+            then do
+              whenM Page.runnerRetries (reportSettle wanted started "ok" a)
+              now <- getMonotonicTime
+              atomicWriteIORef env.lastRest (Just (wanted, floor ((now - started) * 1000), a))
+              pure a
+            else overdue a moving >> go
+    -- Cut short by an enclosing wait's deadline (an 'eventually' around
+    -- it): reported as such, since its own end never comes.
+    (Page.settleTasks >> go) `catch` \(e :: SomeAsyncException) -> do
+      whenM Page.runnerRetries (Activity.activity >>= reportSettle wanted started "cut")
+      throwIO e
 
 -- | What a settle that ran out of time says.
 --
 -- > waitQuiet: the program was not quiet after 300 ms: 0 of 1 tree running or with work queued, 1 fiber waiting in liftIO.
-overdueText :: Until -> Int -> Activity -> Bool -> Text
-overdueText wanted ms a moving =
+overdueText :: Rest -> Int -> Int -> Activity -> Bool -> Text
+overdueText wanted ms held a moving =
   ( case wanted of
       Idle -> "settle: the program was still busy"
       Quiet -> "waitQuiet: the program was not quiet"
@@ -796,42 +872,175 @@ overdueText wanted ms a moving =
     <> " running or with work queued, "
     <> counted a.waiting "fiber"
     <> " waiting in liftIO"
+    <> (if held > 0 then " (" <> show held <> " held on purpose)" else "")
     <> (if moving then ", and a move through the history it asked for had not arrived." else ".")
   where
     counted n thing = show n <> " " <> thing <> (if n == 1 then "" else "s")
 
 --------------------------------------------------------------------------------
+-- Reading once
+--------------------------------------------------------------------------------
+
+-- | What the program has to be before a read looks, in a 'readsOnce' group:
+-- what 'settle' waits for, or what 'waitQuiet' waits for.
+data Rest
+  = -- | No tree running or with work queued ('settle'): what a handler did
+    -- has rendered, and what it waits for in an @H.async@ may still be on
+    -- its way.
+    Idle
+  | -- | Idle, and no fiber waiting in an @H.async@ beyond those the test
+    -- holds ('countHeld'): requests have come back, counted pauses have
+    -- fired, and what they led to has rendered ('waitQuiet').
+    Quiet
+  deriving stock (Eq, Ord, Show)
+
+-- | The reads of these examples look once, after the program has come to
+-- this rest, instead of retrying for two seconds. A test then says where
+-- it waits: \"I click X, the program comes to rest, I check the result\".
+--
+-- The reads are every function here that looks at the page or at what the
+-- program has given: 'find', 'findIn', 'findAll', 'findAllIn',
+-- 'textContent', 'getProperty', 'getAttribute', 'classes', 'outerHTML',
+-- 'isVisible', 'isAttached', 'outputs', 'shouldBeSameElement' and the
+-- @should@ helpers on elements ('shouldHaveText', 'shouldHaveClass',
+-- 'shouldNotHaveClass', 'shouldBeVisible', 'shouldBeHidden'). An absence
+-- ('findAll' finding nothing) is read at rest too, which is where it means
+-- something.
+--
+-- A read looks at a program that is at the group's rest at the moment it
+-- looks. Each read checks it with one reading of the program, which costs
+-- no frame and no task, and settles the program only when it is not there:
+-- after an action that settled, the check passes at once, and work the
+-- program started by itself since the last read (a push, a timer, a raw
+-- call of the test's) is waited for before the look.
+--
+-- 'eventually' stays what it is, the named wait for what the program does
+-- not know of (the clipboard's answer, a pause in 'Halogen.Query.HalogenM.delay'
+-- that takes a notice away, a message the server pushes): the reads inside
+-- it look at the page as it is, once per attempt, without a rest first. With @HSPEC_HALOGEN_RETRIES=1@ it still
+-- reports, so the waits left can be counted.
+--
+-- A read that fails says which rest it was made at, how long reaching it
+-- took and what the program was doing then, before what it found.
+--
+-- > describe "the editor" $ readsOnce Idle $ do
+-- >   it "saves with Ctrl+S" $ runPage $ do
+-- >     ui <- mount m Editor.component ()
+-- >     press "Control+s"
+-- >     waitQuiet                                -- the save's answer
+-- >     find ui ".notice" >>= (`shouldHaveText` "Saved")
+--
+-- Outside a 'readsOnce' group the reads retry as they always have, so a
+-- suite moves over one group at a time.
+readsOnce :: Rest -> SpecWith a -> SpecWith a
+readsOnce rest = Hspec.around_ $ \run -> do
+  -- hspec runs an example's hooks and body on one thread, and may run
+  -- several examples at once: the rest is the thread's, which 'runPage'
+  -- reads when the example opens its page.
+  me <- myThreadId
+  before <- Map.lookup me <$> readIORef readModes
+  let set r = atomicModifyIORef' readModes (\ms -> (Map.alter (const r) me ms, ()))
+  bracket_ (set (Just rest)) (set before) run
+
+-- | The rest of the examples running now in a 'readsOnce' group, by the
+-- thread running each.
+readModes :: IORef (Map ThreadId Rest)
+readModes = unsafePerformIO (newIORef mempty)
+{-# NOINLINE readModes #-}
+
+-- | A read of the page. In a 'readsOnce' group: the program brought to the
+-- group's rest, if it is not there now, then one look, and a failure
+-- that says which rest it was made at; inside an
+-- 'eventually' there, one look as the page is. Otherwise as it always was:
+-- an 'eventually' for a read that retries, one look for one that does not.
+reading :: (HasCallStack) => Bool -> PageM s a -> PageM s a
+reading retries look@(PageM body) =
+  pageEnv >>= \env -> case env.readMode of
+    Nothing -> if retries then eventually look else look
+    Just _ | not env.resting -> look
+    Just rest -> do
+      -- A program at rest after the last step can have started work since
+      -- (a push, a timer, a pause in 'Halogen.Query.HalogenM.delay', a raw
+      -- call of the test's): every read checks the rest at the moment it
+      -- looks. The check is one reading of the program, with no frame or
+      -- task waited for; only a program not at rest is settled.
+      now <- unsafeIOToPageM (restNow env rest)
+      unless now $
+        void . settleUntil rest =<< unsafeIOToPageM Page.runnerDeadline
+      -- The look itself, and what its failure message reads, see the page
+      -- as it is: the program is at rest, and a read inside a read must
+      -- not rest again.
+      unsafeIOToPageM $
+        runReaderT body env {resting = False} `catch` \(HUnitFailure loc reason) -> do
+          said <- restNote <$> readIORef env.lastRest
+          throwIO (HUnitFailure loc (noted said reason))
+  where
+    noted said = \case
+      Reason message -> Reason (said <> "\n" <> message)
+      ExpectedButGot prefix expected got -> ExpectedButGot (Just (maybe said ((said <> "\n") <>) prefix)) expected got
+
+-- | Whether the program is at this rest now, from one reading of it and
+-- of the history's moves: idle, and for 'Quiet' no more fibers waiting
+-- than the test holds ('countHeld'). When it is, that is the rest a read
+-- in a 'readsOnce' group looks at, as a failure then says.
+restNow :: PageEnv -> Rest -> IO Bool
+restNow env rest = do
+  a <- Activity.activity
+  moving <- Page.historyMoving
+  h <- case rest of
+    Idle -> pure 0
+    Quiet -> join (readIORef env.held)
+  let at = Activity.idle a && not moving && (rest == Idle || a.waiting <= h)
+  when at $ atomicWriteIORef env.lastRest (Just (rest, 0, a))
+  pure at
+
+-- | What a read that failed in a 'readsOnce' group says first.
+--
+-- > Read once, at rest: quiet after 12 ms, with 1 tree, 0 running or with work queued, 0 fibers waiting.
+restNote :: Maybe (Rest, Int, Activity) -> [Char]
+restNote = \case
+  Nothing -> "Read once, at rest."
+  Just (rest, ms, a) ->
+    "Read once, at rest: "
+      <> (case rest of Idle -> "idle"; Quiet -> "quiet")
+      <> " after "
+      <> show ms
+      <> " ms, with "
+      <> readingWords a
+      <> "."
+
+--------------------------------------------------------------------------------
 -- Reading
 --------------------------------------------------------------------------------
 
-textContent :: Element s -> PageM s Text
-textContent (Element element) = unsafeIOToPageM $ Page.textContentOf element
+textContent :: (HasCallStack) => Element s -> PageM s Text
+textContent (Element element) = reading False (unsafeIOToPageM (Page.textContentOf element))
 
 -- | A property as text, the way JavaScript's @String()@ renders it: a boolean
 -- reads @true@ or @false@.
-getProperty :: Element s -> Text -> PageM s Text
-getProperty (Element element) name = unsafeIOToPageM $ Page.propertyOf element name
+getProperty :: (HasCallStack) => Element s -> Text -> PageM s Text
+getProperty (Element element) name = reading False (unsafeIOToPageM (Page.propertyOf element name))
 
-getAttribute :: Element s -> Text -> PageM s (Maybe Text)
-getAttribute (Element element) name = unsafeIOToPageM $ Page.attributeOf element name
+getAttribute :: (HasCallStack) => Element s -> Text -> PageM s (Maybe Text)
+getAttribute (Element element) name = reading False (unsafeIOToPageM (Page.attributeOf element name))
 
-classes :: Element s -> PageM s [Text]
+classes :: (HasCallStack) => Element s -> PageM s [Text]
 classes element = T.words <$> getProperty element "className"
 
-outerHTML :: Element s -> PageM s Text
-outerHTML (Element element) = unsafeIOToPageM $ Page.outerHTMLOf element
+outerHTML :: (HasCallStack) => Element s -> PageM s Text
+outerHTML (Element element) = reading False (unsafeIOToPageM (Page.outerHTMLOf element))
 
 -- | Whether the element is visible as Playwright counts it, the sense the
 -- actions wait for: it has a box, and neither it nor what holds it is
 -- @display: none@, @content-visibility: hidden@ or @visibility: hidden@.
 -- Opacity is not looked at, nor whether something covers it.
-isVisible :: Element s -> PageM s Bool
-isVisible (Element element) = unsafeIOToPageM $ Page.checkVisibility element
+isVisible :: (HasCallStack) => Element s -> PageM s Bool
+isVisible (Element element) = reading False (unsafeIOToPageM (Page.checkVisibility element))
 
 -- | Whether the element is still in the page: a render that replaced it, or
 -- removed it, has taken it out.
-isAttached :: Element s -> PageM s Bool
-isAttached (Element element) = unsafeIOToPageM $ Page.isConnected element
+isAttached :: (HasCallStack) => Element s -> PageM s Bool
+isAttached (Element element) = reading False (unsafeIOToPageM (Page.isConnected element))
 
 --------------------------------------------------------------------------------
 -- Expecting
@@ -860,36 +1069,37 @@ action `shouldReturn` expected = action >>= (`shouldBe` expected)
 expectationFailure :: (HasCallStack) => Text -> PageM s a
 expectationFailure message = unsafeIOToPageM (assertFailure (toS message))
 
--- | The element has the class, or will within two seconds.
+-- | The element has the class, or will within two seconds (looked at once
+-- under 'readsOnce', as every read here).
 shouldHaveClass :: (HasCallStack) => Element s -> Text -> PageM s ()
-shouldHaveClass element name = eventually $ do
+shouldHaveClass element name = reading True $ do
   cs <- classes element
   unless (name `elem` cs) $ expectationFailure $ "expected class " <> show name <> ", found " <> show cs
 
 shouldNotHaveClass :: (HasCallStack) => Element s -> Text -> PageM s ()
-shouldNotHaveClass element name = eventually $ do
+shouldNotHaveClass element name = reading True $ do
   cs <- classes element
   when (name `elem` cs) $ expectationFailure $ "expected no class " <> show name <> ", found " <> show cs
 
 shouldHaveText :: (HasCallStack) => Element s -> Text -> PageM s ()
-shouldHaveText element expected = eventually $ do
+shouldHaveText element expected = reading True $ do
   actual <- textContent element
   unless (actual == expected) $ expectationFailure $ "expected text " <> show expected <> ", found " <> show actual
 
 shouldBeVisible :: (HasCallStack) => Element s -> PageM s ()
-shouldBeVisible element = eventually $ do
+shouldBeVisible element = reading True $ do
   visible <- isVisible element
   unless visible $ outerHTML element >>= \html -> expectationFailure ("expected to be visible:\n" <> html)
 
 shouldBeHidden :: (HasCallStack) => Element s -> PageM s ()
-shouldBeHidden element = eventually $ do
+shouldBeHidden element = reading True $ do
   visible <- isVisible element
   when visible $ outerHTML element >>= \html -> expectationFailure ("expected to be hidden:\n" <> html)
 
 -- | Both are the same node: a render kept the element, patching it where it
 -- stood, rather than building a new one.
 shouldBeSameElement :: (HasCallStack) => Element s -> Element s -> PageM s ()
-shouldBeSameElement actual expected =
+shouldBeSameElement actual expected = reading False $
   unless (actual == expected) $ do
     now <- outerHTML actual
     before <- outerHTML expected
@@ -928,11 +1138,15 @@ eventually = eventuallyWithin 2000
 -- retry\").
 eventuallyWithin :: (HasCallStack) => Int -> PageM s a -> PageM s a
 eventuallyWithin timeoutMs (PageM action)
-  | timeoutMs <= 0 = PageM action
-  | otherwise = PageM $ ReaderT $ \env ->
-      Page.runnerRetries >>= \case
-        True -> reportedWithin timeoutMs (runReaderT action env) env
-        False -> plain env
+  -- Its attempts look at the page as it is, under 'readsOnce' too: the
+  -- retrying is the wait. A single attempt (no time to retry) is no
+  -- different.
+  | timeoutMs <= 0 = PageM $ ReaderT $ \outer -> runReaderT action outer {resting = False}
+  | otherwise = PageM $ ReaderT $ \outer ->
+      let env = outer {resting = False}
+       in Page.runnerRetries >>= \case
+            True -> reportedWithin timeoutMs (runReaderT action env) env
+            False -> plain env
   where
     plain env = do
       lastFailure <- newIORef Nothing
@@ -1069,6 +1283,35 @@ namingExamples = Spec.mapSpecForest (map (named []))
 -- | an enclosing deadline cut it                  | @cut@                        | none                          |
 -- +-----------------------------------------------+------------------------------+-------------------------------+
 --
+-- In a 'readsOnce' group a read is not a wait: it checks that the program
+-- is at rest now, and when it is not, brings it there with a settle of its
+-- own (reported as one, at the read's call site, as @settle@ or
+-- @waitQuiet@), and then looks once.
+--
+-- +-----------------------------------------------+------------------------------+-------------------------------+
+-- | in a 'readsOnce' group                        | line                         | totals                        |
+-- +===============================================+==============================+===============================+
+-- | a read that passes at its one look            | none                         | none: a look is not a wait    |
+-- +-----------------------------------------------+------------------------------+-------------------------------+
+-- | a read that fails at its one look             | none: the test fails, saying | none                          |
+-- |                                               | at which rest it looked      |                               |
+-- +-----------------------------------------------+------------------------------+-------------------------------+
+-- | a read whose rest runs out (the settle's own  | @SETTLE@, @deadline@         | none                          |
+-- | deadline, or 'withDeadline''s around it)      |                              |                               |
+-- +-----------------------------------------------+------------------------------+-------------------------------+
+-- | a read whose rest an enclosing deadline cuts  | cannot happen: inside an     |                               |
+-- |                                               | 'eventually' a read does not |                               |
+-- |                                               | rest (next row)              |                               |
+-- +-----------------------------------------------+------------------------------+-------------------------------+
+-- | an 'eventually' in the group                  | as a read in the first table | as a read in the first table, |
+-- |                                               | (its attempts look at the    | at the 'eventually''s place;  |
+-- |                                               | page as it is, no rest)      | the reads inside it are not   |
+-- |                                               |                              | counted                       |
+-- +-----------------------------------------------+------------------------------+-------------------------------+
+-- | an 'eventuallyWithin' of zero or less, in the | none: one attempt, which     | none: the reads inside it are |
+-- | group or not                                  | looks at the page as it is   | not counted either            |
+-- +-----------------------------------------------+------------------------------+-------------------------------+
+--
 -- The totals are the suite run's own: a run started again in the same
 -- runtime (@:main@ in browser GHCi) starts them afresh.
 reportedWithin :: (HasCallStack) => Int -> IO a -> PageEnv -> IO a
@@ -1089,10 +1332,15 @@ reportedWithin timeoutMs action env = do
                 let line = [example, function, site, readingText a, outcome, show n, show (floor ((now - started) * 1000) :: Int), failureText e, maybe "" failureText final]
                 reportLine (T.intercalate "\t" ("HSPEC_HALOGEN_RETRY" : line))
             )
-        Report.countWait (function, site) n $ case outcome of
-          "ok" -> Passed
-          "cut" -> Cut
-          _ -> TimedOut
+        let ended = case outcome of
+              "ok" -> Passed
+              "cut" -> Cut
+              _ -> TimedOut
+        Report.countWait (function, site) n ended
+        -- For the harness's own tests only, which cannot read the totals
+        -- until the suite ends: what was counted, in the list they keep.
+        for_ (Report.counted n ended) $ \retried ->
+          Page.keepLine (T.intercalate "\t" ["HSPEC_HALOGEN_COUNTED", function, site, if retried then "retried" else "once"])
       go =
         tryJust notAsync action >>= \case
           Right a -> do
@@ -1138,7 +1386,7 @@ failureText e =
     Nothing -> toS (displayException e)
 
 -- | A settle that took longer than a second, or ran out of time, reported.
-reportSettle :: (HasCallStack) => Until -> Double -> Text -> Activity -> IO ()
+reportSettle :: (HasCallStack) => Rest -> Double -> Text -> Activity -> IO ()
 reportSettle wanted started outcome a = do
   now <- getMonotonicTime
   let ms = floor ((now - started) * 1000) :: Int

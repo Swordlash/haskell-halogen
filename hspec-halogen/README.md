@@ -197,6 +197,29 @@ waitQuiet
 find ui ".status" >>= textContent >>= (`shouldBe` "Saved")
 ```
 
+#### Reading once
+
+`find` and the `should…` helpers retry for two seconds, so a read can pass only because it caught the program a moment later, and fail on a machine slower than the one it was written on. A group of examples can instead have its reads look once, after the program has come to rest:
+
+```haskell
+describe "the editor" $ readsOnce Idle $ do
+  it "saves with Ctrl+S" $ runPage $ do
+    ui <- mount m Editor.component ()        -- mount settles
+    press "Control+s"
+    waitQuiet                                -- the save's answer
+    find ui ".notice" >>= (`shouldHaveText` "Saved")
+```
+
+- `readsOnce Idle` brings the program to `settle`'s rest before a read; `readsOnce Quiet` to `waitQuiet`'s, so the reads also wait for requests and counted pauses.
+- A read looks at a program at rest at the moment it looks. It checks with one reading of the program (no frame, no task) and settles the program only when it is not at rest, so the reads after an action that settled cost nothing, and work the program started by itself since (a push, a timer, a raw call) is waited for.
+- The reads are `find`, `findIn`, `findAll`, `findAllIn`, `textContent`, `getProperty`, `getAttribute`, `classes`, `outerHTML`, `isVisible`, `isAttached`, `outputs`, `shouldBeSameElement` and the `should…` helpers on elements. An absence (`findAll` finding nothing) is read at rest too.
+- A read that fails says which rest it looked at, how long reaching it took and what the program was doing, before what it found.
+- `eventually` stays the explicit wait for what the program does not know of: the clipboard's answer, a notice taken away in `H.delay`, a message the server pushes. Its attempts look at the page as it is. With `HSPEC_HALOGEN_RETRIES=1` it is still reported.
+- `perform io` runs the test's own call on the page and settles, so the reads after it rest again. `unsafeIOToPageM` does not: the harness cannot tell whether it did something.
+- `countHeld n` tells the harness how many waits the test holds on purpose (requests its own server keeps unanswered). `waitQuiet` and `readsOnce Quiet` then take the program as quiet with that many fibers waiting. It compares counts, not the waits: a held request whose fiber was cancelled hides one other fiber's wait.
+
+Outside a `readsOnce` group the reads retry as before. `mount`, `hydrate` and `query` settle in either case; `mountUnsettled` returns at once, for a component busy from its start.
+
 #### The deadline
 
 One deadline bounds every wait for the page: an action's wait for its element to be visible and enabled (Playwright's timeout, or the page's own check without the runner), `settle` after it, and `waitQuiet`. It is five seconds unless the runner is given `HSPEC_HALOGEN_DEADLINE_MS`:
