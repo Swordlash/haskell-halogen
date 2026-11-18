@@ -15,6 +15,7 @@ module Test.Hspec.Halogen.Internal.Page
   , runnerShard
   , runnerWorkers
   , runnerRetries
+  , runnerDeadline
   , reportDone
   , removeLeftovers
   , createContainer
@@ -58,6 +59,7 @@ $( browserJS
      , ("js_test_args", "halogen_test_test_args", Safe, [t|IO JSVal|])
      , ("js_workers", "halogen_test_workers", Safe, [t|IO Int|])
      , ("js_retries", "halogen_test_retries", Safe, [t|IO Bool|])
+     , ("js_deadline", "halogen_test_deadline", Safe, [t|IO Int|])
      , ("js_remove_leftovers", "halogen_test_remove_leftovers", Safe, [t|IO ()|])
      , ("js_test_done", "halogen_test_test_done", Safe, [t|Int -> IO ()|])
      , ("js_create_container", "halogen_test_create_container", Safe, [t|IO JSVal|])
@@ -119,6 +121,12 @@ runnerWorkers = js_workers
 -- (@HSPEC_HALOGEN_RETRIES=1@; see 'Test.Hspec.Halogen.eventually').
 runnerRetries :: IO Bool
 runnerRetries = js_retries
+
+-- | How long an action, a settle and a waitQuiet wait for the page, in
+-- milliseconds, as the runner was told (@HSPEC_HALOGEN_DEADLINE_MS@): 5000
+-- without a runner or a setting, and natively.
+runnerDeadline :: IO Int
+runnerDeadline = (\ms -> if ms > 0 then ms else 5000) <$> js_deadline
 
 -- | Tell the runner how many tests failed. Outside the runner (a page opened
 -- by hand) there is nobody to tell.
