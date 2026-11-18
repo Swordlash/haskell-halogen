@@ -6,7 +6,13 @@
 -- report of the waits that retried (@HSPEC_HALOGEN_RETRIES@). The report's
 -- lines are kept in a list for the test to read, rather than written to
 -- standard error.
-module Test.Settings (spec) where
+module Test.Settings
+  ( spec
+  , keepingSettings
+  , reportingRetries
+  , reportedFrom
+  )
+where
 
 import Data.IORef (atomicModifyIORef', newIORef)
 import Data.Text qualified as T
@@ -50,7 +56,22 @@ deadline = 400
 -- into its fields. The harness's own waits (a 'find' in 'mount') report
 -- too.
 reported :: Text -> IO [[Text]]
-reported kind = filter (\fields -> take 1 fields == [kind]) . map (T.splitOn "\t") . filter (T.isInfixOf "Test/Settings.hs:") . T.lines . fromJSText <$> js_report
+reported = reportedFrom "Test/Settings.hs:"
+
+-- | The report's lines of one kind about the waits made at places matching
+-- this text (a file's name), each cut into its fields.
+reportedFrom :: Text -> Text -> IO [[Text]]
+reportedFrom place kind = filter (\fields -> take 1 fields == [kind]) . map (T.splitOn "\t") . filter (T.isInfixOf place) . T.lines . fromJSText <$> js_report
+
+-- | Every example of a spec with the runner's settings as they were before
+-- it, and the report's lines kept for it to read ('reportedFrom').
+keepingSettings :: SpecWith a -> SpecWith a
+keepingSettings = around_ (bracket_ js_save js_restore)
+
+-- | Turn the retry report on, as @HSPEC_HALOGEN_RETRIES=1@ does, for an
+-- example inside 'keepingSettings'.
+reportingRetries :: IO ()
+reportingRetries = js_retries True
 
 -- | A read that fails twice and then succeeds.
 thirdTime :: PageM s ()
@@ -59,11 +80,11 @@ thirdTime = do
   eventually (unsafeIOToPageM (atomicModifyIORef' tries (\n -> (n + 1, n))) >>= (`shouldSatisfy` (>= 2)))
 
 spec :: forall m -> (MonadBrowserTest m) => Spec
-spec m = around_ (bracket_ js_save js_restore) $ do
+spec m = keepingSettings $ do
   describe "the deadline (HSPEC_HALOGEN_DEADLINE_MS)" $ do
     it "is settle's" $ do
       message <- failure $ do
-        ui <- mount m (Waiting.spinner :: H.Component H.VoidF Double Void m) 1.5
+        ui <- mountUnsettled m (Waiting.spinner :: H.Component H.VoidF Double Void m) 1.5
         spins <- find ui ".spins"
         eventually (textContent spins >>= (`shouldNotBe` "0"))
         unsafeIOToPageM (js_deadline deadline)
@@ -81,7 +102,7 @@ spec m = around_ (bracket_ js_save js_restore) $ do
     -- A part of a test with a deadline of its own gives the runner's back.
     it "is given back after withDeadline" $ do
       message <- failure $ do
-        ui <- mount m (Waiting.spinner :: H.Component H.VoidF Double Void m) 1.5
+        ui <- mountUnsettled m (Waiting.spinner :: H.Component H.VoidF Double Void m) 1.5
         spins <- find ui ".spins"
         eventually (textContent spins >>= (`shouldNotBe` "0"))
         unsafeIOToPageM (js_deadline deadline)
@@ -178,7 +199,7 @@ spec m = around_ (bracket_ js_save js_restore) $ do
     it "says that a settle was cut short by an enclosing deadline" $ do
       js_retries True
       _ <- try @SomeException $ runPage $ do
-        ui <- mount m (Waiting.spinner :: H.Component H.VoidF Double Void m) 2
+        ui <- mountUnsettled m (Waiting.spinner :: H.Component H.VoidF Double Void m) 2
         spins <- find ui ".spins"
         eventually (textContent spins >>= (`shouldNotBe` "0"))
         eventuallyWithin 300 settle
