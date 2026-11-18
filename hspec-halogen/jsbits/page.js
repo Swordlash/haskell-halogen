@@ -13,15 +13,17 @@ function halogen_test_workers() {
 // milliseconds: the runner's HSPEC_HALOGEN_DEADLINE_MS, 5000 without a
 // runner or a setting. Read at each use, as the next two are.
 function halogen_test_deadline() {
-  return globalThis.__halogenTestDeadlineMs ?? 5000;
+  return globalThis.__halogenTestDeadlineOverMs ?? globalThis.__halogenTestDeadlineMs ?? 5000;
 }
 
-// Set the deadline for a part of a test (withDeadline), or unset it with 0,
-// and return the one set before, 0 if none was.
+// Set a deadline for a part of a test (withDeadline) over the runner's, or
+// take it away with 0, and return the one set before, 0 if none was. The
+// runner's own is never changed, so a suite started again after a run
+// interrupted inside a withDeadline gets it back by taking this away.
 function halogen_test_set_deadline(ms) {
-  const before = globalThis.__halogenTestDeadlineMs ?? 0;
-  if (ms > 0) globalThis.__halogenTestDeadlineMs = ms;
-  else delete globalThis.__halogenTestDeadlineMs;
+  const before = globalThis.__halogenTestDeadlineOverMs ?? 0;
+  if (ms > 0) globalThis.__halogenTestDeadlineOverMs = ms;
+  else delete globalThis.__halogenTestDeadlineOverMs;
   return before;
 }
 

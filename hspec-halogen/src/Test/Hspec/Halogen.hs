@@ -146,7 +146,6 @@ where
 import Control.Monad.Fail qualified as Fail
 import Data.Coerce (coerce)
 import Data.IORef (IORef, atomicModifyIORef', atomicWriteIORef, modifyIORef', newIORef, readIORef)
-import Data.Map.Strict qualified as Map
 import Data.Sequence qualified as Seq
 import Data.Text qualified as T
 import Data.Unique (Unique, newUnique)
@@ -168,6 +167,8 @@ import Test.Hspec qualified as Hspec
 import Test.Hspec.Core.Spec qualified as Spec
 import Test.Hspec.Halogen.Internal.Monad (MonadBrowserTest (..))
 import Test.Hspec.Halogen.Internal.Page qualified as Page
+import Test.Hspec.Halogen.Internal.Report (Ended (..))
+import Test.Hspec.Halogen.Internal.Report qualified as Report
 import Test.Hspec.Halogen.Internal.Shard (Shard (..), Workers (..), inWorker, onePage, shardSpec)
 import Test.Hspec.Runner (Summary (..), defaultConfig, hspecWithResult)
 import Text.Show (Show (showsPrec))
@@ -222,6 +223,12 @@ runSuite parent spec =
         else do
           hSetBuffering stdout LineBuffering
           unless worker Page.removeLeftovers
+          -- What an earlier run in this runtime left (browser GHCi's
+          -- :main again, after a run that finished or was interrupted):
+          -- the report's totals and example, a deadline a withDeadline set.
+          Report.startTotals
+          atomicWriteIORef currentExample ""
+          void (Page.setDeadline 0)
           args <- Page.runnerArgs
           workers <- (\count -> if count > 0 then WithWorkers else WithoutWorkers) <$> Page.runnerWorkers
           let selected = maybe spec (\s -> shardSpec workers s spec) shard
@@ -991,12 +998,6 @@ currentExample :: IORef Text
 currentExample = unsafePerformIO (newIORef "")
 {-# NOINLINE currentExample #-}
 
--- | Every place that waited, with how many of its waits succeeded at once
--- and how many retried.
-readsAt :: IORef (Map (Text, Text) (Int, Int))
-readsAt = unsafePerformIO (newIORef mempty)
-{-# NOINLINE readsAt #-}
-
 -- | The spec with each example telling 'currentExample' its path as it
 -- starts.
 namingExamples :: Spec -> Spec
@@ -1031,18 +1032,45 @@ namingExamples = Spec.mapSpecForest (map (named []))
 --
 -- > HSPEC_HALOGEN_SETTLE  <example>  <settle|waitQuiet>  <file:line>  <ok|deadline|cut>  <ms>  <trees/running/waiting>
 --
--- Waits inside waits (a 'find' in an 'eventually', a 'settle' in one) each
--- report themselves, once, at their own call site. One that the enclosing
--- wait's deadline cuts short reports then, with @cut@ for how it ended. The
--- enclosing wait writes a line only if one of its own attempts finished
--- and failed: an attempt cut short is the inner wait's to report. So no
--- retry is counted twice, and the counts below count each wait once, at
--- its own site.
---
 -- And at the end of the suite, for every place that waited, how many of its
 -- waits succeeded at the first attempt and how many retried:
 --
 -- > HSPEC_HALOGEN_READS  <function>  <file:line>  <first attempts>  <retried>
+--
+-- What each wait writes and counts. An attempt is one look that finished,
+-- passing or failing; one cut short is not an attempt of this wait's. Waits
+-- inside waits (a 'find' in an 'eventually', a 'settle' in one) are each
+-- their own wait, at their own call site, so no look is counted twice.
+--
+-- +-----------------------------------------------+------------------------------+-------------------------------+
+-- | a read ('eventually', 'find', a @should@)     | line                         | totals at its place           |
+-- +===============================================+==============================+===============================+
+-- | passed at its first attempt                   | none                         | one more passed at once       |
+-- +-----------------------------------------------+------------------------------+-------------------------------+
+-- | passed after failed attempts                  | @ok@                         | one more retried              |
+-- +-----------------------------------------------+------------------------------+-------------------------------+
+-- | its own deadline passed, attempts failed      | @timeout@                    | one more retried              |
+-- +-----------------------------------------------+------------------------------+-------------------------------+
+-- | an enclosing deadline cut it, attempts failed | @cut@                        | one more retried              |
+-- +-----------------------------------------------+------------------------------+-------------------------------+
+-- | ended, by either deadline, with no attempt    | none                         | none: what it waited on was a |
+-- | finished (it held a wait that was cut)        |                              | wait inside it, counted there |
+-- +-----------------------------------------------+------------------------------+-------------------------------+
+--
+-- +-----------------------------------------------+------------------------------+-------------------------------+
+-- | a 'settle' or 'waitQuiet'                     | line                         | totals                        |
+-- +===============================================+==============================+===============================+
+-- | came to rest within a second                  | none                         | none: a settle is not a read  |
+-- +-----------------------------------------------+------------------------------+-------------------------------+
+-- | came to rest after more than a second         | @ok@                         | none                          |
+-- +-----------------------------------------------+------------------------------+-------------------------------+
+-- | its own deadline passed                       | @deadline@                   | none                          |
+-- +-----------------------------------------------+------------------------------+-------------------------------+
+-- | an enclosing deadline cut it                  | @cut@                        | none                          |
+-- +-----------------------------------------------+------------------------------+-------------------------------+
+--
+-- The totals are the suite run's own: a run started again in the same
+-- runtime (@:main@ in browser GHCi) starts them afresh.
 reportedWithin :: (HasCallStack) => Int -> IO a -> PageEnv -> IO a
 reportedWithin timeoutMs action env = do
   lastFailure <- newIORef Nothing
@@ -1050,7 +1078,6 @@ reportedWithin timeoutMs action env = do
   firstFailure <- newIORef Nothing
   started <- getMonotonicTime
   let (function, site) = callSite
-      count retried = atomicModifyIORef' readsAt (\m -> (Map.insertWith (\(a, b) (c, d) -> (a + c, b + d)) (function, site) (if retried then (0, 1) else (1, 0)) m, ()))
       report outcome = do
         now <- getMonotonicTime
         n <- readIORef attempts
@@ -1062,7 +1089,10 @@ reportedWithin timeoutMs action env = do
                 let line = [example, function, site, readingText a, outcome, show n, show (floor ((now - started) * 1000) :: Int), failureText e, maybe "" failureText final]
                 reportLine (T.intercalate "\t" ("HSPEC_HALOGEN_RETRY" : line))
             )
-        count (n > 1 || outcome /= "ok")
+        Report.countWait (function, site) n $ case outcome of
+          "ok" -> Passed
+          "cut" -> Cut
+          _ -> TimedOut
       go =
         tryJust notAsync action >>= \case
           Right a -> do
@@ -1133,8 +1163,8 @@ readingText a = show a.trees <> "/" <> show a.running <> "/" <> show a.waiting
 -- | Every place that waited, at the end of the suite.
 reportReads :: IO ()
 reportReads = do
-  places <- readIORef readsAt
-  for_ (Map.toList places) $ \((function, site), (once, retried)) ->
+  places <- Report.totals
+  for_ places $ \((function, site), (once, retried)) ->
     reportLine (T.intercalate "\t" ["HSPEC_HALOGEN_READS", function, site, show once, show retried])
 
 -- | A line of the report, on the runner's standard error. The runner writes

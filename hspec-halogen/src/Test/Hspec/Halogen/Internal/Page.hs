@@ -132,9 +132,9 @@ runnerRetries = js_retries
 runnerDeadline :: IO Int
 runnerDeadline = (\ms -> if ms > 0 then ms else 5000) <$> js_deadline
 
--- | Set the deadline the page's actions and settles take, in milliseconds
--- (0 for none set: five seconds), and return the one set before, 0 if none
--- was.
+-- | Set the deadline the page's actions and settles take for a while, in
+-- milliseconds, over the runner's (0 to give the runner's back), and return
+-- the one set before, 0 if none was.
 setDeadline :: Int -> IO Int
 setDeadline = js_set_deadline
 

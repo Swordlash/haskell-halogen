@@ -43,6 +43,7 @@ library
     exposed-modules:  Test.Hspec.Halogen
     other-modules:    Test.Hspec.Halogen.Internal.Monad
                       Test.Hspec.Halogen.Internal.Page
+                      Test.Hspec.Halogen.Internal.Report
                       Test.Hspec.Halogen.Internal.Shard
     build-depends:
         base,
@@ -203,8 +204,9 @@ test-suite shard-test
     default-language: GHC2024
     hs-source-dirs: unit src
     main-is: Main.hs
-    other-modules: Test.Hspec.Halogen.Internal.Shard
+    other-modules: Test.Hspec.Halogen.Internal.Report
+                   Test.Hspec.Halogen.Internal.Shard
     ghc-options: -Wall -Wextra
-    build-depends: base, hspec, hspec-core >= 2.11.17 && < 2.12
+    build-depends: base, containers, text, hspec, hspec-core >= 2.11.17 && < 2.12
     if arch(wasm32) || arch(javascript)
         buildable: False

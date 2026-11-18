@@ -5,9 +5,11 @@ import Control.Monad (replicateM_)
 import Data.Foldable (toList)
 import Data.IORef
 import Data.List (sort)
+import Data.Text (pack)
 import System.Environment (withArgs)
 import Test.Hspec
 import Test.Hspec.Core.Spec qualified as Spec
+import Test.Hspec.Halogen.Internal.Report
 import Test.Hspec.Halogen.Internal.Shard
 import Test.Hspec.Runner
 import Prelude
@@ -152,3 +154,31 @@ main = hspec $ do
     results <- runShardsWith WithWorkers [Serial, Parallel 0 2, Parallel 1 2, Worker 0 2, Worker 1 2] defaultConfig {configFailOnFocused = True} mixed
     map summaryExamples results `shouldBe` [3, 2, 1, 1, 3]
     sum (map summaryFailures results) `shouldBe` 0
+
+  -- The retry report's totals follow the table in Test.Hspec.Halogen's
+  -- reportedWithin: one entry per wait, at its own place, and none for a
+  -- wait none of whose own attempts finished.
+  describe "the retry report's totals" $ do
+    it "count each wait as the table says" $ do
+      counted 1 Passed `shouldBe` Just False
+      counted 3 Passed `shouldBe` Just True
+      counted 5 TimedOut `shouldBe` Just True
+      counted 5 Cut `shouldBe` Just True
+      counted 0 TimedOut `shouldBe` Nothing
+      counted 0 Cut `shouldBe` Nothing
+
+    -- eventuallyWithin 300 (p `shouldHaveText` "never"): the inner wait is
+    -- cut after its fourteenth look; the outer one's own first attempt never
+    -- finished, and its deadline passes.
+    it "name a wait cut inside another once, and not the wait around it" $ do
+      startTotals
+      countWait (pack "shouldHaveText", pack "Test/Settings.hs:140") 14 Cut
+      countWait (pack "eventuallyWithin", pack "Test/Settings.hs:140") 0 TimedOut
+      totals `shouldReturn` [((pack "shouldHaveText", pack "Test/Settings.hs:140"), (0, 1))]
+
+    it "are each run's own" $ do
+      startTotals
+      countWait (pack "find", pack "Earlier.hs:1") 1 Passed
+      startTotals
+      countWait (pack "find", pack "Later.hs:1") 2 Passed
+      totals `shouldReturn` [((pack "find", pack "Later.hs:1"), (0, 1))]
