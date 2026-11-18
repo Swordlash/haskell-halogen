@@ -7,9 +7,10 @@ place. `HSPEC_HALOGEN_DEADLINE_MS` in the runner's environment (milliseconds,
 5000 if unset, as before) is the deadline of an action's wait for its element
 (Playwright's timeout, which the page now names with each action, or the
 page's own check without the runner), of the `settle` every action ends with,
-and of `waitQuiet`. These were three separate five-second constants (the
-runner's Playwright timeout, the in-page actions' and the settles'), so a
-suite on a slow CI runner could not raise them. Nothing changes without the
+and of `waitQuiet`. These were four separate five-second constants (the
+runner's Playwright timeout, the in-page actions', the settles' and
+`hspec-halogen open`'s Playwright timeout), so a suite on a slow CI runner
+could not raise them. Nothing changes without the
 variable. `hspec-halogen open` takes it too. Raise it where the machine is
 slower than the one the suite was written on: under load a click can take
 more than five seconds to become possible, and a test then failed for a

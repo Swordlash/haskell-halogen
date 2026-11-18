@@ -76,7 +76,7 @@ await page.addInitScript((deadlineMs) => {
     drag: (source, target, timeout) => globalThis.__halogenTestDrag(source, target, timeout),
     press: (key) => globalThis.__halogenTestPress(key),
   };
-});
+}, deadlineMs);
 
 // Browser GHCi talks to the page over a WebSocket. When ghciwatch restarts
 // GHCi (a library or cabal file changed) that socket closes, and the new GHCi

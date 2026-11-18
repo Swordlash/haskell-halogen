@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 const runner = fileURLToPath(new URL("./runner.mjs", import.meta.url));
+const opener = fileURLToPath(new URL("./open.mjs", import.meta.url));
 
 // Run the fixture suite with this many pages and workers. Every parallel
 // page and every worker fetches from the server, which answers none of them
@@ -189,6 +190,43 @@ test("an invalid deadline fails before launching a browser", async () => {
   const result = await exercise("pass", "1", "0", 0, { HSPEC_HALOGEN_DEADLINE_MS: "0" });
   assert.equal(result.code, 1);
   assert.match(result.stderr, /HSPEC_HALOGEN_DEADLINE_MS must be a positive integer/);
+});
+// hspec-halogen open, headless, on a page that prints the deadline it was
+// given and what a click on a hidden button says, the button's deadline
+// named as the suite's page.js names it; the process is stopped once both
+// are printed, as a user closing the window would.
+test("the deadline reaches the page hspec-halogen open opens, and its actions", async () => {
+  const server = createServer((request, response) => {
+    response.setHeader("Content-Type", "text/html");
+    response.end(`<!doctype html><button id="hidden" style="visibility: hidden">hidden</button><script>
+console.log("deadline " + globalThis.__halogenTestDeadlineMs);
+// The deadline as page.js names it with each action.
+globalThis.__halogenTest.act("click", "#hidden", "", globalThis.__halogenTestDeadlineMs ?? 5000)
+  .then(() => console.log("clicked"), (error) => console.log("click " + String(error).split("\\n")[0]));
+</script>`);
+  });
+  await new Promise((ready) => server.listen(0, "127.0.0.1", ready));
+  try {
+    const output = await new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, [opener, `http://127.0.0.1:${server.address().port}/`], {
+        env: { ...process.env, HSPEC_HALOGEN_HEADLESS: "1", HSPEC_HALOGEN_DEADLINE_MS: "300" },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let stdout = "";
+      child.stdout.on("data", (text) => {
+        stdout += text;
+        if (/^click /m.test(stdout) || /^clicked$/m.test(stdout)) child.kill();
+      });
+      const deadline = setTimeout(() => { child.kill("SIGKILL"); reject(new Error("open did not print the page's lines: " + stdout)); }, 20000);
+      child.on("error", reject);
+      child.on("exit", () => { clearTimeout(deadline); resolve(stdout); });
+    });
+    assert.match(output, /^deadline 300$/m);
+    assert.match(output, /^click .*Timeout 300ms exceeded/m);
+  } finally {
+    server.closeAllConnections();
+    server.close();
+  }
 });
 test("invalid worker counts fail before launching a browser", async () => {
   const result = await exercise("pass", "1", "-1", 0);
