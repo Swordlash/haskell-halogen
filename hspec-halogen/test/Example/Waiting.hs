@@ -14,6 +14,7 @@
 module Example.Waiting
   ( component
   , spinner
+  , spinnerFromMount
   )
 where
 
@@ -100,11 +101,20 @@ data SpinAction = Start | Spin
 -- not the test's, which would otherwise spin in
 -- 'Test.Hspec.Halogen.mount' until the time was up.
 spinner :: forall q o m. (MonadIO m) => H.Component q Double o m
-spinner =
+spinner = spinning False
+
+-- | 'spinner', started as soon as its @Initialize@ has waited once (an
+-- @H.async@ of nothing), on the worker's thread: busy before a mount that
+-- settles can find it idle, so such a mount runs out of time.
+spinnerFromMount :: forall q o m. (MonadIO m) => H.Component q Double o m
+spinnerFromMount = spinning True
+
+spinning :: forall q o m. (MonadIO m) => Bool -> H.Component q Double o m
+spinning atOnce =
   H.component
     (\seconds -> pure Spinning {seconds, deadline = 0, spins = 0, again = Nothing})
     (\st -> HH.p [HP.class_ (HH.ClassName "spins")] [HH.text (show st.spins)])
-    [H.onAction handleAction, H.onInitialize (void (H.subscribe soon))]
+    [H.onAction handleAction, H.onInitialize (if atOnce then H.async (pure ()) >> handleAction Start else void (H.subscribe soon))]
   where
     -- The timer's thread ends once it has emitted, and is not killed when
     -- the component goes: it runs the loop (and the spinning) from then on,

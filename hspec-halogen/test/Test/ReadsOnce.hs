@@ -15,6 +15,8 @@ import Halogen.Activity (Activity (..))
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Properties qualified as HP
 import Protolude hiding (find)
+import GHC.Stack (SrcLoc (..))
+import System.Timeout (timeout)
 import Test.HUnit.Lang (FailureReason (..), HUnitFailure (..))
 import Test.Hspec qualified as Hspec
 import Test.Hspec.Halogen
@@ -31,6 +33,15 @@ failing test = do
   started <- getMonotonicTime
   try (runPage test) >>= \case
     Left (HUnitFailure _ (Reason message)) -> (toS message,) . subtract started <$> getMonotonicTime
+    Left other -> panic ("another failure: " <> show other)
+    Right () -> panic "the test passed"
+
+-- | A failure of a page that fails on purpose, with the file and line it
+-- names.
+failingAt :: (forall s. PageM s ()) -> IO (Text, Maybe Text)
+failingAt test =
+  try (runPage test) >>= \case
+    Left (HUnitFailure loc (Reason message)) -> pure (toS message, (\l -> toS (srcLocFile l) <> ":" <> show (srcLocStartLine l)) <$> loc)
     Left other -> panic ("another failure: " <> show other)
     Right () -> panic "the test passed"
 
@@ -177,6 +188,52 @@ spec m = do
         [[_, function, _, counted]] -> (function, counted) `Hspec.shouldBe` ("eventuallyWithin", "retried")
         other -> Hspec.expectationFailure ("not one count: " <> show other)
       nothingOf ["HSPEC_HALOGEN_SETTLE"]
+
+  -- The count of held waits reads the page itself, as it is: it is asked
+  -- while the program is brought to rest, and must not rest in turn. (Before
+  -- this, the count rested, which asked the count again, for ever: the
+  -- timeout keeps that from hanging the suite.)
+  describe "countHeld" $ readsOnce Quiet $
+    it "counts with a read of the page, which does not rest" $ do
+      done <- timeout 10_000_000 $ runPage $ do
+        ui <- loader m
+        status <- find ui ".status"
+        countHeld (length <$> findAll ui ".held")
+        find ui ".load" >>= click
+        status `shouldHaveText` "loaded"
+      done `Hspec.shouldBe` Just ()
+
+  -- A rest that runs out names the test's line, in the failure and in the
+  -- report, whatever function brought it on.
+  describe "a rest that runs out" $ keepingSettings $ do
+    readsOnce Quiet $ it "names the test's line, from a getter" $ do
+      reportingRetries
+      (message, at) <- failingAt $ do
+        ui <- loader m
+        status <- find ui ".status"
+        find ui ".load-slowly" >>= click
+        _ <- withDeadline 300 (textContent status)
+        pure ()
+      message `Hspec.shouldSatisfy` T.isPrefixOf "waitQuiet: the program was not quiet after 300 ms"
+      at `Hspec.shouldSatisfy` maybe False (T.isPrefixOf "test/Test/ReadsOnce.hs:")
+      reportedFrom "Test/ReadsOnce.hs:" "HSPEC_HALOGEN_SETTLE" >>= \case
+        [[_, _, what, site, outcome, _, _]] -> do
+          (what, outcome) `Hspec.shouldBe` ("waitQuiet", "deadline")
+          Just site `Hspec.shouldBe` at
+        other -> Hspec.expectationFailure ("not one line of the report: " <> show other)
+
+    it "names the test's line, from a mount" $ do
+      reportingRetries
+      (message, at) <- failingAt $ do
+        _ <- withDeadline 300 (mount m (Waiting.spinnerFromMount :: H.Component H.VoidF Double Void m) 1.5)
+        pure ()
+      message `Hspec.shouldSatisfy` T.isPrefixOf "settle: the program was still busy after 300 ms"
+      at `Hspec.shouldSatisfy` maybe False (T.isPrefixOf "test/Test/ReadsOnce.hs:")
+      reportedFrom "Test/ReadsOnce.hs:" "HSPEC_HALOGEN_SETTLE" >>= \case
+        [[_, _, what, site, outcome, _, _]] -> do
+          (what, outcome) `Hspec.shouldBe` ("settle", "deadline")
+          Just site `Hspec.shouldBe` at
+        other -> Hspec.expectationFailure ("not one line of the report: " <> show other)
 
   -- One attempt and no retrying is still an eventually's attempt: it looks
   -- at the page as it is, without waiting for the slow load.

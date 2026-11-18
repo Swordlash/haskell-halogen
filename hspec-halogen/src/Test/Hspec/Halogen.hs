@@ -506,7 +506,7 @@ instance Eq (Element s) where
 -- read just after it finds what the mount rendered, children and all. A
 -- component busy from its start, whose program would not settle, is
 -- mounted with 'mountUnsettled'.
-mount :: forall m -> (MonadBrowserTest m) => Component q i o m -> i -> PageM s (Mounted s q o m)
+mount :: forall m -> (HasCallStack, MonadBrowserTest m) => Component q i o m -> i -> PageM s (Mounted s q o m)
 mount m component input = mountUnsettled m component input <* settle
 
 -- | 'mount', returning as soon as the component has rendered, without
@@ -538,7 +538,7 @@ htmlContainer html = do
 -- | 'mount', into a container that holds the component's HTML already
 -- ('htmlContainer'): the component adopts it, with
 -- 'Halogen.VDom.Driver.hydrateUI', rather than building its own.
-hydrate :: forall m -> (MonadBrowserTest m) => Element s -> Component q i o m -> i -> PageM s (Mounted s q o m)
+hydrate :: forall m -> (HasCallStack, MonadBrowserTest m) => Element s -> Component q i o m -> i -> PageM s (Mounted s q o m)
 hydrate _ (Element element) component input = moved >> mountWith hydrateInto element component input <* settle
 
 -- | Mount a component into this element with one of the class's ways, and
@@ -575,7 +575,7 @@ query :: (HasCallStack, MonadBrowserTest m) => Mounted s q o m -> q a -> PageM s
 query Mounted {socket = HalogenSocket {query = send}} q = moved >> unsafeIOToPageM (runTest (send q)) <* settle
 
 -- | Everything the component has raised since it was mounted, oldest first.
-outputs :: Mounted s q o m -> PageM s [o]
+outputs :: (HasCallStack) => Mounted s q o m -> PageM s [o]
 outputs ui = reading False (unsafeIOToPageM (readIORef ui.raised))
 
 -- | The container the component renders into.
@@ -592,7 +592,7 @@ find :: (HasCallStack) => Mounted s q o m -> Text -> PageM s (Element s)
 find ui = findIn (root ui)
 
 -- | Every element in the component matching a CSS selector, as it is now.
-findAll :: Mounted s q o m -> Text -> PageM s [Element s]
+findAll :: (HasCallStack) => Mounted s q o m -> Text -> PageM s [Element s]
 findAll ui = findAllIn (root ui)
 
 -- | 'find' within one element rather than the whole component.
@@ -605,7 +605,7 @@ findIn scope@(Element element) selector = reading True $ do
       unsafeIOToPageM $ assertFailure $ toS $ "No element matches " <> show selector <> " in\n" <> html
 
 -- | 'findAll' within one element rather than the whole component.
-findAllIn :: Element s -> Text -> PageM s [Element s]
+findAllIn :: (HasCallStack) => Element s -> Text -> PageM s [Element s]
 findAllIn (Element element) selector = reading False (unsafeIOToPageM (map Element <$> Page.querySelectorAll element selector))
 
 --------------------------------------------------------------------------------
@@ -806,7 +806,7 @@ perform io = moved >> unsafeIOToPageM io <* settle
 -- component went away) still counts as held, and so hides one other fiber's
 -- wait, which is then not waited for.
 countHeld :: PageM s Int -> PageM s ()
-countHeld (PageM count) = pageEnv >>= \env -> unsafeIOToPageM (atomicWriteIORef env.held (runReaderT count env))
+countHeld (PageM count) = pageEnv >>= \env -> unsafeIOToPageM (atomicWriteIORef env.held (runReaderT count env {resting = False}))
 
 -- | 'settle' until the program is as asked, failing at the deadline; the
 -- last reading.
@@ -970,8 +970,11 @@ reading retries look@(PageM body) =
       reached <- unsafeIOToPageM (readIORef env.rested)
       unless (maybe False (>= rest) reached) $
         void . settleUntil rest =<< unsafeIOToPageM Page.runnerDeadline
+      -- The look itself, and what its failure message reads, see the page
+      -- as it is: the program is at rest, and a read inside a read must
+      -- not rest again.
       unsafeIOToPageM $
-        runReaderT body env `catch` \(HUnitFailure loc reason) -> do
+        runReaderT body env {resting = False} `catch` \(HUnitFailure loc reason) -> do
           said <- restNote <$> readIORef env.lastRest
           throwIO (HUnitFailure loc (noted said reason))
   where
@@ -998,33 +1001,33 @@ restNote = \case
 -- Reading
 --------------------------------------------------------------------------------
 
-textContent :: Element s -> PageM s Text
+textContent :: (HasCallStack) => Element s -> PageM s Text
 textContent (Element element) = reading False (unsafeIOToPageM (Page.textContentOf element))
 
 -- | A property as text, the way JavaScript's @String()@ renders it: a boolean
 -- reads @true@ or @false@.
-getProperty :: Element s -> Text -> PageM s Text
+getProperty :: (HasCallStack) => Element s -> Text -> PageM s Text
 getProperty (Element element) name = reading False (unsafeIOToPageM (Page.propertyOf element name))
 
-getAttribute :: Element s -> Text -> PageM s (Maybe Text)
+getAttribute :: (HasCallStack) => Element s -> Text -> PageM s (Maybe Text)
 getAttribute (Element element) name = reading False (unsafeIOToPageM (Page.attributeOf element name))
 
-classes :: Element s -> PageM s [Text]
+classes :: (HasCallStack) => Element s -> PageM s [Text]
 classes element = T.words <$> getProperty element "className"
 
-outerHTML :: Element s -> PageM s Text
+outerHTML :: (HasCallStack) => Element s -> PageM s Text
 outerHTML (Element element) = reading False (unsafeIOToPageM (Page.outerHTMLOf element))
 
 -- | Whether the element is visible as Playwright counts it, the sense the
 -- actions wait for: it has a box, and neither it nor what holds it is
 -- @display: none@, @content-visibility: hidden@ or @visibility: hidden@.
 -- Opacity is not looked at, nor whether something covers it.
-isVisible :: Element s -> PageM s Bool
+isVisible :: (HasCallStack) => Element s -> PageM s Bool
 isVisible (Element element) = reading False (unsafeIOToPageM (Page.checkVisibility element))
 
 -- | Whether the element is still in the page: a render that replaced it, or
 -- removed it, has taken it out.
-isAttached :: Element s -> PageM s Bool
+isAttached :: (HasCallStack) => Element s -> PageM s Bool
 isAttached (Element element) = reading False (unsafeIOToPageM (Page.isConnected element))
 
 --------------------------------------------------------------------------------
