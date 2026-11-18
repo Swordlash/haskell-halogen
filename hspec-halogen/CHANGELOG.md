@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+New: a suite can find the reads that pass only because they retry. With
+`HSPEC_HALOGEN_RETRIES=1` in the runner's environment, every `eventually`
+(and so `find`, `findIn` and the expectations) whose first attempt failed
+writes a line to standard error: the example, the library function the test
+called and the line it was called from, what the program was doing at the
+first failure (core's `Halogen.Activity`), how the wait ended and after how
+many attempts and milliseconds, and the first failure's message. A `settle` or
+`waitQuiet` that took longer than a second, or ran out of time, writes one too,
+and the suite ends with a count, for every place that waited, of the waits
+that succeeded at once and those that retried. Each line starts with a fixed
+word (`HSPEC_HALOGEN_RETRY`, `HSPEC_HALOGEN_SETTLE`, `HSPEC_HALOGEN_READS`)
+and is tab-separated. Off, nothing changes: the setting is read once.
+`eventually` and `eventuallyWithin` now take a call stack.
+
 Every action now waits for the program to finish reacting, and for what the
 page fires a moment later because of it, so that one read after it sees what
 the program did. `settle`, which every action ends with, used to wait for one

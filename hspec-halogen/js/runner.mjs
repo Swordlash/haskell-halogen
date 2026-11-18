@@ -111,6 +111,10 @@ if (!Number.isSafeInteger(jobs) || jobs < 1) {
   process.exit(1);
 }
 const workers = Number(process.env.HSPEC_HALOGEN_WORKERS ?? 0);
+// Whether the suite reports its retries (HSPEC_HALOGEN_RETRIES=1): every
+// wait of an 'eventually' whose first attempt failed, and every settle that
+// took longer than a second, as lines on standard error.
+const retries = process.env.HSPEC_HALOGEN_RETRIES === "1";
 if (!Number.isSafeInteger(workers) || workers < 0) {
   process.stderr.write("HSPEC_HALOGEN_WORKERS must be a non-negative integer\n");
   process.exit(1);
@@ -214,6 +218,7 @@ const supported = () => globalThis.__halogenTestShardSupported === true;
 globalThis.__halogenTestArgs = ${JSON.stringify(args)};
 globalThis.__halogenTestShard = shard;
 globalThis.__halogenTestWorkers = ${workers};
+globalThis.__halogenTestRetries = ${retries};
 globalThis.__halogenTest = { done: (count) => post({ kind: "done", count, supported: supported() }) };
 const runtimeWritesToLog = ${!isWasm};
 for (const type of ["log", "info", "warn", "error", "debug"]) {
@@ -394,17 +399,18 @@ async function runShard(shard) {
   // Chromium HTML5 drag and drop's too.
   await tab.exposeFunction("__halogenTestDrag", (source, target) => tab.locator(source).dragTo(tab.locator(target)));
   await tab.exposeFunction("__halogenTestPress", (key) => tab.keyboard.press(key));
-  await tab.addInitScript(({ args, shard, workers }) => {
+  await tab.addInitScript(({ args, shard, workers, retries }) => {
     globalThis.__halogenTestArgs = args;
     globalThis.__halogenTestShard = shard;
     globalThis.__halogenTestWorkers = workers;
+    globalThis.__halogenTestRetries = retries;
     globalThis.__halogenTest = {
       act: (action, selector, text) => globalThis.__halogenTestAct(action, selector, text),
       drag: (source, target) => globalThis.__halogenTestDrag(source, target),
       press: (key) => globalThis.__halogenTestPress(key),
       done: (count) => globalThis.__halogenTestDone(count),
     };
-  }, { args, shard, workers });
+  }, { args, shard, workers, retries });
 
   const { port } = server.address();
   await tab.goto(`http://127.0.0.1:${port}/`);

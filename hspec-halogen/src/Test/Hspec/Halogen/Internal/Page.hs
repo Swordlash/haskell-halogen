@@ -14,6 +14,7 @@ module Test.Hspec.Halogen.Internal.Page
   , runnerArgs
   , runnerShard
   , runnerWorkers
+  , runnerRetries
   , reportDone
   , removeLeftovers
   , createContainer
@@ -56,6 +57,7 @@ $( browserJS
      , ("js_shard", "halogen_test_shard", Safe, [t|IO JSText|])
      , ("js_test_args", "halogen_test_test_args", Safe, [t|IO JSVal|])
      , ("js_workers", "halogen_test_workers", Safe, [t|IO Int|])
+     , ("js_retries", "halogen_test_retries", Safe, [t|IO Bool|])
      , ("js_remove_leftovers", "halogen_test_remove_leftovers", Safe, [t|IO ()|])
      , ("js_test_done", "halogen_test_test_done", Safe, [t|Int -> IO ()|])
      , ("js_create_container", "halogen_test_create_container", Safe, [t|IO JSVal|])
@@ -112,6 +114,11 @@ runnerShard = fromJSText <$> js_shard
 -- the runner, and with a runner that predates them.
 runnerWorkers :: IO Int
 runnerWorkers = js_workers
+
+-- | Whether the runner asked the suite to report its retries
+-- (@HSPEC_HALOGEN_RETRIES=1@; see 'Test.Hspec.Halogen.eventually').
+runnerRetries :: IO Bool
+runnerRetries = js_retries
 
 -- | Tell the runner how many tests failed. Outside the runner (a page opened
 -- by hand) there is nobody to tell.
