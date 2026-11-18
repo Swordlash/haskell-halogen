@@ -10,8 +10,10 @@
 // page logs, the suite's report included, is printed here.
 //
 // playwright is looked up from the working directory upwards, as for
-// runner.mjs. HSPEC_HALOGEN_HEADLESS=1 opens no window, and
-// HSPEC_HALOGEN_SLOWMO=<ms> slows every action down so it can be followed.
+// runner.mjs. HSPEC_HALOGEN_HEADLESS=1 opens no window,
+// HSPEC_HALOGEN_SLOWMO=<ms> slows every action down so it can be followed,
+// and HSPEC_HALOGEN_DEADLINE_MS is the deadline of the actions and settles,
+// as for a suite run with hspec-halogen test.
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
@@ -32,12 +34,18 @@ if (!url) {
   process.exit(1);
 }
 
+const deadlineMs = Number(process.env.HSPEC_HALOGEN_DEADLINE_MS ?? 5000);
+if (!Number.isSafeInteger(deadlineMs) || deadlineMs < 1) {
+  console.error("HSPEC_HALOGEN_DEADLINE_MS must be a positive integer");
+  process.exit(1);
+}
+
 const browser = await chromium.launch({
   headless: Boolean(process.env.HSPEC_HALOGEN_HEADLESS),
   slowMo: Number(process.env.HSPEC_HALOGEN_SLOWMO ?? 0),
 });
 const page = await browser.newPage({ viewport: null });
-page.setDefaultTimeout(5000);
+page.setDefaultTimeout(deadlineMs);
 
 // Set from the moment GHCi's socket closes until the page is loaded again: the
 // old session's code fails as its connection goes, and that is not news.
@@ -52,19 +60,20 @@ page.on("console", (message) => {
   else console.log(message.text());
 });
 
-await page.exposeFunction("__halogenTestAct", async (action, selector, text) => {
+await page.exposeFunction("__halogenTestAct", async (action, selector, text, timeout) => {
   const target = page.locator(selector);
-  if (action === "click") await target.click();
-  else if (action === "type") await target.pressSequentially(text);
-  else if (action === "clear") await target.clear();
+  if (action === "click") await target.click({ timeout });
+  else if (action === "type") await target.pressSequentially(text, { timeout });
+  else if (action === "clear") await target.clear({ timeout });
   else throw new Error(`unknown action ${action}`);
 });
-await page.exposeFunction("__halogenTestDrag", (source, target) => page.locator(source).dragTo(page.locator(target)));
+await page.exposeFunction("__halogenTestDrag", (source, target, timeout) => page.locator(source).dragTo(page.locator(target), { timeout }));
 await page.exposeFunction("__halogenTestPress", (key) => page.keyboard.press(key));
-await page.addInitScript(() => {
+await page.addInitScript((deadlineMs) => {
+  globalThis.__halogenTestDeadlineMs = deadlineMs;
   globalThis.__halogenTest = {
-    act: (action, selector, text) => globalThis.__halogenTestAct(action, selector, text),
-    drag: (source, target) => globalThis.__halogenTestDrag(source, target),
+    act: (action, selector, text, timeout) => globalThis.__halogenTestAct(action, selector, text, timeout),
+    drag: (source, target, timeout) => globalThis.__halogenTestDrag(source, target, timeout),
     press: (key) => globalThis.__halogenTestPress(key),
   };
 });

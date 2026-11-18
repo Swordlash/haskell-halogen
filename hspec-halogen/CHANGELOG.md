@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+New: a suite sets how long its actions and settles wait for the page, in one
+place. `HSPEC_HALOGEN_DEADLINE_MS` in the runner's environment (milliseconds,
+5000 if unset, as before) is the deadline of an action's wait for its element
+(Playwright's timeout, which the page now names with each action, or the
+page's own check without the runner), of the `settle` every action ends with,
+and of `waitQuiet`. These were three separate five-second constants (the
+runner's Playwright timeout, the in-page actions' and the settles'), so a
+suite on a slow CI runner could not raise them. Nothing changes without the
+variable. `hspec-halogen open` takes it too. Raise it where the machine is
+slower than the one the suite was written on: under load a click can take
+more than five seconds to become possible, and a test then failed for a
+reason that was not its own.
+
 New: a suite can find the reads that pass only because they retry. With
 `HSPEC_HALOGEN_RETRIES=1` in the runner's environment, every `eventually`
 (and so `find`, `findIn` and the expectations) whose first attempt failed
@@ -13,8 +26,8 @@ many attempts and milliseconds, and the first failure's message. A `settle` or
 and the suite ends with a count, for every place that waited, of the waits
 that succeeded at once and those that retried. Each line starts with a fixed
 word (`HSPEC_HALOGEN_RETRY`, `HSPEC_HALOGEN_SETTLE`, `HSPEC_HALOGEN_READS`)
-and is tab-separated. Off, nothing changes: the setting is read once.
-`eventually` and `eventuallyWithin` now take a call stack.
+and is tab-separated. Off, nothing is written. `eventually` and
+`eventuallyWithin` now take a call stack.
 
 Every action now waits for the program to finish reacting, and for what the
 page fires a moment later because of it, so that one read after it sees what

@@ -32,6 +32,7 @@ import Test.IndexedDB qualified
 import Test.Probe qualified
 import Test.Promised qualified
 import Test.Reconcile qualified
+import Test.Settings qualified
 import Test.Timeline qualified
 import Test.Todo qualified
 import Test.Waiting qualified
@@ -62,6 +63,7 @@ main = runBrowserTests $ parallel $ do
   describe "Without the runner" (Test.InPage.spec BrowserDOM)
   describe "A failure's timeline" (Test.Timeline.spec BrowserDOM)
   describe "Waiting for the program" (Test.Waiting.spec BrowserDOM)
+  describe "The runner's settings" (Test.Settings.spec BrowserDOM)
   describe "In a worker" Test.Worker.spec
 #if defined(javascript_HOST_ARCH) || defined(wasm32_HOST_ARCH)
   -- These need the browser's DOM ('MonadBrowserDOM'), which 'BrowserDOM'

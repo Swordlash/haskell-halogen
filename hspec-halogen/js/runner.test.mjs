@@ -16,7 +16,9 @@ const runner = fileURLToPath(new URL("./runner.mjs", import.meta.url));
 // Run the fixture suite with this many pages and workers. Every parallel
 // page and every worker fetches from the server, which answers none of them
 // until all have asked: `meet` of them, by default all.
-async function exercise(mode, jobs = "2", workers = "0", meet = Number(jobs) + Number(workers)) {
+async function exercise(mode, jobs = "2", workers = "0", meet = Number(jobs) + Number(workers), settings = {}) {
+  const deadline = Number(settings.HSPEC_HALOGEN_DEADLINE_MS ?? 5000);
+  const retries = settings.HSPEC_HALOGEN_RETRIES === "1";
   const dir = mkdtempSync(join(tmpdir(), "halogen-runner-test-"));
   const suite = join(dir, "suite");
   mkdirSync(`${suite}.jsexe`);
@@ -38,6 +40,8 @@ async function exercise(mode, jobs = "2", workers = "0", meet = Number(jobs) + N
   if (mode !== "unsupported") globalThis.__halogenTestShardSupported = true;
   const check = (condition, text) => { if (!condition) throw new Error(text); };
   check(globalThis.__halogenTestWorkers === ${Number(workers)}, "the shard was not told how many workers there are");
+  check(globalThis.__halogenTestDeadlineMs === ${deadline}, "the shard was not told the deadline");
+  check(globalThis.__halogenTestRetries === ${retries}, "the shard was not told whether to report retries");
   if (shard.startsWith("worker/")) {
     check(typeof document === "undefined", "a worker had a document");
     check(typeof globalThis.__halogenTest.act === "undefined", "a worker was given the page's actions");
@@ -70,6 +74,19 @@ async function exercise(mode, jobs = "2", workers = "0", meet = Number(jobs) + N
     await globalThis.__halogenTest.press("End");
     check(input.value === shard, "input crossed pages");
     check(trusted, "input was not trusted");
+    if (mode === "deadline") {
+      // An element that never becomes visible: the action fails at the
+      // deadline the page names, or without one (a suite built before
+      // actions named it) at the runner's.
+      const hidden = document.body.appendChild(document.createElement("button"));
+      hidden.id = "hidden";
+      hidden.style.visibility = "hidden";
+      const failure = (timeout) => globalThis.__halogenTest.act("click", "#hidden", "", timeout).then(() => "clicked", (error) => String(error));
+      const named = await failure(200);
+      check(named.includes("Timeout 200ms exceeded"), "the named deadline was not Playwright's: " + named);
+      const unnamed = await failure(undefined);
+      check(unnamed.includes("Timeout ${deadline}ms exceeded"), "the runner's deadline was not Playwright's: " + unnamed);
+    }
   }
   if (mode === "crash" && shard === "0/2") throw new Error("fixture crashed");
   if (mode === "missing" && shard === "0/2") {
@@ -86,7 +103,7 @@ async function exercise(mode, jobs = "2", workers = "0", meet = Number(jobs) + N
   try {
     const result = await new Promise((resolve, reject) => {
       const child = spawn(process.execPath, [runner, suite, "-"], {
-        env: { ...process.env, HSPEC_HALOGEN_JOBS: jobs, HSPEC_HALOGEN_WORKERS: workers, HSPEC_HALOGEN_TIMEOUT: "3" },
+        env: { ...process.env, HSPEC_HALOGEN_DEADLINE_MS: undefined, HSPEC_HALOGEN_RETRIES: undefined, HSPEC_HALOGEN_JOBS: jobs, HSPEC_HALOGEN_WORKERS: workers, HSPEC_HALOGEN_TIMEOUT: "3", ...settings },
         stdio: ["ignore", "pipe", "pipe"],
       });
       let stdout = "", stderr = "";
@@ -164,6 +181,15 @@ for (const mode of ["worker-failure", "worker-error", "worker-missing", "worker-
     if (mode === "worker-timeout") assert.match(result.stderr, /no result after/);
   });
 }
+test("the deadline and the retry report reach the pages and the workers", async () => {
+  const result = await exercise("deadline", "2", "2", 4, { HSPEC_HALOGEN_DEADLINE_MS: "300", HSPEC_HALOGEN_RETRIES: "1" });
+  assert.equal(result.code, 0, result.stdout + result.stderr);
+});
+test("an invalid deadline fails before launching a browser", async () => {
+  const result = await exercise("pass", "1", "0", 0, { HSPEC_HALOGEN_DEADLINE_MS: "0" });
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /HSPEC_HALOGEN_DEADLINE_MS must be a positive integer/);
+});
 test("invalid worker counts fail before launching a browser", async () => {
   const result = await exercise("pass", "1", "-1", 0);
   assert.equal(result.code, 1);

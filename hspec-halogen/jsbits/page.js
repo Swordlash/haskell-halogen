@@ -11,7 +11,7 @@ function halogen_test_workers() {
 
 // How long an action, a settle and a waitQuiet wait for the page, in
 // milliseconds: the runner's HSPEC_HALOGEN_DEADLINE_MS, 5000 without a
-// runner or a setting.
+// runner or a setting. Read at each use, as the next two are.
 function halogen_test_deadline() {
   return globalThis.__halogenTestDeadlineMs ?? 5000;
 }
@@ -20,6 +20,16 @@ function halogen_test_deadline() {
 // (HSPEC_HALOGEN_RETRIES=1).
 function halogen_test_retries() {
   return globalThis.__halogenTestRetries === true;
+}
+
+// A line of the retry report, kept in the page's list when there is one
+// (true), for the harness's own tests of the report; otherwise (false) the
+// suite writes it to standard error.
+function halogen_test_report_kept(line) {
+  const into = globalThis.__halogenTestReportInto;
+  if (!Array.isArray(into)) return false;
+  into.push(line);
+  return true;
 }
 
 function halogen_test_has_document() {
@@ -108,7 +118,7 @@ async function halogen_test_act_now(action, element, text) {
   const target = 'halogen-test-' + (globalThis.__halogenTestTargets = (globalThis.__halogenTestTargets ?? 0) + 1);
   element.setAttribute('data-halogen-test-target', target);
   try {
-    await bridge.act(action, '[data-halogen-test-target="' + target + '"]', text);
+    await bridge.act(action, '[data-halogen-test-target="' + target + '"]', text, halogen_test_deadline());
   } finally {
     element.removeAttribute('data-halogen-test-target');
   }
@@ -125,7 +135,7 @@ async function halogen_test_drag_now(source, target) {
   source.setAttribute('data-halogen-test-target', from);
   target.setAttribute('data-halogen-test-target', to);
   try {
-    await bridge.drag('[data-halogen-test-target="' + from + '"]', '[data-halogen-test-target="' + to + '"]');
+    await bridge.drag('[data-halogen-test-target="' + from + '"]', '[data-halogen-test-target="' + to + '"]', halogen_test_deadline());
   } finally {
     source.removeAttribute('data-halogen-test-target');
     target.removeAttribute('data-halogen-test-target');

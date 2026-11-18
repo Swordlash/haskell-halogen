@@ -16,6 +16,7 @@ module Test.Hspec.Halogen.Internal.Page
   , runnerWorkers
   , runnerRetries
   , runnerDeadline
+  , reportKept
   , reportDone
   , removeLeftovers
   , createContainer
@@ -60,6 +61,7 @@ $( browserJS
      , ("js_workers", "halogen_test_workers", Safe, [t|IO Int|])
      , ("js_retries", "halogen_test_retries", Safe, [t|IO Bool|])
      , ("js_deadline", "halogen_test_deadline", Safe, [t|IO Int|])
+     , ("js_report_kept", "halogen_test_report_kept", Safe, [t|JSText -> IO Bool|])
      , ("js_remove_leftovers", "halogen_test_remove_leftovers", Safe, [t|IO ()|])
      , ("js_test_done", "halogen_test_test_done", Safe, [t|Int -> IO ()|])
      , ("js_create_container", "halogen_test_create_container", Safe, [t|IO JSVal|])
@@ -127,6 +129,12 @@ runnerRetries = js_retries
 -- without a runner or a setting, and natively.
 runnerDeadline :: IO Int
 runnerDeadline = (\ms -> if ms > 0 then ms else 5000) <$> js_deadline
+
+-- | Keep a line of the retry report in the page's list, if a test of the
+-- harness set one up: 'True' if it was kept there, 'False' if it is to be
+-- written to standard error.
+reportKept :: Text -> IO Bool
+reportKept = js_report_kept . toJSText
 
 -- | Tell the runner how many tests failed. Outside the runner (a page opened
 -- by hand) there is nobody to tell.
