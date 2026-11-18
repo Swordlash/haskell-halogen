@@ -1101,7 +1101,10 @@ reportReads = do
   for_ (Map.toList places) $ \((function, site), (once, retried)) ->
     reportLine (T.intercalate "\t" ["HSPEC_HALOGEN_READS", function, site, show once, show retried])
 
--- | A line of the report, on standard error, or in the page's list when a
--- test of this harness keeps one.
+-- | A line of the report, on the runner's standard error. The runner writes
+-- it there: the suite's own standard error is the console on the
+-- JavaScript backend, which the runner prints as standard output. Without
+-- a runner the suite writes it to standard error itself; a test of this
+-- harness keeps it in a list in the page instead.
 reportLine :: Text -> IO ()
-reportLine line = unlessM (Page.reportKept line) (hPutStrLn stderr line)
+reportLine line = unlessM (Page.reportLine line) (hPutStrLn stderr line)

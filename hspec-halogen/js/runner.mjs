@@ -229,7 +229,10 @@ globalThis.__halogenTestShard = shard;
 globalThis.__halogenTestWorkers = ${workers};
 globalThis.__halogenTestRetries = ${retries};
 globalThis.__halogenTestDeadlineMs = ${deadlineMs};
-globalThis.__halogenTest = { done: (count) => post({ kind: "done", count, supported: supported() }) };
+globalThis.__halogenTest = {
+  done: (count) => post({ kind: "done", count, supported: supported() }),
+  report: (line) => post({ kind: "write", fd: 2, text: line + "\\n" }),
+};
 const runtimeWritesToLog = ${!isWasm};
 for (const type of ["log", "info", "warn", "error", "debug"]) {
   console[type] = runtimeWritesToLog && type === "log"
@@ -423,6 +426,8 @@ async function runShard(shard) {
       drag: (source, target, timeout) => globalThis.__halogenTestDrag(source, target, timeout),
       press: (key) => globalThis.__halogenTestPress(key),
       done: (count) => globalThis.__halogenTestDone(count),
+      // A line of the retry report, to standard error on every backend.
+      report: (line) => globalThis.__halogenTestWrite(2, line + "\n"),
     };
   }, { args, shard, workers, retries, deadlineMs });
 

@@ -22,13 +22,22 @@ function halogen_test_retries() {
   return globalThis.__halogenTestRetries === true;
 }
 
-// A line of the retry report, kept in the page's list when there is one
-// (true), for the harness's own tests of the report; otherwise (false) the
-// suite writes it to standard error.
-function halogen_test_report_kept(line) {
+// A line of the retry report. Kept in the page's list when there is one,
+// for the harness's own tests of the report; otherwise handed to the
+// runner, which writes it to its standard error. The suite's own standard
+// error does not get there on every backend: the JavaScript backend writes
+// it with console.log, which the runner passes on as standard output. False
+// without a list or a runner (browser GHCi, a page with no runner): the
+// suite then writes the line to standard error itself.
+function halogen_test_report(line) {
   const into = globalThis.__halogenTestReportInto;
-  if (!Array.isArray(into)) return false;
-  into.push(line);
+  if (Array.isArray(into)) {
+    into.push(line);
+    return true;
+  }
+  const report = globalThis.__halogenTest?.report;
+  if (!report) return false;
+  Promise.resolve(report(line)).catch(() => {});
   return true;
 }
 

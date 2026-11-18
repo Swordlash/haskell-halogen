@@ -29,6 +29,8 @@ $( browserJS
      , ("js_deadline", "halogen_settings_deadline", Safe, [t|Int -> IO ()|])
      , ("js_retries", "halogen_settings_retries", Safe, [t|Bool -> IO ()|])
      , ("js_report", "halogen_settings_report", Safe, [t|IO JSText|])
+     , ("js_to_runner", "halogen_settings_to_runner", Safe, [t|IO ()|])
+     , ("js_sent", "halogen_settings_sent", Safe, [t|IO JSText|])
      ]
  )
 
@@ -117,6 +119,16 @@ spec m = around_ (bracket_ js_save js_restore) $ do
           what `Hspec.shouldBe` "waitQuiet"
           outcome `Hspec.shouldBe` "deadline"
         other -> Hspec.expectationFailure ("not one line of the report: " <> show other)
+
+    -- The runner writes them to its standard error: the suite's own is
+    -- the console on the JavaScript backend, which the runner prints as
+    -- standard output (its own test checks where the lines end up).
+    it "hands its lines to the runner" $ do
+      js_retries True
+      js_to_runner
+      runPage thirdTime
+      sent <- filter (T.isInfixOf "Test/Settings.hs:") . T.lines . fromJSText <$> js_sent
+      map (take 1 . T.splitOn "\t") sent `Hspec.shouldBe` [["HSPEC_HALOGEN_RETRY"]]
 
     it "says nothing of a wait that succeeded at once" $ do
       js_retries True

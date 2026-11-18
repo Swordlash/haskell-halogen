@@ -56,6 +56,7 @@ async function exercise(mode, jobs = "2", workers = "0", meet = Number(jobs) + N
       return;
     }
     if (mode === "worker-timeout" && shard === "worker/0/2") return;
+    if (mode === "report") await globalThis.__halogenTest.report("HSPEC_HALOGEN_RETRY\\tfrom " + shard);
     console.log("finished " + shard + "\\n");
     await globalThis.__halogenTest.done(mode === "worker-failure" && shard === "worker/0/2" ? 1 : 0);
     return;
@@ -95,6 +96,7 @@ async function exercise(mode, jobs = "2", workers = "0", meet = Number(jobs) + N
     return;
   }
   if (mode === "timeout" && shard === "0/2") return;
+  if (mode === "report") await globalThis.__halogenTest.report("HSPEC_HALOGEN_RETRY\\tfrom " + shard);
   console.log("finished " + shard + "\\n");
   await globalThis.__halogenTest.done(mode === "failure" && shard === "0/2" ? 1 : 0);
 })().catch((error) => globalThis.__halogenTestFinished
@@ -185,6 +187,17 @@ for (const mode of ["worker-failure", "worker-error", "worker-missing", "worker-
 test("the deadline and the retry report reach the pages and the workers", async () => {
   const result = await exercise("deadline", "2", "2", 4, { HSPEC_HALOGEN_DEADLINE_MS: "300", HSPEC_HALOGEN_RETRIES: "1" });
   assert.equal(result.code, 0, result.stdout + result.stderr);
+});
+// The suite's report of its retries goes to the runner's standard error
+// from the pages and the workers alike, and not to its standard output,
+// where a JavaScript-backend suite's own standard error would end up.
+test("the retry report reaches standard error from the pages and the workers", async () => {
+  const result = await exercise("report", "2", "2", 4, { HSPEC_HALOGEN_RETRIES: "1" });
+  assert.equal(result.code, 0, result.stdout + result.stderr);
+  for (const shard of ["serial", "0/2", "1/2", "worker/0/2", "worker/1/2"]) {
+    assert.match(result.stderr, new RegExp(`^HSPEC_HALOGEN_RETRY\\tfrom ${shard}$`, "m"));
+  }
+  assert.doesNotMatch(result.stdout, /HSPEC_HALOGEN_RETRY/);
 });
 test("an invalid deadline fails before launching a browser", async () => {
   const result = await exercise("pass", "1", "0", 0, { HSPEC_HALOGEN_DEADLINE_MS: "0" });
