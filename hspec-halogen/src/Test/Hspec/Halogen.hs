@@ -566,7 +566,11 @@ unmount :: (MonadBrowserTest m) => Mounted s q o m -> PageM s ()
 unmount ui = moved >> unsafeIOToPageM (runTest ui.socket.dispose >> Page.removeElement ui.container)
 
 -- | Send the component a query, as a parent would, and settle: what the
--- query made the program do has rendered when it returns.
+-- query made the program do has rendered when it returns. A tell is a
+-- query whose answer is dropped (@query ui (H.mkTell Go)@), so it settles
+-- too; the harness has no other way to send a mounted component anything
+-- (its input is fixed at 'mount', and what it raises is read with
+-- 'outputs').
 query :: (HasCallStack, MonadBrowserTest m) => Mounted s q o m -> q a -> PageM s (Maybe a)
 query Mounted {socket = HalogenSocket {query = send}} q = moved >> unsafeIOToPageM (runTest (send q)) <* settle
 
@@ -1119,10 +1123,11 @@ eventually = eventuallyWithin 2000
 -- retry\").
 eventuallyWithin :: (HasCallStack) => Int -> PageM s a -> PageM s a
 eventuallyWithin timeoutMs (PageM action)
-  | timeoutMs <= 0 = PageM action
+  -- Its attempts look at the page as it is, under 'readsOnce' too: the
+  -- retrying is the wait. A single attempt (no time to retry) is no
+  -- different.
+  | timeoutMs <= 0 = PageM $ ReaderT $ \outer -> runReaderT action outer {resting = False}
   | otherwise = PageM $ ReaderT $ \outer ->
-      -- Its attempts look at the page as it is, under 'readsOnce' too:
-      -- the retrying is the wait.
       let env = outer {resting = False}
        in Page.runnerRetries >>= \case
             True -> reportedWithin timeoutMs (runReaderT action env) env
@@ -1263,6 +1268,34 @@ namingExamples = Spec.mapSpecForest (map (named []))
 -- | an enclosing deadline cut it                  | @cut@                        | none                          |
 -- +-----------------------------------------------+------------------------------+-------------------------------+
 --
+-- In a 'readsOnce' group a read is not a wait: it brings the program to
+-- rest, which is a settle of its own (reported as one, at the read's call
+-- site, as @settle@ or @waitQuiet@), and then looks once.
+--
+-- +-----------------------------------------------+------------------------------+-------------------------------+
+-- | in a 'readsOnce' group                        | line                         | totals                        |
+-- +===============================================+==============================+===============================+
+-- | a read that passes at its one look            | none                         | none: a look is not a wait    |
+-- +-----------------------------------------------+------------------------------+-------------------------------+
+-- | a read that fails at its one look             | none: the test fails, saying | none                          |
+-- |                                               | at which rest it looked      |                               |
+-- +-----------------------------------------------+------------------------------+-------------------------------+
+-- | a read whose rest runs out (the settle's own  | @SETTLE@, @deadline@         | none                          |
+-- | deadline, or 'withDeadline''s around it)      |                              |                               |
+-- +-----------------------------------------------+------------------------------+-------------------------------+
+-- | a read whose rest an enclosing deadline cuts  | cannot happen: inside an     |                               |
+-- |                                               | 'eventually' a read does not |                               |
+-- |                                               | rest (next row)              |                               |
+-- +-----------------------------------------------+------------------------------+-------------------------------+
+-- | an 'eventually' in the group                  | as a read in the first table | as a read in the first table, |
+-- |                                               | (its attempts look at the    | at the 'eventually''s place;  |
+-- |                                               | page as it is, no rest)      | the reads inside it are not   |
+-- |                                               |                              | counted                       |
+-- +-----------------------------------------------+------------------------------+-------------------------------+
+-- | an 'eventuallyWithin' of zero or less, in the | none: one attempt, which     | none: the reads inside it are |
+-- | group or not                                  | looks at the page as it is   | not counted either            |
+-- +-----------------------------------------------+------------------------------+-------------------------------+
+--
 -- The totals are the suite run's own: a run started again in the same
 -- runtime (@:main@ in browser GHCi) starts them afresh.
 reportedWithin :: (HasCallStack) => Int -> IO a -> PageEnv -> IO a
@@ -1283,10 +1316,15 @@ reportedWithin timeoutMs action env = do
                 let line = [example, function, site, readingText a, outcome, show n, show (floor ((now - started) * 1000) :: Int), failureText e, maybe "" failureText final]
                 reportLine (T.intercalate "\t" ("HSPEC_HALOGEN_RETRY" : line))
             )
-        Report.countWait (function, site) n $ case outcome of
-          "ok" -> Passed
-          "cut" -> Cut
-          _ -> TimedOut
+        let ended = case outcome of
+              "ok" -> Passed
+              "cut" -> Cut
+              _ -> TimedOut
+        Report.countWait (function, site) n ended
+        -- For the harness's own tests only, which cannot read the totals
+        -- until the suite ends: what was counted, in the list they keep.
+        for_ (Report.counted n ended) $ \retried ->
+          Page.keepLine (T.intercalate "\t" ["HSPEC_HALOGEN_COUNTED", function, site, if retried then "retried" else "once"])
       go =
         tryJust notAsync action >>= \case
           Right a -> do

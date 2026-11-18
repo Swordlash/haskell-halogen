@@ -183,6 +183,10 @@ spec m = keepingSettings $ do
           firstFailure `Hspec.shouldSatisfy` T.isInfixOf "expected text \"never\", found \"here\""
           lastFailure `Hspec.shouldSatisfy` T.isInfixOf "expected text \"never\", found \"here\""
         other -> Hspec.expectationFailure ("not one line of the report: " <> show other)
+      -- Counted once, at the inner wait's place, as retried; not at the
+      -- outer's. (The findIn before it passed at once.)
+      (map (\fields -> (take 1 (drop 1 fields), drop 3 fields)) <$> reported "HSPEC_HALOGEN_COUNTED")
+        `Hspec.shouldReturn` [(["findIn"], ["once"]), (["shouldHaveText"], ["retried"])]
 
     -- hspec's failure, as it says it, not as Haskell shows the value.
     it "says what was expected and what was got" $ do

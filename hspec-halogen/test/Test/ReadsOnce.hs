@@ -126,6 +126,70 @@ spec m = do
           attempts `Hspec.shouldBe` "3"
         other -> Hspec.expectationFailure ("not one line of the report: " <> show other)
 
+  -- The report's table for reads in a readsOnce group, row by row: what
+  -- each writes (RETRY, SETTLE) and what it counts in the totals (COUNTED,
+  -- the lines the harness keeps for its own tests).
+  describe "in the retry report" $ keepingSettings $ do
+    let ours kind = reportedFrom "Test/ReadsOnce.hs:" kind
+        nothingOf kinds = for_ kinds $ \kind -> ours kind `Hspec.shouldReturn` []
+
+    readsOnce Idle $ it "a read that passes at its one look writes and counts nothing" $ do
+      reportingRetries
+      runPage $ do
+        ui <- loader m
+        find ui ".status" >>= (`shouldHaveText` "idle")
+      nothingOf ["HSPEC_HALOGEN_RETRY", "HSPEC_HALOGEN_SETTLE", "HSPEC_HALOGEN_COUNTED"]
+
+    readsOnce Idle $ it "a read that fails at its one look writes and counts nothing" $ do
+      reportingRetries
+      _ <- failing $ do
+        ui <- loader m
+        find ui ".status" >>= (`shouldHaveText` "never")
+      nothingOf ["HSPEC_HALOGEN_RETRY", "HSPEC_HALOGEN_SETTLE", "HSPEC_HALOGEN_COUNTED"]
+
+    -- The slow load waits two seconds; the rest has 300 ms.
+    readsOnce Quiet $ it "a read whose rest runs out writes its rest's line, and counts nothing" $ do
+      reportingRetries
+      (message, _) <- failing $ do
+        ui <- loader m
+        status <- find ui ".status"
+        find ui ".load-slowly" >>= click
+        withDeadline 300 (status `shouldHaveText` "loaded slowly")
+      message `Hspec.shouldSatisfy` T.isPrefixOf "waitQuiet: the program was not quiet after 300 ms"
+      ours "HSPEC_HALOGEN_SETTLE" >>= \case
+        [[_, _, what, _, outcome, _, _]] -> (what, outcome) `Hspec.shouldBe` ("waitQuiet", "deadline")
+        other -> Hspec.expectationFailure ("not one line of the report: " <> show other)
+      nothingOf ["HSPEC_HALOGEN_RETRY", "HSPEC_HALOGEN_COUNTED"]
+
+    -- Its attempts look without resting, so nothing waits two seconds for
+    -- the slow load, and no rest is cut.
+    readsOnce Quiet $ it "an eventually writes and counts as a read, and the read inside it neither" $ do
+      reportingRetries
+      _ <- failing $ do
+        ui <- loader m
+        status <- find ui ".status"
+        find ui ".load-slowly" >>= click
+        eventuallyWithin 300 (status `shouldHaveText` "loaded slowly")
+      ours "HSPEC_HALOGEN_RETRY" >>= \case
+        [[_, _, function, _, _, outcome, _, _, _, _]] -> (function, outcome) `Hspec.shouldBe` ("eventuallyWithin", "timeout")
+        other -> Hspec.expectationFailure ("not one line of the report: " <> show other)
+      ours "HSPEC_HALOGEN_COUNTED" >>= \case
+        [[_, function, _, counted]] -> (function, counted) `Hspec.shouldBe` ("eventuallyWithin", "retried")
+        other -> Hspec.expectationFailure ("not one count: " <> show other)
+      nothingOf ["HSPEC_HALOGEN_SETTLE"]
+
+  -- One attempt and no retrying is still an eventually's attempt: it looks
+  -- at the page as it is, without waiting for the slow load.
+  describe "eventuallyWithin 0 inside it" $ readsOnce Quiet $
+    it "looks at the page as it is" $ runPage $ do
+      ui <- loader m
+      status <- find ui ".status"
+      find ui ".load-slowly" >>= click
+      started <- unsafeIOToPageM getMonotonicTime
+      eventuallyWithin 0 (textContent status) `shouldReturn` "loading"
+      took <- subtract started <$> unsafeIOToPageM getMonotonicTime
+      took `shouldSatisfy` (< 1)
+
   -- The spinner starts a moment after it is mounted and then keeps its tree
   -- busy for a second: mountUnsettled gives the test the page meanwhile.
   it "mountUnsettled returns while the program is busy" $ runPage $ do
