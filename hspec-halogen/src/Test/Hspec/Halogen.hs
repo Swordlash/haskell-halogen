@@ -825,7 +825,8 @@ perform io = unsafeIOToPageM io <* settle
 -- afresh at each reading: requests its own server keeps unanswered until
 -- the test lets them go. 'waitQuiet', and a read under @'readsOnce'
 -- 'Quiet'@, then take the program as quiet once it is idle and no more
--- fibers wait than this count, instead of waiting for the held ones until
+-- fibers wait than this count and the counted pauses asleep on a test's
+-- clock together ('quietWith'), instead of waiting for the held ones until
 -- the deadline. Set once in a page (a fake server sets it when it starts);
 -- the last one set counts.
 --
@@ -1037,7 +1038,8 @@ reading retries look@(PageM body) =
 
 -- | Whether the program is at this rest now, from one reading of it and
 -- of the history's moves: idle, and for 'Quiet' no more fibers waiting
--- than the test holds ('countHeld'). When it is, that is the rest a read
+-- than the test holds ('countHeld') and are asleep on a test's clock
+-- together ('quietWith'). When it is, that is the rest a read
 -- in a 'readsOnce' group looks at, as a failure then says.
 restNow :: PageEnv -> Rest -> IO Bool
 restNow env rest = do

@@ -533,6 +533,21 @@ spec = describe "Halogen.Activity.Control" $ do
       within "the rest of the pause, on the real clock" (takeMVar woke)
       dispose socket
 
+    -- Handed to the real clock, a counted pause is waiting there, and no
+    -- longer asleep: the program is not quiet until it ends. A minute, so
+    -- that it surely still sleeps when read; the dispose ends it.
+    it "counts a counted pause handed to the real clock as waiting, not asleep, and not quiet" $ do
+      socket <- withTestClock $ \clock -> do
+        (mounted, _) <- mountRecorded (program (void (H.fork (H.delayCounted 60))))
+        waitTree mounted Activity.quiet
+        treeActivity mounted >>= assertEqual "asleep on the test's clock" (Activity 1 0 1 1)
+        advance clock 1
+        pure mounted
+      a <- treeActivity socket
+      assertEqual "waiting on the real clock" (Activity 1 0 1 0) a
+      assertEqual "not quiet" False (Activity.quiet a)
+      dispose socket
+
   it "debounces a typed value on the test's clock, then holds its request until the test releases it" $ do
     looked <- newIORef []
     typed <- HS.create
