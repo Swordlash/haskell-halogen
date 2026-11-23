@@ -379,7 +379,10 @@ a test waits for (a debounce before a request, an autosave) is `H.delayCounted` 
 (threadDelay n)` counts the same, on the real clock only) and counted, so a quiet program means the request was
 answered; one that only takes something off the screen or ticks (a "Saved" notice, a clock,
 `forever (H.delay 1 >> tick)`) is `H.delay`, which `waitQuiet` does not wait for. A test of either kind is in
-`core/test/Test/Activity.hs`.
+`core/test/Test/Activity.hs`. On a test's clock (below) a counted pause is waiting and also `asleep`, and
+`quiet` does not wait for it, since only the test's `advance` ends it: the one rule is `idle a && awake a == 0`
+(`awake = waiting - asleep`), and hspec-halogen's `quietWith held` adds the waits the test holds
+(`awake a <= held`), as `Halogen.Test.Native`'s `settleHolding` does with its gates' asks.
 
 `Halogen.Activity.Control` is a native test's hold on a program: inside `withHeldWaits` a tree's `H.async`s wait
 before their action until `release` (`pending` gives them, oldest first, once the trees are idle and every waiting
@@ -387,7 +390,9 @@ fiber is held), and inside `withTestClock` its pauses sleep on a clock only `adv
 in turn, the trees let go idle after each). A bracket controls the trees its own thread mounts inside it: `mount`
 asks once (`Control.Internal.controlFor`, one read of an empty map otherwise) and keeps the answer in the tree's
 `control`. A held wait is its worker blocked before the action; a pause on a test clock has no worker but a
-`suspend` that `advance` wakes by posting to the loop, so a woken tree reads busy at once. Tests in
+`suspend` that `advance` wakes by posting to the loop, so a woken tree reads busy at once. Each sleeper carries
+its component's tag, length and kind, which `sleeping`/`sleepingHere` list and the harnesses' failures name, so that a
+test that forgot to advance (it finds the program quiet before the work after a pause) is told which pause. Tests in
 `core/test/Test/Control.hs`.
 
 ### FFI per backend
