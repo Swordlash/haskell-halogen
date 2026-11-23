@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+`Activity` has a field `asleep`: of the waiting fibers, those in a counted
+pause asleep on a test's clock (core's `Halogen.Activity`). `waitQuiet`
+decides quiet by core's rule, no tree running and `waiting - asleep == 0`,
+so it does not wait for a pause only the test's `advance` ends, and its
+timeout says how many of the fibers sleep. A page whose program answers
+without the field, one built before it, reads as none asleep. A record
+literal of `Activity` needs the field.
+
 The first version. `Halogen.Playwright` drives Chromium from a native
 Haskell program through Playwright: contexts and pages, navigation,
 locators as values (CSS, role, text, label, and their refinements),

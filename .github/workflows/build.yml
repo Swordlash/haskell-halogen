@@ -392,6 +392,9 @@ jobs:
     - name: Test browser runner
       run: npm run test-runner
 
+    - name: Test the page's activity probe across runtimes
+      run: npm run test-probe
+
     - name: Test
       env:
         HSPEC_HALOGEN_JOBS: '2'

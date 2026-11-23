@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+`waitQuiet`, and a read in a `readsOnce Quiet` group, no longer wait for a
+counted pause asleep on a test's clock (core's `withTestClock` around
+`runPage`), as core's `quiet` does not. The test advances the clock by the
+pauses whose work it wants, `perform (advance clock d)`, and the program is
+quiet at once otherwise. The rule, `quietWith`, is "idle, and no more
+fibers waiting than are asleep on the clock and held by the test
+(`countHeld`) together". A test that forgot to advance reads the page
+before the work after the pause; its read fails, and the failure names each
+pause asleep on the clock, with its component, its length and when it is
+due:
+
+```
+The program then: 1 tree, 0 running or with work queued, 1 fiber waiting in liftIO, 1 of them asleep on the test's clock.
+Asleep on the test's clock (advance it to wake them):
+  Editor#4: a counted pause (delayCounted) of 2s, due at 2s on the test's clock, which is at 0.2s
+```
+
 New: a group of examples can have its reads look once instead of
 retrying. In `readsOnce Idle` or `readsOnce Quiet`, every read (`find`,
 `findAll`, `textContent`, an attribute, `outputs`, the `should…` helpers on

@@ -88,7 +88,12 @@ evalM var (HalogenM hm) = foldF go hm
       -- The same suspension, with its own worker killed with the fiber,
       -- counted as waiting as 'Async' is or not (see 'delay'); or, on a
       -- test's clock, a sleeper the test wakes.
-      Delay counted d a -> withDriverState $ \ds -> a <$ pause ds.tree.control (counted == Counted) d
+      Delay counted d a -> withDriverState $ \ds -> do
+        -- Named in the trace, so that a test that finds the program quiet
+        -- with this pause asleep on its clock sees which pause it forgot;
+        -- on which clock, as the pause found it ('pause').
+        let noted clocked = when (counted == Counted) (Trace.emit ds.tag (Trace.CountedPause (realToFrac d) clocked))
+        a <$ pause ds.tree.control ds.tag (counted == Counted) d noted
       Sync eff -> do
         ds <- sync (readIORef var)
         sync (timed ds.tag (withinEffect ds.tree.loop (treeRunM ds.tree eff)))

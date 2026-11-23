@@ -10,6 +10,7 @@ module Halogen.Activity.Internal
   , treeReading
   , idle
   , quiet
+  , awake
   , register
   , deregister
   , waitReading
@@ -22,7 +23,7 @@ where
 import Data.IntMap.Strict qualified as IntMap
 import HPrelude
 import Halogen.Activity.Signal (changed, changedSince, currentVersion, waitsUnderWay, watching)
-import Halogen.IO.Driver.Runtime (Loop, loopActivity)
+import Halogen.IO.Driver.Runtime (Loop, loopReading)
 import Halogen.JSBits (Callback, JSVal, Safety (..), browserJS, inBrowser, mkCallback)
 import System.IO.Unsafe (unsafePerformIO)
 
@@ -31,7 +32,7 @@ $( browserJS
      ["jsbits/activity.js"]
      [ ("js_activity_probe_wanted", "js_activity_probe_wanted", Safe, [t|IO Bool|])
      , ("js_activity_probe_install", "js_activity_probe_install", Safe, [t|Callback -> IO ()|])
-     , ("js_activity_answer", "js_activity_answer", Safe, [t|JSVal -> Int -> Int -> Int -> IO ()|])
+     , ("js_activity_answer", "js_activity_answer", Safe, [t|JSVal -> Int -> Int -> Int -> Int -> IO ()|])
      ]
  )
 
@@ -47,20 +48,43 @@ data Activity = Activity
   -- ^ Fibers of those trees waiting for an action on a worker thread: a
   -- 'Halogen.Query.HalogenM.async' under way. Not a pause
   -- ('Halogen.Query.HalogenM.delay'), which is not counted.
+  , asleep :: Int
+  -- ^ Of the waiting fibers, those in a counted pause
+  -- ('Halogen.Query.HalogenM.delayCounted') asleep on a test's clock
+  -- ("Halogen.Activity.Control"). Only the test's @advance@ wakes them, so
+  -- 'quiet' does not wait for them ('awake'). Always 0 outside a test's
+  -- clock.
   }
   deriving stock (Eq, Show)
 
 -- | No tree is running or has work queued. Fibers may still be waiting, and
 -- one whose wait has just ended may not have its next step queued yet: for
 -- "done all it can while @n@ answers are held", ask for
--- @running == 0 && waiting == n@ instead.
+-- @running == 0 && awake a == n@ instead.
 idle :: Activity -> Bool
 idle a = a.running == 0
 
--- | 'idle', and no fiber waiting either: everything the program waited for
--- has come back and been handled.
+-- | The waiting fibers that the program itself will bring back: 'waiting'
+-- less those 'asleep' on a test's clock, which only the test wakes. A
+-- request under way, an @H.async@, a counted pause on the real clock.
+-- Every rule of "the program is quiet" compares this count: with 0 here,
+-- with the answers a test holds in its harnesses.
+awake :: Activity -> Int
+awake a = a.waiting - a.asleep
+
+-- | 'idle', and no fiber waiting for anything the program will bring back
+-- ('awake' is 0): everything the program waited for has come back and been
+-- handled.
+--
+-- A counted pause asleep on a test's clock is not waited for. The test
+-- wakes it with @advance@ when it wants the work after the pause, so a
+-- test waits only for the pauses it names. What this can hide is a
+-- forgotten @advance@: the program reads as quiet with the pause still
+-- asleep, and the work after it not done. A test's harness then names the
+-- pause in its failure ("Halogen.Activity.Control"'s 'Halogen.Activity.Control.sleeping'),
+-- and the tree's trace has a 'Halogen.Trace.CountedPause' for it.
 quiet :: Activity -> Bool
-quiet a = idle a && a.waiting == 0
+quiet a = idle a && awake a == 0
 
 -- | The live trees' loops, under the numbers 'register' gave them. Only the
 -- loops are kept: what they are doing is read from them when asked, so the
@@ -79,12 +103,13 @@ installed = unsafePerformIO (newIORef False)
 activity :: IO Activity
 activity = do
   loops <- IntMap.elems . snd <$> readIORef trees
-  readings <- traverse loopActivity loops
+  readings <- traverse loopReading loops
   pure
     Activity
       { trees = length loops
-      , running = length (filter fst readings)
-      , waiting = sum (map snd readings)
+      , running = length (filter (\(busy, _, _) -> busy) readings)
+      , waiting = sum (map (\(_, waits, _) -> waits) readings)
+      , asleep = sum (map (\(_, _, sleeping) -> sleeping) readings)
       }
 
 -- | One tree's reading, as its socket gives it, by the number 'register'
@@ -99,8 +124,8 @@ activity = do
 treeReading :: Int -> Loop -> IO (Activity, Bool)
 treeReading n loop = do
   registered <- IntMap.member n . snd <$> readIORef trees
-  (busy, waits) <- loopActivity loop
-  let reading = Activity {trees = if registered then 1 else 0, running = if busy then 1 else 0, waiting = waits}
+  (busy, waits, sleeping) <- loopReading loop
+  let reading = Activity {trees = if registered then 1 else 0, running = if busy then 1 else 0, waiting = waits, asleep = sleeping}
   pure (reading, not registered && not busy && waits == 0)
 
 -- | Return once a reading satisfies the predicate, woken by every change of
@@ -176,5 +201,5 @@ offerProbe = do
       unless already $ do
         callback <- mkCallback $ \resolve -> do
           a <- activity
-          js_activity_answer resolve a.trees a.running a.waiting
+          js_activity_answer resolve a.trees a.running a.waiting a.asleep
         js_activity_probe_install callback

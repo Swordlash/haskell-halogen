@@ -166,7 +166,7 @@ spec = describe "Halogen.Activity" $ do
   it "counts nothing before anything is mounted, and is idle and quiet then" $ do
     -- The first spec of the suite: nothing is mounted yet.
     a <- Activity.activity
-    assertEqual "nothing mounted" (Activity {trees = 0, running = 0, waiting = 0}) a
+    assertEqual "nothing mounted" (Activity {trees = 0, running = 0, waiting = 0, asleep = 0}) a
     assertWith "idle" (Activity.idle a)
     assertWith "quiet" (Activity.quiet a)
 
@@ -271,13 +271,13 @@ spec = describe "Halogen.Activity" $ do
       busy <- mountWith failing Setup {seen, gate = Just (started, release)}
       calm <- mountWith failing Setup {seen, gate = Nothing}
       within "the wait to start" (takeMVar started)
-      treeActivity busy >>= assertEqual "the waiting tree" Activity {trees = 1, running = 0, waiting = 1}
-      treeActivity calm >>= assertEqual "the idle tree" Activity {trees = 1, running = 0, waiting = 0}
+      treeActivity busy >>= assertEqual "the waiting tree" Activity {trees = 1, running = 0, waiting = 1, asleep = 0}
+      treeActivity calm >>= assertEqual "the idle tree" Activity {trees = 1, running = 0, waiting = 0, asleep = 0}
       -- The process's reading sums them.
       Activity.activity >>= assertEqual "both, read together" (2, 0, 1) . since before
       putMVar release ()
       within "quiet again" Activity.waitQuiet
-      treeActivity busy >>= assertEqual "the tree that waited, now quiet" Activity {trees = 1, running = 0, waiting = 0}
+      treeActivity busy >>= assertEqual "the tree that waited, now quiet" Activity {trees = 1, running = 0, waiting = 0, asleep = 0}
       dispose busy
       dispose calm
 
@@ -289,7 +289,7 @@ spec = describe "Halogen.Activity" $ do
       -- this tree's loop is busy, the other's is not.
       withProgram program $ \_ -> do
         (theOther, everything) <- within "the reading" (takeMVar inside)
-        assertEqual "the other tree, idle" Activity {trees = 1, running = 0, waiting = 0} theOther
+        assertEqual "the other tree, idle" Activity {trees = 1, running = 0, waiting = 0, asleep = 0} theOther
         assertWith "the process, busy" (not (Activity.idle everything))
       dispose other
 
@@ -300,31 +300,31 @@ spec = describe "Halogen.Activity" $ do
       -- After a wait, an effect that holds the loop until the test lets it.
       let program = H.async (takeMVar go) >> H.sync (putMVar holding () >> takeMVar letGo)
       withProgram program $ \ui -> do
-        treeActivity ui >>= assertEqual "waiting" Activity {trees = 1, running = 0, waiting = 1}
+        treeActivity ui >>= assertEqual "waiting" Activity {trees = 1, running = 0, waiting = 1, asleep = 0}
         putMVar go ()
         within "the effect" (takeMVar holding)
-        treeActivity ui >>= assertEqual "running" Activity {trees = 1, running = 1, waiting = 0}
+        treeActivity ui >>= assertEqual "running" Activity {trees = 1, running = 1, waiting = 0, asleep = 0}
         putMVar letGo ()
         within "quiet again" Activity.waitQuiet
-        treeActivity ui >>= assertEqual "quiet" Activity {trees = 1, running = 0, waiting = 0}
+        treeActivity ui >>= assertEqual "quiet" Activity {trees = 1, running = 0, waiting = 0, asleep = 0}
 
     it "counts no tree once it is disposed of, and a pause as neither running nor waiting" $ do
       woke <- newEmptyMVar
       ui <- mountProgram (H.delay 60 >> mark woke)
-      treeActivity ui >>= assertEqual "asleep" Activity {trees = 1, running = 0, waiting = 0}
+      treeActivity ui >>= assertEqual "asleep" Activity {trees = 1, running = 0, waiting = 0, asleep = 0}
       dispose ui
       -- Nothing at once, and nothing later: the pause's worker, killed
       -- with its fiber, queues no continuation for a fiber that is over,
       -- so the tree does not read as running again as the worker leaves.
       -- Each read gives the other threads a turn, so one of them comes
       -- between the worker's end and whatever it would have started.
-      treeActivity ui >>= assertEqual "gone" Activity {trees = 0, running = 0, waiting = 0}
+      treeActivity ui >>= assertEqual "gone" Activity {trees = 0, running = 0, waiting = 0, asleep = 0}
       within "what is left of it to end" (waitTree ui Activity.quiet)
       replicateM_ 200 $ do
-        treeActivity ui >>= assertEqual "gone, nothing left" Activity {trees = 0, running = 0, waiting = 0}
+        treeActivity ui >>= assertEqual "gone, nothing left" Activity {trees = 0, running = 0, waiting = 0, asleep = 0}
         yield
       dispose ui
-      treeActivity ui >>= assertEqual "gone, disposed of twice" Activity {trees = 0, running = 0, waiting = 0}
+      treeActivity ui >>= assertEqual "gone, disposed of twice" Activity {trees = 0, running = 0, waiting = 0, asleep = 0}
 
   describe "a pause (H.delay)" $ do
     it "counts a fiber in a pause as neither running nor waiting, and waitQuiet returns while it sleeps" $ do
@@ -532,7 +532,7 @@ spec = describe "Halogen.Activity" $ do
       ui <- mountFinalizing (H.async (takeMVar gate) >> H.sync (writeIORef released True))
       dispose ui
       readIORef released >>= assertEqual "not yet released" False
-      treeActivity ui >>= assertEqual "the socket counts the finalizer's wait" Activity {trees = 0, running = 0, waiting = 1}
+      treeActivity ui >>= assertEqual "the socket counts the finalizer's wait" Activity {trees = 0, running = 0, waiting = 1, asleep = 0}
       Activity.activity >>= assertEqual "the process does not" (0, 0, 0) . since before
       quietEarly <- timeout 50_000 (waitTree ui Activity.quiet)
       assertEqual "not quiet while the finalizer waits" Nothing quietEarly
@@ -563,7 +563,7 @@ spec = describe "Halogen.Activity" $ do
       threadDelay 20_000
       dispose ui
       within "the wait to end" (takeMVar outcome) >>= \case
-        Left (Activity.ActivityEnded a) -> assertEqual "the last reading" Activity {trees = 0, running = 0, waiting = 0} a
+        Left (Activity.ActivityEnded a) -> assertEqual "the last reading" Activity {trees = 0, running = 0, waiting = 0, asleep = 0} a
         Right () -> throwIO (ErrorCall "the wait returned")
       -- A predicate the last reading satisfies returns.
       within "quiet" (waitTree ui Activity.quiet)

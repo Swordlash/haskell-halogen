@@ -108,10 +108,10 @@ waitQuiet (withTimeout 60000 page)          -- a job of seconds in a Web Worker
 Every page the driver opens has `globalThis.__halogenProbe = {}` before its own scripts run. A program built with a haskell-halogen-core that has `Halogen.Activity` gives it, when it mounts its first tree,
 
 ```js
-await __halogenProbe.activity()   // {trees, running, waiting}
+await __halogenProbe.activity()   // {trees, running, waiting, asleep}
 ```
 
-`trees` counts mounted trees, `running` counts trees executing or holding queued work, and `waiting` counts fibers suspended in `H.async`. `H.delay` does not contribute to `waiting`. The program is idle when `running == 0`. Each reading inspects the current loops directly. Any tool can install and query this probe; see `Halogen.Activity` for its contract.
+`trees` counts mounted trees, `running` counts trees executing or holding queued work, and `waiting` counts fibers suspended in `H.async`. `H.delay` does not contribute to `waiting`. `asleep` counts the waiting fibers in a counted pause asleep on a test's clock (core's `withTestClock`), which only the test's `advance` wakes; a program from before it answers without it, which counts as 0. The program is idle when `running == 0`, and quiet, as `waitQuiet` decides, when it is idle and `waiting - asleep == 0`, the rule of core's `Halogen.Activity.quiet`. Each reading inspects the current loops directly. Any tool can install and query this probe; see `Halogen.Activity` for its contract.
 
 `Halogen.Remote.Test` supports the same probe for components running in the native test process. Its browser client forwards activity queries to the component's remote session. Actions then settle against that session alone. See remote's README, "Testing a component in a real page".
 

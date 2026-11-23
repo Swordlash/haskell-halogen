@@ -61,9 +61,16 @@
 -- and 'Halogen.Query.HalogenM.delayCounted' (@Hooks.delay@ and
 -- @Hooks.delayCounted@, and so hooks' debouncer and throttle), sleep on the
 -- test's clock: nothing wakes until 'advance' moves it past their time,
--- which it does as fake timers do (see 'advance'). Counting is as on the
--- real clock: a 'delay' asleep is neither running nor waiting, a
--- 'delayCounted' one is waiting. @H.async (threadDelay n)@ is a wait like
+-- which it does as fake timers do (see 'advance'). A 'delay' asleep is
+-- neither running nor waiting, as on the real clock. A 'delayCounted' one
+-- is waiting, and 'Halogen.Activity.asleep' as well, and here the rule
+-- differs from the real clock's: 'Halogen.Activity.quiet' does not wait
+-- for it, since only 'advance' ends it. A test advances the clock by the
+-- pauses whose work it wants, then waits for quiet. One that forgot to
+-- advance reads the program before that work, and its read fails: what
+-- is asleep on the clock is 'sleeping' (each pause's component, length and
+-- due time, 'describeSleeping'), which the harnesses' failures name
+-- ("Halogen.Test.Native", hspec-halogen). @H.async (threadDelay n)@ is a wait like
 -- any other, not a pause: it sleeps on the real clock (and is held, inside
 -- 'withHeldWaits'), so a pause a test should move on is written with
 -- 'Halogen.Query.HalogenM.delayCounted'. Timers that are not a program's
@@ -87,6 +94,10 @@ module Halogen.Activity.Control
   , TestClock
   , advance
   , now
+  , Sleeping (..)
+  , sleeping
+  , sleepingHere
+  , describeSleeping
   )
 where
 

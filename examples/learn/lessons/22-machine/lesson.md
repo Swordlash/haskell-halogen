@@ -29,7 +29,7 @@ step :: Event -> Model -> (Model, [Effect])
 - `M.Now` runs in place, before the next effect. `FocusField` uses it to put the cursor back in the field. Its code cannot wait, and the compiler checks that.
 - `M.Ask` starts work that takes time, such as `M.run (liftIO (search text))`. The work cannot change the view. Its answer comes back later as an event, here `Found`, and `step` handles it like any other event.
 
-A pause is an ask too. `M.AskUnder Pausing (M.delayCounted 0.3)` waits 0.3 seconds under the key `Pausing`, then brings `Paused`. `M.Cancel Pausing` stops every ask under that key, and their answers never come. A test that waits for the program to be quiet waits for `M.delayCounted`, since a search follows it.
+A pause is an ask too. `M.AskUnder Pausing (M.delayCounted 0.3)` waits 0.3 seconds under the key `Pausing`, then brings `Paused`. `M.Cancel Pausing` stops every ask under that key, and their answers never come. A test that waits for the program to be quiet waits for `M.delayCounted`, since a search follows it. Under a test's clock the test advances the clock by the pause instead, and the program is quiet while it sleeps.
 
 ## The component
 

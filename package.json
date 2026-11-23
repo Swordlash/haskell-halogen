@@ -49,6 +49,7 @@
     "test-example": "sh toolchain/test-example.sh vanilla",
     "clean": "rm -rf dist-newstyle/wasm/public dist-newstyle/ghcjs",
     "test-wasi": "sh toolchain/test-wasi.sh",
-    "test-runner": "node --test hspec-halogen/js/runner.test.mjs"
+    "test-runner": "node --test hspec-halogen/js/runner.test.mjs",
+    "test-probe": "node --test core/test/js/probe.test.mjs"
   }
 }

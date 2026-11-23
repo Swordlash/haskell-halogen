@@ -302,7 +302,7 @@ module Halogen.Remote.Protocol
 where
 
 import Control.Monad.Fail (fail)
-import Data.Aeson (FromJSON (..), ToJSON (..), Value (..), (.:), (.:?), (.=))
+import Data.Aeson (FromJSON (..), ToJSON (..), Value (..), (.!=), (.:), (.:?), (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Text (encodeToLazyText)
@@ -434,7 +434,7 @@ decodeEventMessage = Aeson.decodeStrictText
 encodeProbeAnswer :: Int -> Activity -> Text
 encodeProbeAnswer question a =
   Lazy.toStrict . encodeToLazyText $
-    Aeson.object ["probe" .= question, "trees" .= a.trees, "running" .= a.running, "waiting" .= a.waiting]
+    Aeson.object ["probe" .= question, "trees" .= a.trees, "running" .= a.running, "waiting" .= a.waiting, "asleep" .= a.asleep]
 
 -- | What the program sent, as the client reads it: 'Nothing' for what is
 -- neither a batch nor an answer (which the client ignores).
@@ -443,7 +443,9 @@ decodeFromProgram text =
   (ProgramBatch <$> Aeson.decodeStrictText text) <|> (Aeson.decodeStrictText text >>= parseMaybe answer)
   where
     answer = Aeson.withObject "ProbeAnswer" $ \o ->
-      ProbeAnswer <$> o .: "probe" <*> (Activity <$> o .: "trees" <*> o .: "running" <*> o .: "waiting")
+      -- A program from before counted pauses asleep on a test's clock
+      -- sends none ("Halogen.Activity"'s 'asleep').
+      ProbeAnswer <$> o .: "probe" <*> (Activity <$> o .: "trees" <*> o .: "running" <*> o .: "waiting" <*> (o .:? "asleep" .!= 0))
 
 encodeProbeQuestion :: Int -> Text
 encodeProbeQuestion question = Lazy.toStrict (encodeToLazyText (Aeson.object ["probe" .= question]))

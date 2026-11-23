@@ -40,6 +40,7 @@ module Halogen.IO.Driver.Runtime
   , post
   , withinEffect
   , loopActivity
+  , loopReading
 
     -- * Fibers
   , Fiber
@@ -62,6 +63,7 @@ module Halogen.IO.Driver.Runtime
   , await
   , awaitUncounted
   , countAwaiting
+  , countAsleep
   , suspend
   , currentFiber
   , ParTurn (..)
@@ -115,12 +117,16 @@ data LoopState = LoopState
   -- of 'workers', which a worker joins only once its thread has started,
   -- after the loop may have gone idle. A fiber in 'awaitUncounted' (a
   -- pause) has a worker but is never counted here.
+  , asleep :: !Int
+  -- ^ Of those, how many are in a counted pause asleep on a test's clock
+  -- ("Halogen.Activity.Control"): waiting for the test to advance the
+  -- clock, not for anything the program does.
   }
 
 newtype Loop = Loop (IORef LoopState)
 
 newLoop :: IO Loop
-newLoop = Loop <$> newIORef (LoopState False Nothing 0 0 Seq.empty Set.empty 0)
+newLoop = Loop <$> newIORef (LoopState False Nothing 0 0 Seq.empty Set.empty 0 0)
 
 -- | How a thread entered the loop: it took it ('Claimed'), ran the work
 -- inside the work running ('Nested'), queued it behind the thread running
@@ -334,9 +340,14 @@ sameThread a b = compare a b == EQ
 -- "Halogen.Activity.Signal"'s 'changed', which wakes the waits of
 -- "Halogen.Activity" and, with nobody waiting, is one read of a reference.
 loopActivity :: Loop -> IO (Bool, Int)
-loopActivity (Loop ref) = do
+loopActivity loop = (\(busy, waits, _) -> (busy, waits)) <$> loopReading loop
+
+-- | 'loopActivity', with how many of the waiting fibers are asleep on a
+-- test's clock, read in one step.
+loopReading :: Loop -> IO (Bool, Int, Int)
+loopReading (Loop ref) = do
   s <- readIORef ref
-  pure (s.running || not (Seq.null s.queue), s.awaiting)
+  pure (s.running || not (Seq.null s.queue), s.awaiting, s.asleep)
 
 -- | Run a component's synchronous effect, on the loop.
 withinEffect :: Loop -> IO a -> IO a
@@ -678,6 +689,12 @@ noteWorker (Loop ref) f t = atomicModifyIORef' ref (\s -> (s {workers = f t s.wo
 -- itself once its next step is queued, as a worker does.
 countAwaiting :: Loop -> Int -> IO ()
 countAwaiting (Loop ref) n = atomicModifyIORef' ref (\s -> (s {awaiting = s.awaiting + n}, ())) >> changed
+
+-- | Count a fiber as asleep on a test's clock (it is counted as waiting
+-- too, by 'countAwaiting'), or take it out of the count once it wakes, is
+-- handed to the real clock, or is cancelled.
+countAsleep :: Loop -> Int -> IO ()
+countAsleep (Loop ref) n = atomicModifyIORef' ref (\s -> (s {asleep = s.asleep + n}, ())) >> changed
 
 -- | A worker's end, in one step: no longer a worker, its fiber no longer
 -- waiting (by as much as it was counted: 1, or 0 for a pause).

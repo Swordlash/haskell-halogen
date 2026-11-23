@@ -44,6 +44,7 @@ data Action
   | LoadPromise
   | LoadSlowly
   | LoadForever
+  | LoadLater
   | Tick
 
 -- | The ticker's pause.
@@ -66,6 +67,7 @@ component =
         , button "load-promise" LoadPromise
         , button "load-slowly" LoadSlowly
         , button "load-forever" LoadForever
+        , button "load-later" LoadLater
         ]
 
     button :: Text -> Action -> H.ComponentHTML Action Empty m
@@ -79,6 +81,11 @@ component =
       -- A request that never comes back: a test of a deadline needs one,
       -- which no machine is slow enough to see answered. Going away ends it.
       LoadForever -> loading "never loaded" (forever (threadDelay 1000000))
+      -- A counted pause, which a test's clock holds until it is advanced.
+      LoadLater -> do
+        modify $ \st -> st {status = "loading"}
+        H.delayCounted 2
+        modify $ \st -> st {status = "loaded later"}
       Tick -> modify $ \st -> st {ticks = st.ticks + 1}
 
     loading :: Text -> IO () -> H.HalogenM State Action Empty o m ()

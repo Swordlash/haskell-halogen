@@ -363,7 +363,7 @@ activity :: Session -> IO Activity
 activity session = do
   tree <-
     readIORef session.tree >>= \case
-      Nothing -> pure Activity {trees = 0, running = 0, waiting = 0}
+      Nothing -> pure Activity {trees = 0, running = 0, waiting = 0, asleep = 0}
       Just t -> run session t.activity
   pending <- STM.atomically (unsent session)
   pure tree {running = max tree.running (if pending then 1 else 0)}
@@ -411,7 +411,7 @@ waitActivity session = Activity.waitReading (unsent session) reading
     reading = do
       a <- activity session
       open <- STM.readTVarIO session.recorder.open
-      pure (a, not open && a == Activity {trees = 0, running = 0, waiting = 0})
+      pure (a, not open && a == Activity {trees = 0, running = 0, waiting = 0, asleep = 0})
 
 -- | The event a handler reads: in a browser the JavaScript object the
 -- client's JSON spells, natively the JSON itself, which "Data.Foreign"

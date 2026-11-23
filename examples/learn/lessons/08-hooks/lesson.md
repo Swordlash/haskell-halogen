@@ -11,7 +11,7 @@ args: -package haskell-halogen-hooks
 - `Hooks.useState initial` returns the current value and a state handle, here `countId`. Event handlers run in `Hooks.HookM`. `Hooks.modify_ countId (+ 1)` updates the count and triggers a render.
 - `Hooks.useLifecycleEffect` runs after the first render. This effect starts a `ticker` with `Hooks.fork`, waits one second with `Hooks.delay 1`, and increments `seconds` repeatedly. Its returned `Just (Hooks.kill ticker)` is the cleanup action, run when the component is removed.
 
-`Hooks.delay` takes seconds and does not count as pending work. Tests waiting for a quiet program can therefore finish between clock ticks. Use it for repeating timers and temporary notices. Use `Hooks.delayCounted` for a delay before work that tests should await, such as a debounced request. Counted delays behave like `Hooks.async` waits for activity tracking. Both delay functions support the test clock from `Halogen.Activity.Control`.
+`Hooks.delay` takes seconds and does not count as pending work. Tests waiting for a quiet program can therefore finish between clock ticks. Use it for repeating timers and temporary notices. Use `Hooks.delayCounted` for a delay before work that tests should await, such as a debounced request. Counted delays behave like `Hooks.async` waits for activity tracking. Both delay functions support the test clock from `Halogen.Activity.Control`. On that clock a counted delay sleeps until the test advances the clock, and a quiet program does not wait for it: the test advances the clock by the delays whose work it wants.
 
 ## A hook of your own
 
