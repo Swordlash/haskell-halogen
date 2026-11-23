@@ -60,8 +60,8 @@ question :: Session.Session -> Int -> IO ()
 question session = Session.receive session . encodeProbeQuestion
 
 nothing, idleTree :: Activity
-nothing = Activity {trees = 0, running = 0, waiting = 0}
-idleTree = Activity {trees = 1, running = 0, waiting = 0}
+nothing = Activity {trees = 0, running = 0, waiting = 0, asleep = 0}
+idleTree = Activity {trees = 1, running = 0, waiting = 0, asleep = 0}
 
 data Wait = Wait
 
@@ -214,7 +214,7 @@ spec = do
       listener <- maybe (panic "no listener") pure (listenerOn opening.ops button "click")
       Session.receive session (clickOn listener button)
       question session 1
-      carried wire 2 >>= (`shouldSatisfy` (== Just (ProbeAnswer 1 Activity {trees = 1, running = 0, waiting = 1})) . lastMay)
+      carried wire 2 >>= (`shouldSatisfy` (== Just (ProbeAnswer 1 Activity {trees = 1, running = 0, waiting = 1, asleep = 0})) . lastMay)
       putMVar release ()
       messages <- carried wire 3
       [t | ProgramBatch b <- messages, SetText _ t <- b.ops] `shouldBe` ["done"]
@@ -304,7 +304,7 @@ spec = do
       _ <- Session.mount session (finalizingAfter (takeMVar gate) (writeIORef released True)) ()
       Session.dispose session
       readIORef released `shouldReturn` False
-      Session.activity session `shouldReturn` Activity {trees = 0, running = 0, waiting = 1}
+      Session.activity session `shouldReturn` Activity {trees = 0, running = 0, waiting = 1, asleep = 0}
       timeout 50_000 (Session.waitActivity session Activity.quiet) `shouldReturn` Nothing
       putMVar gate ()
       within "the finalizer" (Session.waitActivity session Activity.quiet)

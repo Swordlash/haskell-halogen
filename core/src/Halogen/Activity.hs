@@ -23,7 +23,9 @@
 -- * 'idle' means no tree is running work or has work queued: everything a
 --   handler did synchronously, the renders it caused included, is done.
 --
--- * 'quiet' means 'idle' and no fiber waiting on a worker either.
+-- * 'quiet' means 'idle' and no fiber waiting on a worker either, but
+--   for counted pauses asleep on a test's clock ('asleep', 'awake'; see
+--   "Pauses" below).
 --
 -- What 'idle' does not cover: a fiber waiting on the network (a 'liftIO'
 -- around a request) is 'waiting', not 'running'; and a timer behind an
@@ -53,7 +55,7 @@
 -- * when the test itself holds some of what the program waits for (a
 --   backend whose answers the test lets go one at a time), "the program has
 --   done all it can while the test still holds @n@ answers":
---   @'waitActivity' (\a -> a.running == 0 && a.waiting == n)@. After the
+--   @'waitActivity' (\a -> a.running == 0 && 'awake' a == n)@. After the
 --   test lets one of @n + 1@ go, the fiber it held is counted as waiting
 --   until its next step is queued on the loop, so this returns only after
 --   that step has run and the program is idle again (where 'waitIdle' could
@@ -101,6 +103,17 @@
 -- test's clock in a tree mounted under one, and a test can hold the
 -- program's other waits: "Halogen.Activity.Control".
 --
+-- On a test's clock the rule for a counted pause changes. Its fiber is
+-- still 'waiting', and counted 'asleep' too, and 'quiet' does not wait for
+-- it: only the test's @advance@ ends the pause, so a wait for it would
+-- never end. The test advances the clock by the pauses it wants the work
+-- after, and waits for 'quiet' after that. A test that forgot to advance
+-- finds the program quiet, the pause still asleep and the work after it
+-- not done; its harness names the pause in its failure
+-- ("Halogen.Activity.Control"'s 'Halogen.Activity.Control.sleeping'). An
+-- uncounted pause on a test's clock is counted nowhere, as on the real
+-- clock.
+--
 -- = The probe
 --
 -- A page that wants to ask from outside the program (a test driving a
@@ -134,6 +147,7 @@ module Halogen.Activity
   , activity
   , idle
   , quiet
+  , awake
 
     -- * Waiting
   , waitActivity
@@ -176,12 +190,13 @@ waitActivityWith extra = waitReadingWith extra ((,False) <$> activity)
 -- once, renders included. A fiber may still wait in a 'liftIO', or have
 -- just come back from one without its next step queued yet; to wait for
 -- that step while the test still holds other answers, wait for a count of
--- 'waiting' instead ("Waiting for a reading", above).
+-- 'awake' instead ("Waiting for a reading", above).
 waitIdle :: IO ()
 waitIdle = waitActivity idle
 
 -- | @'waitActivity' 'quiet'@: idle, and what every fiber waited for has come
 -- back. It does not return while a fiber waits for something the test
--- holds.
+-- holds, and does not wait for a counted pause asleep on a test's clock
+-- ('quiet').
 waitQuiet :: IO ()
 waitQuiet = waitActivity quiet

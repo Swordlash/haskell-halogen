@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+The probe's answer carries the activity's new `asleep` count (core's
+`Halogen.Activity`); an answer without it, from a program built before it,
+reads as none asleep.
+
 The first version, for a component whose program runs somewhere other than the page that shows
 it, as in Phoenix LiveView: its DOM operations cross a wire to a thin JavaScript client that
 applies them to a real page, and the page's events come back to its handlers.

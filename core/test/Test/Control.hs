@@ -23,7 +23,7 @@ import GHC.Clock (getMonotonicTime)
 import Halogen qualified as H
 import Halogen.Activity (Activity (..))
 import Halogen.Activity qualified as Activity
-import Halogen.Activity.Control (HeldWait (..), HeldWaits, advance, failWith, now, pending, release, withHeldWaits, withTestClock)
+import Halogen.Activity.Control (HeldWait (..), HeldWaits, Sleeping (..), advance, describeSleeping, failWith, now, pending, release, sleeping, sleepingHere, withHeldWaits, withTestClock)
 import Halogen.Component (ComponentSlot (..))
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Core qualified as HC
@@ -31,6 +31,7 @@ import Halogen.IO.Driver qualified as AD
 import Halogen.Query.Input (Input)
 import Halogen.Subscription qualified as HS
 import Halogen.Trace (Tag (..))
+import Halogen.Trace qualified as Trace
 import Halogen.VDom.Types (VDom (..), runGraft)
 import Prelude
 import System.Timeout (timeout)
@@ -222,7 +223,7 @@ spec = describe "Halogen.Activity.Control" $ do
           release readAsk
           pendingOf waits >>= assertEqual "nothing held" []
           readIORef renders >>= assertEqual "then the first" ["", "second", "second,first"]
-          treeActivity ui >>= assertEqual "quiet" (Activity 1 0 0)
+          treeActivity ui >>= assertEqual "quiet" (Activity 1 0 0 0)
 
     it "returns from pending once the program has gone as far as it can: a wait made after a release is in the next" $
       withHeldWaits $ \waits ->
@@ -255,7 +256,7 @@ spec = describe "Halogen.Activity.Control" $ do
           pendingOf waits >>= assertEqual "nothing held" []
           lastShown renders >>= assertEqual "the program took the error path" "-1"
           readIORef ran >>= assertEqual "the action never ran" False
-          treeActivity ui >>= assertEqual "quiet" (Activity 1 0 0)
+          treeActivity ui >>= assertEqual "quiet" (Activity 1 0 0 0)
 
     it "takes a wait whose component goes away off the list, its action never run" $ do
       ran <- newIORef []
@@ -315,7 +316,7 @@ spec = describe "Halogen.Activity.Control" $ do
           pendingOf waits >>= assertEqual "nothing held" []
           readIORef ran >>= assertEqual "both ran" ["a", "b"]
           lastShown renders >>= assertEqual "the program went on after the body" "1"
-          treeActivity ui >>= assertEqual "quiet" (Activity 1 0 0)
+          treeActivity ui >>= assertEqual "quiet" (Activity 1 0 0 0)
 
     it "holds the trees mounted inside the bracket on its thread, and no other" $ do
       ranOutside <- newIORef []
@@ -368,10 +369,10 @@ spec = describe "Halogen.Activity.Control" $ do
         withTree (search typed.emitter looked) $ \ui renders -> do
           traverse_ (HS.notify typed.listener) ["a", "ab", "abc"]
           waitTree ui Activity.idle
-          treeActivity ui >>= assertEqual "the last debounce waits, counted; the killed ones are gone" (Activity 1 0 1)
+          treeActivity ui >>= assertEqual "the last debounce sleeps on the clock, counted; the killed ones are gone" (Activity 1 0 1 1)
           advance clock 0.299
           readIORef looked >>= assertEqual "nothing looked up yet" []
-          treeActivity ui >>= assertEqual "still waiting" (Activity 1 0 1)
+          treeActivity ui >>= assertEqual "still asleep" (Activity 1 0 1 1)
           advance clock 0.001
           waitTree ui Activity.quiet
           readIORef looked >>= assertEqual "the last word looked up, once" ["abc"]
@@ -384,7 +385,7 @@ spec = describe "Halogen.Activity.Control" $ do
         withTree (program (void (H.fork (forever (H.delay 1 >> modify (+ 1)))))) $ \ui renders -> do
           advance clock 3
           lastShown renders >>= assertEqual "three ticks" "3"
-          treeActivity ui >>= assertEqual "quiet between ticks" (Activity 1 0 0)
+          treeActivity ui >>= assertEqual "quiet between ticks" (Activity 1 0 0 0)
           advance clock 3 >> advance clock 3
           lastShown renders >>= assertEqual "nine ticks" "9"
           now clock >>= assertEqual "the clock" 9
@@ -417,15 +418,72 @@ spec = describe "Halogen.Activity.Control" $ do
           advance clock 0.5
           readIORef notes >>= assertEqual "the third" [("a", 1), ("b", 2), ("c", 3)]
 
-    let counting what = do
+    let counting what asleep = do
           withTree (program (void (H.fork (H.delay 60)))) $ \ui _ ->
-            treeActivity ui >>= assertEqual (what <> ": a delay is neither running nor waiting") (Activity 1 0 0)
+            treeActivity ui >>= assertEqual (what <> ": a delay is neither running nor waiting") (Activity 1 0 0 0)
           withTree (program (void (H.fork (H.delayCounted 60)))) $ \ui _ ->
-            treeActivity ui >>= assertEqual (what <> ": a delayCounted is waiting") (Activity 1 0 1)
-    it "counts a delay as nowhere and a delayCounted as waiting, on the real clock" $ counting "the real clock"
-    it "counts a delay as nowhere and a delayCounted as waiting, on the test's clock" $
+            treeActivity ui >>= assertEqual (what <> ": a delayCounted is waiting") (Activity 1 0 1 asleep)
+    it "counts a delay as nowhere and a delayCounted as waiting, on the real clock" $ counting "the real clock" 0
+    it "counts a delay as nowhere and a delayCounted as waiting, and asleep, on the test's clock" $
       withTestClock $
-        \_ -> counting "the test's clock"
+        \_ -> counting "the test's clock" 1
+
+    -- Quiet does not wait for a counted pause asleep on the test's clock:
+    -- the test advances the clock when it wants what comes after the
+    -- pause. One that does not (it forgot) finds the program quiet with
+    -- the pause asleep, and the reading and the trace say so.
+    it "is quiet with a counted pause asleep on it, which advancing wakes" $ do
+      woke <- newIORef False
+      withTestClock $ \clock ->
+        withTree (program (void (H.fork (H.delayCounted 2 >> H.sync (writeIORef woke True))))) $ \ui _ -> do
+          within "quiet, the pause asleep" (waitTree ui Activity.quiet)
+          treeActivity ui >>= assertEqual "one fiber waiting, asleep on the clock" (Activity 1 0 1 1)
+          readIORef woke >>= assertEqual "the work after the pause has not run" False
+          advance clock 2
+          within "quiet again, the pause over" (waitTree ui Activity.quiet)
+          readIORef woke >>= assertEqual "the work after the pause has run" True
+          treeActivity ui >>= assertEqual "nothing waiting" (Activity 1 0 0 0)
+
+    -- What a harness names when a test forgot to advance: each pause asleep
+    -- on the clock, with its component, its length, whether it is counted,
+    -- and when it is due; the first due first. On the bracket's thread
+    -- only, and none outside it.
+    it "lists the pauses asleep on it, with their component, length and due time" $ do
+      sleepingHere >>= assertEqual "no clock open" [] . map describeSleeping
+      withTestClock $ \clock ->
+        withTree (program (void (H.fork (H.delayCounted 2)) >> void (H.fork (H.delay 0.5)))) $ \ui _ -> do
+          waitTree ui Activity.quiet
+          advance clock 0.25
+          asleep <- sleeping clock
+          assertEqual
+            "the delay first, then the counted pause"
+            [("program", 0.5, False, 0.5, 0.25), ("program", 2, True, 2, 0.25)]
+            (map (\p -> (p.tag.label, p.seconds, p.counted, p.due, p.clockAt)) asleep)
+          here <- sleepingHere
+          assertEqual "the same, from the bracket's thread" (map describeSleeping asleep) (map describeSleeping here)
+          case asleep of
+            [_, p] -> assertEqual "in words" ("program#" <> show p.tag.id <> ": a counted pause (delayCounted) of 2s, due at 2s on the test's clock, which is at 0.25s") (describeSleeping p)
+            _ -> throwIO (ErrorCall "two pauses")
+          advance clock 2
+          sleeping clock >>= assertEqual "both woken" [] . map describeSleeping
+
+    it "is not quiet with a counted pause on the real clock" $
+      withTree (program (void (H.fork (H.delayCounted 60)))) $ \ui _ -> do
+        waitTree ui Activity.idle
+        a <- treeActivity ui
+        assertEqual "the pause waits, and is not asleep on a test's clock" (Activity 1 0 1 0) a
+        assertEqual "not quiet" False (Activity.quiet a)
+
+    it "names a counted pause in the trace, and whether it sleeps on the test's clock" $ do
+      heard <- newIORef []
+      stop <- Trace.subscribe $ \event -> case event.what of
+        Trace.CountedPause seconds clocked -> modifyIORef' heard (<> [(seconds, clocked)])
+        _ -> pure ()
+      withTestClock $ \_ ->
+        withTree (program (void (H.fork (H.delayCounted 2)))) $ \ui _ -> waitTree ui Activity.quiet
+      withTree (program (void (H.fork (H.delayCounted 60)))) $ \ui _ -> waitTree ui Activity.idle
+      stop
+      readIORef heard >>= assertEqual "both pauses, the first on the test's clock" [(2, True), (60, False)]
 
     it "leaves a tree mounted outside the bracket on the real clock" $ do
       outsideWoke <- newEmptyMVar
@@ -447,7 +505,7 @@ spec = describe "Halogen.Activity.Control" $ do
       woke <- newIORef False
       withTestClock $ \clock -> do
         (socket, _) <- mountRecorded (program (void (H.fork (H.delayCounted 1 >> H.sync (writeIORef woke True)))))
-        treeActivity socket >>= assertEqual "counted" (Activity 1 0 1)
+        treeActivity socket >>= assertEqual "counted, asleep on the clock" (Activity 1 0 1 1)
         dispose socket
         waitTree socket Activity.quiet
         advance clock 2
@@ -490,5 +548,5 @@ spec = describe "Halogen.Activity.Control" $ do
         pendingOf waits >>= assertEqual "nothing held" []
         readIORef looked >>= assertEqual "looked up" ["abc"]
         lastShown renders >>= assertEqual "and shown" "found abc"
-        treeActivity ui >>= assertEqual "quiet" (Activity 1 0 0)
+        treeActivity ui >>= assertEqual "quiet" (Activity 1 0 0 0)
     assertWith ("no timer anywhere: " <> show took) (took < 0.2)

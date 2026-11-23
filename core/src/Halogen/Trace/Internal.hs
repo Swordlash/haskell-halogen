@@ -92,6 +92,10 @@ data What
   | -- | A 'Halogen.Query.HalogenM.sync' took this many milliseconds, more
     -- than 'slowSyncThreshold'. Nothing else of the tree ran meanwhile.
     SlowSync {took :: Double}
+  | -- | It started a counted pause ('Halogen.Query.HalogenM.delayCounted')
+    -- of this many seconds, on a test's clock if the tree has one, which
+    -- only the test's @advance@ ends.
+    CountedPause {seconds :: Double, onTestClock :: Bool}
   deriving stock (Show)
 
 -- | How long a 'Halogen.Query.HalogenM.sync' may take before it is reported
@@ -118,6 +122,7 @@ summary = \case
   ForkEnded fid -> "fork " <> show fid <> " ended"
   Killed fid -> "killed fork " <> show fid
   SlowSync took -> "a sync held the tree for " <> tenths took <> " ms"
+  CountedPause seconds clocked -> "a counted pause of " <> show seconds <> " s" <> (if clocked then ", asleep on the test's clock until it is advanced" else "")
 
 -- | Milliseconds to one decimal place.
 tenths :: Double -> Text

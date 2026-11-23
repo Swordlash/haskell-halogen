@@ -30,6 +30,11 @@ module Halogen.Activity.Control.Internal
   , advance
   , now
   , pause
+  , onATestClock
+  , Sleeping (..)
+  , sleeping
+  , sleepingHere
+  , describeSleeping
   , sleepFor
   )
 where
@@ -46,6 +51,7 @@ import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isJust)
+import Data.Text qualified as T
 import Data.Time (NominalDiffTime, nominalDiffTimeToSeconds)
 import Halogen.Activity.Internal (Activity (..), waitReading)
 import Halogen.IO.Driver.Runtime
@@ -141,7 +147,7 @@ settle parkedToo trees = waitReading counts reading done
       let stable = before == after
           busy = length (filter fst loops)
           unparked = sum (zipWith (\(_, waits) p -> abs (waits - p.count)) loops after)
-      pure (Activity {trees = length ts, running = if stable then busy else busy + 1, waiting = unparked}, False)
+      pure (Activity {trees = length ts, running = if stable then busy else busy + 1, waiting = unparked, asleep = 0}, False)
     done a = a.running == 0 && (not parkedToo || a.waiting == 0)
 
 ----------------------------------------------------------------------
@@ -368,7 +374,14 @@ data TestClock = TestClock
   }
 
 data Sleeper = Sleeper
-  { wake :: IO ()
+  { tag :: Tag
+  -- ^ The component whose program pauses.
+  , seconds :: NominalDiffTime
+  -- ^ How long the pause is.
+  , counted :: Bool
+  -- ^ A 'Halogen.Query.HalogenM.delayCounted' (counted as waiting, and as
+  -- asleep), or a 'Halogen.Query.HalogenM.delay' (counted nowhere).
+  , wake :: IO ()
   -- ^ Its time has come: its fiber goes on.
   , handOff :: NominalDiffTime -> IO ()
   -- ^ The bracket is over: it sleeps what is left of its pause on the real
@@ -442,13 +455,79 @@ advance clock d = withMVar clock.advancing $ \() -> do
   where
     settled = settle False (readTVar clock.trees)
 
+-- | Whether a tree was mounted under a test's clock, so that its pauses
+-- sleep on it.
+onATestClock :: Maybe TreeControl -> Bool
+onATestClock = \case
+  Just tc | Just _ <- tc.testClock -> True
+  _ -> False
+
+-- | A pause asleep on a test's clock, for a message: which component's
+-- program made it, how long it is, whether it is counted, and when it is
+-- due on the clock, with the clock's time now.
+data Sleeping = Sleeping
+  { tag :: Tag
+  -- ^ The component whose program pauses, as "Halogen.Trace" knows it.
+  , seconds :: NominalDiffTime
+  -- ^ The pause asked for.
+  , counted :: Bool
+  -- ^ 'True' for a 'Halogen.Query.HalogenM.delayCounted', which is
+  -- 'Halogen.Activity.asleep'; 'False' for a 'Halogen.Query.HalogenM.delay',
+  -- which is counted nowhere.
+  , due :: NominalDiffTime
+  -- ^ The clock's time at which it wakes.
+  , clockAt :: NominalDiffTime
+  -- ^ The clock's time when it was read.
+  }
+  deriving stock (Eq, Show)
+
+-- | The pauses asleep on the clock now, the first due first.
+--
+-- It is for what a test's harness says when a test fails: a test that
+-- forgot to 'advance' finds the program quiet ("Halogen.Activity"'s
+-- 'Halogen.Activity.quiet' does not wait for a counted pause asleep on
+-- the clock) and the work after the pause not done, and the failure names
+-- the pause.
+sleeping :: TestClock -> IO [Sleeping]
+sleeping clock = atomically $ do
+  t <- readTVar clock.time
+  m <- readTVar clock.sleepers
+  pure [Sleeping {tag = s.tag, seconds = s.seconds, counted = s.counted, due, clockAt = t} | ((due, _), s) <- Map.toAscList m]
+
+-- | 'sleeping' on the clock the calling thread has open ('withTestClock'),
+-- and none when it has none: what a harness asks when a test fails, on the
+-- test's thread, without the clock at hand.
+sleepingHere :: IO [Sleeping]
+sleepingHere = do
+  me <- myThreadId
+  Map.lookup me <$> readIORef controllers >>= \case
+    Just Controls {clockedBy = Just clock} -> sleeping clock
+    _ -> pure []
+
+-- | A pause asleep on the clock, in words.
+--
+-- > Loader#3: a counted pause of 2s, due at 2s on the test's clock, which is at 0s
+describeSleeping :: Sleeping -> String
+describeSleeping s =
+  T.unpack s.tag.label
+    <> "#"
+    <> show s.tag.id
+    <> ": "
+    <> (if s.counted then "a counted pause (delayCounted)" else "a pause (delay)")
+    <> " of "
+    <> show s.seconds
+    <> ", due at "
+    <> show s.due
+    <> " on the test's clock, which is at "
+    <> show s.clockAt
+
 -- | A pause of a component's program: on the tree's test clock if it was
 -- mounted under one, otherwise a sleep on a worker, counted as waiting
 -- ('Halogen.Query.HalogenM.delayCounted') or not
 -- ('Halogen.Query.HalogenM.delay').
-pause :: Maybe TreeControl -> Bool -> NominalDiffTime -> Turn ()
-pause control counted d = case control of
-  Just tc | Just clock <- tc.testClock -> onTestClock tc clock counted d
+pause :: Maybe TreeControl -> Tag -> Bool -> NominalDiffTime -> Turn ()
+pause control tag counted d = case control of
+  Just tc | Just clock <- tc.testClock -> onTestClock tc clock tag counted d
   _ -> (if counted then await else awaitUncounted) (sleepFor d)
 
 -- | A pause on the test's clock. No worker: the fiber is set aside
@@ -457,8 +536,8 @@ pause control counted d = case control of
 -- moment it wakes, with no gap for a reading to find it idle in. Counted,
 -- it is waiting (and parked, as only the test can end it) until then.
 -- A fiber cancelled while it sleeps takes its sleeper off the clock.
-onTestClock :: TreeControl -> TestClock -> Bool -> NominalDiffTime -> Turn ()
-onTestClock tc clock counted d = do
+onTestClock :: TreeControl -> TestClock -> Tag -> Bool -> NominalDiffTime -> Turn ()
+onTestClock tc clock tag counted d = do
   fb <- currentFiber
   suspend $ \resume -> mask_ $ do
     state <- newIORef OnClock
@@ -469,7 +548,9 @@ onTestClock tc clock counted d = do
     unwatch <- newIORef (pure ())
     let move from to = atomicModifyIORef' state (\s -> if s == from then (to, True) else (s, False))
         uncount = when counted (countAwaiting tc.loop (-1))
-        unpark = when counted (atomically (park tc.parked (-1)))
+        -- Off the clock (woken, handed to the real clock, or cancelled):
+        -- no longer parked, nor asleep as "Halogen.Activity" counts it.
+        unpark = when counted (atomically (park tc.parked (-1)) >> countAsleep tc.loop (-1))
         -- Queued, then uncounted: the fiber is counted on one side or both.
         goOn = post tc.loop (resume (Right ())) >> uncount >> join (readIORef unwatch)
         wake = do
@@ -487,7 +568,7 @@ onTestClock tc clock counted d = do
                   still <- move Handed Over
                   when still goOn
             writeIORef thread (Just t)
-    when counted (countAwaiting tc.loop 1)
+    when counted (countAwaiting tc.loop 1 >> countAsleep tc.loop 1)
     entry <- atomically $ do
       when counted (park tc.parked 1)
       shut <- readTVar clock.closed
@@ -497,7 +578,7 @@ onTestClock tc clock counted d = do
           t <- readTVar clock.time
           i <- stateTVar clock.nextSleeper (\i -> (i, i + 1))
           let key = (t + max 0 d, i)
-          modifyTVar' clock.sleepers (Map.insert key Sleeper {wake, handOff})
+          modifyTVar' clock.sleepers (Map.insert key Sleeper {tag, seconds = d, counted, wake, handOff})
           pure (Just key)
     traverse_ (writeIORef unwatch) <=< watchFiber fb $ \_ -> do
       before <- atomicModifyIORef' state (Over,)

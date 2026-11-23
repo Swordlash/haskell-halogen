@@ -141,7 +141,7 @@ spec = describe "the server" $ do
         patch <- receiveBatch connection
         [t | SetText _ t <- patch.ops] `shouldBe` ["1"]
         answer <- timeout 5000000 (WS.receiveData connection)
-        (answer >>= decodeFromProgram) `shouldBe` Just (ProbeAnswer 1 Activity {trees = 1, running = 0, waiting = 0})
+        (answer >>= decodeFromProgram) `shouldBe` Just (ProbeAnswer 1 Activity {trees = 1, running = 0, waiting = 0, asleep = 0})
         WS.sendClose connection ("bye" :: Text)
 
   it "hands the page's first message to the session before it calls the function, and takes anything else first as any message" $ do

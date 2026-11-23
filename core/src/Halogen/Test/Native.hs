@@ -150,7 +150,7 @@ import Data.Time (NominalDiffTime)
 import Data.Traversable (for)
 import Data.Void (Void)
 import Halogen qualified as H
-import Halogen.Activity (Activity (..), quiet)
+import Halogen.Activity (Activity (..), awake, quiet)
 import Halogen.Activity.Control
 import Halogen.HTML qualified as HH
 import Halogen.VDom.DOM.Monad (MemDOM, MonadBrowserDOM, removeChild)
@@ -721,10 +721,27 @@ matching what view selector =
     Just node -> pure node
     Nothing -> do
       shown <- htmlForMessage view
+      asleepNow <- asleepNote
       throwIO
         ( Failure
-            (what <> ": nothing in the view matches " <> T.pack (show selector) <> ". The view's HTML:\n" <> shown)
+            (what <> ": nothing in the view matches " <> T.pack (show selector) <> asleepNow <> ". The view's HTML:\n" <> shown)
         )
+
+-- | For a failure: the pauses asleep on the test's clock, each with its
+-- component, its length and when it is due, and nothing when there are
+-- none. A test that forgot to 'advance' the clock finds the view quiet
+-- with a counted pause still asleep ("Halogen.Activity"'s
+-- 'Halogen.Activity.quiet' does not wait for one), and the work after the
+-- pause not done: this names the pause. The clock is the one the test's
+-- thread has open ('sleepingHere'), so a view mounted on another thread's
+-- clock is not named.
+--
+-- > (asleep on the test's clock, advance it to wake them: Loader#3: a counted pause (delayCounted) of 2s, due at 2s on the test's clock, which is at 0s)
+asleepNote :: IO Text
+asleepNote =
+  try @SomeException sleepingHere <&> \case
+    Right ps@(_ : _) -> " (asleep on the test's clock, advance it to wake them: " <> T.intercalate "; " (map (T.pack . describeSleeping) ps) <> ")"
+    _ -> ""
 
 -- | The view's HTML for a message. A tree HTML cannot write gives the
 -- reason instead, so that the first failure is not hidden.
@@ -746,6 +763,10 @@ describe node =
 
 -- | Wait until the view's tree is quiet: nothing running or queued, and no
 -- fiber waiting in an @H.async@. Other trees in the process do not count.
+-- Under 'withTestClock' a counted pause asleep on the clock is not waited
+-- for ("Halogen.Activity"'s 'quiet'): 'advance' the clock for the work
+-- after it. A selector that then finds nothing names the pauses still
+-- asleep.
 --
 -- It waits for the program, never for a clock. If the view is still not
 -- quiet after 10 seconds, it gives up: it throws a 'Failure' that says what
@@ -775,8 +796,9 @@ stuck :: View q i o -> Text -> Text -> IO Text
 stuck view what more = do
   doingNow <- try (activity view)
   shown <- htmlForMessage view
+  asleepNow <- asleepNote
   let doing = case doingNow of
-        Right a -> T.pack (show a.running) <> " running or queued, " <> T.pack (show a.waiting) <> " waiting" <> more
+        Right a -> T.pack (show a.running) <> " running or queued, " <> T.pack (show a.waiting) <> " waiting" <> (if a.asleep > 0 then ", " <> T.pack (show a.asleep) <> " of them asleep on the test's clock" else "") <> more <> asleepNow
         Left (e :: SomeException) -> "its activity cannot be read: " <> T.pack (show e)
   pure ("the view " <> what <> ": " <> doing <> ". The view's HTML:\n" <> shown)
 
@@ -814,7 +836,7 @@ withinFor limit what io =
 -- view's tree only. "Halogen.Activity" reads every tree in the process, so
 -- views that run side by side on threads would see each other there.
 --
--- > T.activity view `shouldReturn` T.Activity {trees = 1, running = 0, waiting = 2}
+-- > T.activity view `shouldReturn` T.Activity {trees = 1, running = 0, waiting = 2, asleep = 0}
 --
 -- After 'dispose' it reads no tree, and what of the view is still at work:
 -- a finalizer that waits.
@@ -939,7 +961,9 @@ holds gate = Holds ((,) <$> (IntMap.size <$> readTVar gate.asks) <*> readTVar ga
 
 -- | Wait until the view's tree has done all it can while the gates hold
 -- their asks: nothing running or queued, and every fiber that waits is
--- waiting for a held ask. It gives up after 10 seconds, as 'settle' does,
+-- waiting for a held ask, or is asleep in a counted pause on the test's
+-- clock, which 'settle' does not wait for either: the fibers
+-- 'Halogen.Activity.awake' are as many as the asks held. It gives up after 10 seconds, as 'settle' does,
 -- and its 'Failure' also says how many asks the gates hold.
 -- 'settleHoldingWithin' takes another deadline.
 --
@@ -964,7 +988,7 @@ settleHolding = settleHoldingWithin patience
 -- > T.settleHoldingWithin 2 view (T.holds gate)
 settleHoldingWithin :: NominalDiffTime -> View q i o -> Holds -> IO ()
 settleHoldingWithin limit view@View {waitWith} (Holds counts) =
-  withinFor limit (heldNow >>= stuck view "has not settled") (waitWith counts (\a (n, _) -> a.running == 0 && a.waiting == n))
+  withinFor limit (heldNow >>= stuck view "has not settled") (waitWith counts (\a (n, _) -> a.running == 0 && awake a == n))
   where
     heldNow = atomically counts <&> \(n, _) -> ", and the gates hold " <> T.pack (show n)
 

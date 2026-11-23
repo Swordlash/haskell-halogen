@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+`Halogen.Activity`'s `quiet` no longer waits for a counted pause
+(`H.delayCounted`) asleep on a test's clock (`withTestClock`). Only the
+test's `advance` can end such a pause, so a test that waited for quiet with
+one asleep waited until its own deadline, and a test that did not care
+about the pause (an autosave two seconds after a key) sat it out on the
+real clock instead. Now a test advances the clock by the pauses whose work
+it wants, and reads at quiet: `advance clock 0.2 >> waitQuiet`.
+
+`Activity` has a new field, `asleep`: of the waiting fibers, those in a
+counted pause asleep on a test's clock. A record literal of `Activity` needs
+it (`asleep = 0` outside a test's clock). `awake` is `waiting` less
+`asleep`, and the one rule for quiet is `idle a && awake a == 0`; a wait
+for "done all it can while the test holds `n` answers" is
+`running == 0 && awake a == n`.
+
+A test that forgot to advance reads the program before the work after the
+pause, and its read fails. `Halogen.Activity.Control.sleeping` (and
+`sleepingHere`, for the clock the calling thread has open) lists the pauses
+asleep on a clock, each with its component, its length and when it is due,
+and `describeSleeping` says one in words:
+
+```
+Loading#3: a counted pause (delayCounted) of 5s, due at 5s on the test's clock, which is at 0s
+```
+
+`Halogen.Test.Native` names them when a selector finds nothing and when a
+wait gives up. `settleHolding` settles with a counted pause asleep beside
+the asks held. The trace has a new event, `CountedPause`, with each counted
+pause's seconds and whether it sleeps on a test's clock.
+
 `Halogen.Machine` has `M.AskWith`, an ask for work that needs something made
 in place first. Its first argument runs in place, as `M.Now` does, and may
 change the state. The work gets what it made. Use it for a resource the

@@ -25,7 +25,7 @@ import Data.Map.Strict qualified as M
 import Data.NT
 import GHC.Clock (getMonotonicTime)
 import HPrelude hiding (Concurrently, finally, join, runConcurrently, state, throwIO)
-import Halogen.Activity.Control.Internal (awaitHeld, pause, unliftedRuns)
+import Halogen.Activity.Control.Internal (awaitHeld, onATestClock, pause, unliftedRuns)
 import Halogen.Component
 import Halogen.IO.Driver.Runtime
 import Halogen.IO.Driver.State
@@ -88,7 +88,12 @@ evalM var (HalogenM hm) = foldF go hm
       -- The same suspension, with its own worker killed with the fiber,
       -- counted as waiting as 'Async' is or not (see 'delay'); or, on a
       -- test's clock, a sleeper the test wakes.
-      Delay counted d a -> withDriverState $ \ds -> a <$ pause ds.tree.control (counted == Counted) d
+      Delay counted d a -> withDriverState $ \ds -> do
+        -- Named in the trace, so that a test that finds the program quiet
+        -- with this pause asleep on its clock sees which pause it forgot.
+        when (counted == Counted)
+          $ sync (Trace.emit ds.tag (Trace.CountedPause (realToFrac d) (onATestClock ds.tree.control)))
+        a <$ pause ds.tree.control ds.tag (counted == Counted) d
       Sync eff -> do
         ds <- sync (readIORef var)
         sync (timed ds.tag (withinEffect ds.tree.loop (treeRunM ds.tree eff)))

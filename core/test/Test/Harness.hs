@@ -47,7 +47,7 @@ import Halogen.VDom.DOM.Monad qualified as DOM
 import Halogen.VDom.DOM.Monad.Native qualified as N
 import System.Mem (performMajorGC)
 import System.Mem.Weak (deRefWeak)
-import Test.Hspec (Spec, describe, it, shouldBe, shouldReturn)
+import Test.Hspec (Spec, describe, it, shouldBe, shouldReturn, shouldSatisfy)
 import Web.DOM.Element qualified as Element
 import Web.Event.Event (EventType (..))
 import Web.Event.Event qualified as Event
@@ -381,12 +381,32 @@ loading =
     ]
   where
     render :: Loading -> H.ComponentHTML LoadingAction Empty m
-    render s =
-      HH.div_
-        [ HH.p [HP.class_ (HH.ClassName "loaded")] [HH.text (if s.loaded then "yes" else "no")]
-        , HH.p [HP.class_ (HH.ClassName "ticked")] [HH.text (if s.ticked then "yes" else "no")]
-        , HH.button [HP.class_ (HH.ClassName "tick"), HE.onClick (const Tick)] [HH.text "tick"]
-        ]
+    render = loadingView
+
+-- | What 'loading' and 'heldAndAsleep' show: whether each has come back,
+-- and, once the pause is over, a line that is not there before it.
+loadingView :: Loading -> H.ComponentHTML LoadingAction Empty m
+loadingView s =
+  HH.div_ $
+    [ HH.p [HP.class_ (HH.ClassName "loaded")] [HH.text (if s.loaded then "yes" else "no")]
+    , HH.p [HP.class_ (HH.ClassName "ticked")] [HH.text (if s.ticked then "yes" else "no")]
+    , HH.button [HP.class_ (HH.ClassName "tick"), HE.onClick (const Tick)] [HH.text "tick"]
+    ]
+      <> [HH.p [HP.class_ (HH.ClassName "after-the-pause")] [HH.text "done"] | s.ticked]
+
+-- | From its start, an ask held at the gate and a counted pause of five
+-- seconds, side by side: under a test's clock, one fiber waiting for the
+-- test's answer and one asleep on the clock.
+heldAndAsleep :: forall m. (MonadIO m) => T.Gate Text Text -> H.Component H.VoidF () Void m
+heldAndAsleep gate =
+  H.component
+    (\() -> pure Loading {loaded = False, ticked = False})
+    loadingView
+    [ H.onInitialize $ do
+        void (H.fork (H.delayCounted 5 >> modify (\s -> s {ticked = True})))
+        answer <- H.async (liftIO (T.hold gate "load"))
+        modify (\s -> s {loaded = answer == "yes"})
+    ]
 
 --------------------------------------------------------------------------------
 -- Keys
@@ -722,9 +742,9 @@ spec = describe "the harness for the in-memory DOM" $ do
       T.withView id (asking gate) () $ \busy ->
         T.withView id field () $ \calm -> do
           guarded busy (T.waitActivity busy (\a -> a.running == 0 && a.waiting == 2))
-          T.activity busy `shouldReturn` T.Activity {trees = 1, running = 0, waiting = 2}
+          T.activity busy `shouldReturn` T.Activity {trees = 1, running = 0, waiting = 2, asleep = 0}
           guarded calm (T.settle calm)
-          T.activity calm `shouldReturn` T.Activity {trees = 1, running = 0, waiting = 0}
+          T.activity calm `shouldReturn` T.Activity {trees = 1, running = 0, waiting = 0, asleep = 0}
           -- The view beside it waits, and this one does not wait for it.
           late <- failure (T.waitActivityWithin 0.1 calm (\a -> a.waiting == 2))
           ("the view is not doing what the test waits for: 0 running or queued, 0 waiting." `isInfixOf` late) `shouldBe` True
@@ -732,7 +752,7 @@ spec = describe "the harness for the in-memory DOM" $ do
     it "reads no tree once the view is disposed of" $ do
       logged <- newIORef []
       view <- T.withView id (counter logged) "a" pure
-      T.activity view `shouldReturn` T.Activity {trees = 0, running = 0, waiting = 0}
+      T.activity view `shouldReturn` T.Activity {trees = 0, running = 0, waiting = 0, asleep = 0}
 
   describe "a gate" $ do
     it "holds asks until the test answers them, in the order it chooses" $ do
@@ -789,6 +809,40 @@ spec = describe "the harness for the in-memory DOM" $ do
           mapM_ T.release held
           guarded view (T.settle view)
           T.textOf view ".loaded" `shouldReturn` "yes"
+
+    -- Quiet does not wait for a counted pause asleep on the test's clock: a
+    -- test that forgot to advance the clock reads before the work after the
+    -- pause. Its read fails, and the failure names the pause: its
+    -- component, its length, and when it is due.
+    it "settles with a counted pause asleep on the test's clock, and a read that forgot to advance names the pause" $ do
+      T.withTestClock $ \_ ->
+        T.withView id loading () $ \view -> do
+          guarded view (T.settle view)
+          T.click view "button.tick"
+          guarded view (T.settle view)
+          T.activity view >>= (`shouldBe` (1, 1)) . (\a -> (a.waiting, a.asleep))
+          message <- failure (T.textOf view ".after-the-pause")
+          message `shouldSatisfy` isInfixOf "nothing in the view matches \".after-the-pause\""
+          message `shouldSatisfy` isInfixOf "asleep on the test's clock, advance it to wake them: Test.Harness.Loading#"
+          message `shouldSatisfy` isInfixOf ": a counted pause (delayCounted) of 5s, due at 5s on the test's clock, which is at 0s"
+
+    -- A counted pause asleep on the clock is not one of the gate's asks, nor
+    -- does it keep the view from settling: the view settles once its fibers
+    -- not asleep are the asks held.
+    it "settles holding with a counted pause asleep on the test's clock beside an ask held" $ do
+      gate <- T.newGate
+      T.withTestClock $ \clock ->
+        T.withView id (heldAndAsleep gate) () $ \view -> do
+          guarded view (T.settleHolding view (T.holds gate))
+          T.activity view >>= (`shouldBe` (2, 1)) . (\a -> (a.waiting, a.asleep))
+          [ask] <- T.held gate
+          T.answer gate ask "yes"
+          guarded view (T.settleHolding view (T.holds gate))
+          T.textOf view ".loaded" `shouldReturn` "yes"
+          T.textOf view ".ticked" `shouldReturn` "no"
+          T.advance clock 5
+          guarded view (T.settle view)
+          T.textOf view ".ticked" `shouldReturn` "yes"
 
     it "moves a view's pauses on the test's clock" $ do
       T.withTestClock $ \clock ->
