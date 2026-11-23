@@ -93,8 +93,10 @@ data What
     -- than 'slowSyncThreshold'. Nothing else of the tree ran meanwhile.
     SlowSync {took :: Double}
   | -- | It started a counted pause ('Halogen.Query.HalogenM.delayCounted')
-    -- of this many seconds, on a test's clock if the tree has one, which
-    -- only the test's @advance@ ends.
+    -- of this many seconds. @onTestClock@ says where it sleeps: on a test's
+    -- clock that was open when the pause began, which only the test's
+    -- @advance@ ends, or on the real clock (no test's clock, or one whose
+    -- bracket had ended though the tree outlived it).
     CountedPause {seconds :: Double, onTestClock :: Bool}
   deriving stock (Show)
 

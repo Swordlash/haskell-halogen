@@ -25,7 +25,7 @@ import Data.Map.Strict qualified as M
 import Data.NT
 import GHC.Clock (getMonotonicTime)
 import HPrelude hiding (Concurrently, finally, join, runConcurrently, state, throwIO)
-import Halogen.Activity.Control.Internal (awaitHeld, onATestClock, pause, unliftedRuns)
+import Halogen.Activity.Control.Internal (awaitHeld, pause, unliftedRuns)
 import Halogen.Component
 import Halogen.IO.Driver.Runtime
 import Halogen.IO.Driver.State
@@ -90,10 +90,10 @@ evalM var (HalogenM hm) = foldF go hm
       -- test's clock, a sleeper the test wakes.
       Delay counted d a -> withDriverState $ \ds -> do
         -- Named in the trace, so that a test that finds the program quiet
-        -- with this pause asleep on its clock sees which pause it forgot.
-        when (counted == Counted)
-          $ sync (Trace.emit ds.tag (Trace.CountedPause (realToFrac d) (onATestClock ds.tree.control)))
-        a <$ pause ds.tree.control ds.tag (counted == Counted) d
+        -- with this pause asleep on its clock sees which pause it forgot;
+        -- on which clock, as the pause found it ('pause').
+        let noted clocked = when (counted == Counted) (Trace.emit ds.tag (Trace.CountedPause (realToFrac d) clocked))
+        a <$ pause ds.tree.control ds.tag (counted == Counted) d noted
       Sync eff -> do
         ds <- sync (readIORef var)
         sync (timed ds.tag (withinEffect ds.tree.loop (treeRunM ds.tree eff)))

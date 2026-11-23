@@ -30,7 +30,6 @@ module Halogen.Activity.Control.Internal
   , advance
   , now
   , pause
-  , onATestClock
   , Sleeping (..)
   , sleeping
   , sleepingHere
@@ -455,13 +454,6 @@ advance clock d = withMVar clock.advancing $ \() -> do
   where
     settled = settle False (readTVar clock.trees)
 
--- | Whether a tree was mounted under a test's clock, so that its pauses
--- sleep on it.
-onATestClock :: Maybe TreeControl -> Bool
-onATestClock = \case
-  Just tc | Just _ <- tc.testClock -> True
-  _ -> False
-
 -- | A pause asleep on a test's clock, for a message: which component's
 -- program made it, how long it is, whether it is counted, and when it is
 -- due on the clock, with the clock's time now.
@@ -488,6 +480,12 @@ data Sleeping = Sleeping
 -- 'Halogen.Activity.quiet' does not wait for a counted pause asleep on
 -- the clock) and the work after the pause not done, and the failure names
 -- the pause.
+--
+-- It is read in one transaction, with the clock's time, so the list is of
+-- one moment: a pause woken, cancelled or handed to the real clock after
+-- it is not on a later one. Once the bracket has ended it is empty, since
+-- what was asleep then went to the real clock, and a pause made afterwards
+-- by a tree that outlived the bracket sleeps there too.
 sleeping :: TestClock -> IO [Sleeping]
 sleeping clock = atomically $ do
   t <- readTVar clock.time
@@ -495,8 +493,9 @@ sleeping clock = atomically $ do
   pure [Sleeping {tag = s.tag, seconds = s.seconds, counted = s.counted, due, clockAt = t} | ((due, _), s) <- Map.toAscList m]
 
 -- | 'sleeping' on the clock the calling thread has open ('withTestClock'),
--- and none when it has none: what a harness asks when a test fails, on the
--- test's thread, without the clock at hand.
+-- and none when it has none (outside the bracket, or after it): what a
+-- harness asks when a test fails, on the test's thread, without the clock
+-- at hand.
 sleepingHere :: IO [Sleeping]
 sleepingHere = do
   me <- myThreadId
@@ -522,13 +521,19 @@ describeSleeping s =
     <> show s.clockAt
 
 -- | A pause of a component's program: on the tree's test clock if it was
--- mounted under one, otherwise a sleep on a worker, counted as waiting
--- ('Halogen.Query.HalogenM.delayCounted') or not
--- ('Halogen.Query.HalogenM.delay').
-pause :: Maybe TreeControl -> Tag -> Bool -> NominalDiffTime -> Turn ()
-pause control tag counted d = case control of
-  Just tc | Just clock <- tc.testClock -> onTestClock tc clock tag counted d
-  _ -> (if counted then await else awaitUncounted) (sleepFor d)
+-- mounted under one and the clock is still open, otherwise a sleep on a
+-- worker, counted as waiting ('Halogen.Query.HalogenM.delayCounted') or
+-- not ('Halogen.Query.HalogenM.delay').
+--
+-- The last argument is told which, once it is decided and before the fiber
+-- waits: 'True' for a sleeper on the test's clock, 'False' for the real
+-- clock. A tree keeps its clock after the bracket ends, so whether the
+-- clock was open is known only where the sleeper is put on it (or is not):
+-- the trace's 'Halogen.Trace.CountedPause' takes its flag from here.
+pause :: Maybe TreeControl -> Tag -> Bool -> NominalDiffTime -> (Bool -> IO ()) -> Turn ()
+pause control tag counted d noted = case control of
+  Just tc | Just clock <- tc.testClock -> onTestClock tc clock tag counted d noted
+  _ -> sync (noted False) >> (if counted then await else awaitUncounted) (sleepFor d)
 
 -- | A pause on the test's clock. No worker: the fiber is set aside
 -- ('suspend') with a sleeper on the clock, and 'advance' wakes it by
@@ -536,8 +541,8 @@ pause control tag counted d = case control of
 -- moment it wakes, with no gap for a reading to find it idle in. Counted,
 -- it is waiting (and parked, as only the test can end it) until then.
 -- A fiber cancelled while it sleeps takes its sleeper off the clock.
-onTestClock :: TreeControl -> TestClock -> Tag -> Bool -> NominalDiffTime -> Turn ()
-onTestClock tc clock tag counted d = do
+onTestClock :: TreeControl -> TestClock -> Tag -> Bool -> NominalDiffTime -> (Bool -> IO ()) -> Turn ()
+onTestClock tc clock tag counted d noted = do
   fb <- currentFiber
   suspend $ \resume -> mask_ $ do
     state <- newIORef OnClock
@@ -580,6 +585,8 @@ onTestClock tc clock tag counted d = do
           let key = (t + max 0 d, i)
           modifyTVar' clock.sleepers (Map.insert key Sleeper {tag, seconds = d, counted, wake, handOff})
           pure (Just key)
+    -- The clock was open, and the sleeper is on it, or it had closed.
+    noted (isJust entry)
     traverse_ (writeIORef unwatch) <=< watchFiber fb $ \_ -> do
       before <- atomicModifyIORef' state (Over,)
       case before of

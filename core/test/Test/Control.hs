@@ -548,6 +548,28 @@ spec = describe "Halogen.Activity.Control" $ do
       assertEqual "not quiet" False (Activity.quiet a)
       dispose socket
 
+    -- A tree keeps its clock after the bracket, but a pause it makes then
+    -- sleeps on the real clock: the trace says so, it is not asleep, and
+    -- the closed clock lists nothing.
+    it "puts a counted pause made after the bracket on the real clock, and says so in the trace" $ do
+      gate <- newEmptyMVar
+      paused <- newEmptyMVar
+      stop <- Trace.subscribe $ \event -> case event.what of
+        Trace.CountedPause _ clocked -> putMVar paused clocked
+        _ -> pure ()
+      (socket, clock) <- withTestClock $ \clock -> do
+        (mounted, _) <- mountRecorded (program (H.async (takeMVar gate) >> H.delayCounted 60))
+        pure (mounted, clock)
+      putMVar gate ()
+      clocked <- within "the pause" (takeMVar paused)
+      stop
+      assertEqual "on the real clock, as the trace says" False clocked
+      waitTree socket Activity.idle
+      treeActivity socket >>= assertEqual "waiting, not asleep" (Activity 1 0 1 0)
+      sleeping clock >>= assertEqual "nothing asleep on the closed clock" [] . map describeSleeping
+      sleepingHere >>= assertEqual "no clock open here" [] . map describeSleeping
+      dispose socket
+
   it "debounces a typed value on the test's clock, then holds its request until the test releases it" $ do
     looked <- newIORef []
     typed <- HS.create
