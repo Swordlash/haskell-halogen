@@ -114,6 +114,7 @@ module Test.Hspec.Halogen
   , withDeadline
   , perform
   , countHeld
+  , quietWith
   , activity
   , Activity
 
@@ -161,6 +162,7 @@ import GHC.Clock (getMonotonicTime)
 import GHC.Stack (SrcLoc (..))
 import Halogen.Activity (Activity (..))
 import Halogen.Activity qualified as Activity
+import Halogen.Activity.Control qualified as Control
 import Halogen.Component (Component)
 import Halogen.IO.Driver (HalogenSocket (..))
 import Halogen.Subscription qualified as HS
@@ -407,7 +409,8 @@ withEvents :: Timeline -> HUnitFailure -> IO HUnitFailure
 withEvents timeline (HUnitFailure location reason) = do
   kept <- toList <$> readIORef timeline.events
   now <- Activity.activity
-  pure $ HUnitFailure location $ case (<> "\n" <> activityText now) <$> timelineText timeline.started kept of
+  asleep <- Control.sleepingHere
+  pure $ HUnitFailure location $ case (<> "\n" <> activityText now asleep) <$> timelineText timeline.started kept of
     Nothing -> reason
     Just section -> case reason of
       Reason message -> Reason (message <> "\n\n" <> section)
@@ -419,11 +422,23 @@ withEvents timeline (HUnitFailure location reason) = do
 -- | What the program was doing when a test failed ("Halogen.Activity"), the
 -- last line of a failure's section: a tree that is running or has work
 -- queued long after the events above is one whose loop is held, and its
--- fibers waiting are the 'liftIO's the test did not wait for.
+-- fibers waiting are the 'liftIO's the test did not wait for. Under a
+-- test's clock, a line for each pause asleep on it follows: a test that
+-- forgot to advance the clock finds the program quiet before the work
+-- after a counted pause, and this names the pause, however many events
+-- ago it started.
 --
--- > The program then: 1 tree, 0 running or with work queued, 1 fiber waiting in liftIO.
-activityText :: Activity.Activity -> [Char]
-activityText now = "The program then: " <> readingWords now <> "."
+-- > The program then: 1 tree, 0 running or with work queued, 1 fiber waiting in liftIO, 1 of them asleep on the test's clock.
+-- > Asleep on the test's clock (advance it to wake them):
+-- >   Loader#3: a counted pause (delayCounted) of 2s, due at 2s on the test's clock, which is at 0s
+activityText :: Activity.Activity -> [Control.Sleeping] -> [Char]
+activityText now asleep =
+  "The program then: "
+    <> readingWords now
+    <> "."
+    <> case asleep of
+      [] -> ""
+      _ -> "\nAsleep on the test's clock (advance it to wake them):" <> concatMap (("\n  " <>) . Control.describeSleeping) asleep
 
 -- | A reading of the program in words: @1 tree, 0 running or with work
 -- queued, 1 fiber waiting in liftIO@.
@@ -435,8 +450,19 @@ readingWords now =
     <> " running or with work queued, "
     <> counted now.waiting "fiber"
     <> " waiting in liftIO"
+    <> asleepText now
   where
     counted n what = show n <> " " <> what <> (if n == 1 then "" else "s")
+
+-- | How many of the waiting fibers are in a counted pause asleep on a
+-- test's clock, which the program's quiet does not wait for: nothing when
+-- there are none.
+--
+-- > , 1 of them asleep on the test's clock
+asleepText :: Activity.Activity -> [Char]
+asleepText a
+  | a.asleep > 0 = ", " <> show a.asleep <> " of them asleep on the test's clock"
+  | otherwise = ""
 
 -- | The section a failure gets, one line per event, oldest first, with its
 -- time since the test started; 'Nothing' for no events.
@@ -743,6 +769,15 @@ settle = void (unsafeIOToPageM Page.runnerDeadline >>= settleUntil Idle)
 -- The waits a test holds on purpose (a request its own server does not
 -- answer yet) count as done once the test says how many there are
 -- ('countHeld').
+--
+-- Under core's test clock (@withTestClock@ of "Halogen.Activity.Control",
+-- around 'runPage') a counted pause sleeps until the test advances the
+-- clock, and is not waited for here: it is 'Halogen.Activity.asleep', and
+-- the program is quiet with it ('quietWith'). The test advances the clock
+-- by the pauses it wants the work after (@advance clock d@), then waits.
+-- One that forgot reads the program before that work; its read fails, and
+-- the failure names each pause asleep on the clock, with its component,
+-- its length and when it is due.
 waitQuiet :: (HasCallStack) => PageM s ()
 waitQuiet = unsafeIOToPageM Page.runnerDeadline >>= waitQuietWithin
 
@@ -801,6 +836,23 @@ perform io = unsafeIOToPageM io <* settle
 countHeld :: PageM s Int -> PageM s ()
 countHeld (PageM count) = pageEnv >>= \env -> unsafeIOToPageM (atomicWriteIORef env.held (runReaderT count env {resting = False}))
 
+-- | The rule for quiet, given how many waits the test holds ('countHeld'):
+-- idle, and no more fibers waiting than are asleep on a test's clock and
+-- held by the test together,
+--
+-- > idle a && waiting a <= asleep a + held
+--
+-- 'waitQuiet' and a read under @'readsOnce' 'Quiet'@ both decide by it.
+-- It is core's 'Halogen.Activity.quiet' with the held waits added: core
+-- counts the pauses asleep exactly, the test says what it holds.
+--
+-- What it can hide: a counted pause the test forgot to advance (the
+-- program reads as quiet before the work after it, and a read that fails
+-- names the pause), and, as 'countHeld' says, one wait per held request
+-- whose fiber was cancelled.
+quietWith :: Int -> Activity -> Bool
+quietWith held a = Activity.idle a && Activity.awake a <= held
+
 -- | 'settle' until the program is as asked, failing at the deadline; the
 -- last reading.
 settleUntil :: (HasCallStack) => Rest -> Int -> PageM s Activity
@@ -809,8 +861,9 @@ settleUntil wanted ms =
     started <- getMonotonicTime
     let quiet = wanted == Quiet
         heldNow = if quiet then join (readIORef env.held) else pure 0
-        -- Idle, and for 'Quiet' no more fibers waiting than the test holds.
-        isDone a = (\h -> Activity.idle a && (not quiet || a.waiting <= h)) <$> heldNow
+        -- Idle, and for 'Quiet' no more fibers awake than the test holds
+        -- ('quietWith').
+        isDone a = (\h -> Activity.idle a && (not quiet || quietWith h a)) <$> heldNow
         overdue a moving = do
           now <- getMonotonicTime
           when ((now - started) * 1000 > fromIntegral ms) $ do
@@ -873,6 +926,7 @@ overdueText wanted ms held a moving =
     <> counted a.waiting "fiber"
     <> " waiting in liftIO"
     <> (if held > 0 then " (" <> show held <> " held on purpose)" else "")
+    <> toS (asleepText a)
     <> (if moving then ", and a move through the history it asked for had not arrived." else ".")
   where
     counted n thing = show n <> " " <> thing <> (if n == 1 then "" else "s")
@@ -889,8 +943,10 @@ data Rest
     -- its way.
     Idle
   | -- | Idle, and no fiber waiting in an @H.async@ beyond those the test
-    -- holds ('countHeld'): requests have come back, counted pauses have
-    -- fired, and what they led to has rendered ('waitQuiet').
+    -- holds ('countHeld'): requests have come back, counted pauses on the
+    -- real clock have fired, and what they led to has rendered
+    -- ('waitQuiet'). A counted pause asleep on a test's clock is not waited
+    -- for ('quietWith').
     Quiet
   deriving stock (Eq, Ord, Show)
 
@@ -990,7 +1046,7 @@ restNow env rest = do
   h <- case rest of
     Idle -> pure 0
     Quiet -> join (readIORef env.held)
-  let at = Activity.idle a && not moving && (rest == Idle || a.waiting <= h)
+  let at = Activity.idle a && not moving && (rest == Idle || quietWith h a)
   when at $ atomicWriteIORef env.lastRest (Just (rest, 0, a))
   pure at
 
@@ -1287,6 +1343,16 @@ namingExamples = Spec.mapSpecForest (map (named []))
 -- is at rest now, and when it is not, brings it there with a settle of its
 -- own (reported as one, at the read's call site, as @settle@ or
 -- @waitQuiet@), and then looks once.
+--
+-- Under a test's clock (@withTestClock@, "Halogen.Activity.Control") a
+-- counted pause asleep on it is not waited for ('quietWith'), so it costs
+-- no settle time and writes no line: a @waitQuiet@ line under a test's
+-- clock is never a pause's. Such a @waitQuiet@ comes to rest with the
+-- sleeping fibers still counted in @waiting@ (as a held request is, with
+-- 'countHeld'), so an @ok@ line's reading can have @waiting@ above 0. A
+-- test that forgot to advance the clock is not waiting for anything: a
+-- read in a 'readsOnce' group fails at once, a read that retries fails at
+-- its own deadline (@timeout@), and neither writes a @deadline@ line.
 --
 -- +-----------------------------------------------+------------------------------+-------------------------------+
 -- | in a 'readsOnce' group                        | line                         | totals                        |

@@ -187,7 +187,8 @@ After an action, one read is enough to inspect its rendered result. Call `settle
 
 - `waitQuiet` settles the page, waits until no fibers remain in `H.async`, then settles again. It has the same deadline as `settle`; `waitQuietWithin ms` gives one of its own. Failures report running trees and waiting fibers.
 - `H.delay` and `Hooks.delay` are excluded intentionally. Use them for transient notices and repeating timers. Use `H.delayCounted` for delays before observable work, such as debounced requests or autosaves. `H.async (threadDelay n)` also counts, but a test clock cannot advance it.
-- `activity` returns the raw reading: trees, running trees and waiting fibers. Import its fields from `Halogen.Activity (Activity (..))`.
+- Under core's test clock (`withTestClock` of `Halogen.Activity.Control`, around `runPage`), both kinds of pause sleep until the test advances the clock. A counted pause asleep there is not waited for: the program is quiet with it, and the test advances the clock by the pauses whose work it wants (`perform (advance clock d)`), then waits. A test that forgot reads the page before that work, and the read's failure names each pause asleep on the clock: its component, its length, and when it is due.
+- `activity` returns the raw reading: trees, running trees, waiting fibers, and those of them asleep on a test's clock. Import its fields from `Halogen.Activity (Activity (..))`.
 
 These are `haskell-halogen-playwright`'s names for the same waits, so a test reads the same on either harness.
 
@@ -210,13 +211,14 @@ describe "the editor" $ readsOnce Idle $ do
     find ui ".notice" >>= (`shouldHaveText` "Saved")
 ```
 
-- `readsOnce Idle` brings the program to `settle`'s rest before a read; `readsOnce Quiet` to `waitQuiet`'s, so the reads also wait for requests and counted pauses.
+- `readsOnce Idle` brings the program to `settle`'s rest before a read; `readsOnce Quiet` to `waitQuiet`'s, so the reads also wait for requests and counted pauses (but for those asleep on a test's clock).
 - A read looks at a program at rest at the moment it looks. It checks with one reading of the program (no frame, no task) and settles the program only when it is not at rest, so the reads after an action that settled cost nothing, and work the program started by itself since (a push, a timer, a raw call) is waited for.
 - The reads are `find`, `findIn`, `findAll`, `findAllIn`, `textContent`, `getProperty`, `getAttribute`, `classes`, `outerHTML`, `isVisible`, `isAttached`, `outputs`, `shouldBeSameElement` and the `should…` helpers on elements. An absence (`findAll` finding nothing) is read at rest too.
 - A read that fails says which rest it looked at, how long reaching it took and what the program was doing, before what it found.
 - `eventually` stays the explicit wait for what the program does not know of: the clipboard's answer, a notice taken away in `H.delay`, a message the server pushes. Its attempts look at the page as it is. With `HSPEC_HALOGEN_RETRIES=1` it is still reported.
 - `perform io` runs the test's own call on the page and settles, so the reads after it rest again. `unsafeIOToPageM` does not: the harness cannot tell whether it did something.
 - `countHeld n` tells the harness how many waits the test holds on purpose (requests its own server keeps unanswered). `waitQuiet` and `readsOnce Quiet` then take the program as quiet with that many fibers waiting. It compares counts, not the waits: a held request whose fiber was cancelled hides one other fiber's wait.
+- The one rule for quiet, `quietWith held`, is: idle, and no more fibers waiting than are asleep on a test's clock and held by the test together (`waiting <= asleep + held`). Core counts the pauses asleep exactly; the test says what it holds.
 
 Outside a `readsOnce` group the reads retry as before. `mount`, `hydrate` and `query` settle in either case; `mountUnsettled` returns at once, for a component busy from its start.
 

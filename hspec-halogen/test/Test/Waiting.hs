@@ -7,6 +7,8 @@ import Data.Text qualified as T
 import Example.Waiting qualified as Waiting
 import GHC.Clock (getMonotonicTime)
 import Halogen qualified as H
+import Halogen.Activity (Activity (..))
+import Halogen.Activity.Control (advance, withTestClock)
 import Protolude hiding (find)
 import Test.HUnit.Lang (FailureReason (..), HUnitFailure (..))
 import Test.Hspec qualified as Hspec
@@ -52,6 +54,42 @@ spec m = do
     textContent status `shouldReturn` "loading"
     waitQuiet
     textContent status `shouldReturn` "loaded from a promise"
+
+  -- Under the test's clock a counted pause sleeps until the test advances
+  -- the clock, and waitQuiet does not wait for it: were it waited for, the
+  -- wait would run to its deadline and fail. Advancing the clock wakes it,
+  -- and the wait after that is for what it led to.
+  it "is quiet with a counted pause asleep on the test's clock, and waits for what advancing the clock wakes" $
+    withTestClock $ \clock -> runPage $ do
+      ui <- loader m
+      status <- find ui ".status"
+      find ui ".load-later" >>= click
+      waitQuiet
+      textContent status `shouldReturn` "loading"
+      reading <- activity
+      (reading.waiting, reading.asleep) `shouldBe` (1, 1)
+      perform (advance clock 2)
+      waitQuiet
+      textContent status `shouldReturn` "loaded later"
+      (.asleep) <$> activity `shouldReturn` 0
+
+  -- A test that forgot to advance the clock finds the program quiet before
+  -- the work after the pause: its read fails at once, and the failure names
+  -- the pause from the clock, with its component, length and due time. The
+  -- ticker's ticks (its H.delay sleeps on the clock too) put more events
+  -- than a failure shows between the pause and the read, so the name does
+  -- not come from the tree's events.
+  readsOnce Quiet $ it "fails a read that forgot to advance the clock, naming the pause asleep on it" $ do
+    (shown, _) <- withTestClock $ \clock -> failing $ do
+      ui <- loader m
+      find ui ".load-later" >>= click
+      perform (advance clock 1)
+      find ui ".status" >>= (`shouldHaveText` "loaded later")
+    shown `Hspec.shouldContain` ["expected text \"loaded later\", found \"loading\""]
+    shown `Hspec.shouldSatisfy` any (T.isInfixOf "1 fiber waiting in liftIO, 1 of them asleep on the test's clock")
+    shown `Hspec.shouldSatisfy` (not . any (T.isInfixOf "a counted pause of 2"))
+    shown `Hspec.shouldContain` ["Asleep on the test's clock (advance it to wake them):"]
+    shown `Hspec.shouldSatisfy` any (\l -> "  Example.Waiting.State#" `T.isPrefixOf` l && ": a counted pause (delayCounted) of 2s, due at 2s on the test's clock, which is at 1s" `T.isSuffixOf` l)
 
   -- The ticker beside them pauses in H.delay for ever: were it counted,
   -- the program would never be quiet, and each waitQuiet would fail at its
