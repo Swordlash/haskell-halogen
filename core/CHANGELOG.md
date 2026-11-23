@@ -34,7 +34,9 @@ pause's seconds and whether it sleeps on a test's clock: on the clock the
 pause found, so that one made by a tree that outlived its bracket says the
 real clock. The page's probe, `__halogenProbe.activity()`, answers with
 `asleep` too, and sums it over the programs in the page, counting an answer
-without it as 0.
+without it as 0. Every runtime that adds to the probe puts this sum on it,
+whether it made the probe's list or found it, so a page where a runtime
+from before `asleep` came first still sums it (`npm run test-probe`).
 
 `Halogen.Machine` has `M.AskWith`, an ask for work that needs something made
 in place first. Its first argument runs in place, as `M.Now` does, and may

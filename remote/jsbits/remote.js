@@ -923,36 +923,38 @@ function halogen_remote_reading(a) {
   return { trees: a.trees, running: a.running, waiting: a.waiting, asleep: typeof a.asleep === "number" ? a.asleep : 0 };
 }
 
+// What every asker of the page's probe answers, summed, as
+// core/jsbits/activity.js sums it: each count of the reading, 0 where an
+// answer lacks it, and any other count an answer has.
+function halogen_remote_sum(answers) {
+  var sum = { trees: 0, running: 0, waiting: 0, asleep: 0 };
+  answers.forEach(function (a) {
+    Object.keys(a).forEach(function (key) {
+      if (typeof a[key] === "number") sum[key] = (sum[key] || 0) + a[key];
+    });
+  });
+  return sum;
+}
+
 // Add an asker to the page's probe, if the page has one, as
 // core/jsbits/activity.js does (the same list under the same symbol, and
-// the same sum if this client is the first to come): the asker, or null.
+// the same sum, put on the probe whether this client made the list or
+// found it, so that a runtime from before asleep that came first does not
+// leave a sum that drops it): the asker, or null.
 function halogen_remote_probe_install(ask) {
   var probe = globalThis.__halogenProbe;
   if (probe === null || typeof probe !== "object") return null;
   var programs = Symbol.for("halogen.activity.programs");
   if (!Array.isArray(probe[programs])) {
     Object.defineProperty(probe, programs, { value: [], enumerable: false });
-    probe.activity = function () {
-      return Promise.all(
-        probe[programs].map(function (asking) {
-          return asking();
-        })
-      ).then(function (answers) {
-        return answers.reduce(
-          function (sum, a) {
-            var b = halogen_remote_reading(a);
-            return {
-              trees: sum.trees + b.trees,
-              running: sum.running + b.running,
-              waiting: sum.waiting + b.waiting,
-              asleep: sum.asleep + b.asleep,
-            };
-          },
-          { trees: 0, running: 0, waiting: 0, asleep: 0 }
-        );
-      });
-    };
   }
+  probe.activity = function () {
+    return Promise.all(
+      probe[programs].map(function (asking) {
+        return asking();
+      })
+    ).then(halogen_remote_sum);
+  };
   probe[programs].push(ask);
   return ask;
 }

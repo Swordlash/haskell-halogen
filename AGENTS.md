@@ -81,6 +81,7 @@ npm run test-learn              # the built tutorial, rootfs inside, natively (e
 npm run test-playground         # learn/'s page on the rootfs in headless Chromium, natively (examples/learn/playground-test): a program for every layer
 npm run test-worker             # examples/worker's suite, natively, against the built example (build-wasm.sh worker): jobs in Web Workers
 npm run test-example            # playwright's example suite, natively, against the built examples/vanilla (build-wasm.sh vanilla)
+npm run test-probe              # the page's activity probe (core's activity.js, remote.js) with runtimes of different versions in one page, under node --test
 npm run build-js                # JS backend: build all, bundle the material example into dist/
 npm run dev -- <example>        # an example in browser GHCi, reloaded and rerun on save
 npm run dev-test -- <package>   # a package's browser test suite in browser GHCi, rerun on save
