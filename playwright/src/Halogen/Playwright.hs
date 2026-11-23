@@ -340,7 +340,7 @@ import Control.Exception (SomeException, bracket, bracket_, finally, fromExcepti
 import Control.Monad (unless)
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.IO.Unlift (MonadUnliftIO (..))
-import Data.Aeson (FromJSON (..), ToJSON (..), Value, object, withObject, (.:), (.:?), (.=))
+import Data.Aeson (FromJSON (..), ToJSON (..), Value, object, withObject, (.!=), (.:), (.:?), (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
@@ -757,11 +757,16 @@ data Activity = Activity
   { trees :: Int
   , running :: Int
   , waiting :: Int
+  , asleep :: Int
+  -- ^ Of the waiting fibers, those in a counted pause asleep on a test's
+  -- clock, which 'waitQuiet' does not wait for (as core's @quiet@ does
+  -- not): only the test's @advance@ wakes them. 0 from a program built
+  -- before core counted them, whose answer has no such field.
   }
   deriving stock (Eq, Show)
 
 instance FromJSON Activity where
-  parseJSON = withObject "Activity" $ \o -> Activity <$> o .: "trees" <*> o .: "running" <*> o .: "waiting"
+  parseJSON = withObject "Activity" $ \o -> Activity <$> o .: "trees" <*> o .: "running" <*> o .: "waiting" <*> (o .:? "asleep" .!= 0)
 
 -- | Wait until a program in the page has answered the probe with a tree
 -- mounted and nothing running. On a page where none does, it fails after
@@ -790,8 +795,11 @@ settle p = onPage p "settle" []
 -- | 'settle', and until no fiber of the program is waiting either (what a
 -- @liftIO@ waits for, a request say, has come back). A fiber pausing in
 -- core's @H.delay@ is not waiting, so a notice's timer written with it does
--- not hold this up, and one written @liftIO (threadDelay n)@ does. It asks
--- a few milliseconds apart. On timeout the error says how many still wait.
+-- not hold this up, and one written @liftIO (threadDelay n)@ does. Nor is
+-- a counted pause asleep on a test's clock waited for: the rule is core's
+-- @quiet@, no tree running and @waiting - asleep == 0@ ('Activity'). It
+-- asks a few milliseconds apart. On timeout the error says how many still
+-- wait.
 waitQuiet :: (MonadIO m) => Page -> m ()
 waitQuiet p = onPage p "waitQuiet" []
 

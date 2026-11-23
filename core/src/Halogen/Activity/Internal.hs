@@ -32,7 +32,7 @@ $( browserJS
      ["jsbits/activity.js"]
      [ ("js_activity_probe_wanted", "js_activity_probe_wanted", Safe, [t|IO Bool|])
      , ("js_activity_probe_install", "js_activity_probe_install", Safe, [t|Callback -> IO ()|])
-     , ("js_activity_answer", "js_activity_answer", Safe, [t|JSVal -> Int -> Int -> Int -> IO ()|])
+     , ("js_activity_answer", "js_activity_answer", Safe, [t|JSVal -> Int -> Int -> Int -> Int -> IO ()|])
      ]
  )
 
@@ -201,5 +201,5 @@ offerProbe = do
       unless already $ do
         callback <- mkCallback $ \resolve -> do
           a <- activity
-          js_activity_answer resolve a.trees a.running a.waiting
+          js_activity_answer resolve a.trees a.running a.waiting a.asleep
         js_activity_probe_install callback

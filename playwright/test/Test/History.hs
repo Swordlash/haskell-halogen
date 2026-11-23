@@ -62,7 +62,7 @@ spec base = describe "history" $ do
     goBack page
     url page `shouldReturn` at "program.html"
     -- Its script has run: the program answers.
-    activity page `shouldReturn` Just Activity {trees = 1, running = 0, waiting = 0}
+    activity page `shouldReturn` Just Activity {trees = 1, running = 0, waiting = 0, asleep = 0}
     goForward page
     textContent (locator page "h1") `shouldReturn` "Basics"
 

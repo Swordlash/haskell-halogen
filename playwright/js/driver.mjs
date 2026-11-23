@@ -373,6 +373,12 @@ const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 //
 // No clock is involved except the deadline and the frame's bound.
 const inPageSettle = async ({ deadline, quiet, pause, frameBound }) => {
+  // The program's rule ("Halogen.Activity"'s quiet): no tree running, and
+  // no fiber waiting but those asleep in a counted pause on a test's
+  // clock, which only the test's advance wakes. A program from before
+  // asleep answers without it, which counts as 0. The one place this
+  // driver decides; settle asks only the first half.
+  const rested = (a) => a.running === 0 && (!quiet || a.waiting - (typeof a.asleep === "number" ? a.asleep : 0) <= 0);
   // A document that may not run scripts (a frame sandboxed without
   // allow-scripts; see probeScript) has no program, and no task, timer or
   // frame callback of its would ever run: asking for one would wait for
@@ -421,7 +427,7 @@ const inPageSettle = async ({ deadline, quiet, pause, frameBound }) => {
   const idle = async () => {
     for (;;) {
       const a = await probe.activity();
-      if (a.running === 0 && (!quiet || a.waiting === 0)) return { activity: a };
+      if (rested(a)) return { activity: a };
       if (Date.now() > deadline) return { activity: a, timedOut: true };
       await (pause > 0 ? sleep(pause) : task());
     }
@@ -442,7 +448,7 @@ const inPageSettle = async ({ deadline, quiet, pause, frameBound }) => {
       continue;
     }
     const a = await probe.activity();
-    if (a.running === 0 && (!quiet || a.waiting === 0) && !moving()) return { program: true, activity: a };
+    if (rested(a) && !moving()) return { program: true, activity: a };
     if (Date.now() > deadline) return { program: true, activity: a ?? last, timedOut: true };
   }
 };
@@ -504,7 +510,8 @@ const settle = async (target, { quiet = false, timeout: ms = timeout } = {}) => 
     const a = outcome.activity;
     throw timeoutError(
       quiet
-        ? `the page's program was not quiet after ${ms}ms: ${a.running} tree(s) running, ${a.waiting} fiber(s) still waiting`
+        ? `the page's program was not quiet after ${ms}ms: ${a.running} tree(s) running, ${a.waiting} fiber(s) still waiting` +
+          (a.asleep > 0 ? ` (${a.asleep} of them asleep on a test's clock)` : "")
         : `the page's program was still running after ${ms}ms: ${a.running} tree(s) running`,
     );
   }

@@ -125,7 +125,7 @@
 -- browser backend) and that object exists, core gives it, once per
 -- program, a function:
 --
--- > await __halogenProbe.activity()   // {trees, running, waiting}
+-- > await __halogenProbe.activity()   // {trees, running, waiting, asleep}
 --
 -- It returns a promise because a Haskell callback returns nothing to
 -- JavaScript ("Halogen.JSBits"' 'Halogen.JSBits.mkCallback'), and on the
@@ -135,7 +135,9 @@
 -- held by a thread that was preempted (WebAssembly hands the page back
 -- after about 15 ms with threads still runnable): the answer then says
 -- that tree is running. Several programs in one page each add theirs, and
--- the function sums them.
+-- the function sums them. A program from before @asleep@ answers without
+-- it, which counts as 0. A tool outside the program decides quiet by the
+-- same rule as 'quiet': @running == 0 && waiting - asleep == 0@.
 --
 -- With no probe in the page, a mount costs one read of a global, and
 -- nothing else; with none in the program at all (natively, in Node) it

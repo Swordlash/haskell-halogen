@@ -29,7 +29,7 @@ spec base = describe "the waits" $ do
     -- the click returned once it was not.
     textContent (locator page "#state") `shouldReturn` "done"
     took `shouldSatisfy` (>= 0.29)
-    activity page `shouldReturn` Just (Activity 1 0 0)
+    activity page `shouldReturn` Just (Activity 1 0 0 0)
 
   it "settles at once where there is no program" $ \pw -> withPage pw $ \page -> do
     goto page (at "plain.html")
@@ -43,7 +43,7 @@ spec base = describe "the waits" $ do
     visit page (at "program.html")
     click (locator page "#wait")
     -- Idle, so settled, though two fibers wait.
-    activity page `shouldReturn` Just (Activity 1 0 2)
+    activity page `shouldReturn` Just (Activity 1 0 2 0)
     try (waitQuiet page) >>= \case
       Left (e :: PlaywrightError) -> do
         e.name `shouldBe` "TimeoutError"
@@ -51,17 +51,44 @@ spec base = describe "the waits" $ do
       Right () -> expectationFailure "waitQuiet returned while fibers waited"
     set page "setTimeout(() => { fake.waiting = 0; }, 200)"
     waitQuiet page
-    activity page `shouldReturn` Just (Activity 1 0 0)
+    activity page `shouldReturn` Just (Activity 1 0 0 0)
+
+  -- A program in a test's clock's bracket counts a counted pause asleep on
+  -- the clock, and waitQuiet does not wait for it, as core's quiet does
+  -- not. No Halogen program under this driver can be on a test's clock in
+  -- these suites (a bracket controls only the trees its own thread mounts,
+  -- and the pages here are plain JavaScript, a remote session's tree is
+  -- mounted on its connection's thread, and an example's program runs in
+  -- the browser, not in the test's process), so the page plays one.
+  it "takes a counted pause asleep on a test's clock as quiet, and an answer without asleep as none asleep" $ \pw -> withPage pw $ \page -> do
+    visit page (at "program.html")
+    -- The answer of a program from before asleep: none asleep, so the
+    -- fiber that waits keeps the program from being quiet.
+    set page "fake.waiting = 1"
+    activity page `shouldReturn` Just (Activity 1 0 1 0)
+    try (waitQuiet (withTimeout 300 page)) >>= \case
+      Left (e :: PlaywrightError) -> Text.unpack e.message `shouldContain` "0 tree(s) running, 1 fiber(s) still waiting"
+      Right () -> expectationFailure "waitQuiet returned while a fiber waited"
+    -- The same fiber asleep on a test's clock: quiet at once.
+    set page "fake.asleep = 1"
+    activity page `shouldReturn` Just (Activity 1 0 1 1)
+    waitQuiet page
+    -- One more waiting, not asleep: not quiet, and the timeout says how
+    -- many sleep.
+    set page "fake.waiting = 2"
+    try (waitQuiet (withTimeout 300 page)) >>= \case
+      Left (e :: PlaywrightError) -> Text.unpack e.message `shouldContain` "2 fiber(s) still waiting (1 of them asleep on a test's clock)"
+      Right () -> expectationFailure "waitQuiet returned while a fiber waited, not asleep"
 
   it "waits as long as a page handle's own timeout says" $ \pw -> withPage pw $ \page -> do
     visit page (at "program.html")
     -- Longer than the suite's two seconds.
     set page "fake.waiting = 1, setTimeout(() => { fake.waiting = 0; }, 2500)"
     waitQuiet (withTimeout 6000 page)
-    activity page `shouldReturn` Just (Activity 1 0 0)
+    activity page `shouldReturn` Just (Activity 1 0 0 0)
     set page "fake.running = 1, setTimeout(() => { fake.running = 0; }, 2500)"
     settle (withTimeout 6000 page)
-    activity page `shouldReturn` Just (Activity 1 0 0)
+    activity page `shouldReturn` Just (Activity 1 0 0 0)
     -- And shorter: the timeout's message says how long it waited.
     set page "fake.waiting = 1"
     try (waitQuiet (withTimeout 300 page)) >>= \case
@@ -72,7 +99,7 @@ spec base = describe "the waits" $ do
     goto page (at "program.html")
     set page "fake.running = 1, setTimeout(() => { fake.running = 0; }, 200)"
     waitStarted page
-    activity page `shouldReturn` Just (Activity 1 0 0)
+    activity page `shouldReturn` Just (Activity 1 0 0 0)
     goto page (at "program.html?unstarted")
     try (waitStarted page) >>= \case
       Left (e :: PlaywrightError) -> do

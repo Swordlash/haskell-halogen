@@ -830,7 +830,7 @@ function halogen_remote_connect(address, container, options) {
         var asked = state.questions.get(received.probe);
         if (asked) {
           state.questions.delete(received.probe);
-          var reading = { trees: received.trees, running: received.running, waiting: received.waiting };
+          var reading = halogen_remote_reading(received);
           state.held.push({ socket: socket, asked: asked, reading: reading });
           release();
         }
@@ -912,7 +912,15 @@ function halogen_remote_after_traversal(run) {
 }
 
 function halogen_remote_nothing() {
-  return { trees: 0, running: 0, waiting: 0 };
+  return { trees: 0, running: 0, waiting: 0, asleep: 0 };
+}
+
+// A reading of the program's, as the probe gives it: asleep is how many of
+// the waiting fibers are in a counted pause asleep on a test's clock
+// (Halogen.Activity), and a program from before it sends none, which
+// counts as 0.
+function halogen_remote_reading(a) {
+  return { trees: a.trees, running: a.running, waiting: a.waiting, asleep: typeof a.asleep === "number" ? a.asleep : 0 };
 }
 
 // Add an asker to the page's probe, if the page has one, as
@@ -932,9 +940,15 @@ function halogen_remote_probe_install(ask) {
       ).then(function (answers) {
         return answers.reduce(
           function (sum, a) {
-            return { trees: sum.trees + a.trees, running: sum.running + a.running, waiting: sum.waiting + a.waiting };
+            var b = halogen_remote_reading(a);
+            return {
+              trees: sum.trees + b.trees,
+              running: sum.running + b.running,
+              waiting: sum.waiting + b.waiting,
+              asleep: sum.asleep + b.asleep,
+            };
           },
-          { trees: 0, running: 0, waiting: 0 }
+          { trees: 0, running: 0, waiting: 0, asleep: 0 }
         );
       });
     };

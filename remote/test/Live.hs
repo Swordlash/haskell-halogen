@@ -479,7 +479,7 @@ testing server = playwright $ describe "a component per page, mounted in the tes
     threadDelay 1_500_000
     getAttribute (locator page "#halogen-remote-test") "data-halogen-remote" `shouldReturn` Just "disconnected"
     -- With no connection, the page's probe says there is nothing.
-    activity page `shouldReturn` Just Activity {trees = 0, running = 0, waiting = 0}
+    activity page `shouldReturn` Just Activity {trees = 0, running = 0, waiting = 0, asleep = 0}
     -- What it showed stays on the page.
     readOnce page "#label" `shouldReturn` "ready"
 

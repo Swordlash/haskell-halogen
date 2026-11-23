@@ -5,13 +5,17 @@
 //
 // before the program starts, and once a tree is mounted the object has
 //
-//   await __halogenProbe.activity()   // {trees, running, waiting}
+//   await __halogenProbe.activity()   // {trees, running, waiting, asleep}
 //
 // A page can run more than one program (the tutorial runs the reader's
 // beside its own): each adds its answer to a list kept on the object under
 // a symbol, and activity() sums what every program answers. The GHC
 // JavaScript backend links this file and calls these by name; the wasm
 // backend embeds it into its JSFFI module (Halogen.JSBits).
+//
+// asleep is how many of the waiting fibers are in a counted pause asleep
+// on a test's clock (Halogen.Activity), which quiet does not wait for. A
+// program built before it answers without it, which counts as 0.
 
 const js_activity_programs = Symbol.for("halogen.activity.programs");
 
@@ -31,14 +35,19 @@ function js_activity_probe_install(callback) {
     probe.activity = async () => {
       const answers = await Promise.all(probe[js_activity_programs].map((ask) => ask()));
       return answers.reduce(
-        (sum, a) => ({ trees: sum.trees + a.trees, running: sum.running + a.running, waiting: sum.waiting + a.waiting }),
-        { trees: 0, running: 0, waiting: 0 },
+        (sum, a) => ({
+          trees: sum.trees + a.trees,
+          running: sum.running + a.running,
+          waiting: sum.waiting + a.waiting,
+          asleep: sum.asleep + (typeof a.asleep === "number" ? a.asleep : 0),
+        }),
+        { trees: 0, running: 0, waiting: 0, asleep: 0 },
       );
     };
   }
   probe[js_activity_programs].push(() => new Promise((resolve) => callback(resolve)));
 }
 
-function js_activity_answer(resolve, trees, running, waiting) {
-  resolve({ trees, running, waiting });
+function js_activity_answer(resolve, trees, running, waiting, asleep) {
+  resolve({ trees, running, waiting, asleep });
 }

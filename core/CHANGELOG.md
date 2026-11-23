@@ -30,7 +30,11 @@ Loading#3: a counted pause (delayCounted) of 5s, due at 5s on the test's clock, 
 `Halogen.Test.Native` names them when a selector finds nothing and when a
 wait gives up. `settleHolding` settles with a counted pause asleep beside
 the asks held. The trace has a new event, `CountedPause`, with each counted
-pause's seconds and whether it sleeps on a test's clock.
+pause's seconds and whether it sleeps on a test's clock: on the clock the
+pause found, so that one made by a tree that outlived its bracket says the
+real clock. The page's probe, `__halogenProbe.activity()`, answers with
+`asleep` too, and sums it over the programs in the page, counting an answer
+without it as 0.
 
 `Halogen.Machine` has `M.AskWith`, an ask for work that needs something made
 in place first. Its first argument runs in place, as `M.Now` does, and may

@@ -23,7 +23,10 @@
         // answer back: its question stays open for ever.
         if (fake.silent) await new Promise(() => {});
         fake.answered += 1;
-        return { trees: fake.trees, running: fake.running, waiting: fake.waiting };
+        // asleep only once the test sets it: until then the answer is the
+        // one a program built before core counted it gives.
+        const reading = { trees: fake.trees, running: fake.running, waiting: fake.waiting };
+        return fake.asleep === undefined ? reading : { ...reading, asleep: fake.asleep };
       };
     }
     // Busy for a while after a click, as a long render would be, and only

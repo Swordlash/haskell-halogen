@@ -5,13 +5,14 @@
 module Test.Probe (spec) where
 
 import Data.Row (Empty)
+import Data.Text qualified as T
 import Halogen qualified as H
 import Halogen.Activity (Activity (..))
 import Halogen.Activity qualified as Activity
 import Halogen.HTML qualified as HH
 import Halogen.HTML.Events qualified as HE
 import Halogen.HTML.Properties qualified as HP
-import Halogen.Remote.Protocol (Batch (..), FromProgram (..), Op (..), decodeFromProgram, encodeProbeQuestion)
+import Halogen.Remote.Protocol (Batch (..), FromProgram (..), Op (..), decodeFromProgram, encodeProbeAnswer, encodeProbeQuestion)
 import Halogen.Remote.Session qualified as Session
 import Protolude
 import Test.Components
@@ -231,6 +232,18 @@ spec = do
       Session.activity session `shouldReturn` nothing
       question session 1
       stays wire 1
+
+  -- The answer carries the waiting fibers asleep on a test's clock, which
+  -- the page's probe sums and Playwright's quiet takes away from waiting;
+  -- a program from before the field sends none, which reads as 0.
+  describe "the probe's answer" $ do
+    it "carries the fibers asleep on a test's clock, through the wire and back" $ do
+      let answer = Activity {trees = 1, running = 0, waiting = 2, asleep = 1}
+      decodeFromProgram (encodeProbeAnswer 7 answer) `shouldBe` Just (ProbeAnswer 7 answer)
+      encodeProbeAnswer 7 answer `shouldSatisfy` T.isInfixOf "\"asleep\":1"
+    it "reads an answer without them, from an older program, as none asleep" $
+      decodeFromProgram "{\"probe\":3,\"trees\":1,\"running\":0,\"waiting\":2}"
+        `shouldBe` Just (ProbeAnswer 3 Activity {trees = 1, running = 0, waiting = 2, asleep = 0})
 
   describe "waiting for a session's reading" $ do
     it "wakes when a batch is sent, not only when the tree changes" $ do

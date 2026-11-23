@@ -3,8 +3,9 @@
 ## Unreleased
 
 The probe's answer carries the activity's new `asleep` count (core's
-`Halogen.Activity`); an answer without it, from a program built before it,
-reads as none asleep.
+`Halogen.Activity`), and `remote.js` passes it on to the page's probe and
+adds it into the sum there; an answer without it, from a program built
+before it, reads as none asleep, on either side.
 
 The first version, for a component whose program runs somewhere other than the page that shows
 it, as in Phoenix LiveView: its DOM operations cross a wire to a thin JavaScript client that
