@@ -47,6 +47,36 @@ spec base = describe "inPage" $ do
             mapM_ (\f -> doesFileExist (dir </> f) `shouldReturn` True) files
           Right () -> throwIO (userError "the body did not fail")
 
+  -- A page whose own address is answered with a 404 (a static host's
+  -- 404.html) says only "Failed to load resource" in its console; the
+  -- failure names the address, and says it is the page's own, so that it
+  -- is not taken for a missing file. A missing file the page asked for is
+  -- named too, and not as the page's.
+  it "names the address of every console error, saying which is the page's own" $ do
+    options <- optionsFromEnvironment
+    withPlaywright options $ \pw -> withPage pw $ \page -> do
+      let own = at "no-such-page.html"
+          other = at "no-such-file.txt"
+          from address m = m.kind == "error" && m.url == Just address
+      failure <- try $ withFailureContext page $ do
+        gotoStatus page own `shouldReturn` Just 404
+        () <- evaluate page "fetch('no-such-file.txt').then(() => null)"
+        _ <- waitForConsole page (from own)
+        _ <- waitForConsole page (from other)
+        expectationFailure "the page was not found"
+      case failure of
+        Left (HUnitFailure _ reason) -> do
+          let errorAbout address = filter (\l -> "Failed to load resource" `isInfixOf` l && show' address `isInfixOf` l) (lines (reasonText reason))
+          case errorAbout own of
+            [l] -> l `shouldSatisfy` ((": the page's own address, " <> show' own) `isInfixOf`)
+            ls -> expectationFailure ("not one console error names the page's address: " <> show ls)
+          case errorAbout other of
+            [l] -> do
+              l `shouldSatisfy` (("(" <> show' other) `isInfixOf`)
+              l `shouldNotSatisfy` ("the page's own address" `isInfixOf`)
+            ls -> expectationFailure ("not one console error names the file's address: " <> show ls)
+        Right () -> throwIO (userError "the body did not fail")
+
   it "makes a failed action a failure with the page's state" $ do
     options <- optionsFromEnvironment
     withPlaywright options {timeout = 500} $ \pw -> withPage pw $ \page -> do

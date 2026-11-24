@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+The page's state that `inPage` and `withFailureContext` add to a failure
+names the address of every console error. Before, the address was left out
+when it was the page's own, so a 404 for the page itself read as "Failed to
+load resource: the server responded with a status of 404 (Not Found)", which
+looks like a missing file. It now says ": the page's own address, http://…"
+after the message.
+
+`settle`'s documentation, and the README's, say plainly what it does not
+cover: its wait for the next frame gives up after 100 ms (20 ms once a frame
+has been missed) and its wait for a move through the history after half a
+second, so on a slow machine a dialog's `close` after Escape, or a
+`popstate` after `history.back()`, can come after the action has returned. A
+test that reads what such an event did waits for it with `waitForEvent`. The
+bounds stay: a visible document can draw no frames at all (a cross-origin
+frame with `display: none`, a document waiting for a render-blocking
+stylesheet, a browser started with `--enable-begin-frame-control`), nothing
+in the page tells it from one that will draw, and forcing a frame with
+`Page.captureScreenshot` does not return in two of those cases either.
+
 `Activity` has a field `asleep`: of the waiting fibers, those in a counted
 pause asleep on a test's clock (core's `Halogen.Activity`). `waitQuiet`
 decides quiet by core's rule, no tree running and `waiting - asleep == 0`,

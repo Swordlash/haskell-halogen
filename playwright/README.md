@@ -58,9 +58,17 @@ Chromium can enable different features on different machines. For example, `Rend
 
 ## The waits
 
-`settle page` waits for browser events and the work they trigger. It first yields to a background-priority task so WebAssembly handlers can start, then queries the activity probe until the program is idle. It also waits for pending history navigation, the next animation frame and a following task, then checks activity again. This catches delayed events such as dialog `close`, `resize` and `ResizeObserver` callbacks. Every normal action ends with this sequence.
+`settle page` waits for browser events and the work they trigger. It first yields to a background-priority task so WebAssembly handlers can start, then queries the activity probe until the program is idle. It also waits for pending history navigation, the next animation frame and a following task, then checks activity again. This catches delayed events such as dialog `close`, `resize` and `ResizeObserver` callbacks when they come within the waits' bounds (below). Every normal action ends with this sequence.
 
 Actions inside frames settle the frame first, then the page. Navigating away during an action is allowed. Pages without Halogen still wait for browser tasks, history and frames. Script-disabled sandbox frames settle immediately because the driver cannot run code there. Hidden pages do not wait for frames. After a frame timeout of 100 ms, later attempts wait at most 20 ms until frames resume. A normal settle adds roughly one frame of latency.
+
+These waits have bounds, so an event the browser fires later is not covered. A history move counts as pending for at most half a second, and a frame is waited for at most 100 ms. Two known cases follow from that: a dialog's `close` after Escape or `close()`, which comes with the next frame, on a machine slow enough that the frame takes longer; and a `popstate` after `history.back()` when the move takes longer than half a second. A test that reads what such an event did waits for the event itself with `waitForEvent`:
+
+```haskell
+waitForEvent (OnElement (locator page "dialog")) "close" (press page "Escape")
+```
+
+The frame bound stays because no signal says exactly whether a frame will come. A visible document can draw no frames indefinitely: a cross-origin frame with `display: none`, a document still waiting for a render-blocking stylesheet, or any page in a browser started with `--enable-begin-frame-control`. All of them report `visibilityState` `"visible"`, so waiting for `requestAnimationFrame` or a visibility change would wait for as long as the document stays so. Forcing a frame through the DevTools protocol has the same problem: `Page.captureScreenshot` does not return either in the last two cases, and `HeadlessExperimental.beginFrame` works only in a browser started with that flag, where no frame is drawn unless requested.
 
 The init script tracks navigation by wrapping `History.prototype.back`, `forward` and `go`. These wrappers preserve names and argument counts but no longer stringify as native functions. `evaluate`, `evaluateWith`, `evaluateOn`, `evaluateAll` and `cdp` do not settle automatically. Call `settle` after using them to dispatch events. Unresolved promises fail at the configured timeout.
 
@@ -70,7 +78,7 @@ The init script tracks navigation by wrapping `History.prototype.back`, `forward
 
 Activity waits do not cover external events that have not reached the program, such as timers, incoming WebSocket messages, animations or worker startup. Use retrying `should` expectations or `eventually page` for those conditions. `waitForFunction` polls a JavaScript expression at animation frames; `waitForFunctionWith` passes an argument separately. `awaitText` waits for matching text and reports the last value on failure. `waitForURL` accepts an exact address or glob and settles after navigation.
 
-`waitForEvent target type action` installs a listener, runs the action, waits for the event and then settles. Targets are `OnWindow page`, `OnDocument page` and `OnElement locator`. The listener is installed before the action but after the page's own listeners. Missing events fail with `TimeoutError`; navigating away first fails with `NavigatedAway`. This is useful when the page schedules later work itself:
+`waitForEvent target type action` installs a listener, runs the action, waits for the event and then settles. Targets are `OnWindow page`, `OnDocument page` and `OnElement locator`. The listener is installed before the action but after the page's own listeners. Missing events fail with `TimeoutError`; navigating away first fails with `NavigatedAway`. This is useful when the page schedules later work itself, or when the browser fires the event after `settle`'s bounds (above):
 
 ```haskell
 waitForEvent (OnWindow page) "popstate" (click (byRoleNamed page "button" "Back in a moment"))
@@ -349,7 +357,7 @@ A `Locator` stores a page and a sequence of lookup steps. Creating it does not q
 
 ## In hspec
 
-`playwright :: SpecWith Playwright -> Spec` starts one node and Chromium for a group; `inPage :: (Page -> IO a) -> Playwright -> IO a` gives each example a fresh context and page. When an example fails, `inPage` adds to the failure the page's address, its console errors, its uncaught errors, its context's route handlers that failed and requests that failed, and saves a screenshot under `HALOGEN_PLAYWRIGHT_ARTIFACTS` if it is set. A failed action (a `PlaywrightError`, such as a click that timed out) becomes a failure the same way, with Playwright's message, which names the locator.
+`playwright :: SpecWith Playwright -> Spec` starts one node and Chromium for a group; `inPage :: (Page -> IO a) -> Playwright -> IO a` gives each example a fresh context and page. When an example fails, `inPage` adds to the failure the page's address, its console errors (each with the address it came from; one from the page's own address says so, as in `Failed to load resource: the server responded with a status of 404 (Not Found): the page's own address, http://…`), its uncaught errors, its context's route handlers that failed and requests that failed, and saves a screenshot under `HALOGEN_PLAYWRIGHT_ARTIFACTS` if it is set. A failed action (a `PlaywrightError`, such as a click that timed out) becomes a failure the same way, with Playwright's message, which names the locator.
 
 A test that is one long walk shares a page across its examples:
 

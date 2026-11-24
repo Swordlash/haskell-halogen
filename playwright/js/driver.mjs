@@ -363,10 +363,17 @@ const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 //    the program is idle, not before: a program's handler that closes a
 //    dialog runs a task after the click, and its close comes with the
 //    frame after that. A document that is hidden draws no frames and is
-//    not waited for; nor, from the second time on, is one whose last frame
-//    did not come within 100 ms (a page that draws none, such as one under
-//    --enable-begin-frame-control): the wait is cut short there, and a
-//    frame that comes later says frames are drawn again.
+//    not waited for. A frame that does not come within 100 ms is given
+//    up, and from then on the wait is 20 ms at most, until a frame comes
+//    and says frames are drawn again. So a frame later than the bound (a
+//    slow machine) is not waited for, and neither is its dialog's close:
+//    a test waits for such an event with waitForEvent. The bound cannot
+//    go: a visible document may draw no frames at all (a cross-origin
+//    frame with display: none, a document whose render-blocking
+//    stylesheet has not arrived, --enable-begin-frame-control), nothing
+//    in the page tells it apart from one that will draw, and forcing a
+//    frame with Page.captureScreenshot does not return either in the
+//    last two cases (settle's haddock in Halogen.Playwright).
 // 5. The program asked again. Busy (the event's handler started work), it
 //    is waited for and 3 to 5 are done again, since its work may have
 //    caused another late event; idle, the page has settled.

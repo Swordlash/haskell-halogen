@@ -23,8 +23,9 @@ WebSocket and server-sent events, whose events arrive through `Halogen.Subscript
 `playwright` (`haskell-halogen-playwright`: tests from outside the page, natively: Chromium driven through a
 node child speaking a JSON-lines protocol of our own, every action waiting for the page's program to say it is idle
 through core's activity probe, and for the page's next animation frame (a dialog's `close` comes with it) and a move
-through the history the page asked for, then for the program again, an action that waits for an event of the page's
-(`waitForEvent`), with hspec integration and a static server for a built directory
+through the history the page asked for, each up to a bound of its own (100 ms, half a second; nothing tells exactly whether
+a visible page will draw a frame), then for the program again, an action that waits for an event of the page's
+(`waitForEvent`, also for a late event past those bounds), with hspec integration and a static server for a built directory
 (`Halogen.Playwright.Serve`); requests answered by the test's handlers (routes, a gate that holds `app.wasm`,
 either by resource type and method too; node asks, Haskell answers, each handler on a thread of its own, and a
 handler can fetch the server's response and pass it on), each request logged with the page and the document that
