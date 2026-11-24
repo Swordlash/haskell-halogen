@@ -162,11 +162,18 @@ pageState page = do
       <> section "Requests that failed:" (map (\r -> r.method <> " " <> r.url <> ": " <> r.failure) failed)
       <> maybe [] (\s -> ["Its screenshot: " <> s]) shot
   where
-    -- Where it was written, when it was not the page's own document: a
-    -- frame's, or a script's.
+    -- Where it was written, whenever the browser says: a frame's document,
+    -- a script, a resource that failed to load, or the page's own
+    -- document. The page's own address is named as such, because "Failed
+    -- to load resource: the server responded with a status of 404" with no
+    -- address reads as a missing file, when it can be the page itself,
+    -- answered with a static host's @404.html@.
     located address m = case m.url of
-      Just at | at /= address -> m.text <> " (" <> at <> maybe "" (\l -> ":" <> Text.pack (show l)) m.line <> ")"
-      _ -> m.text
+      Just at
+        | at == address -> m.text <> ": the page's own address, " <> at <> line m
+        | otherwise -> m.text <> " (" <> at <> line m <> ")"
+      Nothing -> m.text
+    line m = maybe "" (\l -> ":" <> Text.pack (show l)) m.line
     section heading items =
       if null items then [] else heading : map (("  " <>) . Text.unpack) items
 

@@ -20,15 +20,22 @@
 -- priority (a browser event reaches a WebAssembly program as a task of its
 -- own, so its handler may not even have started when Playwright's click
 -- returns), then the program's answer, asked until it is idle, then the
--- page's next animation frame (with which the browser dispatches some
--- events, a dialog's @close@ among them) and the program's answer again.
--- So after @click@ the handler has run and the page shows what it
--- rendered: read it at once, with no 'eventually'. What the program waits
--- for in a @liftIO@ (a request) is not part of 'settle'; 'waitQuiet' waits
--- for that too, but not for a pause the program wrote with core's
--- @H.delay@ (a notice's timer, a ticker). A timer or an emitter that has
--- not fired is neither, and is what 'eventually', the retrying @should@
--- functions and 'waitForEvent' are for.
+-- page's next animation frame, waited for up to 100 ms, and the program's
+-- answer again. So after @click@ the handler has run and the page shows
+-- what it rendered: read it at once, with no 'eventually'. What the
+-- program waits for in a @liftIO@ (a request) is not part of 'settle';
+-- 'waitQuiet' waits for that too, but not for a pause the program wrote
+-- with core's @H.delay@ (a notice's timer, a ticker). A timer or an
+-- emitter that has not fired is neither, and is what 'eventually', the
+-- retrying @should@ functions and 'waitForEvent' are for.
+--
+-- The waits for the frame and for a move through the history have bounds
+-- of their own, so an event that comes after them is not covered: a
+-- dialog's @close@ after Escape or @close()@ on a machine slow enough that
+-- the next frame takes over 100 ms, and a @popstate@ after
+-- @history.back()@ when the move takes over half a second. A test that
+-- reads what such an event did waits for the event itself, with
+-- 'waitForEvent' ('settle' explains why no wait here can be exact).
 --
 -- On a page with no Halogen program 'settle' waits for the task and the
 -- frame and returns, so the package drives any page.
@@ -782,13 +789,35 @@ waitStarted p = onPage p "waitStarted" []
 -- for the page's next animation frame and a task after it, since the
 -- browser dispatches some events with the frame (a dialog's @close@, after
 -- Escape or @close()@; @resize@); and asks the program again, starting
--- over if that event made it busy. Every action ends with it. A hidden
--- page, which draws no frames, is not waited for, and a page whose frame
--- does not come within 100 ms is waited for 20 ms at most from then on,
--- until it draws one.
+-- over if that event made it busy. Every action ends with it.
 -- A navigation that takes the document away under it is not an error.
 -- What the page does later by itself, a timer of its own, is
 -- 'waitForEvent''s.
+--
+-- Both waits for the browser have bounds, and an event that comes after
+-- its bound is not covered. A move through the history counts as under
+-- way for half a second at most (a move into a frame's entries is never
+-- heard of by the page). A hidden page draws no frames and is not waited
+-- for; a frame that does not come within 100 ms is given up, and from
+-- then on the wait is 20 ms at most, until the page draws one. So on a
+-- slow machine a dialog's @close@ after Escape or @close()@ can come
+-- after the action has returned, and so can a @popstate@ after
+-- @history.back()@. A test that reads what such an event did waits for
+-- it with 'waitForEvent':
+--
+-- > waitForEvent (OnElement (locator page "dialog")) "close" (press page "Escape")
+--
+-- The frame's bound cannot be dropped, because nothing tells exactly
+-- whether a frame will come. A visible document can draw none for as
+-- long as it pleases the browser: a cross-origin frame set to
+-- @display: none@, a document whose render-blocking stylesheet has not
+-- arrived, a browser started with @--enable-begin-frame-control@. Each
+-- says it is visible, so a wait for the frame raced with the document's
+-- visibility would wait there for ever. Forcing a frame through the
+-- DevTools protocol does not help: @Page.captureScreenshot@ waits for
+-- ever in the last two cases, and @HeadlessExperimental.beginFrame@ is
+-- refused unless the browser was started with that flag, after which the
+-- browser draws no frame it is not asked for.
 settle :: (MonadIO m) => Page -> m ()
 settle p = onPage p "settle" []
 
@@ -1433,9 +1462,12 @@ data EventTarget
 -- type, then 'settle'. For what 'settle' does not wait for: an event the
 -- page causes later by itself, after the program is idle (a timer of the
 -- page's own that goes back, a @message@ from a worker, an event a library
--- dispatches when it is ready). Every action waits for what the browser
--- dispatches with the next frame and for a move through the history the
--- page asked for while it settled; this is for the rest.
+-- dispatches when it is ready), and an event the browser dispatches later
+-- than 'settle''s bounds: a dialog's @close@, which comes with the next
+-- frame, when the frame takes over 100 ms, and a @popstate@ after
+-- @history.back()@, when the move takes over half a second. Every action
+-- waits for those within the bounds; a test that reads what one of them
+-- did waits for it here, so that a slow machine does not fail it.
 --
 -- The listener is added in the page before the action, so the event cannot
 -- be missed, and after the page's own listeners on the target, so they

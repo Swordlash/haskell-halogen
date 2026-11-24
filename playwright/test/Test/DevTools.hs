@@ -1,6 +1,7 @@
 -- | The Chrome DevTools Protocol, and a processor slowed down with it.
 module Test.DevTools (spec) where
 
+import Control.Monad (replicateM)
 import Data.Aeson (FromJSON (..), Value, object, withObject, (.:), (.=))
 import Data.Aeson.Types (parseMaybe)
 import Data.Text (Text)
@@ -23,13 +24,25 @@ newtype Authenticator = Authenticator Text
 instance FromJSON Authenticator where
   parseJSON = withObject "authenticator" $ \o -> Authenticator <$> o .: "authenticatorId"
 
--- | Milliseconds the page takes over a fixed computation, measured by the
--- page's own clock.
-computation :: Page -> IO Double
-computation page =
+-- | How many rounds of a small fixed computation the page gets through in
+-- 200 ms of its own clock. A processor throttle stops the page's thread for
+-- part of every stretch of time, so fewer rounds fit in it. The call takes
+-- 200 ms however fast the machine is, so it cannot outlast the timeout; a
+-- fixed computation timed instead took over 2 s under a sixfold throttle on
+-- a machine under load.
+rounds :: Page -> IO Int
+rounds page =
   evaluate
     page
-    "(() => { const t = performance.now(); let x = 0; for (let i = 0; i < 3e7; i++) x = (x + i * 7) % 1000003; window.sink = x; return performance.now() - t; })()"
+    "(() => { const end = performance.now() + 200; let n = 0, x = 0; while (performance.now() < end) { for (let i = 0; i < 1000; i++) x = (x + i * 7) % 1000003; n++; } window.sink = x; return n; })()"
+
+-- | Whether a page got through fewer than 1/2.5 of the rounds it gets
+-- through at full speed, from measurements taken on the same page: the
+-- best of each kind, so that a moment of load on the machine during one
+-- measurement does not decide the outcome. Both kinds are slowed alike by
+-- a slow machine; only the throttle tells them apart.
+slowedDown :: [Int] -> [Int] -> Bool
+slowedDown full slowed = fromIntegral (maximum full) > 2.5 * (fromIntegral (maximum slowed) :: Double)
 
 spec :: Text -> SpecWith Playwright
 spec base = describe "the DevTools protocol" $ do
@@ -80,21 +93,19 @@ spec base = describe "the DevTools protocol" $ do
   -- throttled, so that races are found on purpose.
   it "slows a page's processor down" $ \pw -> withPage pw $ \page -> do
     goto page (at "basics.html")
-    -- Full speed, whatever throttle the environment puts on every page.
+    -- Full speed and throttled in turn, on the same page; full speed first,
+    -- whatever throttle the environment puts on every page.
+    (full, slowed) <- unzip <$> replicateM 3 ((,) <$> (throttleCPU page 1 >> rounds page) <*> (throttleCPU page 6 >> rounds page))
     throttleCPU page 1
-    _ <- computation page
-    full <- computation page
-    throttleCPU page 6
-    slowed <- computation page
-    throttleCPU page 1
-    slowed `shouldSatisfy` (> full * 2.5)
+    (full, slowed) `shouldSatisfy` uncurry slowedDown
 
+  -- The page starts throttled by the options; taken back to full speed by
+  -- 'throttleCPU', it gets through more.
   it "slows every page down when the options say so" $ \_ -> do
     options <- optionsFromEnvironment
-    let measure o = withPlaywright o $ \pw -> withPage pw $ \page -> do
-          goto page (at "basics.html")
-          _ <- computation page
-          computation page
-    full <- measure options {throttle = Nothing}
-    slowed <- measure options {throttle = Just 6}
-    slowed `shouldSatisfy` (> full * 2.5)
+    withPlaywright options {throttle = Just 6} $ \pw -> withPage pw $ \page -> do
+      goto page (at "basics.html")
+      slowed <- replicateM 3 (rounds page)
+      throttleCPU page 1
+      full <- replicateM 3 (rounds page)
+      (full, slowed) `shouldSatisfy` uncurry slowedDown

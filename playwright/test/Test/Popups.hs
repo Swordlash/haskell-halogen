@@ -4,17 +4,20 @@
 module Test.Popups (spec) where
 
 import Control.Exception (try)
+import Control.Monad (replicateM)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Halogen.Playwright
 import Halogen.Playwright.Hspec
 
--- | Milliseconds the page takes over a fixed computation, by its own clock.
-computation :: Page -> IO Double
-computation page =
+-- | How many rounds of a small fixed computation the page gets through in
+-- 200 ms of its own clock: fewer under a processor throttle, and the call
+-- takes 200 ms however fast the machine is (as in Test.DevTools).
+rounds :: Page -> IO Int
+rounds page =
   evaluate
     page
-    "(() => { const t = performance.now(); let x = 0; for (let i = 0; i < 3e7; i++) x = (x + i * 7) % 1000003; window.sink = x; return performance.now() - t; })()"
+    "(() => { const end = performance.now() + 200; let n = 0, x = 0; while (performance.now() < end) { for (let i = 0; i < 1000; i++) x = (x + i * 7) % 1000003; n++; } window.sink = x; return n; })()"
 
 spec :: Text -> SpecWith Playwright
 spec base = describe "popups" $ do
@@ -79,9 +82,9 @@ spec base = describe "popups" $ do
     withPlaywright options {throttle = Just 6} $ \pw -> withPage pw $ \page -> do
       goto page (at "popup.html")
       ((), opened) <- waitForPopup page (click (locator page "#open"))
-      _ <- computation opened
-      slowed <- computation opened
+      -- The best of three each, so that a moment of load on the machine
+      -- does not decide; both are slowed alike by a slow machine.
+      slowed <- maximum <$> replicateM 3 (rounds opened)
       throttleCPU opened 1
-      _ <- computation opened
-      full <- computation opened
-      slowed `shouldSatisfy` (> full * 2.5)
+      full <- maximum <$> replicateM 3 (rounds opened)
+      (full, slowed) `shouldSatisfy` \(f, s) -> fromIntegral f > 2.5 * (fromIntegral s :: Double)

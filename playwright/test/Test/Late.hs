@@ -10,6 +10,7 @@ module Test.Late (spec) where
 
 import Control.Exception (try)
 import Control.Monad (foldM, replicateM)
+import Data.Aeson (Value)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import GHC.Clock (getMonotonicTime)
@@ -115,6 +116,24 @@ spec base = describe "events the browser dispatches late" $ do
         focus (locator page "#back")
         press page "Enter"
         (== "0") <$> textContent (locator page "#state")
+
+  -- What settle does not cover, made certain: the same browser draws a
+  -- frame only when the test asks for one, so the close that Escape causes
+  -- has not come when the press returns (on a slow machine, a frame later
+  -- than the bound does the same). waitForEvent waits for it, here around
+  -- the one frame the test asks the browser to draw.
+  it "leaves a dialog's close that comes with a later frame to waitForEvent" $ \_ -> do
+    options <- optionsFromEnvironment
+    withPlaywright options {browserArgs = ["--enable-begin-frame-control", "--run-all-compositor-stages-before-draw"]} $ \pw -> withPage pw $ \page -> do
+      visit page (at "late.html")
+      focus (locator page "#open")
+      press page "Enter"
+      evaluate page "document.getElementById('modal').open" `shouldReturn` True
+      press page "Escape"
+      evaluate page "document.getElementById('modal').open" `shouldReturn` False
+      textContent (locator page "#closes") `shouldReturn` "0"
+      _ :: Value <- waitForEvent (OnElement (locator page "#modal")) "close" (cdp page "HeadlessExperimental.beginFrame" ())
+      textContent (locator page "#closes") `shouldReturn` "1"
 
   -- A page that drew no frame for a while (here its requestAnimationFrame
   -- is taken away while a key is pressed, so that a settle finds none) and
