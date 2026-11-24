@@ -372,8 +372,8 @@ const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 //    frame with display: none, a document whose render-blocking
 //    stylesheet has not arrived, --enable-begin-frame-control), nothing
 //    in the page tells it apart from one that will draw, and forcing a
-//    frame with Page.captureScreenshot hangs in the last two cases
-//    (settle's haddock in Halogen.Playwright).
+//    frame with Page.captureScreenshot does not return either in the
+//    last two cases (settle's haddock in Halogen.Playwright).
 // 5. The program asked again. Busy (the event's handler started work), it
 //    is waited for and 3 to 5 are done again, since its work may have
 //    caused another late event; idle, the page has settled.

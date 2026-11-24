@@ -66,7 +66,7 @@ spec base = describe "inPage" $ do
         expectationFailure "the page was not found"
       case failure of
         Left (HUnitFailure _ reason) -> do
-          let errorAbout address = filter (\l -> "404" `isInfixOf` l && show' address `isInfixOf` l) (lines (reasonText reason))
+          let errorAbout address = filter (\l -> "Failed to load resource" `isInfixOf` l && show' address `isInfixOf` l) (lines (reasonText reason))
           case errorAbout own of
             [l] -> l `shouldSatisfy` ((": the page's own address, " <> show' own) `isInfixOf`)
             ls -> expectationFailure ("not one console error names the page's address: " <> show ls)

@@ -813,9 +813,10 @@ waitStarted p = onPage p "waitStarted" []
 -- @display: none@, a document whose render-blocking stylesheet has not
 -- arrived, a browser started with @--enable-begin-frame-control@. Each
 -- says it is visible, so a wait for the frame raced with the document's
--- visibility would wait there for ever. Forcing a frame through the
--- DevTools protocol does not help: @Page.captureScreenshot@ waits for
--- ever in the last two cases, and @HeadlessExperimental.beginFrame@ is
+-- visibility would wait for as long as the document stays so. Forcing a
+-- frame through the DevTools protocol does not help:
+-- @Page.captureScreenshot@ does not return either in the last two cases,
+-- and @HeadlessExperimental.beginFrame@ is
 -- refused unless the browser was started with that flag, after which the
 -- browser draws no frame it is not asked for.
 settle :: (MonadIO m) => Page -> m ()
