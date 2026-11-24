@@ -1,6 +1,8 @@
 module Halogen.VDom.Driver
   ( runUI
+  , runUIListening
   , hydrateUI
+  , hydrateUIListening
   , renderSpec
   , RenderState
   , MonadUI
@@ -32,7 +34,13 @@ import Web.DOM.Internal.Types qualified as DOM
 -- pinned to IO; the unfoldings have to be exported for them to fire.
 {-# INLINEABLE runUI #-}
 
+{-# INLINEABLE runUIListening #-}
+
 {-# INLINEABLE hydrateUI #-}
+
+{-# INLINEABLE hydrateUIListening #-}
+
+{-# INLINEABLE hydrateWith #-}
 
 {-# INLINEABLE renderSpec #-}
 
@@ -226,6 +234,22 @@ runUI component i element = do
   document <- toDocument <$> (DOM.document =<< DOM.window)
   AD.runUI (renderSpec document element) component i
 
+-- | 'runUI', with a listener on the tree's outputs from before any of its
+-- code runs, as 'Halogen.IO.Driver.runUIListening': it hears what the
+-- component raises while it is being mounted, which a subscription to the
+-- socket's 'Halogen.IO.Driver.messages' misses.
+runUIListening
+  :: forall m query input output
+   . (DOM.MonadBrowserDOM m, MonadUnliftIO m)
+  => (output -> m ())
+  -> Component query input output m
+  -> input
+  -> DOM.HTMLElement
+  -> m (HalogenSocket query output m)
+runUIListening listener component i element = do
+  document <- toDocument <$> (DOM.document =<< DOM.window)
+  AD.runUIListening listener (renderSpec document element) component i
+
 -- | 'runUI' for a container that already holds the component's HTML, as a
 -- page rendered ahead of the program by "Halogen.Static" does: the
 -- component adopts the nodes it finds there rather than building its own,
@@ -262,11 +286,35 @@ hydrateUI
   -> input
   -> DOM.HTMLElement
   -> m (HalogenSocket query output m)
-hydrateUI component i element = do
+hydrateUI = hydrateWith AD.runUI
+
+-- | 'hydrateUI', with a listener on the tree's outputs from before any of
+-- its code runs, as 'runUIListening'.
+hydrateUIListening
+  :: forall m query input output
+   . (DOM.MonadBrowserDOM m, MonadUnliftIO m)
+  => (output -> m ())
+  -> Component query input output m
+  -> input
+  -> DOM.HTMLElement
+  -> m (HalogenSocket query output m)
+hydrateUIListening listener = hydrateWith (AD.runUIListening listener)
+
+-- | Adopt what the container holds with the spec, mounting the component
+-- with this function of the driver's.
+hydrateWith
+  :: forall m query input output
+   . (DOM.MonadBrowserDOM m, MonadUnliftIO m)
+  => (AD.RenderSpec m (RenderState m) -> Component query input output m -> input -> m (HalogenSocket query output m))
+  -> Component query input output m
+  -> input
+  -> DOM.HTMLElement
+  -> m (HalogenSocket query output m)
+hydrateWith mountWith component i element = do
   document <- toDocument <$> (DOM.document =<< DOM.window)
   start <- firstContent (toNode element)
   cell <- newIORef (Just (AdoptRoot start))
-  AD.runUI (renderSpecWith (Just cell) document element) component i
+  mountWith (renderSpecWith (Just cell) document element) component i
   where
     -- The first child that is neither a comment nor blank text, those
     -- before it removed.

@@ -4,6 +4,7 @@ module Halogen.IO.Driver
   ( RenderSpec (..)
   , ChildSlots (..)
   , runUI
+  , runUIListening
   , HalogenSocket (..)
   )
 where

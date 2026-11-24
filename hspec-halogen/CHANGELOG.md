@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+`outputs` now has everything the component raised from the start of its
+mount. The harness subscribed to the component's outputs only once `mount`
+(or `hydrate`) had returned, so what the component raised while it was
+being mounted, in its `Initialize` or in a fork that answered before the
+mount returned, reached nobody, and `outputs` did not have it. The harness
+now hands its listener to the driver (core's new `runUIListening` and
+`hydrateUIListening`), which subscribes it before any of the component's
+code runs.
+
+`MonadBrowserTest`'s `mountInto` and `hydrateInto` take that listener as
+their first argument, and default to `runUIListening` and
+`hydrateUIListening`. An instance that relies on the defaults needs no
+change; one that defines them itself passes the listener on to the
+listening variant of what it called.
+
 `waitQuiet`, and a read in a `readsOnce Quiet` group, no longer wait for a
 counted pause asleep on a test's clock (core's `withTestClock` around
 `runPage`), as core's `quiet` does not. The test advances the clock by the
