@@ -31,6 +31,7 @@ import Test.InPage qualified
 import Test.IndexedDB qualified
 import Test.Probe qualified
 import Test.Promised qualified
+import Test.Raising qualified
 import Test.ReadsOnce qualified
 import Test.Reconcile qualified
 import Test.Settings qualified
@@ -47,6 +48,7 @@ import Test.LastRun qualified
 main :: IO ()
 main = runBrowserTests $ parallel $ do
   describe "Counter" (Test.Counter.spec BrowserDOM)
+  describe "Outputs from the start" (Test.Raising.spec BrowserDOM)
   describe "Agreement" (Test.Agreement.spec BrowserDOM)
   describe "Digits" (Test.Digits.spec BrowserDOM)
   describe "Todo" (Test.Todo.spec BrowserDOM)

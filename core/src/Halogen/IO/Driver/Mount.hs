@@ -7,6 +7,7 @@ module Halogen.IO.Driver.Mount
   ( RenderSpec (..)
   , ChildSlots (..)
   , runUI
+  , runUIListening
   , runUIInitialized
   , HalogenSocket (..)
   )
@@ -135,7 +136,24 @@ runUI
   -> Component f i o m
   -> i
   -> m (HalogenSocket f o m)
-runUI = mount False
+runUI = mount False Nothing
+
+-- | 'runUI', with a listener on the tree's outputs that is subscribed
+-- before any of the components' code runs, so it hears every output the
+-- root raises: those its @Initialize@ raises, and those of the work that
+-- @Initialize@ starts, included. A subscription to 'messages' can only be
+-- made once 'runUI' has returned, and the outputs raised before then reach
+-- no listener. The listener stays subscribed as long as the tree is there;
+-- it runs on the tree's loop, as every listener to 'messages' does.
+runUIListening
+  :: forall m r f i o
+   . (MonadUnliftIO m)
+  => (o -> m ())
+  -> RenderSpec m r
+  -> Component f i o m
+  -> i
+  -> m (HalogenSocket f o m)
+runUIListening listener = mount False (Just listener)
 
 -- | 'runUI', handed over only once every @Initialize@ the tree has started
 -- has ended, what it waited for included, and the components those made
@@ -149,17 +167,18 @@ runUIInitialized
   -> Component f i o m
   -> i
   -> m (HalogenSocket f o m)
-runUIInitialized = mount True
+runUIInitialized = mount True Nothing
 
 mount
   :: forall m r f i o
    . (MonadUnliftIO m)
   => Bool
+  -> Maybe (o -> m ())
   -> RenderSpec m r
   -> Component f i o m
   -> i
   -> m (HalogenSocket f o m)
-mount toTheEnd spec@RenderSpec {dispose} c i = withRunInIO $ \runInIO -> do
+mount toTheEnd listener spec@RenderSpec {dispose} c i = withRunInIO $ \runInIO -> do
   loop <- newLoop
   -- On the thread that mounts: a test's bracket open there controls the
   -- tree ("Halogen.Activity.Control"). With none open anywhere, one read.
@@ -168,6 +187,10 @@ mount toTheEnd spec@RenderSpec {dispose} c i = withRunInIO $ \runInIO -> do
   initializing <- newIORef (0, [])
   let tree = Tree {loop, runM = runInIO, batch, render = renderComponent tree spec, initializing, control}
   sio <- runInIO HS.create
+  -- Before the tree's first piece of work, where its components' code
+  -- starts (their 'initialState' first): nothing the root raises can come
+  -- before this listener.
+  for_ listener (runInIO . void . HS.subscribe sio.emitter)
   mounted <- newEmptyMVar
   -- The tree's outputs reach its listeners at once, on the tree's loop, as
   -- in purescript-halogen: a listener must not wait for the tree itself.

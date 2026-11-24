@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+New: `Halogen.IO.Driver.runUIListening`, and in `Halogen.VDom.Driver`
+`runUIListening` and `hydrateUIListening`: `runUI` and `hydrateUI` with a
+listener on the tree's outputs that is subscribed before any of the
+components' code runs. A subscription to the socket's `messages` can only
+be made once `runUI` has returned, so it misses what the root raises while
+it is being mounted: in its `Initialize`, and in what that starts and
+finishes before the mount returns. The listener hears all of it. `runUI`,
+`hydrateUI` and `messages` are unchanged.
+
 `Halogen.Activity`'s `quiet` no longer waits for a counted pause
 (`H.delayCounted`) asleep on a test's clock (`withTestClock`). Only the
 test's `advance` can end such a pause, so a test that waited for quiet with

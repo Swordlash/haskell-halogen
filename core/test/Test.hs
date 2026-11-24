@@ -24,6 +24,7 @@ import Test.Hydrate qualified as Hydrate
 import Test.IndexedDB qualified as IndexedDB
 import Test.IndexedRows qualified as IndexedRows
 import Test.Latest qualified as Latest
+import Test.Listening qualified as Listening
 import Test.Machine qualified as Machine
 import Test.NativeAnswers qualified as NativeAnswers
 import Test.NativeDispatch qualified as NativeDispatch
@@ -65,6 +66,7 @@ main = hspec $ do
   IndexedDB.spec
   IndexedRows.spec
   Latest.spec
+  Listening.spec
   Machine.spec
   NativeAnswers.spec
   NativeDispatch.spec

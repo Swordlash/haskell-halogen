@@ -165,7 +165,6 @@ import Halogen.Activity qualified as Activity
 import Halogen.Activity.Control qualified as Control
 import Halogen.Component (Component)
 import Halogen.IO.Driver (HalogenSocket (..))
-import Halogen.Subscription qualified as HS
 import Halogen.Trace qualified as Trace
 import Protolude hiding (find)
 import System.Environment (withArgs)
@@ -522,7 +521,8 @@ instance Eq (Element s) where
 -- The component has rendered, and run its initialisers up to their first
 -- wait, by the time this returns: what one loads in an @H.async@ when it
 -- starts may still be on its way, which 'waitQuiet' waits for. Its outputs
--- are collected from then on, for 'outputs'.
+-- are collected from the start of the mount, for 'outputs': what its
+-- @Initialize@ raised is there already.
 --
 -- The monad is the first argument, @mount BrowserDOM component input@, so a
 -- spec polymorphic in it passes it on as @mount m@.
@@ -565,11 +565,14 @@ htmlContainer html = do
 hydrate :: forall m -> (HasCallStack, MonadBrowserTest m) => Element s -> Component q i o m -> i -> PageM s (Mounted s q o m)
 hydrate _ (Element element) component input = mountWith hydrateInto element component input <* settle
 
--- | Mount a component into this element with one of the class's ways, and
--- collect its outputs from then on.
+-- | Mount a component into this element with one of the class's ways,
+-- collecting its outputs from the start: the listener the class's way is
+-- given is subscribed before any of the component's code runs, so
+-- 'outputs' also has what its @Initialize@ raised, and what the work that
+-- started raised before the mount returned.
 mountWith
   :: (MonadBrowserTest m)
-  => (Component q i o m -> i -> DOM.Element -> m (HalogenSocket q o m))
+  => ((o -> m ()) -> Component q i o m -> i -> DOM.Element -> m (HalogenSocket q o m))
   -> DOM.Element
   -> Component q i o m
   -> i
@@ -577,10 +580,9 @@ mountWith
 mountWith into element component input = do
   env <- pageEnv
   unsafeIOToPageM $ do
-    socket <- runTest $ into component input element
     raised <- newIORef []
-    subscription <- runTest $ HS.subscribe socket.messages $ \o -> liftIO $ modifyIORef' raised (<> [o])
-    let teardown = runTest $ HS.unsubscribe subscription >> socket.dispose
+    socket <- runTest $ into (\o -> liftIO $ atomicModifyIORef' raised (\os -> (os <> [o], ()))) component input element
+    let teardown = runTest socket.dispose
     atomicModifyIORef' env.teardowns (\ts -> (teardown : ts, ()))
     pure Mounted {container = element, socket, raised}
 
@@ -598,7 +600,9 @@ unmount ui = unsafeIOToPageM (runTest ui.socket.dispose >> Page.removeElement ui
 query :: (HasCallStack, MonadBrowserTest m) => Mounted s q o m -> q a -> PageM s (Maybe a)
 query Mounted {socket = HalogenSocket {query = send}} q = unsafeIOToPageM (runTest (send q)) <* settle
 
--- | Everything the component has raised since it was mounted, oldest first.
+-- | Everything the component has raised since its mount began, oldest
+-- first: what it raised while it was being mounted (in its @Initialize@,
+-- and in the work that started) included.
 outputs :: (HasCallStack) => Mounted s q o m -> PageM s [o]
 outputs ui = reading False (unsafeIOToPageM (readIORef ui.raised))
 

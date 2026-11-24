@@ -154,7 +154,7 @@ it "…" $ runPage $ do
 - `htmlContainer "<p>…</p>"` creates a container from parsed HTML. `hydrate m container component input` adopts it with `hydrateUI`. Find nodes before hydration with `findIn`, then use `shouldBeSameElement` to verify that they were retained.
 - `unmount ui` disposes the component and runs finalizers before the test ends.
 - `query ui q` sends a component query.
-- `outputs ui` returns all component outputs, oldest first.
+- `outputs ui` returns all component outputs, oldest first, from the start of the mount: what the component raised in its initializer is there too.
 
 ### Finding elements
 

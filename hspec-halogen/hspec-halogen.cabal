@@ -108,6 +108,7 @@ test-suite hspec-halogen-test
                       Example.Loader
                       Example.Notebook
                       Example.Promised
+                      Example.Raising
                       Example.Reconcile
                       Example.Todo
                       Example.Waiting
@@ -131,6 +132,7 @@ test-suite hspec-halogen-test
                       Test.Late
                       Test.Probe
                       Test.Promised
+                      Test.Raising
                       Test.ReadsOnce
                       Test.Reconcile
                       Test.Settings

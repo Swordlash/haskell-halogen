@@ -325,6 +325,7 @@ test-suite Halogen-core-test
                     Test.IndexedDB
                     Test.IndexedRows
                     Test.Latest
+                    Test.Listening
                     Test.Machine
                     Test.NativeAnswers
                     Test.NativeDispatch

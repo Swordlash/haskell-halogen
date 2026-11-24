@@ -321,7 +321,10 @@ synchronous part (reached its first wait, or ended), after its children's have: 
 kept for it are delivered and its parent's `Initialize` starts. Waiting in `Initialize` waits only
 for that component; its ancestors, the program whose `modify` rendered it and `runUI`/`hydrateUI`
 go on (purescript-halogen waits for initializers to end; this deliberately does not). Only
-`Halogen.Static`, through `runUIInitialized` (in the unexposed `Halogen.IO.Driver.Mount`), waits for every `Initialize` to end. A cancelled
+`Halogen.Static`, through `runUIInitialized` (in the unexposed `Halogen.IO.Driver.Mount`), waits for every `Initialize` to end. The root's outputs
+kept that way go out before `runUI` returns, when a subscription to the socket's `messages` cannot
+exist yet; `runUIListening` and `hydrateUIListening` subscribe a listener before the tree's first piece of work,
+and hspec-halogen's `outputs` is collected through them. A cancelled
 fiber runs nothing more, not even the rest of
 the synchronous work that cancelled it; its worker, and the fibers of its parallel branches, go with
 it. A component that goes away cancels its fibers; a render pass that fails takes back the children
